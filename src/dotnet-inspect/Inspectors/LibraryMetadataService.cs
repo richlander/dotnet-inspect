@@ -716,18 +716,9 @@ internal static class LibraryMetadataService
         {
             var index = Analysis.LibraryBodyIndex.Open(path);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
-            var rows = index.OptimizationOpportunities
-                .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes))
-                // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
-                // allocations lead, then by confidence, then by call-graph leverage (root reach).
-                // This is distinct from Top Leverage, which ranks purely by reach.
-                .OrderByDescending(opportunity => opportunity.InLoop)
-                .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
-                .ThenByDescending(opportunity => opportunity.RootReach)
-                .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
-                .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
-                .ThenBy(opportunity => opportunity.ILOffset ?? -1)
-                .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal)
+            var rows = OrderByTriagePriority(
+                    index.OptimizationOpportunities
+                        .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)))
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
                     Member = FormatMethod(opportunity.Method),
@@ -748,6 +739,21 @@ internal static class LibraryMetadataService
             return null;
         }
     }
+
+    // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
+    // allocations lead, then by confidence, then by call-graph leverage (root reach),
+    // then a stable structural tie-break. This is distinct from Top Leverage, which ranks
+    // purely by reach. Extracted so the ranking model is guarded by a labeled, non-vacuous
+    // test (analysis quality ladder #1623 rung 5), not only by self-consistent monotonicity.
+    internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
+        => opportunities
+            .OrderByDescending(opportunity => opportunity.InLoop)
+            .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
+            .ThenByDescending(opportunity => opportunity.RootReach)
+            .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
+            .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
+            .ThenBy(opportunity => opportunity.ILOffset ?? -1)
+            .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
 
     // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
     static int ConfidenceRank(string confidence) => confidence switch

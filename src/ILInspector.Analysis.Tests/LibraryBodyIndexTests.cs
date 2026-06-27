@@ -808,12 +808,216 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FlagsLinqMembershipScanInsideLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanInLoop)
+            && o.Shape == "linq-scan-in-loop"));
+        Assert.True(op.InLoop);
+        Assert.Equal("medium", op.Confidence);
+        Assert.Contains("Any", op.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagLinqScanOutsideLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanOutsideLoop)
+            && o.Shape == "linq-scan-in-loop");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagLazyWhereInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Enumerable.Where is lazy: calling it in a loop does not enumerate, so it is
+        // not a repeated scan and must not be flagged.
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LazyWhereInLoopNotFlagged)
+            && o.Shape == "linq-scan-in-loop");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_FlagsScanMethodInvokedInCallerLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ContainsKey)
+            && o.Shape == "scan-method-in-loop-call"));
+        Assert.True(op.InLoop);
+        Assert.Equal("low", op.Confidence);
+        Assert.Contains(nameof(OptimizationOpportunityFixtures.CallsScanHelperInLoop), op.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagScanMethodInvokedOnlyOutsideLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ContainsKeyNeverLooped)
+            && o.Shape == "scan-method-in-loop-call");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_FlagsLazyReturningScanMethodInvokedInCallerLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A helper that returns a deferred Where query, enumerated once per caller-loop
+        // iteration, is the cross-method shape of a repeated scan (e.g. Aspire's
+        // GetChildSpans().Any()). Flagged at low confidence against the helper.
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.FilterLazy)
+            && o.Shape == "scan-method-in-loop-call"));
+        Assert.Equal("low", op.Confidence);
+        Assert.Contains("Where", op.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagParameterlessTerminalsInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // First()/Any()/Count() with no predicate are O(1) (positional read or the
+        // ICollection.Count fast path), so neither shape may flag them in a loop.
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ParameterlessTerminalsInLoopNotFlagged)
+            && (o.Shape == "linq-scan-in-loop" || o.Shape == "scan-method-in-loop-call"));
+    }
+
+    [Theory]
+    [InlineData("System.Linq")]   // .NET 5+ reference assemblies
+    [InlineData("System.Core")]   // .NET Framework
+    [InlineData("netstandard")]   // canonicalizes to the core library
+    public void IsLinqMembershipScan_MatchesPredicateOverloadAcrossTargetFrameworks(string assembly)
+    {
+        var enumerable = TypeRef.Definition(assembly, "System.Linq", "Enumerable");
+        var anyPredicate = new MemberRef(
+            enumerable,
+            "Any",
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.True(LibraryBodyIndex.IsLinqMembershipScan(anyPredicate, out var op));
+        Assert.Equal("Any", op);
+    }
+
+    [Theory]
+    [InlineData("Any")]
+    [InlineData("First")]
+    [InlineData("Single")]
+    [InlineData("Count")]
+    [InlineData("Last")]
+    public void IsLinqMembershipScan_RejectsParameterlessOverload(string name)
+    {
+        var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable");
+        var parameterless = new MemberRef(
+            enumerable,
+            name,
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(parameterless, out _));
+    }
+
+    [Fact]
+    public void IsLinqMembershipScan_RejectsLazyOperatorAndUserTypeLookalike()
+    {
+        var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable");
+        var where = new MemberRef(
+            enumerable,
+            "Where",
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            MemberKind.Method);
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(where, out _));
+
+        // A user-defined Enumerable in a different namespace/assembly must not match.
+        var userEnumerable = TypeRef.Definition("MyLib", "My.Linq", "Enumerable");
+        var userAny = new MemberRef(
+            userEnumerable,
+            "Any",
+            [TypeRef.CoreLib("System", "Object"), TypeRef.CoreLib("System", "Object")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(userAny, out _));
+    }
+
+    [Fact]
+    public void IsLinqMembershipScan_RejectsSameNameAssemblyWithoutFrameworkKey()
+    {
+        // #1708 Row A: an assembly literally named System.Linq but without a framework
+        // public-key-token (trusted = false) must not be classified as real LINQ for the
+        // #1725 repeated-scan shapes — the matcher must honor the trust gate, not just the
+        // simple name.
+        var spoof = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable", trustedFrameworkAssembly: false);
+        var anyPredicate = new MemberRef(
+            spoof,
+            "Any",
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(anyPredicate, out _));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         var shape = Assert.Single(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.CapturingLambda)));
         Assert.Equal("capturing-delegate", shape);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DelegateConsumedByLazyLinq_FixDescribesMovedAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByWhere)
+            && o.Shape == "capturing-delegate"));
+        // The surfaced Fix text (not just the dropped Caveat) must convey that the closure
+        // rewrite reduces but does not eliminate the allocation (the lazy iterator remains).
+        Assert.Contains("reduced, not eliminated", op.SafeFixDirection, StringComparison.Ordinal);
+        Assert.Contains("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DelegateNotConsumedByLinq_KeepsDefaultFix()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByNonLinq)
+            && o.Shape == "capturing-delegate"));
+        Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(op.Caveat);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DelegateConsumedByMembershipTerminal_NotGivenLazyIteratorFix()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A predicate consumed by an EAGER membership terminal (Any) allocates no iterator,
+        // so it must NOT receive the lazy/iterator "moved allocation" wording. The repeated
+        // scan itself is covered separately by the linq-scan-in-loop shape.
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanInLoop)
+            && o.Shape == "capturing-delegate"));
+        Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(op.Caveat);
     }
 
     [Theory]
@@ -1394,7 +1598,62 @@ public class LibraryBodyIndexTests
         return path;
     }
 
-    // #1708 Row B: a netstandard2.0 fixture references BCL types through the
+    static string SpoofFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.SpoofFixtures",
+            outputDirectory.Name,
+            "System.Linq.dll"));
+        Assert.True(File.Exists(path), $"Expected spoof fixture assembly at {path}");
+        return path;
+    }
+
+    // #1708 Row A end-to-end. A real assembly literally named "System.Linq" (unsigned,
+    // so no framework public-key-token) exposes a System.Linq.Enumerable.ToArray
+    // lookalike. Simple-name identity accepted it as a framework copy; strong
+    // (public-key-token) identity must reject it. The decoder lowers
+    // TrustedFrameworkAssembly from the AssemblyDefinition's (empty) key.
+    [Fact]
+    public void MethodSignals_CopyApis_RejectSimpleNameSpoofWithoutFrameworkKey()
+    {
+        var index = LibraryBodyIndex.Open(SpoofFixturePath());
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == "CallsFakeEnumerableToArray"));
+
+        int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
+        Assert.Equal(0, copies);
+    }
+
+    static string SpoofRuntimeFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.SpoofRuntimeFixtures",
+            outputDirectory.Name,
+            "System.Runtime.dll"));
+        Assert.True(File.Exists(path), $"Expected runtime spoof fixture assembly at {path}");
+        return path;
+    }
+
+    // #1708 Row A, span-to-array opportunity path. An assembly named "System.Runtime"
+    // (unsigned -> canonicalizes to corelib, no framework key) exposes a System.Span<T>
+    // lookalike. The span-to-array-copy opportunity must require a trusted framework key,
+    // not just the corelib-canonical name.
+    [Fact]
+    public void OptimizationOpportunities_SpanToArray_RejectSimpleNameSpoofWithoutFrameworkKey()
+    {
+        var index = LibraryBodyIndex.Open(SpoofRuntimeFixturePath());
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == "CallsFakeSpanToArray" && o.Shape == "span-to-array-copy");
+    }
     // netstandard facade (assembly canonicalizes to corelib), reproducing the
     // legacy-TFM recall gap where copy predicates expected the modern split assembly.
     [Theory]
@@ -1472,6 +1731,41 @@ public class LibraryBodyIndexTests
         var expression = TypeRef.Definition(calleeAssembly, "System.Linq.Expressions", "Expression");
         var callee = new MemberRef(expression, "Constant", [], TypeRef.Unsupported("ret"), MemberKind.Method);
         return FrameworkCall(callee, callerToken);
+    }
+
+    // #1708 Row A. The same framework-named assembly is accepted only when it carries a
+    // known framework public-key-token (TrustedFrameworkAssembly). A simple-name match
+    // alone (trusted = false) must not fire the copy or reflection signal.
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void Collect_CopyApi_RequiresTrustedFrameworkAssembly(bool trusted, int expectedCopies)
+    {
+        const int callerToken = 0x06000201;
+        var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable", trustedFrameworkAssembly: trusted);
+        var callee = new MemberRef(enumerable, "ToArray", [], TypeRef.Unsupported("ret"), MemberKind.Method);
+        var calls = ImmutableArray.Create(FrameworkCall(callee, callerToken));
+
+        var signals = MethodSignalAnalysis.Collect(calls, ImmutableArray<UnsafeEvidence>.Empty);
+
+        int copies = signals.TryGetValue(callerToken, out var s) ? s.Copies : 0;
+        Assert.Equal(expectedCopies, copies);
+    }
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void Collect_ReflectionApi_RequiresTrustedFrameworkAssembly(bool trusted, int expectedReflection)
+    {
+        const int callerToken = 0x06000202;
+        var expression = TypeRef.Definition("System.Linq.Expressions", "System.Linq.Expressions", "Expression", trustedFrameworkAssembly: trusted);
+        var callee = new MemberRef(expression, "Constant", [], TypeRef.Unsupported("ret"), MemberKind.Method);
+        var calls = ImmutableArray.Create(FrameworkCall(callee, callerToken));
+
+        var signals = MethodSignalAnalysis.Collect(calls, ImmutableArray<UnsafeEvidence>.Empty);
+
+        int reflection = signals.TryGetValue(callerToken, out var s) ? s.Reflection : 0;
+        Assert.Equal(expectedReflection, reflection);
     }
 
     static DirectCall FrameworkCall(MemberRef callee, int callerToken)
@@ -1564,6 +1858,106 @@ public class OptimizationOpportunityFixtures
     public static int[] EnumerableToArrayCopy(System.Collections.Generic.IEnumerable<int> values)
         => values.ToArray();
 
+    // --- Repeated LINQ scan inside a loop (linq-scan-in-loop) ---
+
+    // A membership LINQ scan (Enumerable.Any) runs once per loop iteration over a
+    // sequence whose size scales with the input -> O(n*m). The canonical fix is to
+    // build a HashSet once outside the loop.
+    public static int LinqScanInLoop(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var count = 0;
+        foreach (var key in keys)
+        {
+            if (System.Linq.Enumerable.Any(source, x => x == key))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    // The same membership scan, but not inside any loop -> not a repeated scan.
+    public static bool LinqScanOutsideLoop(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Any(source, x => x == key);
+
+    // A lazy operator (Enumerable.Where) called in a loop does not itself enumerate,
+    // so it is not a terminal scan and must not be flagged.
+    public static int LazyWhereInLoopNotFlagged(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var seen = 0;
+        foreach (var key in keys)
+        {
+            var filtered = System.Linq.Enumerable.Where(source, x => x == key);
+            seen += filtered is null ? 0 : 1;
+        }
+        return seen;
+    }
+
+    // --- Cross-method repeated scan (scan-method-in-loop-call) ---
+
+    // A scanning helper: contains a membership scan but no loop in its own body.
+    public static bool ContainsKey(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Any(source, x => x == key);
+
+    // Invokes the scanning helper once per loop iteration -> the scan runs O(m) times.
+    public static int CallsScanHelperInLoop(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            if (ContainsKey(source, key))
+            {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    // A scanning helper that is only ever invoked outside any loop -> not a repeated scan.
+    public static bool ContainsKeyNeverLooped(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Any(source, x => x == key);
+
+    public static bool CallsScanHelperOnceNoLoop(System.Collections.Generic.IEnumerable<int> source, int key)
+        => ContainsKeyNeverLooped(source, key);
+
+    // Parameterless positional/aggregate terminals are O(1) (a positional read or the
+    // ICollection.Count fast path), so they must NOT be flagged even inside a loop.
+    public static int ParameterlessTerminalsInLoopNotFlagged(System.Collections.Generic.List<int> list, int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            if (System.Linq.Enumerable.Any(list))
+            {
+                n += System.Linq.Enumerable.Count(list);
+            }
+            if (System.Linq.Enumerable.First(list) == key)
+            {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    // A lazy-returning helper: hands back a deferred Where query without enumerating it.
+    public static System.Collections.Generic.IEnumerable<int> FilterLazy(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Where(source, x => x == key);
+
+    // Enumerates the lazy helper's result once per loop iteration -> the deferred linear
+    // scan runs O(m) times across the call boundary.
+    public static int CallsLazyHelperInLoop(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            foreach (var _ in FilterLazy(source, key))
+            {
+                n++;
+            }
+        }
+        return n;
+    }
+
     public static string StringConcatCopy(string left, string right)
         => string.Concat(left, right);
 
@@ -1620,6 +2014,21 @@ public class OptimizationOpportunityFixtures
     public static Func<int> CapturingLambda(int seed)
     {
         return () => seed + 1;
+    }
+
+    // A capturing lambda consumed by a lazy LINQ operator (Where). Rewriting the lambda as
+    // an iterator/local function only MOVES the allocation to the state machine, so the
+    // capturing-delegate row carries a "moved allocation" caveat.
+    public static System.Collections.Generic.IEnumerable<int> CapturingLambdaConsumedByWhere(
+        System.Collections.Generic.IEnumerable<int> source, int threshold)
+        => System.Linq.Enumerable.Where(source, x => x > threshold);
+
+    // A capturing lambda NOT consumed by a LINQ operator: ordinary use, no moved-allocation
+    // caveat (the local-function rewrite genuinely removes the allocation here).
+    public static int CapturingLambdaConsumedByNonLinq(int threshold)
+    {
+        Func<int, bool> predicate = x => x > threshold;
+        return predicate(5) ? 1 : 0;
     }
 
     // Non-capturing lambda -> compiler-cached delegate (one row, not capturing).

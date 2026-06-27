@@ -258,6 +258,63 @@ public class OutputFormatterTests
         }
     }
 
+    // #1623 rung 5: a labeled, non-vacuous ranking guard for the Performance Triage
+    // model. Unlike the monotonicity check above (which re-derives the production key and
+    // only proves self-consistency), this asserts the model's intended priority on seeded
+    // opportunities: in-loop and confidence dominate raw root-reach, so pay-dirt outranks
+    // higher-reach known-good, and within a tier reach is the tie-break. Reordering the
+    // key (e.g. ranking reach above loop/confidence) fails here.
+    [Fact]
+    public void OrderByTriagePriority_RanksSeededPayDirtAboveKnownGood()
+    {
+        var opportunities = new[]
+        {
+            Opp("KnownGoodHighReach", inLoop: false, confidence: "low", rootReach: 999, shape: "small-array"),
+            Opp("KnownGoodHighConfNoLoop", inLoop: false, confidence: "high", rootReach: 5, shape: "allocation-hotspot"),
+            Opp("PayDirtLinqScanInLoop", inLoop: true, confidence: "medium", rootReach: 1, shape: "linq-scan-in-loop"),
+            Opp("PayDirtLoopHigh", inLoop: true, confidence: "high", rootReach: 1, shape: "allocation-hotspot"),
+            Opp("KnownGoodReachLow", inLoop: false, confidence: "low", rootReach: 7, shape: "small-array"),
+        };
+
+        var ordered = LibraryMetadataService.OrderByTriagePriority(opportunities)
+            .Select(o => o.Method.Name)
+            .ToList();
+
+        int payDirtHigh = ordered.IndexOf("PayDirtLoopHigh");
+        int payDirtScan = ordered.IndexOf("PayDirtLinqScanInLoop");
+        int knownHighConf = ordered.IndexOf("KnownGoodHighConfNoLoop");
+        int knownHighReach = ordered.IndexOf("KnownGoodHighReach");
+        int knownReachLow = ordered.IndexOf("KnownGoodReachLow");
+
+        // In-loop pay-dirt (even at reach 1, incl. the #1725 linq-scan-in-loop shape)
+        // outranks every not-in-loop row, even one with reach 999 or high confidence.
+        Assert.True(payDirtHigh < knownHighConf, "in-loop high must precede not-loop high");
+        Assert.True(payDirtScan < knownHighConf, "in-loop medium must precede not-loop high");
+        Assert.True(payDirtScan < knownHighReach, "in-loop must precede higher-reach not-loop");
+        // Within the in-loop tier, higher confidence first.
+        Assert.True(payDirtHigh < payDirtScan, "in-loop high must precede in-loop medium");
+        // Within not-in-loop, higher confidence beats higher reach.
+        Assert.True(knownHighConf < knownHighReach, "high confidence must precede higher-reach low");
+        // Within the same (loop, confidence) tier, higher reach is the tie-break.
+        Assert.True(knownHighReach < knownReachLow, "higher reach must precede lower reach at equal tier");
+    }
+
+    static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape)
+    {
+        var declaring = ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Type");
+        var method = new ILInspector.Analysis.MethodIdentity(
+            "Asm",
+            System.Guid.Empty,
+            declaring,
+            name,
+            [],
+            ILInspector.Analysis.TypeRef.CoreLib("System", "Void"),
+            MetadataToken: 0x06000001,
+            IsStatic: true);
+        return new ILInspector.Analysis.OptimizationOpportunity(
+            method, shape, "evidence", "fix", confidence, inLoop, ILOffset: null, Caveat: null, RootReach: rootReach);
+    }
+
     [Fact]
     public void ScanOptimizationOpportunities_SuppressesGeneratedMethods()
     {
