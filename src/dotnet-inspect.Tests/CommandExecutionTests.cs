@@ -3552,6 +3552,35 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task NoArguments_Commands_ReportMissingInputConsistently()
+    {
+        // Issue #1690: every command reports a missing required argument the Unix way —
+        // a concise error on stderr with a non-zero exit, not full help with exit 0.
+        foreach (var command in new[] { "type", "member", "find", "depends", "extensions", "implements" })
+        {
+            var (exit, output, error) = await RunAppAsync(command, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Error:", error);
+            Assert.Contains($"dotnet-inspect {command} --help", error);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_NonexistentLibraryPath_ReportsFileNotFound()
+    {
+        // Regression for issue #1690: a missing local library path must report a file error,
+        // not be misclassified as a NuGet package.
+        var (exit, output, error) = await RunAppAsync("library", "./does-not-exist/MyLib.dll");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("File not found: ./does-not-exist/MyLib.dll", error);
+        Assert.DoesNotContain("Package", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_BareSelect_RendersInfoPreset()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S");

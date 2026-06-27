@@ -19,6 +19,10 @@ public static class UnsafeFixtures
         return *p;
     }
 
+    public static unsafe int ConsumePointer(int* p) => *p;
+
+    public static unsafe int PassAddress(int value) => ConsumePointer(&value);
+
     // Function-pointer invocation: `callback(x)` (calli) requires an unsafe
     // context under both old and new rules.
     public static unsafe int InvokeFunctionPointer(delegate*<int, int> callback, int x)

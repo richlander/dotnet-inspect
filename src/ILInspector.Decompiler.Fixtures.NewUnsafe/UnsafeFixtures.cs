@@ -30,6 +30,19 @@ public static class UnsafeFixtures
         }
     }
 
+    public static int ConsumePointer(int* p)
+    {
+        unsafe
+        {
+            return *p;
+        }
+    }
+
+    public static int PassAddress(int value)
+    {
+        return ConsumePointer(&value);
+    }
+
     // Only the function-pointer invocation needs a context; the parameter type
     // is safe.
     public static int InvokeFunctionPointer(delegate*<int, int> callback, int x)

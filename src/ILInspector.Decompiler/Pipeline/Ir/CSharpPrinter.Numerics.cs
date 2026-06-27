@@ -839,6 +839,15 @@ public sealed partial class CSharpPrinter
             return $"({TypeText(target)}){LocalName(pinnedLoad.Index)}";
         }
         if (target is { Kind: TypeRefKind.Pointer }
+            && value is Convert
+            {
+                Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress,
+                Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
+            } addressConvert)
+        {
+            return $"({TypeText(target)})(&{Deref(addressConvert.Operand)})";
+        }
+        if (target is { Kind: TypeRefKind.Pointer }
             && EffectiveType(value) is { Kind: TypeRefKind.Pointer } pointerSource
             && value is not Constant { Value: null }
             && !target.Equals(pointerSource))

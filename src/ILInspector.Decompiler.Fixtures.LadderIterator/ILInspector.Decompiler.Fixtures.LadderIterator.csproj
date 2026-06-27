@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Iterator semantic boss for the decompiler product quality ladder (#1599 row 3).
+    The fixture is intentionally source-recognizable: common iterator recovery
+    shapes plus explicit honest-degrade frontiers for user cleanup / captured
+    side effects that must not be silently erased.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
