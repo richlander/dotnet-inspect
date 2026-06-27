@@ -544,12 +544,38 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_PositionalDottedMember_SplitsTypeAndMember()
+    public async Task ExplicitPackage_PositionalDottedMember_DefersBoundaryToLookup()
     {
+        // The parser leaves an explicit-source dotted name whole; the type/member boundary
+        // (e.g. JsonSerializer.Serialize vs the type System.String) is resolved against real
+        // metadata in ApiTypeLookupService, covered by ApiTypeLookupServiceTests. See #1690.
         var options = await ParseSuccessAsync("member", "JsonSerializer.Serialize", "--package", "System.Text.Json");
+
+        Assert.Equal("JsonSerializer.Serialize", options.TypeName);
+        Assert.Empty(options.MemberFilter);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_PositionalDottedMemberWithOverloadSelector_Splits()
+    {
+        // A ":N" overload selector is unambiguously a member (a type name cannot contain ':'),
+        // so the parser splits it even for an explicit source. See #1690 / PR #1697 review.
+        var options = await ParseSuccessAsync("member", "JsonSerializer.Serialize:2", "--package", "System.Text.Json");
 
         Assert.Equal("JsonSerializer", options.TypeName);
         Assert.Contains("Serialize", options.MemberFilter);
+        Assert.Equal(2, options.OverloadIndex);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_PositionalDottedMemberWithDigest_Splits()
+    {
+        // A "~hash" digest selector is likewise unambiguously a member.
+        var options = await ParseSuccessAsync("member", "JsonSerializer.Serialize~abc123", "--package", "System.Text.Json");
+
+        Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Contains("Serialize", options.MemberFilter);
+        Assert.Equal("abc123", options.MemberDigest);
     }
 
     // ── Overload shorthand (Name:N) ──────────────────────────────────────

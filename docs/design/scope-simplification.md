@@ -51,9 +51,15 @@ Earlier iterations had a `--dotnet` flag meaning "search everything Microsoft sh
 
 ### Tips on no-arg invocations
 
-When `find`, `extensions`, or `implements` are invoked with no arguments, show tips that teach the scoping system:
+When `find`, `extensions`, or `implements` are invoked with no arguments, the
+command reports a missing required argument the Unix way — a concise error and
+the scoping tips on stderr, with a non-zero exit code (help itself is reserved
+for explicit `--help`):
 
 ```text
+Error: Search pattern required.
+Run 'dotnet-inspect find --help' for usage.
+
 Tips:
 find Chat*                                # search default scope
 find Chat* --platform                     # platform libraries only

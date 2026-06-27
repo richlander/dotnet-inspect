@@ -160,18 +160,24 @@ public static class MemberOptionsParser
 
         var typeName = source.TypeName;
 
-        // If the type name contains a dot and no member filters were provided,
-        // split at the last dot: the right part is a member filter.
-        // Handles: member System.Text.Json.JsonDocument.Parse
-        //      and: member JsonSerializer.Serialize --package System.Text.Json
-        //   → source=System.Text.Json, type=JsonDocument, member=Parse
+        // Split a dotted name into Type + member at the last top-level dot when:
+        //  - non-explicit multi-arg form (e.g. member System.Text.Json JsonSerializer.Serialize),
+        //    where the source was already resolved from the first argument; or
+        //  - explicit-source form whose trailing segment is unambiguously a member because it
+        //    carries an overload (":N") or digest ("~hash") selector, which a type name can
+        //    never contain (e.g. member JsonSerializer.Serialize:2 --platform System.Text.Json).
+        // Plain explicit-source dotted names are left whole so the type/member boundary is
+        // resolved against real metadata in ApiTypeLookupService, because "System.String" is a
+        // type while "System" is only a namespace.
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
+        bool explicitSourceSelectorSplit = sourceInputs.HasExplicitSource
+            && sourceInputs.Args.Length == 1
+            && typeName != null
+            && HasMemberSelectorSuffix(typeName);
         if (typeName != null
-            && ((!sourceInputs.HasExplicitSource && sourceInputs.Args.Length > 1)
-                || (sourceInputs.HasExplicitSource
-                    && sourceInputs.Args.Length == 1
-                    && IsLocalDottedMemberWithExplicitSource(typeName)))
+            && (((!sourceInputs.HasExplicitSource && sourceInputs.Args.Length > 1)
+                    || explicitSourceSelectorSplit))
             && typeName.Contains('.')
             && positionalMembers.Count == 0
             && optionMembers.Length == 0)
@@ -270,10 +276,17 @@ public static class MemberOptionsParser
         return new Success(options);
     }
 
-    private static bool IsLocalDottedMemberWithExplicitSource(string typeName)
+    /// <summary>
+    /// True when the trailing segment of a dotted name (after the last top-level dot) carries an
+    /// overload (":N") or digest ("~hash") selector. Such a suffix is unambiguously a member,
+    /// since a type name can contain neither character.
+    /// </summary>
+    private static bool HasMemberSelectorSuffix(string typeName)
     {
         var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
-        return splitMemberName != null && splitTypeName != null && !splitTypeName.Contains('.');
+        return splitTypeName != null
+            && splitMemberName != null
+            && (splitMemberName.Contains(':') || splitMemberName.Contains('~'));
     }
 
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)
