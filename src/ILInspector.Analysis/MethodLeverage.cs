@@ -110,7 +110,7 @@ public static class MethodLeverageRanking
             return (best, cut);
         }
 
-        var rootReach = ComputeRootReach(methodTokens, directCallers, adjacency);
+        var rootReach = ComputeRootReach(methodTokens, adjacency);
 
         return methods
             .Where(method => scope is null || scope(method))
@@ -138,7 +138,6 @@ public static class MethodLeverageRanking
     // large assemblies (where the count degrades to a lower bound).
     static Dictionary<int, int> ComputeRootReach(
         HashSet<int> methodTokens,
-        IReadOnlyDictionary<int, HashSet<int>> directCallers,
         IReadOnlyDictionary<int, HashSet<int>> adjacency)
     {
         const long VisitBudget = 6_000_000;
@@ -147,22 +146,36 @@ public static class MethodLeverageRanking
         var queue = new Queue<int>();
         long budget = VisitBudget;
 
-        // A root has no in-assembly caller other than itself. Self-recursion contributes
-        // a self-edge to directCallers, so a self-recursive entry point would otherwise be
-        // misclassified as non-root (dropping it and its descendants from root reach).
-        static bool IsRoot(int token, IReadOnlyDictionary<int, HashSet<int>> directCallers)
-            => !directCallers.TryGetValue(token, out var callers)
-                || (callers.Count == 1 && callers.Contains(token));
+        var (components, componentByToken) = StronglyConnectedComponents(methodTokens, adjacency);
+        var hasExternalIncoming = new bool[components.Count];
+        foreach (var (caller, callees) in adjacency)
+        {
+            if (!componentByToken.TryGetValue(caller, out int callerComponent))
+                continue;
+            foreach (int callee in callees)
+            {
+                if (componentByToken.TryGetValue(callee, out int calleeComponent)
+                    && callerComponent != calleeComponent)
+                {
+                    hasExternalIncoming[calleeComponent] = true;
+                }
+            }
+        }
 
         // Deterministic order so a budget cut-off is reproducible.
-        foreach (var root in methodTokens.Where(t => IsRoot(t, directCallers)).OrderBy(t => t))
+        foreach (var componentIndex in Enumerable.Range(0, components.Count)
+            .Where(i => !hasExternalIncoming[i])
+            .OrderBy(i => components[i][0]))
         {
             if (budget <= 0)
                 break;
             reached.Clear();
             queue.Clear();
-            reached.Add(root);
-            queue.Enqueue(root);
+            foreach (int root in components[componentIndex])
+            {
+                reached.Add(root);
+                queue.Enqueue(root);
+            }
             while (queue.Count > 0)
             {
                 int node = queue.Dequeue();
@@ -179,5 +192,72 @@ public static class MethodLeverageRanking
         }
 
         return rootReach;
+    }
+
+    static (List<int[]> Components, Dictionary<int, int> ComponentByToken) StronglyConnectedComponents(
+        HashSet<int> methodTokens,
+        IReadOnlyDictionary<int, HashSet<int>> adjacency)
+    {
+        var components = new List<int[]>();
+        var componentByToken = new Dictionary<int, int>();
+        var indexByToken = new Dictionary<int, int>();
+        var lowLinkByToken = new Dictionary<int, int>();
+        var stack = new Stack<int>();
+        var onStack = new HashSet<int>();
+        int nextIndex = 0;
+
+        void Visit(int token)
+        {
+            indexByToken[token] = nextIndex;
+            lowLinkByToken[token] = nextIndex;
+            nextIndex++;
+            stack.Push(token);
+            onStack.Add(token);
+
+            if (adjacency.TryGetValue(token, out var callees))
+            {
+                foreach (int callee in callees)
+                {
+                    if (!methodTokens.Contains(callee))
+                        continue;
+                    if (!indexByToken.ContainsKey(callee))
+                    {
+                        Visit(callee);
+                        lowLinkByToken[token] = Math.Min(lowLinkByToken[token], lowLinkByToken[callee]);
+                    }
+                    else if (onStack.Contains(callee))
+                    {
+                        lowLinkByToken[token] = Math.Min(lowLinkByToken[token], indexByToken[callee]);
+                    }
+                }
+            }
+
+            if (lowLinkByToken[token] != indexByToken[token])
+                return;
+
+            var component = new List<int>();
+            int member;
+            do
+            {
+                member = stack.Pop();
+                onStack.Remove(member);
+                component.Add(member);
+            }
+            while (member != token);
+
+            component.Sort();
+            int componentIndex = components.Count;
+            foreach (int item in component)
+                componentByToken[item] = componentIndex;
+            components.Add(component.ToArray());
+        }
+
+        foreach (int token in methodTokens.OrderBy(t => t))
+        {
+            if (!indexByToken.ContainsKey(token))
+                Visit(token);
+        }
+
+        return (components, componentByToken);
     }
 }
