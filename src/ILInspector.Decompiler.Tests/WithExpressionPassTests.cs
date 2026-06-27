@@ -28,6 +28,21 @@ public class WithExpressionPassTests
     }
 
     [Fact]
+    public void MultipleContiguousMutations_RaiseInSourceOrder()
+    {
+        var function = FunctionWithClone(compilerGenerated: true, secondMember: true);
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        var withExpression = Assert.Single(function.Descendants.OfType<WithExpression>());
+        Assert.Equal(["X", "Y"], withExpression.Members);
+        function.CheckInvariant();
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return point with { X = dx, Y = dy };", output);
+    }
+
+    [Fact]
     public void SameNamedNonGeneratedClone_DoesNotRaise()
     {
         var function = FunctionWithClone(compilerGenerated: false);
@@ -37,6 +52,19 @@ public class WithExpressionPassTests
         Assert.Empty(function.Descendants.OfType<WithExpression>());
         Assert.Single(function.Descendants.OfType<StoreStackSlot>());
         Assert.Single(function.Descendants.OfType<StoreProperty>());
+        Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "<Clone>$");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DuplicateMemberMutation_DoesNotFoldIntoInvalidWithExpression()
+    {
+        var function = FunctionWithClone(compilerGenerated: true, secondMember: true, duplicateMember: true);
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<WithExpression>());
+        Assert.Equal(2, function.Descendants.OfType<StoreProperty>().Count());
         Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "<Clone>$");
         function.CheckInvariant();
     }
@@ -70,13 +98,15 @@ public class WithExpressionPassTests
     static IrFunction FunctionWithClone(
         bool compilerGenerated,
         bool keepAliveUse = false,
-        bool receiverUsesTargetSlot = false)
+        bool receiverUsesTargetSlot = false,
+        bool secondMember = false,
+        bool duplicateMember = false)
     {
         var clone = new MethodRef(Point, "<Clone>$", Point, [], HasThis: true)
         {
             CompilerGenerated = compilerGenerated ? MetadataFactState.Yes : MetadataFactState.No,
         };
-        var setter = new MethodRef(Point, "set_X", Void, [Int32], HasThis: true)
+        MethodRef Setter(string name) => new(Point, $"set_{name}", Void, [Int32], HasThis: true)
         {
             IsSpecialName = true,
         };
@@ -91,7 +121,13 @@ public class WithExpressionPassTests
             new Call(clone, isVirtual: true, [receiverUsesTargetSlot
                 ? new LoadStackSlot(slot, Point)
                 : new LoadArgument(0, "point", Point)])));
-        block.Add(new StoreProperty(setter, new LoadStackSlot(slot, Point), [], new LoadArgument(1, "dx", Int32)));
+        block.Add(new StoreProperty(Setter("X"), new LoadStackSlot(slot, Point), [], new LoadArgument(1, "dx", Int32)));
+        if (secondMember)
+            block.Add(new StoreProperty(
+                Setter(duplicateMember ? "X" : "Y"),
+                new LoadStackSlot(slot, Point),
+                [],
+                new LoadArgument(2, "dy", Int32)));
         if (keepAliveUse)
             block.Add(new ExpressionStatement(new Call(keepAlive, isVirtual: false, [new LoadStackSlot(slot, Point)])));
         block.Add(new Return(new LoadStackSlot(slot, Point)));
@@ -101,7 +137,7 @@ public class WithExpressionPassTests
         return new IrFunction(
             "Shift",
             TypeRef.Definition("SyntheticAssembly", "Synthetic", "Owner"),
-            new MethodSignature(Point, [new Parameter("point", Point), new Parameter("dx", Int32)], HasThis: false, GenericParameterCount: 0),
+            new MethodSignature(Point, [new Parameter("point", Point), new Parameter("dx", Int32), new Parameter("dy", Int32)], HasThis: false, GenericParameterCount: 0),
             [],
             body);
     }
