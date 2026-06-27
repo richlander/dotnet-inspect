@@ -466,6 +466,21 @@ public class TypeSourceCheckTests
         Assert.Contains("Configured = configured", source);
     }
 
+    [Fact]
+    public void Evaluate_OnPrivateConstructorFixture_RendersInitializer()
+    {
+        // The only constructor is private, so it is absent from the public API
+        // surface; the initializer must still be collected from metadata (#1713).
+        string path = typeof(TypeSourcePrivateCtorInitFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourcePrivateCtorInitFixture).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("public readonly int Seed = 5;", source);
+    }
+
 }
 
 public class TypeSourceNullableConstraintMatrix<TNotNull, TClassNullable, TUnmanaged, TNullableInterface>
@@ -510,4 +525,13 @@ public class TypeSourceFieldInitializerFixture
     {
         Configured = configured;
     }
+}
+
+public sealed class TypeSourcePrivateCtorInitFixture
+{
+    public readonly int Seed = 5;
+
+    private TypeSourcePrivateCtorInitFixture() { }
+
+    public static TypeSourcePrivateCtorInitFixture Create() => new();
 }

@@ -89,7 +89,7 @@ public static class TypeSourceComposer
             else
             {
                 ComposeFields(sb, reader, typeHandle, bodyNamespaces,
-                    CollectFieldInitializers(pipelineSource, type), ref any);
+                    CollectFieldInitializers(pipelineSource, type.FullName, reader, typeHandle), ref any);
                 ComposeMembers(sb, type, pipelineSource, reader, typeHandle, bodyNamespaces, ref any);
             }
 
@@ -761,34 +761,35 @@ public static class TypeSourceComposer
     /// <summary>
     /// Gathers field initializers (<c>this.f = value</c> stores the printer lifts
     /// out of a constructor body to the field declarations) so
-    /// <see cref="ComposeFields"/> can render them. Constructors are imported here
-    /// only to read <see cref="DecompilerResult.FieldInitializers"/>;
+    /// <see cref="ComposeFields"/> can render them. Instance constructors are
+    /// enumerated straight from metadata — not from <see cref="ApiType.Members"/>,
+    /// which omits non-public constructors, so a factory type whose only
+    /// constructor is private still recovers its initializers. Each constructor is
+    /// imported only to read <see cref="DecompilerResult.FieldInitializers"/>;
     /// <see cref="ComposeMembers"/> renders the (now initializer-free) bodies
-    /// separately. Initializers are identical across base-chaining constructors,
-    /// so the first one seen for a field wins. The overload-index derivation
-    /// mirrors <see cref="ComposeMembers"/> so the correct constructor is imported.
+    /// separately. Initializers are identical across base-chaining constructors, so
+    /// the first one seen for a field wins. The static constructor (<c>.cctor</c>)
+    /// is skipped: its stores are not lifted (no base chain, no <c>this</c>).
     /// </summary>
     static Dictionary<string, string> CollectFieldInitializers(
-        Pipeline.MetadataSource pipelineSource, ApiType type)
+        Pipeline.MetadataSource pipelineSource, string typeFullName,
+        MetadataReader reader, TypeDefinitionHandle typeHandle)
     {
         var initializers = new Dictionary<string, string>(StringComparer.Ordinal);
-        var overloadIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        var typeDef = reader.GetTypeDefinition(typeHandle);
 
-        foreach (var member in type.Members)
+        // The overload index counts every '.ctor' in metadata order at
+        // publicOnly: false — the same order this loop walks — so it selects the
+        // matching constructor regardless of accessibility.
+        int constructorIndex = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
         {
-            if (member.Kind != "constructor")
+            if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) != ".ctor")
                 continue;
-
-            int runningIndex = overloadIndex.GetValueOrDefault(member.Name);
-            overloadIndex[member.Name] = runningIndex + 1;
-            if (member.IsAbstract)
-                continue;
-            int index = member.DeclaringOverloadIndex is { } declaringIndex
-                ? declaringIndex - 1
-                : runningIndex;
 
             var function = Pipeline.IrImporter.Import(
-                pipelineSource, member.DeclaringType ?? type.FullName, member.Name, index, publicOnly: true);
+                pipelineSource, typeFullName, ".ctor", constructorIndex, publicOnly: false);
+            constructorIndex++;
             if (function is null)
                 continue;
 
