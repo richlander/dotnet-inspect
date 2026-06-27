@@ -7,8 +7,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// stack slots — or a fresh local, applying a contiguous run of member stores
 /// (object form) or single-argument <c>Add</c> calls (collection form) to the
 /// threaded reference, then consuming it exactly once downstream. This pass folds
-/// that run into an initializer at the single use site and removes the now-dead
-/// chain.
+/// that run into an initializer at the single use site when the escape is
+/// contiguous, or at the original seed when a later single escape would otherwise
+/// reorder intervening side effects, and removes the now-dead chain.
 ///
 /// <para>Slice scope: the stack-slot dup form, which is what the compiler emits
 /// in expression position (a <c>return</c>/argument initializer), plus the
@@ -68,6 +69,7 @@ public sealed class ObjectInitializerPass : IIrPass
 
     abstract record InitializerTarget;
     sealed record StackSlotTarget(LoadStackSlot Use) : InitializerTarget;
+    sealed record StackSlotSeedTarget(StoreStackSlot Seed, LoadStackSlot Use) : InitializerTarget;
     sealed record LocalSeedTarget(StoreLocal Seed) : InitializerTarget;
 
     sealed record Plan(
@@ -212,22 +214,34 @@ public sealed class ObjectInitializerPass : IIrPass
         if (outsideUses.Count != 1)
             return null;
 
-        // The escape must immediately follow the consumed run: every statement between
-        // the seed and the statement that consumes the reference must itself be consumed.
-        // Otherwise a non-consumed (side-effecting) statement sits between the member
-        // stores and the escape, and folding the member values into the initializer at
-        // the escape would move them after that statement — reordering observable side
-        // effects. csc emits the dup-chain use contiguously, so a gap is hand-written IL.
+        // When the escape immediately follows the consumed run, the initializer can be
+        // moved to that use site (return/call argument position). When unrelated
+        // statements sit between the run and the escape, materialize the initializer at
+        // the original seed instead: that keeps member-value side effects before the
+        // gap and still collapses the compiler temp chain into one initialized value.
         IrNode escapeStatement = outsideUses[0];
         while (escapeStatement.Parent is { } parent && !ReferenceEquals(parent, seed.Parent))
             escapeStatement = parent;
         if (!ReferenceEquals(escapeStatement.Parent, seed.Parent))
             return null;   // the reference escapes in another block — not a contiguous run
+        bool contiguousEscape = true;
         for (int i = seed.ChildIndex + 1; i < escapeStatement.ChildIndex; i++)
+        {
             if (!consumedSet.Contains(statements[i]))
-                return null;
+            {
+                contiguousEscape = false;
+                break;
+            }
+        }
 
-        return new Plan(consumed, creation, isCollection ?? false, entries, new StackSlotTarget(outsideUses[0]));
+        return new Plan(
+            consumed,
+            creation,
+            isCollection ?? false,
+            entries,
+            contiguousEscape
+                ? new StackSlotTarget(outsideUses[0])
+                : new StackSlotSeedTarget(seed, outsideUses[0]));
     }
 
     static Plan? TryBuild(IrFunction function, StoreLocal seed, NewObject creation)
@@ -555,7 +569,11 @@ public sealed class ObjectInitializerPass : IIrPass
         // arguments out of those now-detached statements before reparenting them
         // into the new initializer tree.
         foreach (var statement in plan.Consumed)
+        {
+            if (plan.Target is StackSlotSeedTarget target && ReferenceEquals(statement, target.Seed))
+                continue;
             statement.Detach();
+        }
 
         foreach (var leaf in LeafArguments(plan.Entries))
             leaf.Detach();
@@ -569,6 +587,17 @@ public sealed class ObjectInitializerPass : IIrPass
                 var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
                 initializer.InheritSourceOffset(plan.Creation);
                 stackSlot.Use.ReplaceWith(initializer);
+                break;
+            }
+
+            case StackSlotSeedTarget stackSlotSeed:
+            {
+                var creation = (NewObject)plan.Creation.Clone();
+                var initializer = new ObjectInitializerExpression(creation, plan.IsCollection, entries);
+                initializer.InheritSourceOffset(plan.Creation);
+                plan.Creation.ReplaceWith(initializer);
+                if (stackSlotSeed.Use.Slot != stackSlotSeed.Seed.Slot)
+                    stackSlotSeed.Use.ReplaceWith(new LoadStackSlot(stackSlotSeed.Seed.Slot, stackSlotSeed.Use.Type));
                 break;
             }
 
