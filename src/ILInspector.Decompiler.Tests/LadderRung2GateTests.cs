@@ -145,10 +145,13 @@ public class LadderRung2GateTests
         Assert.Equal("return this.Label;", Body(members, "Box`1::get_Label"));
         Assert.Equal("this.Label = value;", Body(members, "Box`1::set_Label"));
 
-        var formatWith = Body(members, "Box`1::FormatWith");
-        Assert.Contains("string.Concat(", formatWith);
-        Assert.Contains("Label", formatWith);
-        Assert.Contains("Value", formatWith);
+        // FormatWith binds to the ReadOnlySpan<object?> params overload (Value is the
+        // generic T), so the faithful, valid rendering is a C# 12 params collection
+        // expression. Pin it exactly so the guard fails on any other rendering rather
+        // than masking a regression behind a loose contains-check.
+        Assert.Equal(
+            "return string.Concat([Label, \":\", Value, \":\", value]);",
+            Body(members, "Box`1::FormatWith"));
 
         // Extension method definitions raise to recognizable bodies.
         var firstOrZero = Body(members, "LadderRung2Extensions::FirstOrZero");
