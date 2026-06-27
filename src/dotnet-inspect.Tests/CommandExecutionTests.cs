@@ -5310,14 +5310,51 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Section", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Package README", output);
+            Assert.Contains("## Grounding", output);
             Assert.Contains("| Path | Size |", output);
             Assert.Contains("| AGENTS.md | 6 |", output);
             Assert.DoesNotContain("| README.md | 6 |", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_GroundingSection_LegacyReadmeSelectorStillResolves()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Grounding.Alias", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Grounding", output);
+            Assert.Contains("| AGENTS.md | 6 |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Print_PrintsBestGroundingContent()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Print.Grounding", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("agents\n", output.ReplaceLineEndings("\n"));
         }
         finally
         {
@@ -5368,7 +5405,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.PackageReadme.Bare", "PACKAGE.md", "package docs");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README", "--bare", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--bare", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);

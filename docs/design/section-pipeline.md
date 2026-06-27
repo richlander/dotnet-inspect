@@ -175,7 +175,7 @@ The package command has 14 registered sections:
 | Markdown Files | Explicit | — | Full-depth `.md` file listing with `Path` and `Size` |
 | Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
 | Package Info | Minimal | — | Full metadata field table |
-| Package README | Explicit | — | Best README candidate with `Path` and `Size`; at most one row |
+| Grounding | Explicit | — | Best grounding candidate with `Path` and `Size`; at most one row |
 | Runtime Dependencies | Minimal | — | Only when runtime deps present |
 | Signals | Explicit | — | Opt-in package metadata/assets, dependency, provenance, and NuGet registry observations |
 | Signature | Normal | — | Only when signature information is available |
