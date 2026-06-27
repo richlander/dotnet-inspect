@@ -1380,6 +1380,115 @@ public class LibraryBodyIndexTests
         return path;
     }
 
+    static string FacadeFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.FacadeFixtures",
+            outputDirectory.Name,
+            "ILInspector.Analysis.FacadeFixtures.dll"));
+        Assert.True(File.Exists(path), $"Expected facade fixture assembly at {path}");
+        return path;
+    }
+
+    // #1708 Row B: a netstandard2.0 fixture references BCL types through the
+    // netstandard facade (assembly canonicalizes to corelib), reproducing the
+    // legacy-TFM recall gap where copy predicates expected the modern split assembly.
+    [Theory]
+    [InlineData("EnumerableToArrayCopy")]
+    [InlineData("EnumerableToListCopy")]
+    public void MethodSignals_CopyApis_RecognizeLegacyFacadeAssemblies(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(FacadeFixturePath());
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"no signals for {methodName}");
+        Assert.True(s.Copies >= 1, $"expected copy on facade assembly for {methodName}, got {s.Copies}");
+    }
+
+    [Fact]
+    public void MethodSignals_Reflection_RecognizesLegacyFacadeExpressions()
+    {
+        var index = LibraryBodyIndex.Open(FacadeFixturePath());
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == "BuildsExpression"));
+
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.Reflection >= 1, $"expected reflection on facade assembly, got {s.Reflection}");
+    }
+
+    // #1708 Row B (.NET Framework path). Real net48 assemblies cannot be built on this
+    // host, so exercise the predicate directly: Enumerable lives in System.Core on net48
+    // and in the netstandard/corelib facade bucket on netstandard, yet a same-named user
+    // assembly must still be rejected (precision preserved).
+    [Theory]
+    [InlineData("System.Linq", 1)]   // modern split assembly
+    [InlineData("System.Core", 1)]   // .NET Framework facade
+    [InlineData("netstandard", 1)]   // canonicalizes to corelib
+    [InlineData("Contoso.Data", 0)]  // user assembly lookalike -> not a copy
+    public void Collect_CopyApiRecall_HonorsFrameworkFacadesButNotUserLookalikes(string calleeAssembly, int expectedCopies)
+    {
+        const int callerToken = 0x06000123;
+        var calls = ImmutableArray.Create(EnumerableToArrayCall(calleeAssembly, callerToken));
+
+        var signals = MethodSignalAnalysis.Collect(calls, ImmutableArray<UnsafeEvidence>.Empty);
+
+        int copies = signals.TryGetValue(callerToken, out var s) ? s.Copies : 0;
+        Assert.Equal(expectedCopies, copies);
+    }
+
+    static DirectCall EnumerableToArrayCall(string calleeAssembly, int callerToken)
+    {
+        var enumerable = TypeRef.Definition(calleeAssembly, "System.Linq", "Enumerable");
+        var callee = new MemberRef(enumerable, "ToArray", [], TypeRef.Unsupported("ret"), MemberKind.Method);
+        return FrameworkCall(callee, callerToken);
+    }
+
+    // #1708 Row B reflection path. Expression trees live in System.Core on net48 and in
+    // the netstandard/corelib facade bucket on netstandard, but a same-named user
+    // assembly must not be classified as reflection.
+    [Theory]
+    [InlineData("System.Linq.Expressions", 1)] // modern split assembly
+    [InlineData("System.Core", 1)]             // .NET Framework facade
+    [InlineData("netstandard", 1)]             // canonicalizes to corelib
+    [InlineData("Contoso.Expr", 0)]            // user assembly lookalike -> not reflection
+    public void Collect_ReflectionRecall_HonorsFrameworkFacadesButNotUserLookalikes(string calleeAssembly, int expectedReflection)
+    {
+        const int callerToken = 0x06000124;
+        var calls = ImmutableArray.Create(ExpressionConstantCall(calleeAssembly, callerToken));
+
+        var signals = MethodSignalAnalysis.Collect(calls, ImmutableArray<UnsafeEvidence>.Empty);
+
+        int reflection = signals.TryGetValue(callerToken, out var s) ? s.Reflection : 0;
+        Assert.Equal(expectedReflection, reflection);
+    }
+
+    static DirectCall ExpressionConstantCall(string calleeAssembly, int callerToken)
+    {
+        var expression = TypeRef.Definition(calleeAssembly, "System.Linq.Expressions", "Expression");
+        var callee = new MemberRef(expression, "Constant", [], TypeRef.Unsupported("ret"), MemberKind.Method);
+        return FrameworkCall(callee, callerToken);
+    }
+
+    static DirectCall FrameworkCall(MemberRef callee, int callerToken)
+    {
+        var callerType = TypeRef.Definition("Caller.Assembly", "Caller.Ns", "CallerType");
+        var caller = new MethodIdentity(
+            "Caller.Assembly",
+            Guid.Empty,
+            callerType,
+            "Caller",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            callerToken,
+            IsStatic: true);
+        return new DirectCall(caller, callee, ILOffset: 0, OperandToken: 0, CalleeDefinitionToken: 0, CallKind.Call);
+    }
+
 
     [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
