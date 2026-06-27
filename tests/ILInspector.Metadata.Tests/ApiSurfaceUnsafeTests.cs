@@ -56,6 +56,28 @@ public sealed class ApiSurfaceUnsafeTests
     }
 
     [Fact]
+    public void FunctionPointerSignature_PreservesDistinctFieldShapes()
+    {
+        var members = Type(typeof(FunctionPointerShapeFixture)).Members;
+
+        Assert.Equal(
+            "delegate*<int, int>",
+            members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.Field)).ReturnType);
+        Assert.Equal(
+            "delegate*<string, bool>",
+            members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.Other)).ReturnType);
+        Assert.Equal(
+            "delegate* unmanaged[Cdecl]<int, void>",
+            members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.Unmanaged)).ReturnType);
+        Assert.Equal(
+            "delegate*<int, int>[]",
+            members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.ArrayOf)).ReturnType);
+        Assert.Equal(
+            "delegate*<int, int> Ret(delegate*<int, int> f)",
+            members.Single(m => m.Name == nameof(FunctionPointerShapeFixture.Ret)).Signature);
+    }
+
+    [Fact]
     public void FunctionPointerSignature_AppliesNullabilityInMetadataOrder()
     {
         var members = Type(typeof(FunctionPointerNullabilityFixture)).Members;
@@ -80,4 +102,14 @@ public unsafe class FunctionPointerNullabilityFixture
 {
     public delegate*<string, string?> ReturnsNullable;
     public delegate*<string?, string> ParameterNullable;
+}
+
+public unsafe class FunctionPointerShapeFixture
+{
+    public delegate*<int, int> Field;
+    public delegate*<string, bool> Other;
+    public delegate* unmanaged[Cdecl]<int, void> Unmanaged;
+    public delegate*<int, int>[] ArrayOf = [];
+
+    public delegate*<int, int> Ret(delegate*<int, int> f) => f;
 }
