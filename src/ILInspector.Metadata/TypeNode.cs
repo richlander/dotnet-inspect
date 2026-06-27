@@ -188,9 +188,9 @@ internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signatur
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         ConsumeByte(bytes, ref position, defaultByte);
+        signature.ReturnType.ApplyNullability(bytes, ref position, defaultByte);
         foreach (var parameter in signature.ParameterTypes)
             parameter.ApplyNullability(bytes, ref position, defaultByte);
-        signature.ReturnType.ApplyNullability(bytes, ref position, defaultByte);
     }
 
     static string ConventionText(SignatureCallingConvention convention) => convention switch

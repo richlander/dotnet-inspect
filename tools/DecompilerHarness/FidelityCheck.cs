@@ -2286,7 +2286,8 @@ static class FidelityCheck
             return "object";
         if (type == "delegate*")
             return "void*"; // a pointer-sized stand-in; calls through it are rare
-        if (type.StartsWith("delegate*", StringComparison.Ordinal))
+        if (type.StartsWith("delegate*", StringComparison.Ordinal)
+            || type.StartsWith("ref delegate*", StringComparison.Ordinal))
             return type;
         return EscapeTypeKeywords(type);
     }
