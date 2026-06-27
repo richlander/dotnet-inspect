@@ -984,7 +984,11 @@ public class LibraryBodyIndexTests
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByNonLinq)
             && o.Shape == "capturing-delegate"));
         Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(op.Caveat);
+        // Not consumed by LINQ, so the lazy/iterator override does not fire; the row keeps
+        // the default escape-awareness caveat (calibration), not the iterator caveat.
+        Assert.NotNull(op.Caveat);
+        Assert.Contains("escapes", op.Caveat, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("iterator", op.Caveat, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -994,12 +998,32 @@ public class LibraryBodyIndexTests
 
         // A predicate consumed by an EAGER membership terminal (Any) allocates no iterator,
         // so it must NOT receive the lazy/iterator "moved allocation" wording. The repeated
-        // scan itself is covered separately by the linq-scan-in-loop shape.
+        // scan itself is covered separately by the linq-scan-in-loop shape. The row keeps the
+        // default escape-awareness caveat, not the iterator caveat.
         var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanInLoop)
             && o.Shape == "capturing-delegate"));
         Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(op.Caveat);
+        Assert.NotNull(op.Caveat);
+        Assert.Contains("escapes", op.Caveat, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("iterator", op.Caveat, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DelegateShapes_CarryEscapeAwarenessCaveat()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Calibration (#1714): on .NET 10+ the JIT stack-allocates non-escaping
+        // closures/delegates, so the high-confidence delegate shapes must carry an
+        // escape-awareness caveat (mirroring box-value-type), not assert an
+        // unconditional allocation.
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambda)
+            && o.Shape == "capturing-delegate"));
+        Assert.NotNull(op.Caveat);
+        Assert.Contains("escapes", op.Caveat, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(".NET 10", op.Caveat, StringComparison.Ordinal);
     }
 
     [Theory]

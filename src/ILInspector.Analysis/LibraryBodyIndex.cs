@@ -1366,7 +1366,7 @@ public sealed class LibraryBodyIndex
                                     "high",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
-                                    null));
+                                    "On .NET 10+ the JIT can partially stack-allocate a non-escaping closure (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when the closure escapes the method — stored, returned, or passed to a callee that lets it escape."));
                             }
                             else if (pendingDelegateInstanceGroup)
                             {
@@ -1379,7 +1379,7 @@ public sealed class LibraryBodyIndex
                                     "high",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
-                                    null));
+                                    "On .NET 10+ the JIT can partially stack-allocate a non-escaping delegate (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when it escapes the method — stored, returned, or passed to a callee that lets it escape."));
                             }
                             pendingDelegateOffset = null;
                         }
