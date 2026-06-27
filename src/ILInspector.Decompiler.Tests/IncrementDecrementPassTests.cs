@@ -9,6 +9,7 @@ public class IncrementDecrementPassTests
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef EnumType = TypeRef.Definition("Test", "Synthetic", "Mode", ValueTypeHint.ValueType);
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef OperatorType = TypeRef.Definition("Test", "Synthetic", "Counter", ValueTypeHint.ValueType);
     static readonly TypeRef UnknownValueType = TypeRef.Definition("External", "Synthetic", "Mode", ValueTypeHint.ValueType);
     static readonly TypeRef ValueType = TypeRef.Definition("Test", "Synthetic", "StructLike", ValueTypeHint.ValueType);
 
@@ -58,6 +59,16 @@ public class IncrementDecrementPassTests
 
     static StoreLocal ValueTypeUpdateFromTemp() =>
         new(0, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(1, ValueType), new Constant(1, Int32)));
+
+    static MethodRef OperatorMethod(string name, MetadataFactState isOperator = MetadataFactState.Yes)
+        => new(OperatorType, name, OperatorType, [OperatorType], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = isOperator,
+        };
+
+    static Call OperatorCall(string name, IrExpression argument, MetadataFactState isOperator = MetadataFactState.Yes)
+        => new(OperatorMethod(name, isOperator), isVirtual: false, [argument]);
 
     [Fact]
     public void DeadTempPostIncrement_FoldsToOperator()
@@ -117,6 +128,71 @@ public class IncrementDecrementPassTests
 
         var unsupported = Assert.IsType<UnsupportedNode>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
         Assert.Contains("++", unsupported.Reason);
+    }
+
+    [Fact]
+    public void UserDefinedPostIncrementCall_FoldsToOperator()
+    {
+        // S = x; x = op_Increment(S); return S;  ->  return x++;
+        var statements = Run(FunctionWithSignature(OperatorType, [OperatorType],
+            new StoreStackSlot(0, new LoadLocal(0, OperatorType)),
+            new StoreLocal(0, OperatorType, OperatorCall("op_Increment", new LoadStackSlot(0, OperatorType))),
+            new Return(new LoadStackSlot(0, OperatorType))));
+
+        var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<Return>(Assert.Single(statements)).Value);
+        Assert.True(increment.IsIncrement);
+        Assert.False(increment.IsPrefix);
+        Assert.False(increment.IsChecked);
+    }
+
+    [Fact]
+    public void UserDefinedPrefixIncrementCall_FoldsToOperator()
+    {
+        // S = op_Increment(x); x = S; return S;  ->  return ++x;
+        var statements = Run(FunctionWithSignature(OperatorType, [OperatorType],
+            new StoreStackSlot(0, OperatorCall("op_Increment", new LoadLocal(0, OperatorType))),
+            new StoreLocal(0, OperatorType, new LoadStackSlot(0, OperatorType)),
+            new Return(new LoadStackSlot(0, OperatorType))));
+
+        var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<Return>(Assert.Single(statements)).Value);
+        Assert.True(increment.IsIncrement);
+        Assert.True(increment.IsPrefix);
+        Assert.False(increment.IsChecked);
+    }
+
+    [Fact]
+    public void UserDefinedCheckedPrefixIncrementCall_FoldsToCheckedOperator()
+    {
+        var statements = Run(FunctionWithSignature(OperatorType, [OperatorType],
+            new StoreStackSlot(0, OperatorCall("op_CheckedIncrement", new LoadLocal(0, OperatorType))),
+            new StoreLocal(0, OperatorType, new LoadStackSlot(0, OperatorType)),
+            new Return(new LoadStackSlot(0, OperatorType))));
+
+        var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<Return>(Assert.Single(statements)).Value);
+        Assert.True(increment.IsIncrement);
+        Assert.True(increment.IsPrefix);
+        Assert.True(increment.IsChecked);
+    }
+
+    [Fact]
+    public void UserDefinedDirectDecrementStatement_FoldsToOperator()
+    {
+        var statements = Run(FunctionWithSignature(TypeRef.CoreLib("System", "Void"), [OperatorType],
+            new StoreLocal(0, OperatorType, OperatorCall("op_Decrement", new LoadLocal(0, OperatorType)))));
+
+        var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.False(increment.IsIncrement);
+        Assert.False(increment.IsPrefix);
+        Assert.False(increment.IsChecked);
+    }
+
+    [Fact]
+    public void NonOperatorLookalike_IsNotFolded()
+    {
+        var statements = Run(FunctionWithSignature(TypeRef.CoreLib("System", "Void"), [OperatorType],
+            new StoreLocal(0, OperatorType, OperatorCall("op_Increment", new LoadLocal(0, OperatorType), MetadataFactState.No))));
+
+        Assert.IsType<StoreLocal>(Assert.Single(statements));
     }
 
     [Fact]

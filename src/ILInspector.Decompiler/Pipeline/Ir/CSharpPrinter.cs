@@ -2354,6 +2354,15 @@ public sealed partial class CSharpPrinter
 
     string IncrementDecrementText(IncrementDecrement id)
     {
+        string Render()
+        {
+            string op = id.IsIncrement ? "++" : "--";
+            return id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}";
+        }
+
+        if (id.IsChecked)
+            return WrapChecked(Render);
+
         // ++/-- is a hidden `x = x + 1`; on an integer place inside a checked
         // region that add recompiles as `add.ovf`, an overflow check the original
         // plain increment never had. Wrap in `unchecked(...)` and clear the context
@@ -2364,8 +2373,7 @@ public sealed partial class CSharpPrinter
             _checkedContext = false;
         try
         {
-            string op = id.IsIncrement ? "++" : "--";
-            string text = id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}";
+            string text = Render();
             return wrapUnchecked ? $"unchecked({text})" : text;
         }
         finally
