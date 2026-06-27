@@ -485,5 +485,8 @@ $RECYCLE.BIN/
 docs/field-parser.md
 .claude/worktrees/
 
+# Local development worktrees (AGENTS.md: all work happens in worktrees)
+.worktrees/
+
 # Vendored ILAssembler worktree (restore with eng/restore-ilassembler.sh)
 external/
