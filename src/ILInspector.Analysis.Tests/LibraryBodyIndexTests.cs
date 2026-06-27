@@ -305,6 +305,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void TopLeverage_TreatsMutuallyRecursiveEntryComponentAsRoot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageDepthFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageDepthFixtures));
+        var byName = ranked.ToDictionary(entry => entry.Method.Name);
+
+        Assert.Equal(1, byName[nameof(LeverageDepthFixtures.Ping)].RootReach);
+        Assert.Equal(1, byName[nameof(LeverageDepthFixtures.Pong)].RootReach);
+        Assert.Equal(1, byName[nameof(LeverageDepthFixtures.ChainTop)].RootReach);
+        Assert.Equal(1, byName[nameof(LeverageDepthFixtures.ChainLeaf)].RootReach);
+    }
+
+    [Fact]
     public void TopLeverage_CountsCallerOfIntraAssemblyGenericMethod()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
