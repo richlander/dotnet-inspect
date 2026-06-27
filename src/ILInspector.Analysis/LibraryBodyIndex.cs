@@ -72,6 +72,7 @@ public sealed class LibraryBodyIndex
                             ? opportunity with { RootReach = reach }
                             : opportunity),
                     .. AllocationHotspots(reachByToken),
+                    .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
             }
             return _opportunities;
@@ -140,6 +141,203 @@ public sealed class LibraryBodyIndex
                 null,
                 "Aggregate allocation density (excludes exception construction); review the method's hot paths.",
                 reachByToken.GetValueOrDefault(token));
+        }
+    }
+
+    // A membership/search LINQ terminal on System.Linq.Enumerable: one that walks the
+    // sequence to answer a lookup/membership question and whose canonical fix is an
+    // indexed lookup (HashSet/Dictionary). Lazy operators (Where/Select/OrderBy) are
+    // excluded — they do not enumerate at the call site — as are materializers
+    // (ToArray/ToList), which have a different fix shape.
+    //
+    // Only the predicate/value overloads do real O(n) work. The parameterless positional
+    // and aggregate overloads (First(), Single(), Count(), Any()) are O(1) — a positional
+    // read, or the ICollection.Count fast path — so they are NOT scans and must not be
+    // flagged. Every scanning overload takes the source plus a predicate/value, so it has
+    // at least two parameters in Enumerable's static signature; gate on that arity.
+    public static bool IsLinqMembershipScan(MemberRef member, out string op)
+    {
+        op = "";
+        if (member.Kind == MemberKind.Unsupported)
+            return false;
+        if (!IsEnumerableDefinition(member.DeclaringType))
+            return false;
+        if (member.ParameterTypes.Length < 2)
+            return false;
+        switch (member.Name)
+        {
+            case "Any":
+            case "All":
+            case "First":
+            case "FirstOrDefault":
+            case "Last":
+            case "LastOrDefault":
+            case "Single":
+            case "SingleOrDefault":
+            case "Count":
+            case "LongCount":
+            case "Contains":
+                op = member.Name;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // System.Linq.Enumerable across target frameworks: the type lives in System.Linq on
+    // .NET 5+ reference assemblies, in System.Core on .NET Framework, and canonicalizes to
+    // the core library on netstandard. Match all three so the heuristic is not silently
+    // inert on the most common library target (netstandard2.0).
+    static bool IsEnumerableDefinition(TypeRef type)
+    {
+        var def = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        return def.Kind != TypeRefKind.Unsupported
+            && def.Namespace == "System.Linq"
+            && def.Name == "Enumerable"
+            && (def.Assembly == TypeRef.CoreLibrary || def.Assembly == "System.Linq" || def.Assembly == "System.Core");
+    }
+
+    // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
+    // enumerating at the call site. A helper that returns such a query is itself a deferred
+    // linear scan — the scan runs when the caller enumerates the result.
+    static bool IsLinqLazyProducer(MemberRef member, out string op)
+    {
+        op = "";
+        if (member.Kind == MemberKind.Unsupported || !IsEnumerableDefinition(member.DeclaringType))
+            return false;
+        switch (member.Name)
+        {
+            case "Where":
+            case "Select":
+            case "SelectMany":
+            case "OfType":
+            case "Cast":
+                op = member.Name;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // The method's return type is an enumerable sequence (IEnumerable / IEnumerable<T>),
+    // i.e. it can hand back a deferred query for the caller to enumerate.
+    static bool ReturnsEnumerableSequence(TypeRef returnType)
+    {
+        var def = returnType.Kind == TypeRefKind.GenericInstance ? returnType.ElementType ?? returnType : returnType;
+        if (def.Kind == TypeRefKind.Unsupported)
+            return false;
+        return (def.Namespace == "System.Collections.Generic" && def.Name == "IEnumerable`1")
+            || (def.Namespace == "System.Collections" && def.Name == "IEnumerable");
+    }
+
+    // Cross-method repeated scan: an in-assembly method that linearly scans a sequence is
+    // itself invoked at a call site inside a loop, so the scan runs on every iteration even
+    // though the scan and the loop live in different methods — the same O(n*m) shape as
+    // linq-scan-in-loop, split across a call boundary where a single-method scan would miss
+    // it. "Scans a sequence" covers both a method that performs a membership terminal
+    // (IsLinqMembershipScan) and a method that returns a deferred Where/Select query the
+    // caller enumerates (a lazy producer returning IEnumerable). Reported once per scanning
+    // method, naming a representative looping caller.
+    IEnumerable<OptimizationOpportunity> ScanMethodsInvokedInLoops(Dictionary<int, int> reachByToken)
+    {
+        var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
+        foreach (var method in Methods)
+            methodByToken[method.MetadataToken] = method;
+
+        // Methods that linearly scan a sequence, keyed by the containing (caller) method
+        // token. The recorded op is a representative for the evidence string. Two kinds:
+        // a membership terminal in the body, or a deferred query returned for the caller to
+        // enumerate (lazy producer whose return type is an enumerable sequence).
+        var scanningMethods = new Dictionary<int, string>();
+        var inAssemblyCallees = new Dictionary<int, HashSet<int>>();
+        var lazyReturning = new Dictionary<int, string>();
+        foreach (var call in DirectCalls)
+        {
+            if (IsLinqMembershipScan(call.Callee, out var membershipOp))
+            {
+                scanningMethods.TryAdd(call.Caller.MetadataToken, membershipOp);
+            }
+            else if (IsLinqLazyProducer(call.Callee, out var lazyOp)
+                && methodByToken.TryGetValue(call.Caller.MetadataToken, out var producer)
+                && ReturnsEnumerableSequence(producer.ReturnType))
+            {
+                lazyReturning.TryAdd(call.Caller.MetadataToken, lazyOp);
+            }
+
+            // Record in-assembly call edges for transitive lazy-producer propagation.
+            if (methodByToken.ContainsKey(call.CalleeDefinitionToken))
+            {
+                if (!inAssemblyCallees.TryGetValue(call.Caller.MetadataToken, out var callees))
+                    inAssemblyCallees[call.Caller.MetadataToken] = callees = [];
+                callees.Add(call.CalleeDefinitionToken);
+            }
+        }
+
+        // Transitive closure: a sequence-returning method that calls a known lazy-returning
+        // method is itself treated as lazy-returning (e.g. an instance overload delegating to
+        // a static Where helper, as in Aspire's OtlpSpan.GetChildSpans()).
+        for (var changed = true; changed;)
+        {
+            changed = false;
+            foreach (var (callerToken, callees) in inAssemblyCallees)
+            {
+                if (lazyReturning.ContainsKey(callerToken))
+                    continue;
+                if (!methodByToken.TryGetValue(callerToken, out var m) || !ReturnsEnumerableSequence(m.ReturnType))
+                    continue;
+                foreach (var callee in callees)
+                {
+                    if (lazyReturning.TryGetValue(callee, out var op))
+                    {
+                        lazyReturning[callerToken] = op;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        foreach (var (token, op) in lazyReturning)
+            scanningMethods.TryAdd(token, op);
+
+        // Methods already reported by the in-method linq-scan-in-loop shape: do not also
+        // emit a (weaker, low-confidence) cross-method row for the same method.
+        var inMethodScanLoopTokens = new HashSet<int>();
+        foreach (var opportunity in _rawOpportunities)
+            if (opportunity.Shape == "linq-scan-in-loop")
+                inMethodScanLoopTokens.Add(opportunity.Method.MetadataToken);
+
+        var emitted = new HashSet<int>();
+        foreach (var call in DirectCalls)
+        {
+            if (!call.InLoop)
+                continue;
+            int calleeToken = call.CalleeDefinitionToken;
+            if (!scanningMethods.TryGetValue(calleeToken, out var op))
+                continue;
+            if (!methodByToken.TryGetValue(calleeToken, out var method))
+                continue;
+            if (_suppressedOpportunityTokens.Contains(calleeToken))
+                continue;
+            if (inMethodScanLoopTokens.Contains(calleeToken))
+                continue;
+            // A method that scans itself in a loop is already reported as linq-scan-in-loop;
+            // and a method invoking itself recursively is not a caller-loop in the O(n*m) sense.
+            if (call.Caller.MetadataToken == calleeToken)
+                continue;
+            if (!emitted.Add(calleeToken))
+                continue;
+
+            yield return new OptimizationOpportunity(
+                method,
+                "scan-method-in-loop-call",
+                $"Linearly scans a sequence (Enumerable.{op}); invoked inside a loop by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
+                "A method that linearly scans a sequence is called on every iteration of a caller's loop; precompute an index the caller can reuse, or hoist the scan out of the loop.",
+                "low",
+                true,
+                null,
+                "Quadratic only if the scanned sequence grows with the caller's loop; confirm the sequence is the loop-variant collection and not small/constant.",
+                reachByToken.GetValueOrDefault(calleeToken));
         }
     }
 
@@ -1071,6 +1269,10 @@ public sealed class LibraryBodyIndex
             int? pendingBoxOffset = null;
             TypeRef? pendingBoxType = null;
             bool pendingBoxInLoop = false;
+            // Index (into opportunities) of a just-emitted delegate row awaiting its consumer:
+            // if the delegate flows straight into a lazy LINQ operator, the obvious iterator
+            // rewrite only moves the allocation, so we annotate that on the row.
+            int? pendingDelegateOpportunityIndex = null;
             int position = 0;
             while (position < il.Length)
             {
@@ -1155,6 +1357,7 @@ public sealed class LibraryBodyIndex
                             // method groups are compiler-cached, so they are not reported.
                             if (pendingDelegateCapturing)
                             {
+                                pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "capturing-delegate",
@@ -1167,6 +1370,7 @@ public sealed class LibraryBodyIndex
                             }
                             else if (pendingDelegateInstanceGroup)
                             {
+                                pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "instance-method-group-delegate",
@@ -1187,6 +1391,23 @@ public sealed class LibraryBodyIndex
                         pendingConstant = null;
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                        // When the delegate just allocated flows straight into a lazy LINQ
+                        // operator (Where/Select/…), a static-local-function rewrite removes the
+                        // closure but the LINQ call still allocates a deferred-query iterator per
+                        // call — the allocation is reduced, not eliminated. Annotate the surfaced
+                        // fix so a cleared closure shape is not read as a free win. (Eager
+                        // membership terminals — Any/Count/… — allocate no iterator and are
+                        // handled by the linq-scan-in-loop shape, so they are not annotated here.)
+                        if (pendingDelegateOpportunityIndex is { } moveIndex
+                            && LibraryBodyIndex.IsLinqLazyProducer(callee, out _))
+                        {
+                            var row = opportunities[moveIndex];
+                            opportunities[moveIndex] = row with
+                            {
+                                SafeFixDirection = "Consumed by a lazy LINQ operator (Where/Select/…): a static local function removes this closure, but the LINQ call still allocates a deferred-query iterator per call — reduced, not eliminated. Replace the query with an explicit loop (or a precomputed index when used for lookups) to remove both.",
+                                Caveat = "A delegate-only rewrite does not remove the allocation; the lazy LINQ call still allocates an iterator.",
+                            };
+                        }
                         if (IsBitConverterGetBytes(callee))
                         {
                             opportunities.Add(new OptimizationOpportunity(
@@ -1210,6 +1431,22 @@ public sealed class LibraryBodyIndex
                                 IsInLoopRegion(offset, loopRegions),
                                 offset,
                                 "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
+                        }
+                        else if (IsLinqMembershipScan(callee, out var scanOp) && IsInLoopRegion(offset, loopRegions))
+                        {
+                            // A membership/search LINQ terminal (Any, First, Count, Contains, …)
+                            // that runs inside a loop re-scans its sequence on every iteration.
+                            // If the scanned sequence scales with the loop this is O(n*m) — the
+                            // canonical fix is to build a set/dictionary index once outside the loop.
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "linq-scan-in-loop",
+                                $"Enumerable.{scanOp}(...) inside a loop",
+                                "Linear LINQ scan per iteration; precompute a set/dictionary index (or hoist the result) once outside the loop.",
+                                "medium",
+                                true,
+                                offset,
+                                "Quadratic only if the scanned sequence grows with the loop; a small or constant sequence is fine."));
                         }
                         break;
                     }
@@ -1283,6 +1520,13 @@ public sealed class LibraryBodyIndex
                 // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
                 if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
                     pendingDelegateOffset = null;
+
+                // The "moved allocation" annotation only applies when the delegate flows
+                // directly into its consuming call. Keep the pending index alive across the
+                // delegate newobj and intervening nops; clear it once any other instruction
+                // (including the consuming call, already handled above) is processed.
+                if (opcode is not (ILOpCode.Newobj or ILOpCode.Nop))
+                    pendingDelegateOpportunityIndex = null;
 
                 // A boxed concrete value type that flows straight into an escaping consumer
                 // (stored into a reference array, passed to a call/ctor, written to a field, or
