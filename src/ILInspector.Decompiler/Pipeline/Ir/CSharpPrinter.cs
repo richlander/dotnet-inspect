@@ -1434,6 +1434,7 @@ public sealed partial class CSharpPrinter
         TupleBinaryExpression t => $"{Operand(t.Left)} {(t.IsEquality ? "==" : "!=")} {Operand(t.Right)}",
         AnonymousObject a => AnonymousObjectText(a),
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
+        WithExpression w => WithExpressionText(w),
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         SliceExpression sl => $"{ReceiverText(sl.Receiver)}[{Expression(sl.Range)}]",
@@ -1603,7 +1604,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or WithExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
             || node is Call call && !IsOperatorCall(call)
             // A Binary/Convert that renders as a whole-expression `checked(...)`/

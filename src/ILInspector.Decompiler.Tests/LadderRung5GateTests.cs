@@ -20,15 +20,11 @@ namespace ILInspector.Decompiler.Tests;
 /// expressions, and init-only object initializers — render recognizably.</item>
 /// </list>
 ///
-/// Rung 5 is <b>not complete</b>: three source-visible constructs still fall short
+/// Rung 5 is <b>not complete</b>: two source-visible constructs still fall short
 /// of the bar and are tracked as focused issues. They are deliberately NOT
 /// asserted green here; this guard locks the invariant and the working surface so
 /// those fixes can be verified against a stable baseline:
 /// <list type="bullet">
-/// <item>#1630 — <c>with</c>-expression (<see cref="LadderRung5.Program.Shift"/>)
-/// is not raised and renders the invalid <c>&lt;Clone&gt;$</c> identifier (CS1001);
-/// it stays <c>Partial</c>, so it does not breach the no-invalid-<c>Full</c>
-/// bar.</item>
 /// <item>#1631 — tuple-pattern switch expression
 /// (<see cref="LadderRung5.Program.Quadrant"/>) decompiles to a goto ladder.</item>
 /// <item>#1632 — record <c>Deconstruct</c> drops the receiver and renders
@@ -84,10 +80,8 @@ public class LadderRung5GateTests
     }
 
     // The core ladder bar for rung 5: every member that imports as Full must
-    // render valid C#. This holds across the whole fixture today (the only
-    // malformed member, Shift / #1630, imports as Partial), so a future change
-    // that promotes a malformed body to Full — or introduces any malformed Full —
-    // fails here.
+    // render valid C#, and no rung 5 member should be malformed after the #1630
+    // with-expression fix removed the only Partial-malformed fixture member.
     [Fact]
     public void Rung5Fixture_HasNoInvalidFull()
     {
@@ -104,6 +98,14 @@ public class LadderRung5GateTests
             .ToArray();
         Assert.True(malformedFull.Length == 0,
             "Rung 5 requires no invalid Full; malformed Full: " + string.Join("; ", malformedFull));
+
+        var malformed = results
+            .Where(r => r.IsMalformed)
+            .Select(r => $"{r.Id}: {r.MalformedDiagnostics[0].Id} {r.MalformedDiagnostics[0].Message}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(malformed.Length == 0,
+            "Rung 5 requires zero malformed fixture members; malformed: " + string.Join("; ", malformed));
 
         var semantic = results
             .Where(r => r.HasSemanticDefect)
@@ -164,6 +166,9 @@ public class LadderRung5GateTests
 
         // init-only property set through an object initializer on a record.
         Assert.Contains("new Point(x, y) { Magnitude = x + y }", Body("MakeScaled"));
+
+        // nondestructive mutation (with-expression) on a record.
+        Assert.Contains("return point with { X = point.X + dx };", Body("Shift"));
     }
 
     static List<(string Type, string Name, IrFunction Function)> LoadRaisedMembers()

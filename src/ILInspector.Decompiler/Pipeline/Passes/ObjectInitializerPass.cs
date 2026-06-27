@@ -434,7 +434,7 @@ public sealed class ObjectInitializerPass : IIrPass
     /// <c>new Owner { Value = v }</c> from a generic accessor or
     /// <c>new Owner { bad-name = v }</c> from an unspellable accessor (#1416).
     /// </summary>
-    static bool IsInitializerSpellable(StoreProperty property)
+    internal static bool IsInitializerSpellable(StoreProperty property)
     {
         var accessor = property.Accessor;
         if (!accessor.TypeArguments.IsDefaultOrEmpty

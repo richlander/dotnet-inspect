@@ -40,6 +40,7 @@ internal static class CSharpSpellability
             NullCoalescingPropertyAssignment assignment => PropertyReason(assignment.PropertyName),
             AnonymousObject anonymous => InitializerMembersReason(anonymous.PropertyNames),
             ObjectInitializerExpression initializer => InitializerMembersReason(initializer.Members),
+            WithExpression withExpression => InitializerMembersReason(withExpression.Members),
             InitializerBlock block => InitializerMembersReason(block.Members),
             DeconstructionTarget target => DeconstructionTargetReason(target),
             RecursivePropertyDeclarationPattern pattern => PropertyReason(pattern.PropertyName),
