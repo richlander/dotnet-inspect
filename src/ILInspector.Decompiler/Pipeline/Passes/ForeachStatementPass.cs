@@ -259,8 +259,16 @@ public sealed class ForeachStatementPass : IIrPass
     {
         LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
         LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
+        LoadFieldAddress address => new LoadField(address.Field, DetachCollectionReceiver(address.Instance)),
         _ => expression,
     };
+
+    static IrExpression? DetachCollectionReceiver(IrExpression? expression)
+    {
+        if (expression?.Parent is not null)
+            expression.Detach();
+        return expression;
+    }
 
     sealed record IndexedCandidate(
         ForLoop Loop,
