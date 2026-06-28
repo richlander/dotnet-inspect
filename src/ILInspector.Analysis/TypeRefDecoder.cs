@@ -65,7 +65,16 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 name,
                 FrameworkAssemblyKeys.IsFrameworkReference(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope)),
             HandleKind.TypeReference => NestedReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope, name),
-            _ => TypeRef.Definition("", ns, name, FrameworkAssemblyKeys.IsFrameworkDefinition(reader)),
+            // ModuleReference / nil scope: the type is in the current assembly (another
+            // module of it, or an exported/forwarded type resolved in this manifest), so
+            // stamp the current assembly name — matching GetTypeFromDefinition — rather than
+            // an empty string, so assembly-qualified identity keys are symmetric between a
+            // definition and a same-assembly reference to it.
+            _ => TypeRef.Definition(
+                reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "",
+                ns,
+                name,
+                FrameworkAssemblyKeys.IsFrameworkDefinition(reader)),
         };
     }
 
