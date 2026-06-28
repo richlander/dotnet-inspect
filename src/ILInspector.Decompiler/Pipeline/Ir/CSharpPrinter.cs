@@ -931,40 +931,13 @@ public sealed partial class CSharpPrinter
         }
         if (node is ForLoop forLoop)
         {
-            // A checked user-defined ++/-- can land in the for-header (a class loop
-            // variable lets ForLoopPass raise the loop before the increment folds).
-            // It has no in-header checked spelling and a bare i++ would rebind to
-            // the unchecked overload, so wrap the whole loop in checked { ... } —
-            // the header increment then selects the checked overload from that
-            // context. See #1712.
-            bool checkedLoop = IsCheckedIncrementStatement(forLoop.Initializer)
-                || IsCheckedIncrementStatement(forLoop.Increment);
-            int forIndent = indent;
-            bool savedContext = _checkedContext;
-            if (checkedLoop)
-            {
-                sb.Append(pad).AppendLine("checked");
-                sb.Append(pad).AppendLine("{");
-                forIndent = indent + 1;
-                _checkedContext = true;
-            }
-            try
-            {
-                string forPad = new(' ', forIndent * 4);
-                string initializer = ForHeaderClause(forLoop.Initializer);
-                string increment = ForHeaderClause(forLoop.Increment);
-                sb.Append(forPad).Append("for (").Append(initializer).Append("; ")
-                    .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
-                sb.Append(forPad).AppendLine("{");
-                AppendStatements(sb, forLoop.Body.Children, forIndent + 1);
-                sb.Append(forPad).AppendLine("}");
-            }
-            finally
-            {
-                _checkedContext = savedContext;
-            }
-            if (checkedLoop)
-                sb.Append(pad).AppendLine("}");
+            string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
+            string increment = Statement(forLoop.Increment)?.TrimEnd(';') ?? "";
+            sb.Append(pad).Append("for (").Append(initializer).Append("; ")
+                .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            AppendStatements(sb, forLoop.Body.Children, indent + 1);
+            sb.Append(pad).AppendLine("}");
             return;
         }
         if (node is WhileLoop whileLoop)
@@ -1317,12 +1290,9 @@ public sealed partial class CSharpPrinter
         ExpressionStatement e => e.Expression switch
         {
             UnsupportedNode u => $"/* {u.Describe()} */",
-            // A ++/-- that the context would wrap as checked(x++)/unchecked(x++) is
-            // CS0201 in statement position; render it as a checked/unchecked { x++; }
-            // block instead. (A checked user-defined increment always wraps; an
-            // unchecked one wraps only inside a checked context — e.g. the body of a
-            // checked-wrapped for-loop.)
-            IncrementDecrement id when IncrementWrapsAsBlock(id) => WrappedIncrementStatement(id),
+            // A user-defined checked ++/-- as a statement spells checked(x++),
+            // which is CS0201 in statement position; use a checked { ... } block.
+            IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(id),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
             // discarded by an IL `pop`, a comparison, the caught exception, an
@@ -2385,31 +2355,6 @@ public sealed partial class CSharpPrinter
         return _localScopeNames.Contains(fieldName);
     }
 
-    /// <summary>A <c>for</c> header clause (initializer/increment) without the trailing <c>;</c>. A checked user-defined <c>++</c>/<c>--</c> has no for-header spelling (a <c>checked { }</c> block is invalid there); the enclosing loop is wrapped in <c>checked { }</c> instead, so the bare operator rendered here selects the checked overload from that context.</summary>
-    string ForHeaderClause(IrNode node)
-    {
-        // A for-header clause cannot contain a checked/unchecked block, so render
-        // any ++/-- bare. The enclosing loop's checked { } wrapper (added when the
-        // header increment is checked) supplies the overload-selecting context.
-        if (node is ExpressionStatement { Expression: IncrementDecrement id })
-        {
-            bool saved = _checkedContext;
-            _checkedContext = id.IsChecked;
-            try
-            {
-                return IncrementDecrementText(id);
-            }
-            finally
-            {
-                _checkedContext = saved;
-            }
-        }
-        return Statement(node)?.TrimEnd(';') ?? "";
-    }
-
-    static bool IsCheckedIncrementStatement(IrNode node)
-        => node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } };
-
     string IncrementDecrementText(IncrementDecrement id)
     {
         string op = id.IsIncrement ? "++" : "--";
@@ -2440,20 +2385,14 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    /// <summary>True when <see cref="IncrementDecrementText"/> would wrap this increment in <c>checked(...)</c>/<c>unchecked(...)</c> — so as a statement it needs a block instead (CS0201).</summary>
-    bool IncrementWrapsAsBlock(IncrementDecrement id)
-        => id.IsChecked
-            || (_checkedContext && (TypeFamilies.IsInteger(id.ResultType) || id.IsUserDefined));
-
-    /// <summary>A ++/-- in statement position that needs an overflow-context block: <c>checked { x++; }</c> for a checked increment, <c>unchecked { x++; }</c> for one the surrounding checked context would otherwise wrap. The block both spells a legal statement and preserves the operator overload.</summary>
-    string WrappedIncrementStatement(IncrementDecrement id)
+    /// <summary>A user-defined checked ++/-- in statement position: a <c>checked { x++; }</c> block, since the <c>checked(x++)</c> expression is CS0201 as a statement.</summary>
+    string CheckedIncrementStatement(IncrementDecrement id)
     {
-        string keyword = id.IsChecked ? "checked" : "unchecked";
         bool saved = _checkedContext;
-        _checkedContext = id.IsChecked;
+        _checkedContext = true;
         try
         {
-            return $"{keyword} {{ {IncrementDecrementText(id)}; }}";
+            return $"checked {{ {IncrementDecrementText(id)}; }}";
         }
         finally
         {

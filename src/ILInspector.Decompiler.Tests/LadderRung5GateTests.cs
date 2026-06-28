@@ -269,22 +269,25 @@ public class LadderRung5GateTests
         Assert.Contains("checked { a++; }", stmtChecked);
         Assert.DoesNotContain("op_", stmtChecked);
 
-        // A checked for-loop over a class loop variable wraps the whole loop in
-        // checked { } so the header i++ selects the checked overload.
+        // A checked for-loop over a class loop variable has no for-header spelling
+        // that preserves the checked overload, so it stays a while loop with the
+        // increment localized to a checked { i++; } body block (no over-checking).
         var classLoop = CSharpPrinter.PrintRaised(
             LoadRaisedMembers().Single(m => m.Type == typeof(LadderRung5.CheckedStep).FullName && m.Name == "CheckedForLoop").Function)
             .Output ?? "";
-        Assert.Contains("checked", classLoop);
-        Assert.Contains("for (", classLoop);
-        Assert.Contains("i++", classLoop);
+        Assert.Contains("while (", classLoop);
+        Assert.Contains("checked { i++; }", classLoop);
         Assert.DoesNotContain("op_", classLoop);
 
-        // An unchecked increment inside the checked-wrapped loop body renders an
-        // unchecked { j++; } block (valid statement, correct unchecked overload).
+        // An explicitly unchecked increment in the body stays unchecked while the
+        // loop variable increment is the localized checked block — no overload
+        // rebinding from an over-broad checked wrapper.
         var mixedLoop = CSharpPrinter.PrintRaised(
             LoadRaisedMembers().Single(m => m.Type == typeof(LadderRung5.CheckedStep).FullName && m.Name == "CheckedForLoopMixed").Function)
             .Output ?? "";
-        Assert.Contains("unchecked { j++; }", mixedLoop);
+        Assert.Contains("while (", mixedLoop);
+        Assert.Contains("j++;", mixedLoop);
+        Assert.Contains("checked { i++; }", mixedLoop);
         Assert.DoesNotContain("op_", mixedLoop);
     }
 

@@ -47,11 +47,10 @@ public sealed class IncrementDecrementPass : IIrPass
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
-            if (call.Parent is null || AsIncrementCall(call) is not { } op)
+            if (call.Parent is null || PotentialIncrementCall(call) is not { } symbol)
                 continue;
             if (EnclosingBlockStatement(call) is not { Parent: not null } statement)
                 continue;
-            string symbol = op.IsIncrement ? "++" : "--";
             var marker = new UnsupportedNode(
                 statement.SourceOffset >= 0 ? statement.SourceOffset : 0,
                 symbol,
@@ -63,6 +62,17 @@ public sealed class IncrementDecrementPass : IIrPass
             statement.ReplaceWith(replacement);
         }
     }
+
+    /// <summary>The <c>++</c>/<c>--</c> symbol of a surviving increment/decrement operator-shaped call, or null. Unlike <see cref="AsIncrementCall"/> this does NOT require resolved <c>IsOperator</c>: an UNRESOLVED real operator that the fold declined must still degrade to a residual rather than leak the CS0571 method call. A name-inferred special-name <c>op_*</c> call is the residual signal.</summary>
+    static string? PotentialIncrementCall(Call call)
+        => call is { Callee: { HasThis: false, IsSpecialName: true, Name: var name }, Arguments: [_] }
+            ? name switch
+            {
+                "op_Increment" or "op_CheckedIncrement" => "++",
+                "op_Decrement" or "op_CheckedDecrement" => "--",
+                _ => null,
+            }
+            : null;
 
     /// <summary>The ancestor of <paramref name="node"/> that is a direct child of a <see cref="Block"/> — the statement to degrade.</summary>
     static IrNode? EnclosingBlockStatement(IrNode node)
