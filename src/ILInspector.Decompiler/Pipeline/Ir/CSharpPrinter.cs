@@ -2425,7 +2425,7 @@ public sealed partial class CSharpPrinter
 
     string ConversionOperatorSpelling(TypeRef target, IrExpression value)
     {
-        string operand = Operand(value);
+        string operand = OperatorOperand(value);
         string targetText = TypeText(target);
         if (NeedsCastOperandParentheses(operand, targetText))
             operand = $"({operand})";
@@ -2451,9 +2451,9 @@ public sealed partial class CSharpPrinter
         return (symbol, arguments.Count) switch
         {
             ("+" or "-" or "*" or "/", 2)
-                => WrapChecked(() => $"{Operand(arguments[0])} {symbol} {Operand(arguments[1])}"),
+                => WrapChecked(() => $"{OperatorOperand(arguments[0])} {symbol} {OperatorOperand(arguments[1])}"),
             ("-", 1) // op_CheckedUnaryNegation
-                => WrapChecked(() => $"-{Operand(arguments[0])}"),
+                => WrapChecked(() => $"-{OperatorOperand(arguments[0])}"),
             _ => null,
         };
     }
