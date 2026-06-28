@@ -240,6 +240,32 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain("UseBox", listCallers);
     }
 
+    // #1741 (review): Box<T> (Box`1) and Box<T1,T2> (Box`2) share a simple name but have
+    // different generic arity, each with a same-name/same-arity Store. The declaring-type
+    // portion of the caller-graph key must preserve arity so the two Stores stay distinct.
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsSameNameGenericTypesOfDifferentArityDistinct()
+    {
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var box1Store = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
+        var box2Store = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`2" && method.Name == "Store");
+
+        var box1Callers = targetIndex.BuildCallerTree(box1Store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+        var box2Callers = targetIndex.BuildCallerTree(box2Store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+
+        Assert.Contains("UseBox", box1Callers);
+        Assert.DoesNotContain("UseBox2", box1Callers);
+        Assert.Contains("UseBox2", box2Callers);
+        Assert.DoesNotContain("UseBox", box2Callers);
+    }
+
     // #1731 (adversarial review): the cross-assembly caller-graph shape keys on the OPEN
     // signature (VAR/MVAR markers), not the substituted concrete types. A constructed
     // Box<int>.Store(T) call carries a concrete int as its instantiated parameter, but the

@@ -24,6 +24,10 @@ namespace Shared
         // caller graph rooted at Store(List<T>) must report this and not UseBox.
         public static void UseBoxList() => new Target.Box<int>().Store(new System.Collections.Generic.List<int>());
 
+        // #1741 (review): calls Store on the different-arity Box<int, string> (Box`2). A
+        // caller graph rooted at Box`1.Store must not report this, and vice versa.
+        public static void UseBox2() => new Target.Box<int, string>().Store(1);
+
         public static void UseEcho() => Target.GenericApi.Echo(1);
     }
 }

@@ -896,15 +896,15 @@ public sealed class LibraryBodyIndex
             member.Name,
             member.ParameterTypes,
             member.OpenSignatureParameters,
-            member.ReturnType,
+            member.OpenSignatureReturn,
             GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, member.TypeArguments));
 
-    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, ImmutableArray<TypeRef> openParameterTypes, TypeRef returnType, bool eraseGenericSignature)
+    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, ImmutableArray<TypeRef> openParameterTypes, TypeRef openReturnType, bool eraseGenericSignature)
     {
         var openDeclaring = GenericMemberIdentity.OpenDeclaringType(declaringType);
         return eraseGenericSignature
-            ? $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{GenericMemberIdentity.ErasedParameterShape(openParameterTypes)}"
-            : $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(returnType)}";
+            ? $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{name}|{parameterTypes.Length}|{GenericMemberIdentity.ErasedParameterShape(openParameterTypes)}|{GenericMemberIdentity.KeyFragment(openReturnType)}"
+            : $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(openReturnType)}";
     }
 
     sealed class IndexBuilder

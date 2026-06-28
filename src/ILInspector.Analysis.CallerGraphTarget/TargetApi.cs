@@ -40,6 +40,16 @@ namespace Target
         }
     }
 
+    // #1741 (review): a different-arity generic type with the SAME simple name (Box`2)
+    // and a same-name/same-arity method. The declaring-type portion of the caller-graph
+    // key must preserve generic arity so Box`1.Store and Box`2.Store stay distinct.
+    public sealed class Box<T1, T2>
+    {
+        public void Store(T1 value)
+        {
+        }
+    }
+
     // Generic method on a non-generic type: a caller invokes Echo<int>, a MethodSpec keyed on
     // the instantiation, which must match the open Echo<T>(T) target.
     public static class GenericApi

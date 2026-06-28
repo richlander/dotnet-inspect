@@ -23,6 +23,7 @@ internal static class MemberResolver
                 return new MemberRef(declaring, name, signature.ParameterTypes, signature.ReturnType, KindFor(name))
                 {
                     OpenParameterTypes = signature.ParameterTypes,
+                    OpenReturnType = signature.ReturnType,
                 };
             }
             case HandleKind.MemberReference:
@@ -41,6 +42,7 @@ internal static class MemberResolver
                 {
                     // Raw signature with VAR/MVAR markers, before instantiation (#1731).
                     OpenParameterTypes = signature.ParameterTypes,
+                    OpenReturnType = signature.ReturnType,
                 };
             }
             case HandleKind.MethodSpecification:
@@ -53,8 +55,9 @@ internal static class MemberResolver
                     TypeArguments = methodArguments,
                     ReturnType = generic.ReturnType.Instantiate([], methodArguments),
                     ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
-                    // OpenParameterTypes is inherited from `generic` (raw markers), not
-                    // instantiated, so the open generic-method shape is preserved (#1731).
+                    // OpenParameterTypes / OpenReturnType are inherited from `generic` (raw
+                    // markers), not instantiated, so the open generic-method shape is
+                    // preserved (#1731, #1741).
                 };
             }
             default:
