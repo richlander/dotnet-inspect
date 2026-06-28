@@ -3786,6 +3786,29 @@ public class CfgSampleClass
         }
         return true;
     }
+
+    // #1710 / ConditionalStoreChainPass: a compare-chain switch that assigns a
+    // local in each arm, followed by a non-duplicable continuation that uses it.
+    // The pass folds the dispatch into a nested conditional store
+    // (weight = sel == 0 ? 11 : (sel == 1 ? 22 : 33)) so the method structures.
+    // Self-contained (no LINQ/lambda) so the fidelity harness compiles it back;
+    // it is a known opcode-diff (the ternary re-lowers differently than per-arm
+    // stores), pinned so a regression to RecompileFail or a worse shape is caught
+    // by the always-run fidelity gate, not left to the sampled corpus.
+    public static int SwitchStoreThenUse(int sel, int[] data)
+    {
+        int weight;
+        switch (sel)
+        {
+            case 0: weight = 11; break;
+            case 1: weight = 22; break;
+            default: weight = 33; break;
+        }
+        int acc = 0;
+        for (int i = 0; i < data.Length; i++)
+            acc += data[i] * weight;
+        return acc;
+    }
 }
 
 internal static class AwaitOrderingHelpers
