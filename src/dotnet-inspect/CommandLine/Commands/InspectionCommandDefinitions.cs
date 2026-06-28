@@ -211,6 +211,11 @@ public static class InspectionCommandDefinitions
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
+            if (!PerformanceTriageOptions.TryValidateShapes(performanceTriage, out var triageShapeError))
+            {
+                Console.Error.WriteLine(triageShapeError);
+                return 1;
+            }
             if (!string.IsNullOrWhiteSpace(typeFilter))
                 select = [.. select ?? [], "Source Files"];
             if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))

@@ -268,6 +268,17 @@ public class CommandExecutionTests
         Assert.Equal(baseline.Output, filtered.Output);
     }
 
+    [Fact]
+    public async Task PerformanceTriageShape_UnknownShapeReportsValidShapes()
+    {
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "--triage-shape", "typo-shape", "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Unknown Performance Triage shape 'typo-shape'", error);
+        Assert.Contains("capturing-delegate", error);
+    }
+
     // ── bare router ───────────────────────────────────────────────────
 
     [Fact]

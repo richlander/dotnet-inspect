@@ -47,7 +47,11 @@ devirtualization, bounds-check elimination, null-check folding).
 Use `--loop` for repeated hot costs, `--min-confidence high|medium|low` for a
 confidence floor, `--triage-shape` for one or more shapes, and `--top N` for the
 curated ranked prefix. Supplying any of those flags selects `Performance Triage`
-automatically on `library`, `type`, and `member`.
+automatically on `library`, `type`, and `member`. `--top` narrows the ranked data
+before rendering; `-n N --rows` is a generic rendered-row cap applied afterward.
+Common shapes include `capturing-delegate`, `box-value-type`, `small-array`,
+`linq-scan-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
+`allocation-hotspot`.
 
 ## Drill a candidate
 

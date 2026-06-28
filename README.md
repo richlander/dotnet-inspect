@@ -114,11 +114,13 @@ non-escaping arrays, temporary or span-to-array copies, capturing and instance
 method-group delegates, and value-type boxing) plus `allocation-hotspot` rows
 for methods that allocate heavily without matching a specific shape. Use
 `--top`, `--loop`, `--min-confidence`, and `--triage-shape` to ask the tool for
-the curated pay-dirt rows directly instead of post-processing. Drill candidates
-with `Call Graph` (bounded outbound tree) and `Caller Graph` (bounded reverse
-tree to entry points), and project per-node cost with `--fields`. Ranking rows
-carry a copyable `Stable` selector, `Visibility`, and `Selector`; add `--all` to
-drill non-public members.
+the curated pay-dirt rows directly instead of post-processing. `--top` limits
+the ranked data before rendering; `-n N --rows` remains a renderer cap and is
+applied afterward if both are supplied. Drill candidates with `Call Graph`
+(bounded outbound tree) and `Caller Graph` (bounded reverse tree to entry
+points), and project per-node cost with `--fields`. Ranking rows carry a
+copyable `Stable` selector, `Visibility`, and `Selector`; add `--all` to drill
+non-public members.
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Top Leverage"
@@ -129,6 +131,10 @@ dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --js
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
 ```
+
+Common `--triage-shape` values include `capturing-delegate`,
+`box-value-type`, `small-array`, `linq-scan-in-loop`,
+`string-build-in-loop`, `enumerator-allocation`, and `allocation-hotspot`.
 
 ### Decompiler
 

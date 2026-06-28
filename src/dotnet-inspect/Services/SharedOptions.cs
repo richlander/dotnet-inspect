@@ -55,7 +55,7 @@ public class SharedOptions
     public Option<string?> PerformanceTriageMinConfidence { get; } = new("--min-confidence") { Description = "Performance Triage: minimum confidence (low, medium, high)" };
     public Option<string[]> PerformanceTriageShape { get; } = new("--triage-shape")
     {
-        Description = "Performance Triage: include only shape(s), comma-separated or repeated",
+        Description = "Performance Triage: include only shape(s), comma-separated or repeated; run -S \"Performance Triage\" to see shapes",
         AllowMultipleArgumentsPerToken = true
     };
     public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Performance Triage: show the top N ranked rows" };
