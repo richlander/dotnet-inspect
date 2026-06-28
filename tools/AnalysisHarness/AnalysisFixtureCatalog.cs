@@ -404,8 +404,10 @@ public static class AnalysisFixtureCatalog
                         foreach (var x in items) total += x;
                     return total;
                 }
-                // Must-not-flag (trust gate): GetEnumerator returns an untrusted lookalike defined
-                // in this (unsigned) assembly, so it is not the real framework IEnumerator.
+                // Must-not-flag: GetEnumerator returns a user reference type that is NOT the
+                // framework IEnumerator/IEnumerator<T>. The shape is matched by trusted framework
+                // enumerator identity (exact corelib namespace+name), not by the foreach pattern,
+                // so even a reference-type user enumerator is not flagged.
                 public static int ForeachLookalikeEnumeratorInLoop(LookalikeEnumeratorCollection c, int times)
                 {
                     var total = 0;
@@ -422,9 +424,10 @@ public static class AnalysisFixtureCatalog
         }
         namespace System.Collections.Generic
         {
-            // A type in the framework collections namespace whose name starts with "IEnumerator"
-            // but is defined in this unsigned assembly, so it carries no framework public-key-token
-            // and is trust-gated out of the enumerator-allocation shape (#1814).
+            // A user reference type in the framework collections namespace whose name is NOT the
+            // exact framework enumerator name; returned by a user GetEnumerator. The
+            // enumerator-allocation shape requires the exact trusted corelib IEnumerator identity,
+            // so this is not flagged (#1814).
             public sealed class IEnumeratorLookalike
             {
                 public bool MoveNext() => false;
@@ -440,9 +443,9 @@ public static class AnalysisFixtureCatalog
             new("ForeachConcreteListInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
                 Note: "Concrete List<T> uses a struct enumerator -- no heap allocation."),
             new("ForeachLookalikeEnumeratorInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
-                Note: "Untrusted enumerator lookalike is trust-gated out (#1814)."),
+                Note: "GetEnumerator returns a non-framework reference type; the shape requires the exact trusted corelib IEnumerator identity, not just any reference-type enumerator (#1814)."),
         ],
-        ["opportunity", "enumerator", "trust-gate", "in-assembly", "rung5"]);
+        ["opportunity", "enumerator", "in-assembly", "rung5"]);
 
     public static IReadOnlyList<AnalysisFixtureDefinition> All { get; } =
     [
