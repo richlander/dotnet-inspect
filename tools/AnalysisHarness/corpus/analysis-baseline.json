@@ -1,0 +1,234 @@
+{
+  "Assemblies": [
+    {
+      "Name": "DotnetInspector.Core.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 285,
+      "Diagnostics": 0,
+      "Allocations": 89,
+      "ExceptionConstructions": 5,
+      "Shapes": {
+        "box-value-type": 1,
+        "capturing-delegate": 2
+      }
+    },
+    {
+      "Name": "DotnetInspector.Packages.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 303,
+      "Diagnostics": 0,
+      "Allocations": 102,
+      "ExceptionConstructions": 5,
+      "Shapes": {
+        "capturing-delegate": 5,
+        "small-array": 3
+      }
+    },
+    {
+      "Name": "DotnetInspector.Services.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 450,
+      "Diagnostics": 0,
+      "Allocations": 197,
+      "ExceptionConstructions": 2,
+      "Shapes": {
+        "capturing-delegate": 18,
+        "enumerator-allocation": 1,
+        "linq-scan-in-loop": 3,
+        "scan-method-in-loop-call": 2,
+        "small-array": 7,
+        "span-to-array-copy": 1
+      }
+    },
+    {
+      "Name": "ILInspector.Analysis.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 725,
+      "Diagnostics": 0,
+      "Allocations": 301,
+      "ExceptionConstructions": 7,
+      "Shapes": {
+        "box-value-type": 1,
+        "capturing-delegate": 20,
+        "enumerator-allocation": 1,
+        "instance-method-group-delegate": 1,
+        "scan-method-in-loop-call": 2,
+        "small-array": 5
+      }
+    },
+    {
+      "Name": "ILInspector.Decompiler.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 5440,
+      "Diagnostics": 0,
+      "Allocations": 2669,
+      "ExceptionConstructions": 79,
+      "Shapes": {
+        "box-value-type": 25,
+        "capturing-delegate": 202,
+        "enumerator-allocation": 77,
+        "instance-method-group-delegate": 29,
+        "linq-scan-in-loop": 53,
+        "scan-method-in-loop-call": 45,
+        "small-array": 97,
+        "span-to-array-copy": 4,
+        "string-build-in-loop": 3
+      }
+    },
+    {
+      "Name": "ILInspector.Metadata.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 1842,
+      "Diagnostics": 0,
+      "Allocations": 548,
+      "ExceptionConstructions": 15,
+      "Shapes": {
+        "box-value-type": 8,
+        "capturing-delegate": 16,
+        "enumerator-allocation": 2,
+        "linq-scan-in-loop": 1,
+        "small-array": 7,
+        "string-build-in-loop": 1
+      }
+    },
+    {
+      "Name": "ILInspector.MetadataPrimitives.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 61,
+      "Diagnostics": 0,
+      "Allocations": 14,
+      "ExceptionConstructions": 0,
+      "Shapes": {
+        "box-value-type": 1,
+        "capturing-delegate": 3
+      }
+    },
+    {
+      "Name": "Microsoft.ApplicationInsights.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 2478,
+      "Diagnostics": 0,
+      "Allocations": 1111,
+      "ExceptionConstructions": 195,
+      "Shapes": {
+        "box-value-type": 51,
+        "capturing-delegate": 18,
+        "enumerator-allocation": 1,
+        "instance-method-group-delegate": 16,
+        "linq-scan-in-loop": 3,
+        "small-array": 153,
+        "string-build-in-loop": 5,
+        "temporary-byte-array-copy": 4
+      }
+    },
+    {
+      "Name": "Microsoft.CodeAnalysis.CSharp.dll",
+      "Opened": false,
+      "TimedOut": true,
+      "Methods": 0,
+      "Diagnostics": 0,
+      "Allocations": 0,
+      "ExceptionConstructions": 0,
+      "Shapes": {}
+    },
+    {
+      "Name": "Microsoft.CodeAnalysis.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 17331,
+      "Diagnostics": 0,
+      "Allocations": 5490,
+      "ExceptionConstructions": 950,
+      "Shapes": {
+        "box-value-type": 285,
+        "capturing-delegate": 116,
+        "enumerator-allocation": 22,
+        "instance-method-group-delegate": 97,
+        "linq-scan-in-loop": 3,
+        "scan-method-in-loop-call": 1,
+        "small-array": 300,
+        "span-to-array-copy": 2,
+        "string-build-in-loop": 3,
+        "temporary-byte-array-copy": 1
+      }
+    },
+    {
+      "Name": "Newtonsoft.Json.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 4107,
+      "Diagnostics": 0,
+      "Allocations": 1745,
+      "ExceptionConstructions": 328,
+      "Shapes": {
+        "box-value-type": 124,
+        "capturing-delegate": 61,
+        "enumerator-allocation": 13,
+        "instance-method-group-delegate": 10,
+        "linq-scan-in-loop": 7,
+        "scan-method-in-loop-call": 3,
+        "small-array": 144
+      }
+    },
+    {
+      "Name": "NuGet.Versioning.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 309,
+      "Diagnostics": 0,
+      "Allocations": 133,
+      "ExceptionConstructions": 26,
+      "Shapes": {
+        "box-value-type": 6,
+        "capturing-delegate": 3,
+        "small-array": 1
+      }
+    },
+    {
+      "Name": "System.CommandLine.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 977,
+      "Diagnostics": 0,
+      "Allocations": 480,
+      "ExceptionConstructions": 68,
+      "Shapes": {
+        "box-value-type": 10,
+        "capturing-delegate": 28,
+        "enumerator-allocation": 8,
+        "instance-method-group-delegate": 7,
+        "linq-scan-in-loop": 1,
+        "small-array": 27,
+        "string-build-in-loop": 1
+      }
+    },
+    {
+      "Name": "dotnet-inspect.dll",
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 12637,
+      "Diagnostics": 0,
+      "Allocations": 10768,
+      "ExceptionConstructions": 238,
+      "Shapes": {
+        "box-value-type": 14,
+        "capturing-delegate": 234,
+        "enumerator-allocation": 15,
+        "instance-method-group-delegate": 75,
+        "linq-scan-in-loop": 13,
+        "scan-method-in-loop-call": 9,
+        "small-array": 771,
+        "span-to-array-copy": 1,
+        "string-build-in-loop": 6
+      }
+    }
+  ]
+}

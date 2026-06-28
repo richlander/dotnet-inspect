@@ -42,5 +42,16 @@ dotnet artifacts/bin/ILInspector.Analysis.Tests/release/ILInspector.Analysis.Tes
 
 ## Layers above this
 
-This is Layer 1 of #1818. The corpus stability sensor (Layer 2) and the sampled-judgment
-precision/recall loop (Layer 3) are tracked there.
+This is Layer 1 of #1818. The corpus stability sensor (Layer 2) is `--corpus-list`:
+
+```bash
+dotnet "$DLL" --corpus-list assemblies.txt                                    # stability card
+dotnet "$DLL" --corpus-list assemblies.txt --diff-corpus-baseline corpus/analysis-baseline.json
+```
+
+It sweeps the analyzer over a pinned corpus (one assembly path per line) and reports the
+mechanically-checkable signals — did every assembly open, did the analyzer choke (recoverable
+diagnostics) — diffed against a committed baseline. A REGRESSION (an assembly that stops opening,
+times out, or whose diagnostics increase) exits nonzero; signal-count DRIFT is reported, not
+failed. Each assembly is bounded by a per-assembly timeout so one pathological input cannot hang
+the sweep. The sampled-judgment precision/recall loop (Layer 3) is tracked on #1818.
