@@ -58,10 +58,85 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "primary-constructor", "field-initializer"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalCtorFieldGetter = new(
+        "minimal.ctor-field.getter",
+        """
+        namespace GeneratedFixtures.MinimalCtorFieldGetter;
+
+        public class Class1
+        {
+            private readonly string _message;
+
+            public Class1(string message)
+            {
+                _message = message;
+            }
+
+            public string Method1 => _message;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalCtorFieldGetter.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalCtorFieldGetter.Class1", "get_Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "constructor", "field", "property"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalAutoPropertyGetter = new(
+        "minimal.auto-property.getter",
+        """
+        namespace GeneratedFixtures.MinimalAutoPropertyGetter;
+
+        public class Class1
+        {
+            public Class1(string message)
+            {
+                Method1 = message;
+            }
+
+            public string Method1 { get; }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalAutoPropertyGetter.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.RecompileFail, IsFrontier: true,
+                Note: "Compile-back skeleton does not reconstruct the get-only auto-property surface yet."),
+            new("GeneratedFixtures.MinimalAutoPropertyGetter.Class1", "get_Method1",
+                FidelityCheck.CompileBackStatus.RecompileFail, IsFrontier: true,
+                Note: "Compile-back skeleton does not reconstruct the get-only auto-property surface yet."),
+        ],
+        ["minimal", "constructor", "auto-property"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalMethodCallSameType = new(
+        "minimal.method-call.same-type",
+        """
+        namespace GeneratedFixtures.MinimalMethodCallSameType;
+
+        public class Class1
+        {
+            public string Method1() => Method2();
+
+            private string Method2() => "Hello World";
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalMethodCallSameType.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalMethodCallSameType.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalMethodCallSameType.Class1", "Method2",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "method-call"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
         MinimalPrimaryCtorFieldInit,
+        MinimalCtorFieldGetter,
+        MinimalAutoPropertyGetter,
+        MinimalMethodCallSameType,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
