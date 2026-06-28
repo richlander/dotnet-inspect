@@ -449,6 +449,52 @@ public class LibraryBodyIndexTests
         Assert.Equal("ILInspector.Analysis.Tests.GenericDeclaringTarget<int>", child.Member.DeclaringType.ToQualifiedDisplayString());
     }
 
+    // #1623 rung 4: the FORWARD call tree must mark a callee edge invoked inside a loop.
+    // The reverse caller tree already pins this (BuildCallerTree_MarksCallerNodeInLoop);
+    // BuildCallTree forwards edge.InLoop but had no tree-level guard.
+    [Fact]
+    public void BuildCallTree_MarksCalleeNodeInLoop_WhenInvokedInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        int root = index.Methods.First(m => m.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)).MetadataToken;
+
+        var tree = index.BuildCallTree(root, maxDepth: 2, maxNodes: 50);
+
+        var child = Assert.Single(tree.Children.Where(c => c.Member.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+        Assert.True(child.Perf?.InLoop, "forward call-tree must mark the in-loop callee edge");
+    }
+
+    // #1623 rung 4: ranking stability. Two methods tied on every leverage metric
+    // (caller-count / root-reach / fanout / loop-calls) must order deterministically by
+    // metadata token, and that order must not depend on the input method order. Guards the
+    // final ThenBy(MetadataToken) tie-break, which was unguarded.
+    [Fact]
+    public void TopLeverage_TieBreak_IsDeterministicAndStableAcrossInputOrder()
+    {
+        var root = LeverageMethod("Root", 0x06000010);
+        var tieA = LeverageMethod("TieA", 0x06000001);
+        var tieB = LeverageMethod("TieB", 0x06000002);
+        // Root calls each tied method exactly once -> equal caller-count(1)/reach(1)/fanout(0)/loop(0).
+        var calls = ImmutableArray.Create(LeverageCall(root, tieA), LeverageCall(root, tieB));
+
+        var forward = MethodLeverageRanking.Top(calls, [root, tieA, tieB], count: 10)
+            .Select(e => e.Method.Name).Where(n => n is "TieA" or "TieB").ToList();
+        var reversed = MethodLeverageRanking.Top(calls, [tieB, tieA, root], count: 10)
+            .Select(e => e.Method.Name).Where(n => n is "TieA" or "TieB").ToList();
+
+        Assert.Equal(["TieA", "TieB"], forward);   // deterministic: lower token first
+        Assert.Equal(forward, reversed);            // stable across input order
+    }
+
+    static MethodIdentity LeverageMethod(string name, int token)
+        => new("Asm", Guid.Empty, TypeRef.Definition("Asm", "Ns", "Type"), name, [], TypeRef.CoreLib("System", "Void"), token, IsStatic: true);
+
+    static DirectCall LeverageCall(MethodIdentity caller, MethodIdentity callee)
+    {
+        var calleeRef = new MemberRef(callee.DeclaringType, callee.Name, callee.ParameterTypes, callee.ReturnType, MemberKind.Method);
+        return new DirectCall(caller, calleeRef, ILOffset: 0, OperandToken: callee.MetadataToken, CalleeDefinitionToken: callee.MetadataToken, CallKind.Call);
+    }
+
     [Fact]
     public void TopUnsafeLeverage_CountsCallerOfConstructedGenericDeclaringType()
     {
