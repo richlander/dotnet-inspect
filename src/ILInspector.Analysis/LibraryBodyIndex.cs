@@ -1605,13 +1605,18 @@ public sealed class LibraryBodyIndex
                         // unconditionally-allocating value type. Escape is decided at the
                         // consumer below.
                         var allocating = IsAllocatingValueTypeBox(token, boxed);
-                        pendingBoxOffset = allocating ? offset : null;
-                        pendingBoxType = allocating ? boxed : null;
-                        // A box on a throw path executes at most once before unwinding, so it is
-                        // not a repeated/hot allocation even inside a loop region.
-                        pendingBoxInLoop = allocating
-                            && IsInLoopRegion(offset, loopRegions)
-                            && !BoxFeedsThrowSoon(il, position);
+                        // A box that flows into a throw within a few instructions is an
+                        // error-path allocation (an exception message: `throw new
+                        // ArgumentException($"bad {x}")` lowers to box; Format; newobj; throw).
+                        // It executes at most once before unwinding, not in steady state, so it
+                        // is not pay-dirt — suppress it entirely (mirrors excluding exception
+                        // construction from allocation density), not merely demote it off the
+                        // hot-loop bit.
+                        var feedsThrow = allocating && BoxFeedsThrowSoon(il, position);
+                        pendingBoxOffset = allocating && !feedsThrow ? offset : null;
+                        pendingBoxType = allocating && !feedsThrow ? boxed : null;
+                        pendingBoxInLoop = pendingBoxOffset is not null
+                            && IsInLoopRegion(offset, loopRegions);
                         break;
                     }
                     default:

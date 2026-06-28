@@ -1491,6 +1491,16 @@ public class LibraryBodyIndexTests
         Assert.False(row.InLoop);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_BoxFeedingThrow_IsNotBoxValueType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A value boxed into an exception message that is thrown is an error-path allocation,
+        // not steady-state pay-dirt, so it is suppressed (not just demoted off the loop bit).
+        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.ThrowsWithBoxedValue)));
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue))]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesDateTimeValue))]
@@ -1754,15 +1764,14 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_BoxOnThrowPathInLoop_NotPromoted()
+    public void OptimizationOpportunities_BoxOnThrowPathInLoop_IsSuppressed()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        // A box that feeds an exception message only allocates on the throw path, so even inside
-        // a loop it is not hot pay-dirt: reported, but medium and not loop-promoted.
-        var row = Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoThrowMessage)));
-        Assert.Equal("medium", row.Confidence);
-        Assert.False(row.InLoop);
+        // A box that feeds an exception message only allocates on the throw path, so it is not
+        // steady-state pay-dirt even inside a loop -> suppressed entirely (the throw-probe now
+        // gates emission, not just the loop bit).
+        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoThrowMessage)));
     }
 
     [Fact]
@@ -2379,6 +2388,17 @@ public class OptimizationOpportunityFixtures
     public static string BoxesIntoStringFormat(int value)
     {
         return string.Format("v={0}", value);
+    }
+
+    // Boxes a value into an exception message that is thrown immediately. The box is an
+    // error-path allocation (executes at most once before unwinding), so it must NOT be
+    // flagged as a box-value-type opportunity.
+    public static void ThrowsWithBoxedValue(int value)
+    {
+        if (value < 0)
+        {
+            throw new System.ArgumentException(string.Format("bad {0}", value));
+        }
     }
 
     // Boxes a value type per iteration into a non-generic collection -> in a loop (high).
