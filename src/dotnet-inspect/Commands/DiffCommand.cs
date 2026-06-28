@@ -356,7 +356,7 @@ public class DiffCommand
     // is present in both versions (an in-place change vs an added/removed member).
     internal sealed record RankedAnalysisRow(AnalysisDiffRow Row, int Magnitude, int Direction, bool InBoth, bool InLoop = false);
 
-    private static AnalysisDiffResult BuildAnalysisDiff(IReadOnlyList<string> fromPaths, IReadOnlyList<string> toPaths, DiffOptions options)
+    internal static AnalysisDiffResult BuildAnalysisDiff(IReadOnlyList<string> fromPaths, IReadOnlyList<string> toPaths, DiffOptions options)
     {
         var oldSnapshot = BuildAnalysisSnapshot(fromPaths, options);
         var newSnapshot = BuildAnalysisSnapshot(toPaths, options);

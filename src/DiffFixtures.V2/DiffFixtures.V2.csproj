@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Versioned analysis-diff fixture (#1623 rung 6). V1 and V2 share AssemblyName
+    DiffFixtureSample and method signatures so the diff matches them in-place; only
+    the bodies differ (seeded allocation regression / improvement / stable). Loaded
+    by path; never referenced for compilation.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>DiffFixtureSample</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
