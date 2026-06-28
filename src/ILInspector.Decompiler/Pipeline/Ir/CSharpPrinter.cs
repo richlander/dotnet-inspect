@@ -931,8 +931,8 @@ public sealed partial class CSharpPrinter
         }
         if (node is ForLoop forLoop)
         {
-            string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
-            string increment = Statement(forLoop.Increment)?.TrimEnd(';') ?? "";
+            string initializer = ForHeaderClause(forLoop.Initializer);
+            string increment = ForHeaderClause(forLoop.Increment);
             sb.Append(pad).Append("for (").Append(initializer).Append("; ")
                 .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
             sb.Append(pad).AppendLine("{");
@@ -2353,6 +2353,25 @@ public sealed partial class CSharpPrinter
                 _localScopeNames.Add(LocalName(i));
         }
         return _localScopeNames.Contains(fieldName);
+    }
+
+    /// <summary>A <c>for</c> header clause (initializer/increment) without the trailing <c>;</c>. A checked user-defined <c>++</c>/<c>--</c> has no for-header spelling (a <c>checked { }</c> block is invalid there) — such loops are structured as <c>while</c> instead, so this only guards a theoretical residual by rendering the bare operator.</summary>
+    string ForHeaderClause(IrNode node)
+    {
+        if (node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } id })
+        {
+            bool saved = _checkedContext;
+            _checkedContext = true;
+            try
+            {
+                return IncrementDecrementText(id);
+            }
+            finally
+            {
+                _checkedContext = saved;
+            }
+        }
+        return Statement(node)?.TrimEnd(';') ?? "";
     }
 
     string IncrementDecrementText(IncrementDecrement id)

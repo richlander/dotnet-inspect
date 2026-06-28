@@ -501,10 +501,10 @@ public sealed class IncrementDecrementPass : IIrPass
 
     readonly record struct IncrementOp(bool IsIncrement, bool IsChecked, IrExpression Operand);
 
-    /// <summary>A user-defined increment/decrement operator call (<c>op_Increment</c>, <c>op_Decrement</c>, and their <c>op_Checked*</c> variants) on a single operand, or null. Requires operator metadata evidence so an ordinary method that happens to be named <c>op_Increment</c> is not mistaken for the operator.</summary>
+    /// <summary>A user-defined increment/decrement operator call (<c>op_Increment</c>, <c>op_Decrement</c>, and their <c>op_Checked*</c> variants) on a single operand, or null. Requires resolved operator metadata (<c>IsOperator == Yes</c>) so neither an ordinary method named <c>op_Increment</c> nor an unresolved cross-assembly <c>op_*</c> MemberRef (whose <c>IsSpecialName</c> is only name-inferred) is mistaken for the operator.</summary>
     static IncrementOp? AsIncrementCall(IrExpression value)
         => value is Call { Callee: { HasThis: false, IsSpecialName: true, Name: var name } callee, Arguments: [{ } operand] }
-            && callee.IsOperator != MetadataFactState.No
+            && callee.IsOperator == MetadataFactState.Yes
             && name switch
             {
                 "op_Increment" => (IsIncrement: true, IsChecked: false),
