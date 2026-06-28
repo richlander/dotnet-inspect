@@ -259,6 +259,118 @@ public static class AnalysisFixtureCatalog
         ],
         ["exception", "cross-assembly", "owned-boundary", "rung2"]);
 
+    public static readonly AnalysisFixtureDefinition StringBuildAccumulationInLoop = new(
+        "alloc.string-build.accumulation-in-loop",
+        """
+        namespace Fix;
+        using System.Collections.Generic;
+        public static class Consumer
+        {
+            // True positives: an accumulator concatenated back into itself each iteration (O(n^2)).
+            public static string AppendsStringInLoop(string[] items)
+            {
+                var s = "";
+                foreach (var x in items) s += x;
+                return s;
+            }
+            public static string PrependsStringInLoop(string[] items)
+            {
+                var s = "";
+                foreach (var x in items) s = x + " " + s;
+                return s;
+            }
+
+            // Must-not-flag: a fresh string added to a list (never stored back into an input).
+            public static List<string> ConcatsIntoListInLoop(Dictionary<string, string> pairs)
+            {
+                var parts = new List<string>();
+                foreach (var kv in pairs) parts.Add(kv.Key + "=" + kv.Value);
+                return parts;
+            }
+            // Must-not-flag: `s += b` outside any loop (no repeated copy).
+            public static string AppendsStringOnce(string a, string b)
+            {
+                var s = a;
+                s += b;
+                return s;
+            }
+            // Must-not-flag (stack-aware guard): the slot is loaded only to pass to an unrelated
+            // call, then reassigned from operands that do not include it.
+            public static string ReassignsUnrelatedSlotInLoop(string seed, string a, string b, string[] items)
+            {
+                foreach (var x in items)
+                {
+                    System.Console.WriteLine(seed);
+                    seed = a + b;
+                }
+                return seed;
+            }
+
+            // Owned false negative: the accumulator flows through a call (`s.Trim()`) before the
+            // concat, so the bare-load bit does not survive -- conservatively not flagged today.
+            public static string DerivedAccumulatorInLoop(string[] items)
+            {
+                var s = "";
+                foreach (var x in items) s = x + " " + s.Trim();
+                return s;
+            }
+        }
+        """,
+        ExternalSource: null,
+        ExternalNeedsAlias: false,
+        [
+            new("AppendsStringInLoop", new AnalysisExpectation(OpportunityShapePresent: "string-build-in-loop")),
+            new("PrependsStringInLoop", new AnalysisExpectation(OpportunityShapePresent: "string-build-in-loop")),
+            new("ConcatsIntoListInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "string-build-in-loop")),
+            new("AppendsStringOnce", new AnalysisExpectation(OpportunityShapeAbsent: "string-build-in-loop")),
+            new("ReassignsUnrelatedSlotInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "string-build-in-loop"),
+                Note: "Stack-aware false-positive guard (#1763 MAI review)."),
+            new("DerivedAccumulatorInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "string-build-in-loop"),
+                OwnedBoundary.FalseNegative, BlockedOn: "#1714",
+                Note: "Accumulator flows through a call before the concat; deferred broadening (#1714)."),
+        ],
+        ["opportunity", "string-build", "in-assembly", "rung5"]);
+
+    public static readonly AnalysisFixtureDefinition BoxThrowPathSuppression = new(
+        "suppress.box.throw-path",
+        """
+        namespace Fix;
+        public static class Consumer
+        {
+            // True positive: an int boxed into an object-typed API argument escapes via the call.
+            public static string BoxesIntoStringFormat(int value) => string.Format("v={0}", value);
+
+            // Suppressed: the box feeds an exception thrown immediately -- an error-path
+            // allocation (executes at most once before unwinding), so it must NOT be flagged.
+            public static void ThrowsWithBoxedValue(int value)
+            {
+                if (value < 0)
+                    throw new System.ArgumentException(string.Format("bad {0}", value));
+            }
+
+            // Owned false negative: the boxed value is formatted and passed to a throwing HELPER
+            // rather than thrown directly, so the throw-path suppression does not yet reach it and
+            // the box is still flagged. Deferred broadening (#1714).
+            public static void ThrowsViaHelper(int value)
+            {
+                if (value < 0)
+                    Fail(string.Format("bad {0}", value));
+            }
+            static void Fail(string message) => throw new System.InvalidOperationException(message);
+        }
+        """,
+        ExternalSource: null,
+        ExternalNeedsAlias: false,
+        [
+            new("BoxesIntoStringFormat", new AnalysisExpectation(OpportunityShapePresent: "box-value-type")),
+            new("ThrowsWithBoxedValue", new AnalysisExpectation(OpportunityShapeAbsent: "box-value-type"),
+                Note: "Box feeding a throw is suppressed as an error-path allocation (#1747)."),
+            new("ThrowsViaHelper", new AnalysisExpectation(OpportunityShapePresent: "box-value-type"),
+                OwnedBoundary.FalsePositive, BlockedOn: "#1714",
+                Note: "Box feeding a throwing helper is not yet recognized as throw-path, so it is still flagged; deferred suppression broadening (#1714)."),
+        ],
+        ["opportunity", "box", "suppression", "in-assembly", "rung5"]);
+
     public static IReadOnlyList<AnalysisFixtureDefinition> All { get; } =
     [
         AllocInAssemblyStruct,
@@ -267,6 +379,8 @@ public static class AnalysisFixtureCatalog
         AllocCrossAsmNameCollision,
         ExceptionSuffixLookalikeExternal,
         ExceptionUnsuffixedExternal,
+        StringBuildAccumulationInLoop,
+        BoxThrowPathSuppression,
     ];
 
     public static IReadOnlyList<AnalysisFixtureDefinition> Select(string? selector)
