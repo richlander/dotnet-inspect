@@ -128,18 +128,20 @@ public static class AnalysisCorpusSensor
                 continue;
             }
 
-            if (b!.Opened && !c!.Opened)
-                regressions.Add($"{name}: {(c.TimedOut ? "timed out" : "stopped opening")} (was {b.Methods} methods)");
-            if (c!.Opened && c.Diagnostics > b.Diagnostics)
-                regressions.Add($"{name}: analyzer diagnostics {b.Diagnostics} -> {c.Diagnostics}");
+            AssemblyMetrics baseMetrics = b!;
+            AssemblyMetrics curMetrics = c!;
+            if (baseMetrics.Opened && !curMetrics.Opened)
+                regressions.Add($"{name}: {(curMetrics.TimedOut ? "timed out" : "stopped opening")} (was {baseMetrics.Methods} methods)");
+            if (baseMetrics.Opened && curMetrics.Opened && curMetrics.Diagnostics > baseMetrics.Diagnostics)
+                regressions.Add($"{name}: analyzer diagnostics {baseMetrics.Diagnostics} -> {curMetrics.Diagnostics}");
 
-            if (c.Opened && b.Opened)
+            if (curMetrics.Opened && baseMetrics.Opened)
             {
-                AddDrift(drift, name, "methods", b.Methods, c.Methods);
-                AddDrift(drift, name, "allocations", b.Allocations, c.Allocations);
-                AddDrift(drift, name, "exception-constructions", b.ExceptionConstructions, c.ExceptionConstructions);
-                foreach (var shape in b.Shapes.Keys.Union(c.Shapes.Keys).OrderBy(s => s, StringComparer.Ordinal))
-                    AddDrift(drift, name, shape, b.Shapes.GetValueOrDefault(shape), c.Shapes.GetValueOrDefault(shape));
+                AddDrift(drift, name, "methods", baseMetrics.Methods, curMetrics.Methods);
+                AddDrift(drift, name, "allocations", baseMetrics.Allocations, curMetrics.Allocations);
+                AddDrift(drift, name, "exception-constructions", baseMetrics.ExceptionConstructions, curMetrics.ExceptionConstructions);
+                foreach (var shape in baseMetrics.Shapes.Keys.Union(curMetrics.Shapes.Keys).OrderBy(s => s, StringComparer.Ordinal))
+                    AddDrift(drift, name, shape, baseMetrics.Shapes.GetValueOrDefault(shape), curMetrics.Shapes.GetValueOrDefault(shape));
             }
         }
 

@@ -66,6 +66,16 @@ public class AnalysisCorpusSensorTests
     }
 
     [Fact]
+    public void Diff_TimeoutThenMeasuredWithDiagnostics_IsNotRegression()
+    {
+        // A previously timed-out assembly that now measures, even WITH diagnostics, is an
+        // improvement: diagnostics are only compared when both baseline and current opened.
+        var baseline = new CorpusSnapshot([Asm("Big.dll", opened: false, timedOut: true, methods: 0, diagnostics: 0)]);
+        var current = new CorpusSnapshot([Asm("Big.dll", methods: 9000, diagnostics: 4)]);
+        Assert.False(AnalysisCorpusSensor.Diff(baseline, current).HasRegression);
+    }
+
+    [Fact]
     public void JsonRoundTrip_PreservesMetrics()
     {
         var snap = new CorpusSnapshot([Asm("A.dll", methods: 42, allocations: 7, shapes: ("small-array", 2))]);
