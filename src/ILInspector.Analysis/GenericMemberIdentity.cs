@@ -25,7 +25,7 @@ namespace ILInspector.Analysis;
 /// are an accepted coarsening, far preferable to the prior zero-match under-report.
 /// Non-generic members are left on their exact instantiated signature.
 /// </summary>
-internal static class GenericMemberIdentity
+public static class GenericMemberIdentity
 {
     /// <summary>
     /// The open named definition of a (possibly constructed) declaring type, so a
@@ -81,61 +81,34 @@ internal static class GenericMemberIdentity
             || parameterTypes.Any(ContainsGenericParameter);
 
     /// <summary>
-    /// A cross-assembly-stable parameter shape for an erased generic member. Each
-    /// declaring-type generic argument is mapped to a positional marker
-    /// (<c>!0</c>, <c>!1</c>, …) so the open definition (whose parameters reference the
-    /// type parameters as <c>!i</c>) and a constructed call site (whose parameters carry
-    /// the instantiation) collapse onto the same shape, while same-arity overloads with
-    /// a different parameter structure — <c>Box&lt;T&gt;.Store(T)</c> vs
-    /// <c>Box&lt;T&gt;.Store(List&lt;T&gt;)</c> — stay distinct (#1731). The earlier
-    /// erasure kept only the parameter count, collapsing such overloads.
+    /// A cross-assembly-stable parameter shape for an erased generic member, computed
+    /// from the <em>open</em> signature (VAR/MVAR markers preserved): a type generic
+    /// parameter renders as <c>!i</c>, a method generic parameter as <c>!!i</c>, generic
+    /// instances and array/byref/pointer wrappers recurse, and any other type uses its
+    /// namespace-qualified display. The open definition and a constructed call site both
+    /// carry the same markers, so they collapse onto one key, while same-arity overloads
+    /// with a different parameter structure — <c>Box&lt;T&gt;.Store(T)</c> vs
+    /// <c>Box&lt;T&gt;.Store(List&lt;T&gt;)</c>, or a type-parameter vs a literal of the
+    /// same instantiated type — stay distinct (#1731). The earlier erasure kept only the
+    /// parameter count.
     /// </summary>
-    public static string ErasedParameterShape(TypeRef declaringType, ImmutableArray<TypeRef> methodTypeArguments, ImmutableArray<TypeRef> parameterTypes)
+    public static string ErasedParameterShape(ImmutableArray<TypeRef> openParameterTypes)
+        => string.Join(",", openParameterTypes.Select(NormalizeShape));
+
+    static string NormalizeShape(TypeRef type) => type.Kind switch
     {
-        var declaringArguments = declaringType.Kind == TypeRefKind.GenericInstance
-            ? declaringType.TypeArguments
-            : [];
-        return string.Join(",", parameterTypes.Select(parameter => NormalizeShape(parameter, declaringArguments, methodTypeArguments)));
-    }
-
-    static string NormalizeShape(TypeRef type, ImmutableArray<TypeRef> declaringArguments, ImmutableArray<TypeRef> methodArguments)
-    {
-        // Open-definition side: a type/method generic parameter is a positional marker.
-        if (type.Kind == TypeRefKind.GenericParameter)
-            return $"!{type.GenericParameterIndex}";
-        if (type.Kind == TypeRefKind.MethodGenericParameter)
-            return $"!!{type.GenericParameterIndex}";
-
-        // Constructed-call-site side: a type equal to a declaring-type argument maps to
-        // the matching type marker (!i), and one equal to a method type argument maps to
-        // the method marker (!!i) — so List<int> under Box<int> reads as List<!0>
-        // (matching open List<T> under Box<T>), and Id<int>(int) reads as !!0 (matching
-        // open Id<T>(T)). Declaring args take precedence so the markers line up with the
-        // open definition's parameter kinds.
-        for (int i = 0; i < declaringArguments.Length; i++)
-        {
-            if (declaringArguments[i].Equals(type))
-                return $"!{i}";
-        }
-        for (int i = 0; i < methodArguments.Length; i++)
-        {
-            if (methodArguments[i].Equals(type))
-                return $"!!{i}";
-        }
-
-        return type.Kind switch
-        {
-            TypeRefKind.GenericInstance when type.ElementType is { } definition
-                => $"{definition.Name}<{string.Join(",", type.TypeArguments.Select(argument => NormalizeShape(argument, declaringArguments, methodArguments)))}>",
-            TypeRefKind.SzArray when type.ElementType is { } element
-                => $"{NormalizeShape(element, declaringArguments, methodArguments)}[]",
-            TypeRefKind.Array when type.ElementType is { } element
-                => $"{NormalizeShape(element, declaringArguments, methodArguments)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
-            TypeRefKind.ByRef when type.ElementType is { } element
-                => $"ref {NormalizeShape(element, declaringArguments, methodArguments)}",
-            TypeRefKind.Pointer when type.ElementType is { } element
-                => $"{NormalizeShape(element, declaringArguments, methodArguments)}*",
-            _ => type.ToQualifiedDisplayString(),
-        };
-    }
+        TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
+        TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
+        TypeRefKind.GenericInstance when type.ElementType is { } definition
+            => $"{definition.ToQualifiedDisplayString()}<{string.Join(",", type.TypeArguments.Select(NormalizeShape))}>",
+        TypeRefKind.SzArray when type.ElementType is { } element
+            => $"{NormalizeShape(element)}[]",
+        TypeRefKind.Array when type.ElementType is { } element
+            => $"{NormalizeShape(element)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
+        TypeRefKind.ByRef when type.ElementType is { } element
+            => $"ref {NormalizeShape(element)}",
+        TypeRefKind.Pointer when type.ElementType is { } element
+            => $"{NormalizeShape(element)}*",
+        _ => type.ToQualifiedDisplayString(),
+    };
 }

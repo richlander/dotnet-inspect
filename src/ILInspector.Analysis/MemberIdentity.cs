@@ -79,6 +79,20 @@ public sealed record MemberRef(
 {
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
+    /// <summary>
+    /// The parameter signature with generic markers (VAR/MVAR) preserved — i.e. before
+    /// the declaring-type / method-type instantiation that <see cref="ParameterTypes"/>
+    /// carries. Cross-assembly caller-graph identity keys on this so a constructed call
+    /// site and the open definition reduce to the same generic shape, and a literal type
+    /// stays distinct from a type-parameter instantiation (#1731). Empty when not
+    /// separately captured, in which case <see cref="OpenSignatureParameters"/> falls
+    /// back to <see cref="ParameterTypes"/>.
+    /// </summary>
+    public ImmutableArray<TypeRef> OpenParameterTypes { get; init; } = [];
+
+    public ImmutableArray<TypeRef> OpenSignatureParameters
+        => OpenParameterTypes.IsDefaultOrEmpty ? ParameterTypes : OpenParameterTypes;
+
     public static MemberRef Unsupported(string reason)
         => new(TypeRef.Unsupported(reason), "?", [], TypeRef.Unsupported("unknown return"), MemberKind.Unsupported);
 }

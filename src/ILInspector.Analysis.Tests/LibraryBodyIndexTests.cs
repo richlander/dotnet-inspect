@@ -240,6 +240,39 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain("UseBox", listCallers);
     }
 
+    // #1731 (adversarial review): the cross-assembly caller-graph shape keys on the OPEN
+    // signature (VAR/MVAR markers), not the substituted concrete types. A constructed
+    // Box<int>.Store(T) call carries a concrete int as its instantiated parameter, but the
+    // open signature retains the type-parameter marker — so a type-parameter instantiation
+    // stays distinct from a literal of the same type, and the shape matches the open target.
+    [Fact]
+    public void ResolvedCall_PreservesOpenGenericMarker_DistinctFromInstantiatedParameter()
+    {
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var storeValueCall = caller.DirectCalls.First(call =>
+            call.Callee.Name == "Store" && call.Callee.ParameterTypes[0].Kind == TypeRefKind.Definition);
+
+        // Instantiated parameter is the concrete int; the open signature keeps the marker.
+        Assert.Equal(TypeRefKind.Definition, storeValueCall.Callee.ParameterTypes[0].Kind);
+        Assert.Equal(TypeRefKind.GenericParameter, storeValueCall.Callee.OpenSignatureParameters[0].Kind);
+    }
+
+    // #1731 (adversarial review, finding B): the erased generic shape qualifies a generic
+    // instance by namespace, so N1.Foo<T> and N2.Foo<T> (same metadata name, different
+    // namespace) do not collapse.
+    [Fact]
+    public void ErasedParameterShape_QualifiesGenericInstanceByNamespace()
+    {
+        var typeParameter = TypeRef.GenericParameter(0, "T");
+        var foo1 = TypeRef.GenericInstance(TypeRef.Definition("AsmA", "N1", "Foo`1"), [typeParameter]);
+        var foo2 = TypeRef.GenericInstance(TypeRef.Definition("AsmB", "N2", "Foo`1"), [typeParameter]);
+
+        Assert.NotEqual(
+            GenericMemberIdentity.ErasedParameterShape([foo1]),
+            GenericMemberIdentity.ErasedParameterShape([foo2]));
+    }
+
     [Fact]
     public void BuildCallerTree_WithScope_LinksConstructedGenericMethodCaller()
     {

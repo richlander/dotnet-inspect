@@ -20,7 +20,10 @@ internal static class MemberResolver
                     GenericParameterNames(reader, method.GetGenericParameters()));
                 var signature = method.DecodeSignature(TypeRefDecoder.Instance, typeScope);
                 string name = reader.GetString(method.Name);
-                return new MemberRef(declaring, name, signature.ParameterTypes, signature.ReturnType, KindFor(name));
+                return new MemberRef(declaring, name, signature.ParameterTypes, signature.ReturnType, KindFor(name))
+                {
+                    OpenParameterTypes = signature.ParameterTypes,
+                };
             }
             case HandleKind.MemberReference:
             {
@@ -34,7 +37,11 @@ internal static class MemberResolver
                     name,
                     [.. signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, []))],
                     signature.ReturnType.Instantiate(typeArguments, []),
-                    KindFor(name));
+                    KindFor(name))
+                {
+                    // Raw signature with VAR/MVAR markers, before instantiation (#1731).
+                    OpenParameterTypes = signature.ParameterTypes,
+                };
             }
             case HandleKind.MethodSpecification:
             {
@@ -46,6 +53,8 @@ internal static class MemberResolver
                     TypeArguments = methodArguments,
                     ReturnType = generic.ReturnType.Instantiate([], methodArguments),
                     ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
+                    // OpenParameterTypes is inherited from `generic` (raw markers), not
+                    // instantiated, so the open generic-method shape is preserved (#1731).
                 };
             }
             default:
