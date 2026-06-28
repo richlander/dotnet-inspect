@@ -12,7 +12,10 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 generated-fixture catalogue entries into a temporary class library, runs the
 compile-back oracle, and prints results by stable fixture ID plus target method.
 This is the first step toward an addressable progressive fixture ladder:
-`minimal.property.literal` is expected `Exact`, while
+`minimal.property.literal`, `minimal.ctor-field.getter`,
+and `minimal.method-call.same-type` are expected `Exact`, while
+`minimal.auto-property.getter` records the current get-only auto-property
+`RecompileFail` frontier and
 `minimal.primary-ctor.field-init` records the current constructor `OpcodeDiff`
 frontier and the exact getter. With no selector, all generated fixtures run; use
 `list` to list fixture IDs, `--json` for machine-readable list/results, and
