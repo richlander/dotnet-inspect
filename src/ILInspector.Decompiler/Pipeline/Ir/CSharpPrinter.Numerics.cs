@@ -694,6 +694,14 @@ public sealed partial class CSharpPrinter
                 ? $"{Operand(operand)} is null"
                 : $"{Operand(operand)} is not null";
         }
+        // Equality over an explicitly boxed operand is reference identity over the
+        // boxed object. Dropping the box evidence turns unconstrained generic
+        // operands into `T == T` (CS0019) and can also bind overloaded operators.
+        if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
+            && (left is Box || right is Box))
+        {
+            return $"{BoxedReferenceOperand(left)} {ComparisonOperator(kind)} {BoxedReferenceOperand(right)}";
+        }
         // The `cgt.un`/`clt.un` against null idiom csc emits for a reference
         // inequality (`ldnull; cgt.un` = `obj != null`): an unsigned ordering of a
         // reference against null tests non-nullness (null is 0, so `x > 0` / `0 <
@@ -765,6 +773,9 @@ public sealed partial class CSharpPrinter
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
     }
+
+    string BoxedReferenceOperand(IrExpression operand)
+        => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
 
     static bool IsFloatComparison(IrExpression left, IrExpression right)
         => TypeFamilies.IsFloat(left.ResultType) || TypeFamilies.IsFloat(right.ResultType);
