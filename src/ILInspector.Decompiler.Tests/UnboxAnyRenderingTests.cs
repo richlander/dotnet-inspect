@@ -27,4 +27,13 @@ public class UnboxAnyRenderingTests
         Assert.DoesNotContain("(byte)(left)", output);
         Assert.DoesNotContain("(byte)(right)", output);
     }
+
+    [Fact]
+    public void UnboxToTypeParameter_FromReferenceOperand_KeepsObjectIntermediary()
+    {
+        var output = Print(nameof(CfgSampleClass.ArrayAsTypeParameter));
+
+        Assert.Contains("return (T)(object)array;", output);
+        Assert.DoesNotContain("return (T)array;", output);
+    }
 }
