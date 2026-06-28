@@ -1197,6 +1197,9 @@ public class CfgSampleClass
     public static bool GreaterAsByte<T>(T left, T right) where T : struct
         => (byte)(object)left > (byte)(object)right;
 
+    public static T ArrayAsTypeParameter<T>(System.Array array)
+        => (T)(object)array;
+
     public struct Pair { public int A; public int B; }
 
     public static int FirstA(Pair[] pairs) => pairs[0].A;

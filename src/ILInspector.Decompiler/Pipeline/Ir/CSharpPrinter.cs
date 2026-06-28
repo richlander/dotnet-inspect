@@ -1488,7 +1488,7 @@ public sealed partial class CSharpPrinter
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         PositionalPattern p => PositionalPatternText(p),
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
-        UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
+        UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
         LoadArgumentAddress a => $"ref {CSharpNaming.EscapeIdentifier(a.Name)}",
@@ -1625,8 +1625,29 @@ public sealed partial class CSharpPrinter
     // object slot. `(U)x` over a generic type parameter has no direct conversion and
     // is CS0030 — and even for a concrete type, collapsing box+unbox.any to a plain
     // `(U)x` drops the round-trip the IL actually performs. Keep the intermediary.
-    string UnboxAnyOperand(IrExpression operand)
-        => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
+    string UnboxAnyOperand(UnboxAny unbox)
+    {
+        if (unbox.Operand is Box box)
+            return $"(object){Operand(box.Operand)}";
+        if (NeedsObjectBridgeForGenericUnbox(unbox.Type, unbox.Operand.ResultType))
+            return $"(object){Operand(unbox.Operand)}";
+        return Operand(unbox.Operand);
+    }
+
+    bool NeedsObjectBridgeForGenericUnbox(TypeRef target, TypeRef? source)
+    {
+        if (target.Kind is not (TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
+            || source is null
+            || source is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" })
+        {
+            return false;
+        }
+
+        return TypeFamilies.Of(source) == StackFamily.O
+            || source.Kind is TypeRefKind.SzArray or TypeRefKind.Array
+            || source.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
+            || _function.TypeShapes.GetValueOrDefault(source) == TypeShape.Reference;
+    }
 
     /// <summary>
     /// True when an expression renders as a C# <c>bool</c> regardless of its IR
