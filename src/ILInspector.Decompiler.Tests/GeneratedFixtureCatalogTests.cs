@@ -49,9 +49,61 @@ public class GeneratedFixtureCatalogTests
             "get_Method1",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
+        AssertTarget(
+            run,
+            "minimal.ctor-field.getter",
+            "GeneratedFixtures.MinimalCtorFieldGetter.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.ctor-field.getter",
+            "GeneratedFixtures.MinimalCtorFieldGetter.Class1",
+            "get_Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.auto-property.getter",
+            "GeneratedFixtures.MinimalAutoPropertyGetter.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            frontier: true);
+        AssertTarget(
+            run,
+            "minimal.auto-property.getter",
+            "GeneratedFixtures.MinimalAutoPropertyGetter.Class1",
+            "get_Method1",
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            frontier: true);
+        AssertTarget(
+            run,
+            "minimal.method-call.same-type",
+            "GeneratedFixtures.MinimalMethodCallSameType.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.method-call.same-type",
+            "GeneratedFixtures.MinimalMethodCallSameType.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.method-call.same-type",
+            "GeneratedFixtures.MinimalMethodCallSameType.Class1",
+            "Method2",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
 
         Assert.Contains("minimal.property.literal", report);
         Assert.Contains("minimal.primary-ctor.field-init", report);
+        Assert.Contains("minimal.ctor-field.getter", report);
+        Assert.Contains("minimal.auto-property.getter", report);
+        Assert.Contains("minimal.method-call.same-type", report);
         Assert.Contains("PASS frontier", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=OpcodeDiff", report);
@@ -65,7 +117,13 @@ public class GeneratedFixtureCatalogTests
             GeneratedFixtureCatalog.Select("minimal.property.literal").Select(fixture => fixture.Id).ToArray());
 
         Assert.Equal(
-            ["minimal.primary-ctor.field-init", "minimal.property.literal"],
+            [
+                "minimal.auto-property.getter",
+                "minimal.ctor-field.getter",
+                "minimal.method-call.same-type",
+                "minimal.primary-ctor.field-init",
+                "minimal.property.literal",
+            ],
             GeneratedFixtureCatalog.Select("minimal").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
         Assert.Empty(GeneratedFixtureCatalog.Select("missing"));
@@ -79,6 +137,9 @@ public class GeneratedFixtureCatalogTests
         using var document = JsonDocument.Parse(json);
         var fixtures = document.RootElement.EnumerateArray().ToArray();
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.property.literal");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.ctor-field.getter");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.auto-property.getter");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.method-call.same-type");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
