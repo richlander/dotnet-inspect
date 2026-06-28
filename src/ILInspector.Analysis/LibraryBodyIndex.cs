@@ -249,6 +249,15 @@ public sealed class LibraryBodyIndex
     static bool IsEnumerableDefinition(TypeRef type)
         => FrameworkIdentity.IsKnownFrameworkType(type, "System.Linq", "System.Linq", "Enumerable");
 
+    // System.String.Concat — the lowering of the `+` / `+=` string operators (and of simple
+    // interpolations like `$"{a}-{b}"`). Each call allocates a fresh string. Inside a loop,
+    // when the result is stored back into one of its own inputs, it is the StringBuilder
+    // anti-pattern: `s += …` repeatedly copies the growing accumulator (O(n^2)).
+    public static bool IsStringConcat(MemberRef member)
+        => member.Kind != MemberKind.Unsupported
+            && member.Name == "Concat"
+            && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "String");
+
     // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
     // enumerating at the call site. A helper that returns such a query is itself a deferred
     // linear scan — the scan runs when the caller enumerates the result.
@@ -1552,6 +1561,28 @@ public sealed class LibraryBodyIndex
                                 offset,
                                 "Quadratic only if the scanned sequence grows with the loop; a small or constant sequence is fine."));
                         }
+                        else if (IsStringConcat(callee) && IsInLoopRegion(offset, loopRegions)
+                            && ConcatAccumulatesIntoSource(il, position))
+                        {
+                            // `s += …` inside a loop lowers to String.Concat(s, …) stored back to
+                            // the same local/parameter. Each iteration copies the whole growing
+                            // accumulator, so the loop is O(n^2) in the final length — the
+                            // canonical StringBuilder fix. Only this self-accumulation shape is
+                            // reported: a non-accumulating String.Concat/Format/Join in a loop
+                            // (e.g. `list.Add($"{k}={v}")`, `return $"{a}-{b}"`) allocates one
+                            // transient per iteration with no StringBuilder rewrite, so it is not
+                            // flagged — that tier was measured to be essentially all false
+                            // positives on real assemblies.
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "string-build-in-loop",
+                                "string += in a loop (String.Concat onto a growing accumulator)",
+                                "Repeated concatenation copies the whole accumulator each iteration (O(n^2)); build with a StringBuilder hoisted outside the loop and ToString() once after.",
+                                "high",
+                                true,
+                                offset,
+                                null));
+                        }
                         break;
                     }
                     case ILOpCode.Ldftn:
@@ -2462,6 +2493,155 @@ public sealed class LibraryBodyIndex
             if (targetPosition < position || targetPosition > il.Length)
                 throw new BadImageFormatException($"Malformed IL operand at IL_{offset:X4}");
             position = (int)targetPosition;
+        }
+
+        // True when the String.Concat call ending at `storeOffset` accumulates into one of its
+        // own inputs: the instruction immediately after the call stores to a local/parameter
+        // slot that the same call also loaded as an argument (`s = String.Concat(s, …)`, the
+        // `s += …` lowering). Repeated copying of the growing accumulator is the canonical
+        // O(n^2) StringBuilder anti-pattern. The check is value-specific (the stored slot must
+        // be one of the call's argument loads), so an unrelated in-loop concat into a fresh
+        // local is not misread as accumulation. Argument slots are namespaced apart from local
+        // slots so a local index and a parameter index with the same number do not collide.
+        public static bool ConcatAccumulatesIntoSource(byte[] il, int storeOffset)
+        {
+            const int ArgSlotBias = 1 << 20;
+            if (storeOffset < 0 || storeOffset >= il.Length)
+                return false;
+            int sp = storeOffset;
+            var storeOp = ReadOpcode(il, ref sp);
+            if (!TryReadLocalSlot(il, storeOp, ref sp, storeOffset, out bool storeIsStore, out bool storeIsArg, out int storeSlot)
+                || !storeIsStore)
+                return false;
+            int storeKey = (storeIsArg ? ArgSlotBias : 0) | storeSlot;
+
+            int position = 0;
+            var argLoads = new List<int>();
+            while (position < storeOffset)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                bool isLocalOp = TryReadLocalSlot(il, opcode, ref position, offset, out bool isStore, out bool isArg, out int slot);
+                if (!isLocalOp)
+                    SkipOperandStatic(il, opcode, ref position, offset);
+                if (position >= storeOffset)
+                    break; // this is the Concat call itself; preserve its argument loads
+                if (isLocalOp && !isStore)
+                    argLoads.Add((isArg ? ArgSlotBias : 0) | slot);
+                else if (ClearsAccumulatorWindow(opcode))
+                    argLoads.Clear();
+            }
+            return argLoads.Contains(storeKey);
+        }
+
+        // Decodes a load/store of a local or argument slot, advancing past any inline operand.
+        // Returns false for any other opcode (operand left for the caller to skip).
+        static bool TryReadLocalSlot(byte[] il, ILOpCode opcode, ref int position, int offset, out bool isStore, out bool isArg, out int slot)
+        {
+            isStore = false;
+            isArg = false;
+            slot = -1;
+            switch (opcode)
+            {
+                case ILOpCode.Ldloc_0: slot = 0; return true;
+                case ILOpCode.Ldloc_1: slot = 1; return true;
+                case ILOpCode.Ldloc_2: slot = 2; return true;
+                case ILOpCode.Ldloc_3: slot = 3; return true;
+                case ILOpCode.Ldloc_s: slot = ReadByte(il, ref position, offset); return true;
+                case ILOpCode.Ldloc: slot = (ushort)ReadInt16(il, ref position, offset); return true;
+                case ILOpCode.Stloc_0: isStore = true; slot = 0; return true;
+                case ILOpCode.Stloc_1: isStore = true; slot = 1; return true;
+                case ILOpCode.Stloc_2: isStore = true; slot = 2; return true;
+                case ILOpCode.Stloc_3: isStore = true; slot = 3; return true;
+                case ILOpCode.Stloc_s: isStore = true; slot = ReadByte(il, ref position, offset); return true;
+                case ILOpCode.Stloc: isStore = true; slot = (ushort)ReadInt16(il, ref position, offset); return true;
+                case ILOpCode.Ldarg_0: isArg = true; slot = 0; return true;
+                case ILOpCode.Ldarg_1: isArg = true; slot = 1; return true;
+                case ILOpCode.Ldarg_2: isArg = true; slot = 2; return true;
+                case ILOpCode.Ldarg_3: isArg = true; slot = 3; return true;
+                case ILOpCode.Ldarg_s: isArg = true; slot = ReadByte(il, ref position, offset); return true;
+                case ILOpCode.Ldarg: isArg = true; slot = (ushort)ReadInt16(il, ref position, offset); return true;
+                case ILOpCode.Starg_s: isStore = true; isArg = true; slot = ReadByte(il, ref position, offset); return true;
+                case ILOpCode.Starg: isStore = true; isArg = true; slot = (ushort)ReadInt16(il, ref position, offset); return true;
+                default:
+                    return false;
+            }
+        }
+
+        // A value-sink that ends the run of argument loads feeding the next concat: a store
+        // (the value is consumed into a slot/field/element), a branch, or block-terminator.
+        // Calls are deliberately NOT boundaries: a sub-expression call (e.g. `s += x.Name`,
+        // `s = s + list[i]`) consumes only its own arguments and leaves the earlier accumulator
+        // load live beneath them on the eval stack, so it must stay in the window. The
+        // store-immediately-after-concat requirement already excludes list/return uses whose
+        // concat result is not stored back, so not clearing on calls does not admit those.
+        static bool ClearsAccumulatorWindow(ILOpCode opcode)
+            => opcode is ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Stobj
+                or ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
+                or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
+                or ILOpCode.Stelem_ref or ILOpCode.Stind_i or ILOpCode.Stind_i1 or ILOpCode.Stind_i2
+                or ILOpCode.Stind_i4 or ILOpCode.Stind_i8 or ILOpCode.Stind_r4 or ILOpCode.Stind_r8
+                or ILOpCode.Stind_ref
+                or ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow or ILOpCode.Leave or ILOpCode.Leave_s
+                or ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                or ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Beq or ILOpCode.Beq_s
+                or ILOpCode.Bne_un or ILOpCode.Bne_un_s or ILOpCode.Bge or ILOpCode.Bge_s
+                or ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Ble or ILOpCode.Ble_s
+                or ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s
+                or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
+                or ILOpCode.Blt_un or ILOpCode.Blt_un_s or ILOpCode.Switch;
+
+        // Operand-length skip for opcodes other than the local load/store ops handled by
+        // TryReadLocalSlot. Mirrors SkipOperand but is static and self-contained so the
+        // accumulation probe needs no instance state.
+        static void SkipOperandStatic(byte[] il, ILOpCode opcode, ref int position, int offset)
+        {
+            switch (opcode)
+            {
+                case ILOpCode.Switch:
+                {
+                    int count = ReadInt32(il, ref position, offset);
+                    if (count < 0)
+                        throw new BadImageFormatException($"Malformed switch at IL_{offset:X4}");
+                    long target = (long)position + (long)count * 4;
+                    if (target < position || target > il.Length)
+                        throw new BadImageFormatException($"Malformed switch at IL_{offset:X4}");
+                    position = (int)target;
+                    break;
+                }
+                case ILOpCode.Br_s or ILOpCode.Brfalse_s or ILOpCode.Brtrue_s or ILOpCode.Beq_s
+                    or ILOpCode.Bge_s or ILOpCode.Bgt_s or ILOpCode.Ble_s or ILOpCode.Blt_s
+                    or ILOpCode.Bne_un_s or ILOpCode.Bge_un_s or ILOpCode.Bgt_un_s
+                    or ILOpCode.Ble_un_s or ILOpCode.Blt_un_s or ILOpCode.Leave_s
+                    or ILOpCode.Ldarga_s or ILOpCode.Ldloca_s
+                    or ILOpCode.Ldc_i4_s or ILOpCode.Unaligned:
+                    Advance(il, ref position, 1, offset);
+                    break;
+                case ILOpCode.Ldarga or ILOpCode.Ldloca:
+                    Advance(il, ref position, 2, offset);
+                    break;
+                case ILOpCode.Br or ILOpCode.Brfalse or ILOpCode.Brtrue or ILOpCode.Beq
+                    or ILOpCode.Bge or ILOpCode.Bgt or ILOpCode.Ble or ILOpCode.Blt
+                    or ILOpCode.Bne_un or ILOpCode.Bge_un or ILOpCode.Bgt_un
+                    or ILOpCode.Ble_un or ILOpCode.Blt_un or ILOpCode.Leave
+                    or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
+                    or ILOpCode.Jmp or ILOpCode.Ldstr
+                    or ILOpCode.Call or ILOpCode.Calli or ILOpCode.Callvirt or ILOpCode.Newobj
+                    or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
+                    or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
+                    or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
+                    or ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass
+                    or ILOpCode.Isinst or ILOpCode.Unbox or ILOpCode.Stobj
+                    or ILOpCode.Box or ILOpCode.Newarr or ILOpCode.Ldelema
+                    or ILOpCode.Ldelem or ILOpCode.Stelem or ILOpCode.Unbox_any
+                    or ILOpCode.Refanyval or ILOpCode.Mkrefany or ILOpCode.Initobj
+                    or ILOpCode.Constrained or ILOpCode.Sizeof or ILOpCode.Ldtoken:
+                    Advance(il, ref position, 4, offset);
+                    break;
+                case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
+                    Advance(il, ref position, 8, offset);
+                    break;
+            }
         }
 
         static byte ReadByte(byte[] il, ref int position, int offset)

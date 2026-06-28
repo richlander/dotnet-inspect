@@ -1372,6 +1372,69 @@ public class LibraryBodyIndexTests
             .Where(o => o.Method.Name == methodName && o.Shape == "allocation-hotspot")
             .ToList();
 
+    static System.Collections.Generic.List<OptimizationOpportunity> StringBuildRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "string-build-in-loop")
+            .ToList();
+
+    [Fact]
+    public void OptimizationOpportunities_StringAppendInLoop_IsHighStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // `s += x` inside a loop is the O(n^2) growing-accumulator anti-pattern.
+        var row = Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsStringInLoop)));
+        Assert.Equal("high", row.Confidence);
+        Assert.True(row.InLoop);
+        Assert.Contains("StringBuilder", row.SafeFixDirection);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StringAppendOfPropertyInLoop_IsHighStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // An intervening sub-expression call (indexer / property get) between the accumulator
+        // load and the Concat must not hide the self-accumulation.
+        Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsStringPropertyInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StringAppendToParameterInLoop_IsHighStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Accumulation into a parameter slot is the same shape as into a local.
+        Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsToParameterInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ConcatIntoListInLoop_IsNotStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A per-iteration string added to a list is not accumulation -> no StringBuilder fix.
+        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.ConcatsIntoListInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ReturnConcatInLoop_IsNotStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A one-time concat on a return path inside a loop is not a repeated copy.
+        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.ReturnsConcatInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StringAppendOutsideLoop_IsNotStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // `s += x` outside any loop allocates once -> not the StringBuilder anti-pattern.
+        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsStringOnce)));
+    }
+
     [Fact]
     public void OptimizationOpportunities_AllocationDenseNonLoopMethod_IsNotHotspot()
     {
@@ -2158,6 +2221,66 @@ public class OptimizationOpportunityFixtures
 
     // Returned -> escapes.
     public static int[] ReturnsSmallArray() => new int[4];
+
+    // --- String accumulation (string-build-in-loop) ---
+
+    // `s += x` inside a foreach: String.Concat(s, x) stored back to the same local each
+    // iteration -> O(n^2) growing-accumulator copy. The canonical StringBuilder case (HIGH).
+    public static string AppendsStringInLoop(string[] items)
+    {
+        var s = "";
+        foreach (var x in items)
+            s += x;
+        return s;
+    }
+
+    // `s += item.Property` inside a loop: an instance-call (get_Property) sits between the
+    // accumulator load and the Concat, so it exercises the not-clearing-on-calls path.
+    public static string AppendsStringPropertyInLoop(System.Collections.Generic.List<string> items)
+    {
+        var s = "";
+        for (int i = 0; i < items.Count; i++)
+            s = s + items[i] + ",";
+        return s;
+    }
+
+    // Accumulation into a parameter slot rather than a local (`seed += x`).
+    public static string AppendsToParameterInLoop(string seed, string[] items)
+    {
+        foreach (var x in items)
+            seed += x;
+        return seed;
+    }
+
+    // NOT accumulation: each iteration builds a fresh string added to a list. The concat
+    // result is never stored back into one of its inputs -> no StringBuilder rewrite, so it
+    // must NOT be flagged (this was the noisy tier measured to be ~all false positives).
+    public static System.Collections.Generic.List<string> ConcatsIntoListInLoop(System.Collections.Generic.Dictionary<string, string> pairs)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        foreach (var kv in pairs)
+            parts.Add(kv.Key + "=" + kv.Value);
+        return parts;
+    }
+
+    // NOT accumulation: a one-time concat on a return path inside a loop -> not flagged.
+    public static string ReturnsConcatInLoop(string[] items)
+    {
+        foreach (var x in items)
+        {
+            if (x.Length > 3)
+                return x + "-found";
+        }
+        return "";
+    }
+
+    // NOT accumulation: `s += x` but OUTSIDE any loop -> not flagged (no repeated copy).
+    public static string AppendsStringOnce(string a, string b)
+    {
+        var s = a;
+        s += b;
+        return s;
+    }
 
     // --- Copy allocation (span-to-array) ---
 
