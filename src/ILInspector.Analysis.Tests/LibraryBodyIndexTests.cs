@@ -86,6 +86,32 @@ public class LibraryBodyIndexTests
         Assert.True(loopingCaller.Perf?.InLoop);
     }
 
+    // #1739 scope pin: the Caller Graph is a static `callvirt`-operand graph. It does not
+    // expand runtime virtual-dispatch targets, so callers are attributed to the statically
+    // declared operand (the virtual base method), never to the override reached at runtime.
+    // This characterizes the owned scope boundary: it must flip deliberately if override /
+    // devirtualization target expansion is ever added.
+    [Fact]
+    public void BuildCallerTree_VirtualDispatch_AttributesCallersToStaticOperand_NotOverride()
+    {
+        var index = LibraryBodyIndex.Open(typeof(VirtualDispatchCallers).Assembly.Location);
+
+        // Both call sites resolve to VirtualDispatchBase.Work — including ViaDerived, whose
+        // receiver is a runtime VirtualDispatchDerived but whose callvirt operand is the base.
+        var baseRoot = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(VirtualDispatchBase) && method.Name == nameof(VirtualDispatchBase.Work)));
+        var baseTree = index.BuildCallerTree(baseRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
+        Assert.Contains(baseTree.Children, child => child.Member.Name == nameof(VirtualDispatchCallers.ViaBase));
+        Assert.Contains(baseTree.Children, child => child.Member.Name == nameof(VirtualDispatchCallers.ViaDerived));
+
+        // The override is attributed no callers: virtual dispatch to it is not inferred.
+        var derivedRoot = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(VirtualDispatchDerived) && method.Name == nameof(VirtualDispatchDerived.Work)));
+        var derivedTree = index.BuildCallerTree(derivedRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
+        Assert.Equal("target", derivedTree.Perf?.RootKind);
+        Assert.Empty(derivedTree.Children);
+    }
+
     [Fact]
     public void BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod()
     {
@@ -3647,6 +3673,30 @@ public static class BodilessRootFixtures
     // The callvirt references ICallerGraphTarget.Target by its (bodiless) interface
     // method token, so a Caller Graph rooted at that token must still find this caller.
     public static void InvokesThroughInterface(ICallerGraphTarget target) => target.Target();
+}
+
+public class VirtualDispatchBase
+{
+    public virtual int Work() => 1;
+}
+
+public sealed class VirtualDispatchDerived : VirtualDispatchBase
+{
+    public override int Work() => 2;
+}
+
+public static class VirtualDispatchCallers
+{
+    // C# emits `callvirt VirtualDispatchBase::Work` because `value` is statically typed Base.
+    public static int ViaBase(VirtualDispatchBase value) => value.Work();
+
+    // A VirtualDispatchDerived is constructed, but the local is typed Base, so the callvirt
+    // operand is still VirtualDispatchBase::Work; the override is only reached at runtime.
+    public static int ViaDerived()
+    {
+        VirtualDispatchBase value = new VirtualDispatchDerived();
+        return value.Work();
+    }
 }
 
 public static class CallTreeFixtures
