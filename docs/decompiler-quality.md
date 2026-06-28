@@ -345,6 +345,11 @@ The useful output is one of three things:
 - a pattern-pivoted issue with minimized examples when the bug or gap is larger
   than one safe PR.
 
+When the review is posted to a PR, include links to the commit(s) that resolved
+actionable review guidance. If guidance is dismissed or left for a follow-up,
+state why no resolution commit applies and link the follow-up issue when one
+exists.
+
 **When to run this role.** It is a targeted review lane, not a universal CI
 gate, so spend it where a raise's breadth is least proven:
 
@@ -650,7 +655,8 @@ match without changing the implementation first. The useful output is concrete:
 a source-shaped negative fixture, the exact discriminator it toggles, and the
 test that proves the pass does not raise it. When the pass is too broad, add the
 negative fixture first so it fails for the current implementation, then narrow
-the matcher.
+the matcher. In the PR-visible review summary, link the commit(s) that resolved
+the actionable review guidance.
 
 Adversarial research has three useful modes. Use the cheapest one that can
 answer the question, and escalate when the pass is broad, recent, or tied to an

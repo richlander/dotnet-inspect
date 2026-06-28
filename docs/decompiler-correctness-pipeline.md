@@ -164,7 +164,7 @@ Report:
 1. focused tests;
 2. `src/ILInspector.Decompiler.Tests`;
 3. generated quality card showing no unexpected corpus movement;
-4. adversarial review summary.
+4. adversarial review summary with resolution commit links.
 
 ### Bug fixes
 
@@ -188,7 +188,7 @@ Report:
 4. per-method delta artifact;
 5. changed-method fidelity result, or a clear statement that changed methods are
    not currently checkable;
-6. cross-model adversarial review summary.
+6. cross-model adversarial review summary with resolution commit links.
 
 For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
@@ -453,6 +453,7 @@ Corpus/structure evidence:
 
 Review:
 - Cross-model adversarial review: <summary/link>
+- Resolution commits: <links for addressed guidance, or "none" with rationale>
 - Follow-ups: <issues for remaining buckets>
 
 Why this is enough:
