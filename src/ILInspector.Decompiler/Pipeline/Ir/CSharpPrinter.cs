@@ -2210,11 +2210,20 @@ public sealed partial class CSharpPrinter
                 "op_UnaryPlus" => $"+{Operand(arguments[0])}",
                 "op_LogicalNot" => $"!{Operand(arguments[0])}",
                 "op_OnesComplement" => $"~{Operand(arguments[0])}",
-                "op_Implicit" or "op_Explicit" => $"({TypeText(call.Callee.ReturnType)}){Operand(arguments[0])}",
+                "op_Implicit" or "op_Explicit" => ConversionOperatorSpelling(call.Callee.ReturnType, arguments[0]),
                 _ => null,
             };
         }
         return null;
+    }
+
+    string ConversionOperatorSpelling(TypeRef target, IrExpression value)
+    {
+        string operand = Operand(value);
+        string targetText = TypeText(target);
+        if (NeedsCastOperandParentheses(operand, targetText))
+            operand = $"({operand})";
+        return $"({targetText}){operand}";
     }
 
     /// <summary>The checked-context spelling of a user-defined checked operator call (op_Checked*), or null when the name has no faithful operator form.</summary>
@@ -2224,7 +2233,7 @@ public sealed partial class CSharpPrinter
 
         // checked explicit conversion: checked((T)x).
         if (call.Callee.Name == "op_CheckedExplicit" && arguments.Count == 1)
-            return WrapChecked(() => $"({TypeText(call.Callee.ReturnType)}){Operand(arguments[0])}");
+            return WrapChecked(() => ConversionOperatorSpelling(call.Callee.ReturnType, arguments[0]));
 
         // The remaining checked operators share their symbol with the unchecked
         // form (op_CheckedAddition → "+"); reuse the single mapping the signature
@@ -2498,13 +2507,18 @@ public sealed partial class CSharpPrinter
         // keyword type the parser treats as cast-disambiguating. `nint`/`nuint`
         // are contextual keywords and named types are not, so `(nint)-1` misparses
         // — wrap the operand: `(nint)(-1)`. The parens are opcode-identical.
-        if (operand.Length > 0 && operand[0] is '-' or '+' && !s_castDisambiguatingKeywords.Contains(targetText))
+        if (NeedsCastOperandParentheses(operand, targetText))
             operand = $"({operand})";
         string cast = $"({targetText}){operand}";
         if (wrap)
             return $"checked({cast})";
         return uncheckedOverflow ? $"unchecked({cast})" : cast;
     }
+
+    static bool NeedsCastOperandParentheses(string operand, string targetText)
+        => operand.Length > 0
+            && operand[0] is '-' or '+'
+            && !s_castDisambiguatingKeywords.Contains(targetText);
 
     // The predefined-type keyword spellings the C# parser treats as
     // cast-disambiguating: `(int)-1` is a cast, but `(nint)-1` (a contextual
