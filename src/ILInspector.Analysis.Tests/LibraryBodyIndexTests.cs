@@ -1246,14 +1246,28 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_SuppressesBlazorRenderMethods()
+    public void OptimizationOpportunities_SuppressesRealBlazorRenderMethods()
+    {
+        // The REAL framework RenderTreeBuilder (trusted public-key-token, from
+        // Microsoft.AspNetCore.App) marks a method as Razor render plumbing, so its capturing
+        // delegate is suppressed (intrinsic component-model cost, not actionable).
+        var index = LibraryBodyIndex.Open(RenderFixturePath());
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == "RenderWithDelegateLoop");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_LookalikeRenderTreeBuilder_IsNotSuppressed()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        // RenderLikeMethod takes a RenderTreeBuilder and allocates a capturing delegate, but
-        // Razor render plumbing is suppressed (intrinsic component-model cost, not actionable).
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
-            o.Method.Name == nameof(OptimizationOpportunityFixtures.RenderLikeMethod));
+        // RenderLikeMethod takes an UNTRUSTED RenderTreeBuilder lookalike (no framework
+        // public-key-token). The render-method suppression is trust-gated (#1708), so this is
+        // not mistaken for render plumbing and its in-loop capturing delegate is reported.
+        Assert.Contains(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.RenderLikeMethod)
+            && o.Shape == "capturing-delegate");
     }
 
     [Fact]
@@ -2043,6 +2057,20 @@ public class LibraryBodyIndexTests
         return path;
     }
 
+    static string RenderFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.RenderFixtures",
+            outputDirectory.Name,
+            "ILInspector.Analysis.RenderFixtures.dll"));
+        Assert.True(File.Exists(path), $"Expected render fixture assembly at {path}");
+        return path;
+    }
+
     // #1708 Row A end-to-end. A real assembly literally named "System.Linq" (unsigned,
     // so no framework public-key-token) exposes a System.Linq.Enumerable.ToArray
     // lookalike. Simple-name identity accepted it as a framework copy; strong
@@ -2251,12 +2279,21 @@ public class OptimizationOpportunityFixtures
         return total;
     }
 
-    // Razor/Blazor render plumbing: a method taking a RenderTreeBuilder. Even though it
-    // allocates a capturing delegate, it must be suppressed (intrinsic component-model cost).
-    public static void RenderLikeMethod(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, int seed)
+    // A method taking an UNTRUSTED RenderTreeBuilder lookalike (defined in this test assembly,
+    // so it carries no framework public-key-token). It allocates a capturing delegate in a
+    // loop; because the parameter type is not the trusted framework RenderTreeBuilder, this is
+    // NOT treated as Blazor render plumbing and the allocation IS reported. The trusted
+    // counterpart (RealRenderFixtures.RenderWithDelegateLoop) is suppressed.
+    public static int RenderLikeMethod(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, int[] values, int seed)
     {
-        System.Func<int> handler = () => seed + 1;
-        builder.Use(handler);
+        var total = 0;
+        foreach (var v in values)
+        {
+            System.Func<int> handler = () => v + seed;
+            total += handler();
+        }
+
+        return total;
     }
 
     public int[] MakesArrayAfterFieldAccess()
