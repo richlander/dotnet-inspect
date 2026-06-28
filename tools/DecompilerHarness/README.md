@@ -16,9 +16,10 @@ This is the first step toward an addressable progressive fixture ladder:
 `minimal.auto-property.getter`, `minimal.method-call.same-type`, and
 `minimal.primary-ctor.field-init` are expected `Exact`; the static-call, if/else,
 null-coalescing, try/finally, using/dispose, and foreach-array rungs extend that
-minimal exact set. With no selector, all generated fixtures run; use `list` to
-list fixture IDs, `--json` for machine-readable list/results, and
-`--keep-generated-fixtures` to preserve the generated project for drill-down.
+minimal exact set; `minimal.switch-int` adds the first switch statement rung.
+With no selector, all generated fixtures run; use `list` to list fixture IDs,
+`--json` for machine-readable list/results, and `--keep-generated-fixtures` to
+preserve the generated project for drill-down.
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
 residual buckets from `--gaps` with the Roslyn-backed validity oracle from
