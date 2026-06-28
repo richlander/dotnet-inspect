@@ -218,13 +218,14 @@ static class ValidityCheck
                     }
                     semChecked++;
                     var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
+                    var semanticModel = compilation.GetSemanticModel(tree);
                     var defects = compilation.GetDiagnostics()
                         .Where(IsError)
                         .Where(d => !BindingNoise.Contains(d.Id))
                         .Where(d => !IsShellArtifact(d))
                         .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
                         .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
-                        .Where(d => !IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function))
+                        .Where(d => !IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))
                         .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
                         .ToImmutableArray();
                     results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: true, defects));
@@ -667,7 +668,7 @@ static class ValidityCheck
     /// CS0200 here means the shell resolved the receiver to the colliding external
     /// type instead.
     /// </summary>
-    internal static bool IsDeclaringTypeStaticPropertyCtorAssignmentNoise(Diagnostic diagnostic, SyntaxTree tree, IrFunction function)
+    internal static bool IsDeclaringTypeStaticPropertyCtorAssignmentNoise(Diagnostic diagnostic, SyntaxTree tree, IrFunction function, SemanticModel semanticModel)
     {
         if (diagnostic.Id != "CS0200" || function.Name != ".cctor" || diagnostic.Location.SourceTree != tree)
             return false;
@@ -677,7 +678,7 @@ static class ValidityCheck
             return false;
         if (!IsAssignmentLeft(memberAccess))
             return false;
-        if (!ReceiverNamesDeclaringType(memberAccess.Expression, function.DeclaringType))
+        if (!ReceiverResolvesToDeclaringType(memberAccess.Expression, function.DeclaringType, semanticModel))
             return false;
 
         string propertyName = memberAccess.Name.Identifier.ValueText;
@@ -695,16 +696,34 @@ static class ValidityCheck
             && memberAccess.Span.End <= assignment.Left.Span.End;
     }
 
-    static bool ReceiverNamesDeclaringType(ExpressionSyntax receiver, TypeRef declaringType)
+    static bool ReceiverResolvesToDeclaringType(ExpressionSyntax receiver, TypeRef declaringType, SemanticModel semanticModel)
     {
-        string text = receiver.ToString();
-        string simpleName = ShellNoise.SimpleName(declaringType.Name);
-        if (text == simpleName)
-            return true;
-        if (declaringType.Namespace.Length == 0)
+        var symbolInfo = semanticModel.GetSymbolInfo(receiver);
+        ISymbol? symbol = symbolInfo.Symbol
+            ?? symbolInfo.CandidateSymbols.OfType<INamedTypeSymbol>().FirstOrDefault();
+        if (symbol is IAliasSymbol alias)
+            symbol = alias.Target;
+        if (symbol is not INamedTypeSymbol namedType)
             return false;
-        string fullName = declaringType.Namespace + "." + simpleName;
-        return text == fullName || text == "global::" + fullName;
+
+        return MetadataFullName(namedType) == MetadataFullName(declaringType);
+    }
+
+    static string MetadataFullName(INamedTypeSymbol type)
+    {
+        var names = new Stack<string>();
+        for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
+            names.Push(current.Name);
+        string nested = string.Join(".", names);
+        string ns = type.ContainingNamespace.IsGlobalNamespace ? "" : type.ContainingNamespace.ToDisplayString();
+        return ns.Length == 0 ? nested : ns + "." + nested;
+    }
+
+    static string MetadataFullName(TypeRef type)
+    {
+        type = type.Kind == TypeRefKind.GenericInstance ? type.ElementType! : type;
+        string name = string.Join(".", type.Name.Split('+').Select(ShellNoise.SimpleName));
+        return type.Namespace.Length == 0 ? name : type.Namespace + "." + name;
     }
 
     static bool SameTypeDefinition(TypeRef left, TypeRef right)

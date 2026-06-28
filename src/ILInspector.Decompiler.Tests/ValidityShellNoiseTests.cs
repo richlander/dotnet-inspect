@@ -14,29 +14,29 @@ public class ValidityShellNoiseTests
     [Fact]
     public void DeclaringTypeStaticPropertyCtorAssignmentCollision_IsFiltered()
     {
-        var (diagnostic, tree) = ReadOnlyInstanceDiagnostic();
+        var (diagnostic, tree, semanticModel) = ReadOnlyInstanceDiagnostic();
         var function = StaticConstructorWithBackingStore(ReferenceEqualityComparerType, "Instance");
 
-        Assert.True(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function));
+        Assert.True(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function, semanticModel));
     }
 
     [Fact]
     public void DeclaringTypeStaticPropertyCtorAssignmentWithoutBackingStore_StaysReported()
     {
-        var (diagnostic, tree) = ReadOnlyInstanceDiagnostic();
+        var (diagnostic, tree, semanticModel) = ReadOnlyInstanceDiagnostic();
         var function = StaticConstructorWithBackingStore(ReferenceEqualityComparerType, backingPropertyName: null);
 
-        Assert.False(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function));
+        Assert.False(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function, semanticModel));
     }
 
     [Fact]
     public void OtherTypeStaticPropertyAssignment_StaysReported()
     {
-        var (diagnostic, tree) = ReadOnlyInstanceDiagnostic();
+        var (diagnostic, tree, semanticModel) = ReadOnlyInstanceDiagnostic();
         var otherType = TypeRef.Definition("fixture", "Fixture", "Holder");
         var function = StaticConstructorWithBackingStore(otherType, "Instance");
 
-        Assert.False(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function));
+        Assert.False(ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(diagnostic, tree, function, semanticModel));
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public class ValidityShellNoiseTests
         Assert.DoesNotContain(diagnostics, d => d.Severity == DiagnosticSeverity.Error);
     }
 
-    static (Diagnostic Diagnostic, SyntaxTree Tree) ReadOnlyInstanceDiagnostic()
+    static (Diagnostic Diagnostic, SyntaxTree Tree, SemanticModel SemanticModel) ReadOnlyInstanceDiagnostic()
     {
         var tree = CSharpSyntaxTree.ParseText("""
             #pragma warning disable
@@ -71,21 +71,22 @@ public class ValidityShellNoiseTests
                 }
             }
             """, new CSharpParseOptions(LanguageVersion.Preview));
-        var diagnostic = Assert.Single(Compile(tree), d => d.Id == "CS0200");
-        return (diagnostic, tree);
+        var compilation = CreateCompilation(tree);
+        var diagnostic = Assert.Single(compilation.GetDiagnostics(), d => d.Id == "CS0200");
+        return (diagnostic, tree, compilation.GetSemanticModel(tree));
     }
 
     static ImmutableArray<Diagnostic> Compile(string source)
-        => Compile(CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview)));
+        => CreateCompilation(CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview)))
+            .GetDiagnostics();
 
-    static ImmutableArray<Diagnostic> Compile(SyntaxTree tree)
+    static CSharpCompilation CreateCompilation(SyntaxTree tree)
         => CSharpCompilation.Create(
                 "validity-shell-noise",
                 [tree],
                 ValidityCheck.RuntimeReferences(),
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)
-                    .WithMetadataImportOptions(MetadataImportOptions.All))
-            .GetDiagnostics();
+                    .WithMetadataImportOptions(MetadataImportOptions.All));
 
     static IrFunction StaticConstructorWithBackingStore(TypeRef declaringType, string? backingPropertyName)
     {
