@@ -31,6 +31,20 @@ public class AnalysisFixtureCatalogTests
         AssertBoundary(run, "alloc.value-struct-newobj.cross-asm-nongeneric", "ConstructsInLoop", OwnedBoundary.FalsePositive);
         AssertBoundary(run, "exception.suffix-lookalike.external", "ConstructsLookalike", OwnedBoundary.FalsePositive);
         AssertBoundary(run, "exception.unsuffixed.external", "Throws", OwnedBoundary.FalseNegative);
+
+        // Opportunity-shape seeds: true positive, must-not-flag, and a deferred owned-FN.
+        AssertPasses(run, "alloc.string-build.accumulation-in-loop", "AppendsStringInLoop");
+        AssertPasses(run, "alloc.string-build.accumulation-in-loop", "ConcatsIntoListInLoop");
+        AssertBoundary(run, "alloc.string-build.accumulation-in-loop", "DerivedAccumulatorInLoop", OwnedBoundary.FalseNegative);
+        AssertPasses(run, "suppress.box.throw-path", "BoxesIntoStringFormat");
+        AssertPasses(run, "suppress.box.throw-path", "ThrowsWithBoxedValue");
+        AssertBoundary(run, "suppress.box.throw-path", "ThrowsViaHelper", OwnedBoundary.FalseNegative);
+    }
+
+    static void AssertPasses(AnalysisFixtureRunResult run, string fixtureId, string method)
+    {
+        var result = Result(run, fixtureId, method);
+        Assert.True(result.Passed, result.Failure);
     }
 
     // The grader must refuse to silently grade an ambiguous target name (an overload or a
