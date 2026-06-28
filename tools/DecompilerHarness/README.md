@@ -144,6 +144,10 @@ corpus script with the PR quick baseline, or the card will report artificial
 assembly additions/removals such as System.Private.CoreLib appearing to drop out
 of the sample.
 
+When a card shows capped changed rows, use
+[Reproducing decompiler corpus deltas](../../docs/decompiler-corpus-delta-repro.md)
+to select the matching PR commit and regenerate the full local delta.
+
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-pr-corpus.sh /tmp/pr-corpus-assemblies.txt
