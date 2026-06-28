@@ -4233,3 +4233,26 @@ public static class EnumCastSamples
     }
 }
 
+
+// Issue #1759: a reference-typed value produced by `as`/isinst and tested for
+// truthiness in a branch (here the `?.Dispose()` null-conditional inside a
+// finally) must render `is null`/`is not null`, not `!S` — `!IDisposable` is
+// CS0023. IDisposable is a cross-assembly interface (TypeShape.Unknown), so the
+// reference classification comes from the isinst provenance.
+public static class FinallyDisposeSamples
+{
+    public static void DisposeEnumeratorInFinally(System.Collections.IDictionary dictionary)
+    {
+        System.Collections.IDictionaryEnumerator enumerator = dictionary.GetEnumerator();
+        try
+        {
+            while (enumerator.MoveNext())
+            {
+            }
+        }
+        finally
+        {
+            (enumerator as System.IDisposable)?.Dispose();
+        }
+    }
+}
