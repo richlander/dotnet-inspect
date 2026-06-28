@@ -311,7 +311,9 @@ milestone.
 Use a separate **Decompiler Adversarial Reviewer** role when the concern is not
 "is the queue metadata honest?" but "is this raise actually sound?" The curator
 keeps the map current; the adversarial reviewer tries to falsify the map's
-claims.
+claims. Pick two reviewers from the model roster in the AGENTS.md
+[Adversarial Review](../AGENTS.md#adversarial-review) section, never your own
+model.
 
 This is different from simply "creating adversarial fixtures." A fixture is one
 artifact the review may produce; the role is the upstream proof audit that

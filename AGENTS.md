@@ -191,7 +191,11 @@ non-trivial behavior changes, new heuristics/shapes, or subtle correctness risk
 
 - Claude Opus 4.8
 - GPT-5.5
+- Gemini Pro (e.g. Gemini 3.1 Pro)
 - the MAI Flash family (e.g. MAI-Code-1-Flash)
+
+This list is the single source of truth for the reviewer roster; other scenario
+docs reference this section rather than restating the models.
 
 Rules:
 
