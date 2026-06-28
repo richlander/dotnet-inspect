@@ -101,8 +101,9 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 
 For decompiler-affecting PRs, follow this evidence and review contract:
 
-- Use `docs/templates/decompiler-pr.md` for the PR body. Keep the human summary
-  terse and conclusion-first.
+- Use `docs/templates/decompiler-pr.md` for general decompiler PR bodies and
+  `docs/templates/decompiler-burndown-fix-pr.md` for focused invalid-`Full` /
+  burndown row fixes. Keep the human summary terse and conclusion-first.
 - Include the tool-generated quality-diff card; do not hand-construct or re-key
   metric tables. Use the matching corpus script/baseline pair documented in
   `tools/DecompilerHarness/README.md`. If a card has capped changed rows, link
