@@ -86,18 +86,25 @@ public static class AnalysisFixtureRunner
         LibraryBodyIndex index,
         IReadOnlyDictionary<int, MethodSignals> signalsByToken)
     {
-        var method = index.Methods.FirstOrDefault(m => m.Name == target.Method);
-        if (method is null)
+        var matches = index.Methods.Where(m => m.Name == target.Method).ToList();
+        if (matches.Count != 1)
         {
+            // Grade only an unambiguous target: 0 matches is a missing method, >1 is an
+            // ambiguous name (an overload or a same-named method on another type) that could
+            // otherwise silently grade the wrong method's signals.
+            string why = matches.Count == 0
+                ? "target-method-not-found"
+                : $"target-method-ambiguous ({matches.Count} methods named '{target.Method}')";
             return new AnalysisFixtureResult(
                 fixture.Id, target.Method, 0, [], [], false, target.Boundary, target.BlockedOn,
-                Describe(target.Expect), "target-method-not-found", "target-method-not-found", target.Note);
+                Describe(target.Expect), why, why, target.Note);
         }
 
+        var method = matches[0];
         var signals = signalsByToken.GetValueOrDefault(method.MetadataToken, MethodSignals.None);
         var exceptionTypes = signals.ExceptionTypes;
         var opportunityShapes = index.OptimizationOpportunities
-            .Where(o => o.Method.Name == target.Method)
+            .Where(o => o.Method.MetadataToken == method.MetadataToken)
             .Select(o => o.Shape)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(shape => shape, StringComparer.Ordinal)

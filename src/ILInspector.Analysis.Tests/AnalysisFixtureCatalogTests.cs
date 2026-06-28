@@ -33,6 +33,30 @@ public class AnalysisFixtureCatalogTests
         AssertBoundary(run, "exception.unsuffixed.external", "Throws", OwnedBoundary.FalseNegative);
     }
 
+    // The grader must refuse to silently grade an ambiguous target name (an overload or a
+    // same-named method on another type) rather than pick the first metadata match (#1819 review).
+    [Fact]
+    public void AmbiguousTargetName_FailsExplicitly()
+    {
+        var ambiguous = new AnalysisFixtureDefinition(
+            "test.ambiguous-name",
+            """
+            namespace Fix;
+            public static class A { public static int Dup() => 1; }
+            public static class B { public static int Dup() => 2; }
+            """,
+            ExternalSource: null,
+            ExternalNeedsAlias: false,
+            [new AnalysisFixtureTarget("Dup", new AnalysisExpectation(AllocationsExactly: 0))],
+            ["test"]);
+
+        var run = AnalysisFixtureRunner.Run([ambiguous]);
+        var result = Assert.Single(run.Results);
+
+        Assert.False(result.Passed);
+        Assert.Contains("ambiguous", result.Failure);
+    }
+
     static AnalysisFixtureResult Result(AnalysisFixtureRunResult run, string fixtureId, string method)
         => Assert.Single(run.Results, r => r.FixtureId == fixtureId && r.Method == method);
 
