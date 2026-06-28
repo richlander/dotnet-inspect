@@ -480,8 +480,8 @@ public class DiffCommand
     private static bool MatchesTypeFilters(string typeFullName, HashSet<string> filters)
         => filters.Count == 0 || filters.Any(filter => MatchesDiffTypeFilter(typeFullName, filter));
 
-    private static string MethodKey(MethodIdentity method)
-        => $"{method.AssemblyName}|{method.DeclaringType.ToQualifiedDisplayString()}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))}|{method.ReturnType.ToQualifiedDisplayString()}";
+    internal static string MethodKey(MethodIdentity method)
+        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     private static string FormatMethod(MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";

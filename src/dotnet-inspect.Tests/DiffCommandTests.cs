@@ -269,4 +269,38 @@ public class DiffCommandTests
         Assert.True(System.IO.File.Exists(path), $"Expected diff fixture assembly at {path}");
         return path;
     }
+
+    // Key-path audit: the analysis-diff member key must distinguish members that
+    // TypeRef.Equals distinguishes but display strings do not — same-name/different-arity
+    // generic declaring types, and same-FQN parameter types from different assemblies —
+    // otherwise the snapshot merges them and the diff misses a member (sibling of #1741).
+    [Fact]
+    public void MethodKey_DistinguishesSameNameDifferentArityDeclaringTypes()
+    {
+        var box1 = DiffMethod(ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Box`1"), "Store");
+        var box2 = DiffMethod(ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Box`2"), "Store");
+
+        Assert.NotEqual(DiffCommand.MethodKey(box1), DiffCommand.MethodKey(box2));
+    }
+
+    [Fact]
+    public void MethodKey_DistinguishesSameFqnParametersFromDifferentAssemblies()
+    {
+        var declaring = ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Api");
+        var pingA = DiffMethod(declaring, "Ping", ILInspector.Analysis.TypeRef.Definition("LibA", "Shared", "Token"));
+        var pingB = DiffMethod(declaring, "Ping", ILInspector.Analysis.TypeRef.Definition("LibB", "Shared", "Token"));
+
+        Assert.NotEqual(DiffCommand.MethodKey(pingA), DiffCommand.MethodKey(pingB));
+    }
+
+    static ILInspector.Analysis.MethodIdentity DiffMethod(ILInspector.Analysis.TypeRef declaring, string name, params ILInspector.Analysis.TypeRef[] parameterTypes)
+        => new(
+            "Asm",
+            System.Guid.Empty,
+            declaring,
+            name,
+            [.. parameterTypes],
+            ILInspector.Analysis.TypeRef.CoreLib("System", "Void"),
+            MetadataToken: 0x06000001,
+            IsStatic: true);
 }

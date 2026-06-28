@@ -78,5 +78,5 @@ internal sealed class MethodDefinitionMap
         => $"{declaringType.Assembly}|{declaringType.Namespace}|{declaringType.Name}|{name}";
 
     static string Key(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
-        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
+        => $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|{string.Join(",", parameterTypes.Select(GenericMemberIdentity.KeyFragment))}";
 }
