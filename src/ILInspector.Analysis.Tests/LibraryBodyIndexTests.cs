@@ -1436,6 +1436,35 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_PrependStringInLoop_IsHighStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // The accumulator as the LAST concat argument (`s = x + sep + s`) is still O(n^2).
+        Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.PrependsStringInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ReassignUnrelatedSlotInLoop_IsNotStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // `Foo(s); s = a + b;` — `s` is loaded only for the unrelated call, not as a concat
+        // argument. The stack-aware check must not misread this as accumulation.
+        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.ReassignsUnrelatedSlotInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DerivedAccumulatorInLoop_IsNotStringBuild()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // The accumulator flows through `s.Trim()` before the concat -> conservatively not
+        // matched (the bare-load bit does not survive the intermediate call).
+        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.DerivedAccumulatorInLoop)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_AllocationDenseNonLoopMethod_IsNotHotspot()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -2279,6 +2308,39 @@ public class OptimizationOpportunityFixtures
     {
         var s = a;
         s += b;
+        return s;
+    }
+
+    // Accumulator is the LAST concat argument (prepend): `s = x + sep + s` is still O(n^2).
+    public static string PrependsStringInLoop(string[] items)
+    {
+        var s = "";
+        foreach (var x in items)
+            s = x + " " + s;
+        return s;
+    }
+
+    // NOT accumulation by the stack-aware check: the destination slot is loaded only to pass
+    // to an unrelated call, then reassigned from operands that do not include it
+    // (`Foo(s); s = a + b;`). The bare load is popped by Foo before the concat, so `s` is not a
+    // concat argument -> must NOT be flagged. (Adversarial-review regression guard.)
+    public static string ReassignsUnrelatedSlotInLoop(string seed, string a, string b, string[] items)
+    {
+        foreach (var x in items)
+        {
+            System.Console.WriteLine(seed);
+            seed = a + b;
+        }
+        return seed;
+    }
+
+    // Conservatively NOT flagged: the accumulator flows through a call (`s.Trim()`) before the
+    // concat, so the bare-load bit does not survive. Documents the precision/recall tradeoff.
+    public static string DerivedAccumulatorInLoop(string[] items)
+    {
+        var s = "";
+        foreach (var x in items)
+            s = x + " " + s.Trim();
         return s;
     }
 

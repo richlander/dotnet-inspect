@@ -1562,7 +1562,7 @@ public sealed class LibraryBodyIndex
                                 "Quadratic only if the scanned sequence grows with the loop; a small or constant sequence is fine."));
                         }
                         else if (IsStringConcat(callee) && IsInLoopRegion(offset, loopRegions)
-                            && ConcatAccumulatesIntoSource(il, position))
+                            && ConcatAccumulatesIntoSource(il, offset, position, callee.ParameterTypes.Length, callerScope))
                         {
                             // `s += …` inside a loop lowers to String.Concat(s, …) stored back to
                             // the same local/parameter. Each iteration copies the whole growing
@@ -2495,43 +2495,186 @@ public sealed class LibraryBodyIndex
             position = (int)targetPosition;
         }
 
-        // True when the String.Concat call ending at `storeOffset` accumulates into one of its
-        // own inputs: the instruction immediately after the call stores to a local/parameter
-        // slot that the same call also loaded as an argument (`s = String.Concat(s, …)`, the
-        // `s += …` lowering). Repeated copying of the growing accumulator is the canonical
-        // O(n^2) StringBuilder anti-pattern. The check is value-specific (the stored slot must
-        // be one of the call's argument loads), so an unrelated in-loop concat into a fresh
-        // local is not misread as accumulation. Argument slots are namespaced apart from local
-        // slots so a local index and a parameter index with the same number do not collide.
-        public static bool ConcatAccumulatesIntoSource(byte[] il, int storeOffset)
+        // True when the String.Concat at `concatOffset` — whose result is stored by the
+        // instruction at `storeOffset` — accumulates into one of its own arguments, i.e.
+        // `s = String.Concat(s, …)` (the `s += …` lowering). Each iteration copies the whole
+        // growing accumulator: the canonical O(n^2) StringBuilder anti-pattern.
+        //
+        // Soundness is by stack-aware simulation, not a flat load window. It replays the eval
+        // stack across the basic block that produces the concat's arguments, tagging each stack
+        // slot with one bit — "produced by a bare load of the destination slot" — and reports
+        // accumulation only when a value actually consumed by the concat carries that bit. So a
+        // prior unrelated use of the slot (`Foo(s); s = a + b;`) is not misread: that load is
+        // popped by its own consumer before the concat. A derived accumulator
+        // (`s = s.Substring(..) + x`) is conservatively not matched (the bit does not survive the
+        // intermediate call). Anything the small stack model does not understand makes the probe
+        // bail, so it never reports a false positive on unmodeled IL.
+        public bool ConcatAccumulatesIntoSource(byte[] il, int concatOffset, int storeOffset, int concatArgCount, GenericScope callerScope)
         {
             const int ArgSlotBias = 1 << 20;
-            if (storeOffset < 0 || storeOffset >= il.Length)
-                return false;
-            int sp = storeOffset;
-            var storeOp = ReadOpcode(il, ref sp);
-            if (!TryReadLocalSlot(il, storeOp, ref sp, storeOffset, out bool storeIsStore, out bool storeIsArg, out int storeSlot)
-                || !storeIsStore)
-                return false;
-            int storeKey = (storeIsArg ? ArgSlotBias : 0) | storeSlot;
-
-            int position = 0;
-            var argLoads = new List<int>();
-            while (position < storeOffset)
+            try
             {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
-                bool isLocalOp = TryReadLocalSlot(il, opcode, ref position, offset, out bool isStore, out bool isArg, out int slot);
-                if (!isLocalOp)
-                    SkipOperandStatic(il, opcode, ref position, offset);
-                if (position >= storeOffset)
-                    break; // this is the Concat call itself; preserve its argument loads
-                if (isLocalOp && !isStore)
-                    argLoads.Add((isArg ? ArgSlotBias : 0) | slot);
-                else if (ClearsAccumulatorWindow(opcode))
-                    argLoads.Clear();
+                if (storeOffset < 0 || storeOffset >= il.Length || concatOffset < 0 || concatArgCount <= 0)
+                    return false;
+
+                // The concat result must be stored straight back into a local/parameter slot.
+                int sp = storeOffset;
+                var storeOp = ReadOpcode(il, ref sp);
+                if (!TryReadLocalSlot(il, storeOp, ref sp, storeOffset, out bool storeIsStore, out bool storeIsArg, out int storeSlot)
+                    || !storeIsStore)
+                    return false;
+                int storeKey = (storeIsArg ? ArgSlotBias : 0) | storeSlot;
+
+                // Pass 1: find the start of the basic block that feeds the concat — the point
+                // after the most recent store/branch/terminator before it. (Calls are not block
+                // boundaries.)
+                int blockStart = 0;
+                int p = 0;
+                while (p < concatOffset)
+                {
+                    int o = p;
+                    var op = ReadOpcode(il, ref p);
+                    bool isLocal = TryReadLocalSlot(il, op, ref p, o, out bool localStore, out _, out _);
+                    if (!isLocal)
+                        SkipOperandStatic(il, op, ref p, o);
+                    if (p <= concatOffset && ((isLocal && localStore) || EndsConcatArgumentBlock(op)))
+                        blockStart = p;
+                }
+
+                // Pass 2: simulate the eval stack from the block start to the concat. Each slot
+                // carries a bit: was it produced by a bare load of the destination slot?
+                var stack = new List<bool>();
+                p = blockStart;
+                while (p < concatOffset)
+                {
+                    int o = p;
+                    var op = ReadOpcode(il, ref p);
+                    if (TryReadLocalSlot(il, op, ref p, o, out bool isStore, out bool isArg, out int slot))
+                    {
+                        if (isStore)
+                            return false; // a store starts a new block; model desync -> bail
+                        int key = (isArg ? ArgSlotBias : 0) | slot;
+                        stack.Add(key == storeKey);
+                        continue;
+                    }
+                    if (!ApplyConcatBlockStackEffect(il, op, ref p, o, stack, callerScope))
+                        return false; // unmodeled opcode or stack underflow -> conservative bail
+                }
+
+                // The concat's arguments are the top `concatArgCount` slots. Accumulation iff any
+                // of them came from a bare load of the destination slot.
+                if (stack.Count < concatArgCount)
+                    return false;
+                for (int i = stack.Count - concatArgCount; i < stack.Count; i++)
+                    if (stack[i])
+                        return true;
+                return false;
             }
-            return argLoads.Contains(storeKey);
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return false;
+            }
+        }
+
+        // Applies one instruction's eval-stack effect during the concat-argument replay, pushing
+        // `false` for any value that is not a bare load of the accumulator slot. Returns false to
+        // bail the whole probe on a stack underflow or any opcode the model does not cover, so an
+        // incomplete model can only lose a detection, never invent one.
+        bool ApplyConcatBlockStackEffect(byte[] il, ILOpCode opcode, ref int position, int offset, List<bool> stack, GenericScope callerScope)
+        {
+            switch (opcode)
+            {
+                case ILOpCode.Nop:
+                    return true;
+                // Pure pushes of a non-accumulator value.
+                case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
+                    or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
+                    or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull:
+                    stack.Add(false);
+                    return true;
+                case ILOpCode.Ldc_i4_s:
+                    Advance(il, ref position, 1, offset);
+                    stack.Add(false);
+                    return true;
+                case ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4 or ILOpCode.Ldstr or ILOpCode.Ldsfld
+                    or ILOpCode.Ldsflda or ILOpCode.Ldtoken or ILOpCode.Ldftn or ILOpCode.Sizeof:
+                    Advance(il, ref position, 4, offset);
+                    stack.Add(false);
+                    return true;
+                case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
+                    Advance(il, ref position, 8, offset);
+                    stack.Add(false);
+                    return true;
+                case ILOpCode.Ldloca_s or ILOpCode.Ldarga_s:
+                    Advance(il, ref position, 1, offset);
+                    stack.Add(false);
+                    return true;
+                case ILOpCode.Ldloca or ILOpCode.Ldarga:
+                    Advance(il, ref position, 2, offset);
+                    stack.Add(false);
+                    return true;
+                // pop 1, push 1 (a derived value — never the bare accumulator).
+                case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
+                    or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
+                    or ILOpCode.Conv_u2 or ILOpCode.Conv_u1 or ILOpCode.Conv_i or ILOpCode.Conv_u
+                    or ILOpCode.Conv_r_un or ILOpCode.Neg or ILOpCode.Not or ILOpCode.Ldlen
+                    or ILOpCode.Ldind_i1 or ILOpCode.Ldind_u1 or ILOpCode.Ldind_i2 or ILOpCode.Ldind_u2
+                    or ILOpCode.Ldind_i4 or ILOpCode.Ldind_u4 or ILOpCode.Ldind_i8 or ILOpCode.Ldind_i
+                    or ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref:
+                    return Pop(stack, 1) && Push(stack);
+                case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Ldobj or ILOpCode.Castclass
+                    or ILOpCode.Isinst or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Box:
+                    Advance(il, ref position, 4, offset);
+                    return Pop(stack, 1) && Push(stack);
+                // pop 2, push 1.
+                case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Div_un
+                    or ILOpCode.Rem or ILOpCode.Rem_un or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
+                    or ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un or ILOpCode.Ceq or ILOpCode.Cgt
+                    or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un or ILOpCode.Ldelem_i1
+                    or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_i4
+                    or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_i or ILOpCode.Ldelem_r4
+                    or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref:
+                    return Pop(stack, 2) && Push(stack);
+                case ILOpCode.Ldelem or ILOpCode.Ldelema:
+                    Advance(il, ref position, 4, offset);
+                    return Pop(stack, 2) && Push(stack);
+                case ILOpCode.Dup:
+                    if (stack.Count == 0)
+                        return false;
+                    stack.Add(stack[^1]);
+                    return true;
+                case ILOpCode.Pop:
+                    return Pop(stack, 1);
+                case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
+                {
+                    int token = ReadInt32(il, ref position, offset);
+                    var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                    if (callee.Kind == MemberKind.Unsupported)
+                        return false;
+                    int pops = callee.ParameterTypes.Length + (opcode != ILOpCode.Newobj && callee.HasThis ? 1 : 0);
+                    if (!Pop(stack, pops))
+                        return false;
+                    if (opcode == ILOpCode.Newobj || callee.ReturnType.Name != "Void")
+                        stack.Add(false);
+                    return true;
+                }
+                default:
+                    return false; // unmodeled opcode -> bail (no false positive)
+            }
+        }
+
+        static bool Pop(List<bool> stack, int count)
+        {
+            if (stack.Count < count)
+                return false;
+            stack.RemoveRange(stack.Count - count, count);
+            return true;
+        }
+
+        static bool Push(List<bool> stack)
+        {
+            stack.Add(false);
+            return true;
         }
 
         // Decodes a load/store of a local or argument slot, advancing past any inline operand.
@@ -2568,14 +2711,12 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        // A value-sink that ends the run of argument loads feeding the next concat: a store
-        // (the value is consumed into a slot/field/element), a branch, or block-terminator.
-        // Calls are deliberately NOT boundaries: a sub-expression call (e.g. `s += x.Name`,
-        // `s = s + list[i]`) consumes only its own arguments and leaves the earlier accumulator
-        // load live beneath them on the eval stack, so it must stay in the window. The
-        // store-immediately-after-concat requirement already excludes list/return uses whose
-        // concat result is not stored back, so not clearing on calls does not admit those.
-        static bool ClearsAccumulatorWindow(ILOpCode opcode)
+        // A store/branch/terminator that ends the basic block feeding a concat: it bounds the
+        // straight-line region whose eval-stack the accumulation probe replays. Calls are NOT
+        // boundaries — a sub-expression call (`s += x.Name`, `s = s + list[i]`) leaves the
+        // earlier accumulator value live beneath its arguments. (Store-to-local/parameter is
+        // handled separately by the caller via the local-slot decoder.)
+        static bool EndsConcatArgumentBlock(ILOpCode opcode)
             => opcode is ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Stobj
                 or ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
                 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
