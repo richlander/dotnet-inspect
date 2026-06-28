@@ -4182,3 +4182,54 @@ public static class UserGridCalls
     public static int UserGet(UserGridSample g, int i, int j) => g.Get(i, j);
     public static void UserSet(UserGridSample g, int i, int j, int v) => g.Set(i, j, v);
 }
+
+// Issues #1766 / #1772: a cross-assembly (framework) enum resolves to
+// TypeShape.Unknown, so an integer constant flowing into it through a
+// conditional arm or a bitwise compound assignment renders as a bare int —
+// invalid `int->enum` (CS0266) / `enum |= int` (CS0019) at Full. The printer
+// must cast structurally.
+public static class EnumCastSamples
+{
+    // #1766: ternary with enum-constant arms stored to a cross-assembly enum
+    // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
+    public static bool EnumConditional(string name, bool ci)
+    {
+        System.StringComparison c = ci ? System.StringComparison.Ordinal : System.StringComparison.OrdinalIgnoreCase;
+        return name.EndsWith("x", c);
+    }
+
+    // #1772: bitwise compound assignment to a cross-assembly [Flags] enum local
+    // (AttributeTargets.Class = 4, AttributeTargets.Struct = 8).
+    public static System.AttributeTargets EnumFlagsCompound(bool a, bool b)
+    {
+        System.AttributeTargets result = (System.AttributeTargets)0;
+        if (a)
+        {
+            result |= System.AttributeTargets.Class;
+        }
+        if (b)
+        {
+            result |= System.AttributeTargets.Struct;
+        }
+        return result;
+    }
+
+    // #1766 review finding 1: a conditional with one constant arm and one
+    // non-constant integer arm into a cross-assembly enum — both arms must be cast
+    // (`ci ? (StringComparison)4 : (StringComparison)raw`), not just the constant.
+    public static bool EnumConditionalMixedArm(string name, bool ci, int raw)
+    {
+        System.StringComparison c = ci ? System.StringComparison.Ordinal : (System.StringComparison)raw;
+        return name.EndsWith("x", c);
+    }
+
+    // #1772 review finding 2: a negative integer constant into a cross-assembly
+    // enum (`~AttributeTargets.Class` folds to ldc.i4 -5) must force `unchecked`,
+    // since an unsigned- or narrow-backed enum would reject `(Enum)(-5)` (CS0221).
+    public static System.AttributeTargets EnumFlagsCompoundNegative(System.AttributeTargets seed)
+    {
+        seed &= ~System.AttributeTargets.Class;
+        return seed;
+    }
+}
+

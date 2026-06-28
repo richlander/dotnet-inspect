@@ -2130,6 +2130,19 @@ public sealed partial class CSharpPrinter
         var lvalueType = targetType ?? binary.Left.ResultType;
         string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
             ? ShiftCount(binary)
+            // A bitwise &=/|=/^= against an enum lvalue whose right operand is still
+            // a bare integer (`result |= 512`) is `enum |= int` — CS0019, the
+            // compound sibling of the `enum & int` cast in BinaryBody. A
+            // cross-assembly enum is unresolved (TypeShape.Unknown), so the
+            // structural IsEnumLikeInteger test catches it; cast the integer operand
+            // to the enum. IsIntegerLike (not IsInteger) excludes Boolean — which
+            // shares the I4 stack family — so a bool operand is never cast to
+            // `(Enum)true`. A same-assembly enum already had its operand retyped, so
+            // its right type is the enum (not integer-like) and this is skipped.
+            : binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
+                && IsEnumLikeInteger(lvalueType)
+                && binary.Right.ResultType is { } rightType && TypeFamilies.IsIntegerLike(rightType)
+                ? EnumIntegerCast(binary.Right, lvalueType!)
             // A mixed-sign same-width compound (`nuint -= nint`, `ulong /= long`)
             // has no C# common type, so `target op= right` is CS0034. For the
             // sign-NEUTRAL operators (unchecked +/-/*, bitwise &/|/^) the bit
