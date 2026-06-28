@@ -497,6 +497,13 @@ card is reviewer-sized evidence, not a dump-stage artifact; keep `--dump
 --steps` output in linked diagnosis notes only when reviewers need the
 drill-down. To reproduce the full row set behind a capped card, follow
 [Reproducing decompiler corpus deltas](decompiler-corpus-delta-repro.md).
+Use the terse PR body shape in
+[docs/templates/decompiler-pr.md](templates/decompiler-pr.md) when writing the
+human summary around the generated card.
+
+Rate deltas in card prose use **percentage points** (`pp`): `+0.49 pp` means
+the rate increased from, for example, `82.17%` to `82.66%`. Counts still use raw
+signed count deltas in `Count delta`.
 
 For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
 sensor values are enough when you need the broader daily/manual signal:

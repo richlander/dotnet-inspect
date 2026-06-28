@@ -616,7 +616,7 @@ internal static class CorpusSensor
         if (change > tolerance)
         {
             string direction = lowerIsRegression ? "dropped" : "increased";
-            failures.Add($"{name} {direction} {change} bps (baseline {FormatBps(baseline)}, current {FormatBps(current)}, tolerance {tolerance} bps)");
+            failures.Add($"{name} {direction} {FormatPercentagePoints(change)} (baseline {FormatBps(baseline)}, current {FormatBps(current)}, tolerance {FormatPercentagePoints(tolerance)})");
         }
     }
 
@@ -715,12 +715,7 @@ internal static class CorpusSensor
             CountPercent(baseline.Metrics.ForwardMergeStoppedContainers, baseline.Metrics.ForwardMergeBasisPoints),
             CountPercent(current.Metrics.ForwardMergeStoppedContainers, current.Metrics.ForwardMergeBasisPoints),
             Delta(current.Metrics.ForwardMergeStoppedContainers - baseline.Metrics.ForwardMergeStoppedContainers));
-        if (current.ValidityCompileCap <= 0)
-        {
-            PrintMetric("Full malformed (-)", "not run", "not run", "-");
-            PrintMetric("Semantic defects (-)", "not run", "not run", "-");
-        }
-        else
+        if (current.ValidityCompileCap > 0)
         {
             PrintMetric(
                 "Full malformed (-)",
@@ -733,11 +728,7 @@ internal static class CorpusSensor
                 FractionWithCoverage(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods, current.Metrics.TotalMethods),
                 Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
         }
-        if (current.FidelityCompileCap <= 0)
-        {
-            PrintMetric("Fidelity diffs (-)", "not run", "not run", "-");
-        }
-        else
+        if (current.FidelityCompileCap > 0)
         {
             PrintMetric(
                 "Fidelity diffs (-)",
@@ -790,15 +781,18 @@ internal static class CorpusSensor
             ? $"opcode diffs {Number(basePinned.OpcodeDiff)} -> {Number(curPinned.OpcodeDiff)} "
                 + $"({Delta(curPinned.OpcodeDiff - basePinned.OpcodeDiff)})"
             : "fidelity ungated (no pinned fidelity sample; rely on changed-method fidelity)";
+        var fullMalformed = current.ValidityCompileCap > 0
+            ? $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
+                + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
+            : "";
         Console.WriteLine();
         Console.WriteLine(
             "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
             + $"Fully raised {FormatBps(basePinned.FullyRaisedBasisPoints)} -> {FormatBps(curPinned.FullyRaisedBasisPoints)} "
-            + $"({Delta(curPinned.FullyRaisedBasisPoints - basePinned.FullyRaisedBasisPoints)} bps); "
+            + $"({DeltaPercentagePoints(curPinned.FullyRaisedBasisPoints - basePinned.FullyRaisedBasisPoints)}); "
             + $"conditional residual {FormatBps(basePinned.ConditionalBranchBasisPoints)} -> {FormatBps(curPinned.ConditionalBranchBasisPoints)} "
-            + $"({Delta(curPinned.ConditionalBranchBasisPoints - basePinned.ConditionalBranchBasisPoints)} bps); "
-            + $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
-            + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
+            + $"({DeltaPercentagePoints(curPinned.ConditionalBranchBasisPoints - basePinned.ConditionalBranchBasisPoints)}); "
+            + fullMalformed
             + fidelity + ".");
     }
 
@@ -823,7 +817,7 @@ internal static class CorpusSensor
             if (change > toleranceBps)
             {
                 string direction = lowerIsRegression ? "dropped" : "increased";
-                advisories.Add($"{name} {direction} {change} bps (baseline {FormatBps(baselineRate)}, PR {FormatBps(currentRate)}, tolerance {toleranceBps} bps)");
+                advisories.Add($"{name} {direction} {FormatPercentagePoints(change)} (baseline {FormatBps(baselineRate)}, PR {FormatBps(currentRate)}, tolerance {FormatPercentagePoints(toleranceBps)})");
             }
         }
     }
@@ -948,6 +942,12 @@ internal static class CorpusSensor
 
     static string Delta(int value)
         => value > 0 ? $"+{Number(value)}" : Number(value);
+
+    static string DeltaPercentagePoints(int basisPoints)
+        => basisPoints == 0 ? "0 pp" : $"{(basisPoints > 0 ? "+" : "")}{FormatPercentagePoints(basisPoints)}";
+
+    static string FormatPercentagePoints(int basisPoints)
+        => $"{basisPoints / 100.0:F2} pp";
 
     static string Number(int value)
         => value.ToString("N0", CultureInfo.InvariantCulture);
