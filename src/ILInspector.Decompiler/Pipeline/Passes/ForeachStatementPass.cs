@@ -260,8 +260,18 @@ public sealed class ForeachStatementPass : IIrPass
         LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
         LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
         LoadFieldAddress address => new LoadField(address.Field, DetachCollectionReceiver(address.Instance)),
+        LoadElementAddress address => MakeLoadElement(address),
         _ => expression,
     };
+
+    static LoadElement MakeLoadElement(LoadElementAddress address)
+    {
+        var array = address.Array;
+        var index = address.Index;
+        index.Detach();   // detach last child first to keep array's index stable
+        array.Detach();
+        return new LoadElement(address.ElementType, array, index);
+    }
 
     static IrExpression? DetachCollectionReceiver(IrExpression? expression)
     {
