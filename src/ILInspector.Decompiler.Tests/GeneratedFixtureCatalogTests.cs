@@ -98,12 +98,64 @@ public class GeneratedFixtureCatalogTests
             "Method2",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
+        AssertTarget(
+            run,
+            "minimal.static-method-call",
+            "GeneratedFixtures.MinimalStaticMethodCall.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.static-method-call",
+            "GeneratedFixtures.MinimalStaticMethodCall.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.static-method-call",
+            "GeneratedFixtures.MinimalStaticMethodCall.Class1",
+            "Helper",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.if-else",
+            "GeneratedFixtures.MinimalIfElse.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.if-else",
+            "GeneratedFixtures.MinimalIfElse.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.null-coalesce",
+            "GeneratedFixtures.MinimalNullCoalesce.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.null-coalesce",
+            "GeneratedFixtures.MinimalNullCoalesce.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
 
         Assert.Contains("minimal.property.literal", report);
         Assert.Contains("minimal.primary-ctor.field-init", report);
         Assert.Contains("minimal.ctor-field.getter", report);
         Assert.Contains("minimal.auto-property.getter", report);
         Assert.Contains("minimal.method-call.same-type", report);
+        Assert.Contains("minimal.static-method-call", report);
+        Assert.Contains("minimal.if-else", report);
+        Assert.Contains("minimal.null-coalesce", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
     }
@@ -119,9 +171,12 @@ public class GeneratedFixtureCatalogTests
             [
                 "minimal.auto-property.getter",
                 "minimal.ctor-field.getter",
+                "minimal.if-else",
                 "minimal.method-call.same-type",
+                "minimal.null-coalesce",
                 "minimal.primary-ctor.field-init",
                 "minimal.property.literal",
+                "minimal.static-method-call",
             ],
             GeneratedFixtureCatalog.Select("minimal").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
@@ -139,6 +194,9 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.ctor-field.getter");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.auto-property.getter");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.method-call.same-type");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-method-call");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.null-coalesce");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
