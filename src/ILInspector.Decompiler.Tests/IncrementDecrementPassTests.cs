@@ -616,6 +616,24 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserOperatorValueForm_ConditionalUse_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); return cond ? S : default;  must NOT fold —
+        // the use sits in a ternary arm, so folding would make the unconditional
+        // increment run only when cond holds (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new Return(new Conditional(
+                new LoadArgument(0, "cond", ValueType),
+                new LoadStackSlot(0, ValueType),
+                new Constant(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
     public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
     {
         // A normal method that happens to be named op_Increment (no operator

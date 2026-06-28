@@ -159,6 +159,15 @@ public sealed class IncrementDecrementPass : IIrPass
         if (ObservesBeforeUse(useStatement, useLoad))
             return false;
 
+        // The use must also be reached unconditionally: folding the unconditional
+        // update into the use must not make the increment conditional. `return cond
+        // ? S : default` would otherwise fold to `return cond ? SF++ : default`,
+        // incrementing only when cond holds. Reject conditional-evaluation ancestors
+        // (ternary / ?? / ?. / switch-expression / short-circuit) and any non-linear
+        // consumer statement (an `if`/loop/switch body is conditionally reached).
+        if (!IsLinearStatement(useStatement) || ReachedConditionally(useLoad, useStatement))
+            return false;
+
         lvalueLoad.Detach();
         var increment = new IncrementDecrement(lvalueLoad, isIncrement, isPrefix, isUserDefined: true, isChecked: isChecked);
         stepper.StepOver($"fold user-defined {(isIncrement ? "++" : "--")} value form into operator", useLoad);
@@ -204,6 +213,19 @@ public sealed class IncrementDecrementPass : IIrPass
         Constant or LoadLocal or LoadStackSlot or LoadArgument => true,
         _ => false,
     };
+
+    /// <summary>A statement whose body runs unconditionally and in evaluation order — the value form's use must sit in one of these, not in an if/loop/switch body that is conditionally reached.</summary>
+    static bool IsLinearStatement(IrNode statement) => statement is
+        Return or ExpressionStatement or StoreLocal or StoreStackSlot or StoreField or StoreIndirect or StoreArgument or StoreElement;
+
+    /// <summary>True when <paramref name="use"/> is nested inside a conditional-evaluation construct (ternary, ??, ?., switch-expression, short-circuit) below <paramref name="statement"/>, so the use is not guaranteed to execute.</summary>
+    static bool ReachedConditionally(IrNode use, IrNode statement)
+    {
+        for (var node = use.Parent; node is not null && !ReferenceEquals(node, statement); node = node.Parent)
+            if (node is Conditional or Coalesce or NullConditional or SwitchExpression or LogicalBinary)
+                return true;
+        return false;
+    }
 
     static int CountTempStores(IrFunction function, IrNode capture) => capture switch
     {
