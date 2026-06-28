@@ -16,37 +16,28 @@ Keep this file as a resolver plus essential repo workflow rules. Put detailed ar
 
 ## Current priorities
 
-For decompiler raise, scorecard, ledger, adversarial fixture, or predicate work,
-read `docs/decompiler-quality.md` first, then
-`docs/design/decompiler-substrate.md`.
-Use `docs/decompiler-correctness-pipeline.md` to choose the right test/harness
-"boss" for a decompiler PR and to report the expected evidence.
+For decompiler raise, scorecard, ledger, adversarial fixture, or predicate work:
 
-The current decompiler priority is high-value hardening:
-
-- Treat a near-full scorecard as a signal to do more adversarial passes over
-  recent or broad raises.
-- When the obvious breadth-hunt queue dries up, switch to stabilization,
-  curation, measured validity/corpus bugs, or one explicitly scoped large climb;
-  do not keep opening tiny overlapping raise PRs for motion.
-- Sharpen `Partial` ledger rows instead of adding easy scorecard rows.
-- Run curator passes when uncoordinated agents land raises: keep scorecard
-  entries positive-only, sidecar coverage current, and adversarial fixtures
-  clearly negative.
-- Use `docs/burndown-curator.md` and `agents/` role files for burndown queue hygiene: stale
-  rows, merged PR state, merge conflicts, CI breaks, rebaseline triggers, and
-  safe subagent delegation. Claimed burndown rows are hot-start work: drive to a
-  PR, explicit blocker, or pivot issue.
-- Use PR-intent-informed adversarial reviewer passes for recent or broad raises:
-  reconstruct the raise claim from the PR and current code, then falsify the
-  discriminator with near-miss negative fixtures.
-- Use stepper semantic audits for ECMA/pipeline-contract concerns: walk specimens
-  through `--dump --steps --diff --cfg --facts --remarks` to find the first
+- Start with `docs/decompiler-quality.md` and
+  `docs/decompiler-correctness-pipeline.md`; use the latter to name the
+  highest relevant proof "boss" and evidence.
+- Read `docs/design/decompiler-substrate.md` before adding or changing shared
+  rewrite-gate predicates. Use **decompiler substrate** for shared pass-evidence
+  layers and **identity predicates** for exact gates; avoid **fact substrate**.
+- Keep the product path SRM-only, NativeAOT-friendly, Roslyn-free, and free of
+  inspected-assembly loading.
+- Prefer high-value hardening: measured correctness/validity bugs, adversarial
+  passes over recent or broad raises, and sharper `Partial` ledger rows. Do not
+  inflate the scorecard with easy rows just for motion.
+- Use `docs/burndown-curator.md` and `agents/` role files for burndown queue
+  hygiene. Claimed burndown rows are hot-start work: drive one row to a PR,
+  explicit blocker, or pivot issue.
+- Use PR-intent-informed adversarial reviews for recent or broad raises:
+  reconstruct the raise claim, then falsify the discriminator with near-miss
+  negative fixtures.
+- Use stepper semantic audits for ECMA/pipeline-contract concerns:
+  `--dump --steps --diff --cfg --facts --remarks` should identify the first
   illegal intermediate rewrite.
-- Keep the product decompiler path SRM-only, NativeAOT-friendly, Roslyn-free,
-  and free of inspected-assembly loading.
-- Use **decompiler substrate** for shared pass-evidence layers and
-  **identity predicates** for exact rewrite gates; avoid **fact substrate**.
 
 ## File-Based Apps
 
@@ -110,28 +101,28 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 
 For decompiler-affecting PRs, follow this evidence and review contract:
 
-- Documentation-only PRs that do not claim new measured behavior may stop at
-  markdownlint; state that the change is docs-only.
-- Include the tool-generated quality-diff card. Paste harness output; do not
-  hand-construct aggregate tables.
-- For risky behavior changes (raise/structuring/printer semantics), include a
-  per-method delta artifact and changed-method fidelity result, or state
-  explicitly that changed methods are not currently checkable.
-- Add targeted improved examples and still-flat near misses for behavior changes.
+- Use `docs/templates/decompiler-pr.md` for the PR body. Keep the human summary
+  terse and conclusion-first.
+- Include the tool-generated quality-diff card; do not hand-construct or re-key
+  metric tables. Use the matching corpus script/baseline pair documented in
+  `tools/DecompilerHarness/README.md`. If a card has capped changed rows, link
+  `docs/decompiler-corpus-delta-repro.md` rather than pasting dump walls.
+- For risky behavior changes (raise/structuring/printer semantics), include
+  targeted improved examples and still-flat near misses, plus changed-method
+  fidelity evidence when the changed population is checkable. If not checkable,
+  say that explicitly.
 - Synthetic IR fixtures are useful for unreachable near misses, but identity or
   lowering-shape gates should also include a real importer/compiled-fixture
-  canary when one exists. If the full decompiler suite cannot complete, state
-  that limitation and run the closest real-importer tests, not only synthetic
-  pass tests.
-- Do not paste raw `--dump --steps` walls into PR bodies; link drill-down
-  artifacts when needed.
+  canary when one exists.
 - Request adversarial review per the [Adversarial Review](#adversarial-review)
-  policy (two reviewers from a different model family than your own). You may
-  open the PR before the reviews finish, and may request earlier if progress
-  slows.
-- Always post a PR comment summarizing the adversarial review results and any
-  follow-up changes or explicit non-actions. Include references or links to the
-  commit(s) that resolved actionable review guidance.
+  policy (two reviewers from a different model family than your own). It is fine
+  to open the PR before reviews finish.
+- Always post a PR comment or body update summarizing adversarial review results
+  and any follow-up changes or explicit non-actions. Include links or commit refs
+  for resolved guidance; state why no resolution commit applies for dismissed
+  guidance.
+- Documentation-only PRs that do not claim new measured behavior may stop at
+  markdownlint; state that the change is docs-only.
 
 See `docs/decompiler-quality.md` and `tools/DecompilerHarness/README.md` for the
 broader workflow and command details.
