@@ -508,7 +508,8 @@ public sealed partial class CSharpPrinter
 
         var nodes = DescendantsOutsideNestedFunctions(function).ToList();
         var storesBySlot = new Dictionary<int, List<IrExpression>>();
-        var loadsBySlot = new Dictionary<int, List<TypeRef?>>();
+        var loadsBySlot = new Dictionary<int, List<LoadStackSlot>>();
+        var extraLoadTargetsBySlot = new Dictionary<int, List<TypeRef>>();
         foreach (var node in nodes)
         {
             switch (node)
@@ -517,7 +518,7 @@ public sealed partial class CSharpPrinter
                     (storesBySlot.TryGetValue(store.Slot, out var stores) ? stores : storesBySlot[store.Slot] = []).Add(store.Value);
                     break;
                 case LoadStackSlot load:
-                    (loadsBySlot.TryGetValue(load.Slot, out var loads) ? loads : loadsBySlot[load.Slot] = []).Add(load.Type);
+                    (loadsBySlot.TryGetValue(load.Slot, out var loads) ? loads : loadsBySlot[load.Slot] = []).Add(load);
                     break;
             }
         }
@@ -532,7 +533,7 @@ public sealed partial class CSharpPrinter
             {
                 continue;
             }
-            (loadsBySlot.TryGetValue(load.Slot, out var loads) ? loads : loadsBySlot[load.Slot] = []).Add(elementType);
+            (extraLoadTargetsBySlot.TryGetValue(load.Slot, out var targets) ? targets : extraLoadTargetsBySlot[load.Slot] = []).Add(elementType);
         }
 
         foreach (int slot in storesBySlot.Keys.Concat(loadsBySlot.Keys).Distinct())
@@ -540,6 +541,7 @@ public sealed partial class CSharpPrinter
             if (TryChooseUnifiedStackSlotType(
                 storesBySlot.GetValueOrDefault(slot) ?? [],
                 loadsBySlot.GetValueOrDefault(slot) ?? [],
+                extraLoadTargetsBySlot.GetValueOrDefault(slot) ?? [],
                 out var unifiedType))
             {
                 _stackSlotUnifiedTypes[slot] = unifiedType;
@@ -579,9 +581,15 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    bool TryChooseUnifiedStackSlotType(IReadOnlyList<IrExpression> stores, IReadOnlyList<TypeRef?> loads, out TypeRef unifiedType)
+    bool TryChooseUnifiedStackSlotType(
+        IReadOnlyList<IrExpression> stores,
+        IReadOnlyList<LoadStackSlot> loads,
+        IReadOnlyList<TypeRef> extraLoadTargets,
+        out TypeRef unifiedType)
     {
-        var candidates = loads.Concat(stores.Select(store => store.ResultType))
+        var candidates = loads.Select(load => load.Type)
+            .Concat(extraLoadTargets)
+            .Concat(stores.Select(store => store.ResultType))
             .Where(type => type is not null)
             .Cast<TypeRef>()
             .Distinct()
@@ -589,8 +597,8 @@ public sealed partial class CSharpPrinter
         foreach (var candidate in candidates)
         {
             if (stores.All(store => CanAssignTo(store, candidate))
-                && loads.All(load => load is null || CanAssignType(candidate, load))
-                && loads.All(load => load is null || !StrictlyNarrowsReference(candidate, load)))
+                && loads.All(load => CanLoadAsType(candidate, load))
+                && extraLoadTargets.All(target => CanAssignType(candidate, target) && !StrictlyNarrowsReference(candidate, target)))
             {
                 unifiedType = candidate;
                 return true;
@@ -607,6 +615,31 @@ public sealed partial class CSharpPrinter
             && !candidate.Equals(load)
             && CanAssignType(candidate, load)
             && !CanAssignType(load, candidate);
+
+    bool CanLoadAsType(TypeRef source, LoadStackSlot load)
+    {
+        if (load.Type is null)
+            return true;
+        if (CanAssignType(source, load.Type))
+            return !StrictlyNarrowsReference(source, load.Type);
+        return TypeFamilies.IsBoolean(source)
+            && TypeFamilies.IsIntegerLike(load.Type)
+            && StackSlotLoadTargetType(load) is { } target
+            && TypeFamilies.IsBoolean(target);
+    }
+
+    TypeRef? StackSlotLoadTargetType(LoadStackSlot load)
+        => load.Parent switch
+        {
+            StoreLocal store when ReferenceEquals(store.Value, load) => store.Type,
+            StoreArgument store when ReferenceEquals(store.Value, load) => store.Type,
+            StoreField store when ReferenceEquals(store.Value, load) => store.Field.Type,
+            StoreProperty store when ReferenceEquals(store.Value, load) => StorePropertyTargetType(store),
+            StoreElement store when ReferenceEquals(store.Value, load) => store.ElementType,
+            StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
+            Return ret when ReferenceEquals(ret.Value, load) => _function.Signature.ReturnType,
+            _ => null,
+        };
 
     bool CanAssignTo(IrExpression value, TypeRef target)
     {
