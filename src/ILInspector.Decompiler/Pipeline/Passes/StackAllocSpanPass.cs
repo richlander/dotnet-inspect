@@ -33,7 +33,7 @@ public sealed class StackAllocSpanPass : IIrPass
             // Span<T>(void* pointer, int length): the pointer is the stackalloc,
             // the length is the logical element count.
             if (newObject.Arguments is not [{ } pointer, var count]
-                || pointer is not StackAllocate)
+                || !IsStackAllocPointer(pointer))
                 continue;
 
             count.Detach();
@@ -43,4 +43,21 @@ public sealed class StackAllocSpanPass : IIrPass
             newObject.ReplaceWith(raised);
         }
     }
+
+    static bool IsStackAllocPointer(IrExpression pointer)
+    {
+        if (pointer is StackAllocate)
+            return true;
+
+        return pointer is Convert
+        {
+            IsChecked: false,
+            Operand: StackAllocate,
+            Target: { } target,
+        } && IsPointerLikeTarget(target);
+    }
+
+    static bool IsPointerLikeTarget(TypeRef target)
+        => target.Kind == TypeRefKind.Pointer
+            || target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" };
 }
