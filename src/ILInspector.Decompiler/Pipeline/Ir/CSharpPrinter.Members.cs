@@ -40,7 +40,7 @@ public sealed partial class CSharpPrinter
             // bare name binds to it, not the field (e.g. int Foo(int _x) =>
             // this._x + _x). Qualify with this. to reach the field; an
             // unshadowed instance field stays bare per the taste convention.
-            LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(field.Name) ? $"this.{fieldName}" : fieldName,
+            LoadArgument { Index: 0, Name: "this" } => QualifyThisMember(field.Name, field.Type) ? $"this.{fieldName}" : fieldName,
             _ => $"{ReceiverText(instance)}.{fieldName}",
         };
     }
@@ -58,7 +58,7 @@ public sealed partial class CSharpPrinter
             // Deconstruct(out int X, ...) whose body reads this.X). Qualify with
             // this. to reach the property; an unshadowed instance property stays
             // bare per the taste convention, matching FieldTarget.
-            LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(name) ? "this" : "",
+            LoadArgument { Index: 0, Name: "this" } => QualifyThisMember(name, AccessorValueType(accessor)) ? "this" : "",
             _ => ReceiverText(instance),
         };
         // An instance property accessor with index arguments IS an indexer,
@@ -69,6 +69,44 @@ public sealed partial class CSharpPrinter
         string dotted = receiver.Length == 0 ? escapedName : $"{receiver}.{escapedName}";
         return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
     }
+
+    bool QualifyThisMember(string memberName, TypeRef? valueType)
+        => IsShadowedByLocal(memberName) || MemberNameCollidesWithTypeName(memberName, valueType);
+
+    static bool MemberNameCollidesWithTypeName(string memberName, TypeRef? valueType)
+        => valueType is not null
+            && (CSharpNaming.EscapeIdentifier(memberName) == SimpleTypeName(valueType)
+                || IsKnownBaseTypeCollision(memberName, valueType));
+
+    static string? SimpleTypeName(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is not { Kind: TypeRefKind.Definition })
+            return null;
+        int nested = definition.Name.LastIndexOf('+');
+        string innermost = nested < 0 ? definition.Name : definition.Name[(nested + 1)..];
+        return CSharpNaming.TypeNameSegment(innermost);
+    }
+
+    static bool IsKnownBaseTypeCollision(string memberName, TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        // The product path does not load inspected assemblies to walk inheritance.
+        // Keep this to well-known framework bases whose derived names frequently
+        // appear as same-named instance properties, e.g. MethodInfo MemberInfo.
+        return memberName == "MemberInfo"
+            && definition is
+            {
+                Kind: TypeRefKind.Definition,
+                Namespace: "System" or "System.Reflection",
+                Name: "Type" or "TypeInfo" or "MemberInfo" or "MethodBase" or "MethodInfo" or "ConstructorInfo" or "PropertyInfo" or "FieldInfo" or "EventInfo",
+            };
+    }
+
+    static TypeRef? AccessorValueType(MethodRef accessor)
+        => accessor.Name.StartsWith("get_", StringComparison.Ordinal) ? accessor.ReturnType
+            : accessor.ParameterTypes.Length > 0 ? accessor.ParameterTypes[^1]
+            : null;
 
     /// <summary>True when the member's declaring DEFINITION differs from the function's — self-calls in generic types arrive as instantiations (List&lt;!0&gt;) and must not count as cross-type.</summary>
     bool IsCrossType(TypeRef memberDeclaringType)
