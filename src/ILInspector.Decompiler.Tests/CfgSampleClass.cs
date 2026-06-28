@@ -4339,3 +4339,29 @@ public class MergedSlotProbe
         set => _fmt = MergedSlotStrU.IsNullOrEmpty(value!) ? null : value;
     }
 }
+
+// Issue: a user-defined operator with `in`/`ref` parameters is called with the
+// operands' addresses (ldarga/ldloca). The operator must spell as `a != b`, not
+// `(ref a) != (ref b)` — the latter is CS1525 "Invalid expression term 'ref'".
+// Mirrors the Roslyn `SeparatedSyntaxList<T>` op_Inequality used throughout the
+// red-green tree `Update` methods.
+public readonly struct InOperatorVec
+{
+    public readonly int X;
+    public InOperatorVec(int x) { X = x; }
+    public static bool operator ==(in InOperatorVec a, in InOperatorVec b) => a.X == b.X;
+    public static bool operator !=(in InOperatorVec a, in InOperatorVec b) => a.X != b.X;
+    public override bool Equals(object? o) => o is InOperatorVec v && this == v;
+    public override int GetHashCode() => X;
+}
+
+public class InOperatorProbe
+{
+    public InOperatorVec Field;
+
+    public bool Changed(InOperatorVec arg)
+    {
+        InOperatorVec current = Field;
+        return arg != current;
+    }
+}

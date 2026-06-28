@@ -2393,22 +2393,35 @@ public sealed partial class CSharpPrinter
                 "op_LeftShift" => "<<", "op_RightShift" => ">>",
                 _ => null,
             };
-            return op is null ? null : $"{Operand(arguments[0])} {op} {Operand(arguments[1])}";
+            return op is null ? null : $"{OperatorOperand(arguments[0])} {op} {OperatorOperand(arguments[1])}";
         }
         if (arguments.Count == 1)
         {
             return call.Callee.Name switch
             {
-                "op_UnaryNegation" => $"-{Operand(arguments[0])}",
-                "op_UnaryPlus" => $"+{Operand(arguments[0])}",
-                "op_LogicalNot" => $"!{Operand(arguments[0])}",
-                "op_OnesComplement" => $"~{Operand(arguments[0])}",
+                "op_UnaryNegation" => $"-{OperatorOperand(arguments[0])}",
+                "op_UnaryPlus" => $"+{OperatorOperand(arguments[0])}",
+                "op_LogicalNot" => $"!{OperatorOperand(arguments[0])}",
+                "op_OnesComplement" => $"~{OperatorOperand(arguments[0])}",
                 "op_Implicit" or "op_Explicit" => ConversionOperatorSpelling(call.Callee.ReturnType, arguments[0]),
                 _ => null,
             };
         }
         return null;
     }
+
+    /// <summary>
+    /// An operand of a user-defined operator call. The operator's parameters may
+    /// be <c>in</c>/<c>ref</c>, so the IL passes the operand's address
+    /// (<c>ldarga</c>/<c>ldloca</c>/<c>ldflda</c>); C# operator syntax takes that
+    /// address implicitly, so the operand is the place itself — <c>a != b</c>, not
+    /// the CS1525 <c>(ref a) != (ref b)</c>. Strip the address-of; other operands
+    /// render normally.
+    /// </summary>
+    string OperatorOperand(IrExpression argument)
+        => argument is LoadArgumentAddress or LoadLocalAddress or LoadFieldAddress or LoadElementAddress
+            ? Deref(argument)
+            : Operand(argument);
 
     string ConversionOperatorSpelling(TypeRef target, IrExpression value)
     {
