@@ -150,12 +150,30 @@ public sealed partial class CSharpPrinter
     };
 
     /// <summary>The text of one switch-expression arm: its labels (or <c>_</c>) and the value it yields.</summary>
-    string SwitchArmText(SwitchExpressionArm arm)
-        => $"{(arm.IsDefault ? "_" : string.Join(" or ", arm.Labels))} => {Expression(arm.Value)}";
+    string SwitchArmText(SwitchExpressionArm arm, TypeRef? target = null, TypeRef? labelEnum = null)
+        => $"{SwitchExpressionLabelText(arm, labelEnum)} => {SwitchArmValueText(arm.Value, target)}";
+
+    string SwitchExpressionLabelText(SwitchExpressionArm arm, TypeRef? labelEnum)
+        => arm.IsDefault
+            ? "_"
+            : string.Join(" or ", arm.Labels.Select(label => SwitchLabelText(
+                new Constant(label, TypeRef.CoreLib("System", "Int32")),
+                labelEnum)));
+
+    string SwitchArmValueText(IrExpression value, TypeRef? target)
+        => target is { } enumTarget
+            && IsEnumLikeInteger(enumTarget)
+            && value.ResultType is { } valueType
+            && TypeFamilies.IsIntegerLike(valueType)
+                ? EnumIntegerCast(value, enumTarget)
+                : Expression(value);
 
     /// <summary>The single-line form of a switch expression, used when it is nested inside another expression.</summary>
-    string SwitchExpressionInline(SwitchExpression node)
-        => $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(SwitchArmText))} }}";
+    string SwitchExpressionInline(SwitchExpression node, TypeRef? target = null)
+    {
+        var labelEnum = SwitchLabelEnumType(node.Value);
+        return $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => SwitchArmText(arm, target, labelEnum)))} }}";
+    }
 
     string InterpolatedStringText(InterpolatedStringExpression node)
     {

@@ -934,10 +934,11 @@ public sealed partial class CSharpPrinter
             // indented under the governing value — the statement context knows the
             // indent the inline Expression() form cannot.
             string inner = pad + "    ";
+            var labelEnum = SwitchLabelEnumType(returnedSwitch.Value);
             sb.Append(pad).Append("return ").Append(Operand(returnedSwitch.Value)).AppendLine(" switch");
             sb.Append(pad).AppendLine("{");
             foreach (var arm in returnedSwitch.Arms)
-                sb.Append(inner).Append(SwitchArmText(arm)).AppendLine(",");
+                sb.Append(inner).Append(SwitchArmText(arm, _function.Signature.ReturnType, labelEnum)).AppendLine(",");
             sb.Append(pad).AppendLine("};");
             return;
         }
@@ -1544,8 +1545,29 @@ public sealed partial class CSharpPrinter
         _ => $"/* {node.Describe()} */",
     };
 
-    string CoalesceText(Coalesce co)
-        => $"{CoalesceOperand(co.Left)} ?? {Operand(co.Right)}";
+    string CoalesceText(Coalesce co, TypeRef? target = null)
+    {
+        TypeRef? coalesceTarget = target ?? NullableValueType(co.Left.ResultType) ?? co.ResultType;
+        return $"{CoalesceOperand(co.Left)} ?? {CoalesceRightText(co.Right, coalesceTarget)}";
+    }
+
+    string CoalesceRightText(IrExpression right, TypeRef? target)
+        => target is { } enumTarget
+            && IsEnumLikeInteger(enumTarget)
+            && right.ResultType is { } rightType
+            && TypeFamilies.IsIntegerLike(rightType)
+                ? EnumIntegerCast(right, enumTarget)
+                : Operand(right);
+
+    static TypeRef? NullableValueType(TypeRef? type)
+        => type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" },
+            TypeArguments: [var value],
+        }
+            ? value
+            : null;
 
     string CoalesceOperand(IrExpression expression)
         => expression is LoadIndirect
@@ -2705,7 +2727,7 @@ public sealed partial class CSharpPrinter
         var typed = new Constant(value, enumType);
         if (EnumMemberName(typed) is { } named)
             return named;
-        return $"({TypeText(enumType)}){(value < 0 ? $"({value.ToString(CultureInfo.InvariantCulture)})" : value.ToString(CultureInfo.InvariantCulture))}";
+        return EnumIntegerCast(label, enumType);
     }
 
     static string ConstantText(Constant constant) => constant.Value switch

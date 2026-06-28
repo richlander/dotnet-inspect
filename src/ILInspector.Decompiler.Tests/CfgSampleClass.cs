@@ -4191,7 +4191,7 @@ public static class UserGridCalls
     public static void UserSet(UserGridSample g, int i, int j, int v) => g.Set(i, j, v);
 }
 
-// Issues #1766 / #1772: a cross-assembly (framework) enum resolves to
+// Issues #1766 / #1772 / #1806: a cross-assembly (framework) enum resolves to
 // TypeShape.Unknown, so an integer constant flowing into it through a
 // conditional arm or a bitwise compound assignment renders as a bare int —
 // invalid `int->enum` (CS0266) / `enum |= int` (CS0019) at Full. The printer
@@ -4239,6 +4239,30 @@ public static class EnumCastSamples
         seed &= ~System.AttributeTargets.Class;
         return seed;
     }
+
+    // #1806: the fallback of `Nullable<cross-assembly enum> ?? enumConstant`
+    // needs the same structural enum cast as conditional arms.
+    public static System.StringComparison EnumCoalesce(System.StringComparison? value)
+        => value ?? System.StringComparison.Ordinal;
+
+    // #1806: switch-expression arms yielding cross-assembly enum constants need
+    // target-aware casts, including the direct-return multi-line switch form.
+    public static System.StringComparison EnumSwitchExpression(int value)
+        => value switch
+        {
+            0 => System.StringComparison.Ordinal,
+            _ => System.StringComparison.OrdinalIgnoreCase,
+        };
+
+    public static CfgPriority SameAssemblyEnumCoalesce(CfgPriority? value)
+        => value ?? CfgPriority.High;
+
+    public static CfgPriority SameAssemblyEnumSwitchExpression(int value)
+        => value switch
+        {
+            0 => CfgPriority.High,
+            _ => CfgPriority.Critical,
+        };
 }
 
 
