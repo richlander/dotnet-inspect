@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Fixture exercising the REAL, trusted Blazor RenderTreeBuilder (from the
+    Microsoft.AspNetCore.App shared framework, which carries a framework
+    public-key-token). A method taking it allocates a capturing delegate in a
+    loop; LibraryBodyIndex.IsBlazorRenderMethod must suppress it as intrinsic
+    render plumbing. Paired with the untrusted RenderTreeBuilder lookalike in
+    the test assembly (which must NOT be suppressed). Loaded by path; never
+    referenced for compilation.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

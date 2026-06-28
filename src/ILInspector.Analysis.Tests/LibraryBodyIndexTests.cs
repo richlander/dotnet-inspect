@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -874,16 +875,19 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void GeneratedFrameworkTypeNames_DetectsProtobufAndGrpcGeneratedTypes()
+    public void GeneratedFrameworkTypeNames_DetectsGrpcStub_AndRejectsUnauthenticProtobufSpoof()
     {
         var index = LibraryBodyIndex.Open(typeof(FakeProtobufReflection).Assembly.Location);
         var generated = index.GeneratedFrameworkTypeNames;
 
-        // protobuf reflection holder: its initializer calls FileDescriptor.FromGeneratedCode.
-        Assert.Contains(typeof(FakeProtobufReflection).FullName!, generated);
-        // protobuf message: its initializer constructs MessageParser<T>.
-        Assert.Contains(typeof(FakeProtobufMessage).FullName!, generated);
-        // gRPC service stub: binds via ServerServiceDefinition and declares __Helper_ members.
+        // #1735: the bootstrap types are bound from an unsigned assembly literally named
+        // Google.Protobuf (no real public-key-token), so these must NOT be classified as
+        // protobuf-generated — otherwise a same-name spoof could suppress actionable product
+        // rows. (Authentic Google.Protobuf identity is exercised by the unit test below.)
+        Assert.DoesNotContain(typeof(FakeProtobufReflection).FullName!, generated);
+        Assert.DoesNotContain(typeof(FakeProtobufMessage).FullName!, generated);
+        // gRPC detection is identity-independent (namespace + generated __* members tied to a
+        // Grpc.Core call), so the gRPC service stub is still correctly detected.
         Assert.Contains(typeof(FakeGrpcServiceStub).FullName!, generated);
         // A normal protobuf-using type that doesn't bootstrap generated infrastructure stays out.
         Assert.DoesNotContain(typeof(NormalProtobufConsumer).FullName!, generated);
@@ -898,6 +902,45 @@ public class LibraryBodyIndexTests
         Assert.Contains(index.OptimizationOpportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(GeneratedLookalike)
             && opportunity.Method.Name == nameof(GeneratedLookalike.MakesLocalArrayUnsuppressed));
+    }
+
+    // #1735: generated-code suppression must authenticate Google.Protobuf by public-key-token,
+    // not simple name. The unsigned fixture assembly named Google.Protobuf is NOT authentic; the
+    // real strong-named package assembly IS.
+    [Fact]
+    public void GoogleProtobufIdentity_AuthenticatesByPublicKeyToken()
+    {
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(ProtobufSpoofAssemblyPath())))
+            Assert.False(FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(pe.GetMetadataReader()),
+                "an unsigned same-name assembly must not be treated as the real Google.Protobuf");
+
+        var realProtobuf = FindRealGoogleProtobufAssembly();
+        if (realProtobuf is null)
+            return; // the Google.Protobuf package is not restored in this environment
+
+        using var realPe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(realProtobuf));
+        Assert.True(FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(realPe.GetMetadataReader()),
+            "the real strong-named Google.Protobuf must be authentic");
+    }
+
+    static string ProtobufSpoofAssemblyPath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName, "..", "..", "ILInspector.Analysis.ProtobufFixtures", outputDirectory.Name, "Google.Protobuf.dll"));
+        Assert.True(File.Exists(path), $"Expected protobuf spoof fixture at {path}");
+        return path;
+    }
+
+    static string? FindRealGoogleProtobufAssembly()
+    {
+        string root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages", "google.protobuf");
+        if (!Directory.Exists(root))
+            return null;
+        return Directory.EnumerateFiles(root, "Google.Protobuf.dll", SearchOption.AllDirectories)
+            .OrderByDescending(p => p)
+            .FirstOrDefault();
     }
 
     [Fact]
@@ -1203,14 +1246,28 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_SuppressesBlazorRenderMethods()
+    public void OptimizationOpportunities_SuppressesRealBlazorRenderMethods()
+    {
+        // The REAL framework RenderTreeBuilder (trusted public-key-token, from
+        // Microsoft.AspNetCore.App) marks a method as Razor render plumbing, so its capturing
+        // delegate is suppressed (intrinsic component-model cost, not actionable).
+        var index = LibraryBodyIndex.Open(RenderFixturePath());
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == "RenderWithDelegateLoop");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_LookalikeRenderTreeBuilder_IsNotSuppressed()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        // RenderLikeMethod takes a RenderTreeBuilder and allocates a capturing delegate, but
-        // Razor render plumbing is suppressed (intrinsic component-model cost, not actionable).
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
-            o.Method.Name == nameof(OptimizationOpportunityFixtures.RenderLikeMethod));
+        // RenderLikeMethod takes an UNTRUSTED RenderTreeBuilder lookalike (no framework
+        // public-key-token). The render-method suppression is trust-gated (#1708), so this is
+        // not mistaken for render plumbing and its in-loop capturing delegate is reported.
+        Assert.Contains(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.RenderLikeMethod)
+            && o.Shape == "capturing-delegate");
     }
 
     [Fact]
@@ -2000,6 +2057,20 @@ public class LibraryBodyIndexTests
         return path;
     }
 
+    static string RenderFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.RenderFixtures",
+            outputDirectory.Name,
+            "ILInspector.Analysis.RenderFixtures.dll"));
+        Assert.True(File.Exists(path), $"Expected render fixture assembly at {path}");
+        return path;
+    }
+
     // #1708 Row A end-to-end. A real assembly literally named "System.Linq" (unsigned,
     // so no framework public-key-token) exposes a System.Linq.Enumerable.ToArray
     // lookalike. Simple-name identity accepted it as a framework copy; strong
@@ -2208,12 +2279,21 @@ public class OptimizationOpportunityFixtures
         return total;
     }
 
-    // Razor/Blazor render plumbing: a method taking a RenderTreeBuilder. Even though it
-    // allocates a capturing delegate, it must be suppressed (intrinsic component-model cost).
-    public static void RenderLikeMethod(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, int seed)
+    // A method taking an UNTRUSTED RenderTreeBuilder lookalike (defined in this test assembly,
+    // so it carries no framework public-key-token). It allocates a capturing delegate in a
+    // loop; because the parameter type is not the trusted framework RenderTreeBuilder, this is
+    // NOT treated as Blazor render plumbing and the allocation IS reported. The trusted
+    // counterpart (RealRenderFixtures.RenderWithDelegateLoop) is suppressed.
+    public static int RenderLikeMethod(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, int[] values, int seed)
     {
-        System.Func<int> handler = () => seed + 1;
-        builder.Use(handler);
+        var total = 0;
+        foreach (var v in values)
+        {
+            System.Func<int> handler = () => v + seed;
+            total += handler();
+        }
+
+        return total;
     }
 
     public int[] MakesArrayAfterFieldAccess()

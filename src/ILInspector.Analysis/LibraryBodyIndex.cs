@@ -529,6 +529,7 @@ public sealed class LibraryBodyIndex
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null
+            && definition.TrustedProtobufAssembly
             && definition.Assembly == "Google.Protobuf"
             && definition.Namespace == ns
             && StripGenericArity(definition.Name) == name;
@@ -1267,13 +1268,19 @@ public sealed class LibraryBodyIndex
         // delegates, EventCallback boxing, RenderFragment closures) are intrinsic to the
         // component model — not user-actionable source-shape fixes. Hand-written code
         // essentially never takes a RenderTreeBuilder, so the parameter is a precise signal.
+        //
+        // The match is trust-gated (public-key-token, #1708): only the real framework
+        // RenderTreeBuilder counts, so a user-defined type that merely reuses the namespace and
+        // name does not silently suppress that method's genuine allocation findings.
         static bool IsBlazorRenderMethod(MethodIdentity caller)
         {
             foreach (var parameter in caller.ParameterTypes)
             {
-                var definition = parameter.Kind == TypeRefKind.GenericInstance ? parameter.ElementType ?? parameter : parameter;
-                if (definition.Namespace == "Microsoft.AspNetCore.Components.Rendering"
-                    && definition.Name == "RenderTreeBuilder")
+                if (FrameworkIdentity.IsKnownFrameworkType(
+                        parameter,
+                        "Microsoft.AspNetCore.Components",
+                        "Microsoft.AspNetCore.Components.Rendering",
+                        "RenderTreeBuilder"))
                     return true;
             }
             return false;
