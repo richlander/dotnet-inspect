@@ -239,6 +239,23 @@ public sealed class LibraryBodyIndex
             && member.Name == "Concat"
             && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "String");
 
+    // A GetEnumerator call that returns a reference-type enumerator — i.e. iterating the
+    // sequence allocates an enumerator object on the heap. `foreach` over a concrete type with a
+    // struct enumerator (List<T>.Enumerator, …) returns it by value and allocates nothing; only
+    // a foreach over an interface (IEnumerable/IEnumerable<T>) binds to GetEnumerator returning
+    // the framework IEnumerator/IEnumerator<T> interface, whose implementation is a heap object.
+    // The return type is matched by trusted-framework identity (#1708), not namespace+name, so a
+    // user type that merely reuses the IEnumerator namespace and name is not mistaken for it.
+    public static bool IsInterfaceEnumeratorAllocation(MemberRef member)
+    {
+        if (member.Kind == MemberKind.Unsupported || member.Name != "GetEnumerator")
+            return false;
+        var ret = member.ReturnType;
+        var def = ret.Kind == TypeRefKind.GenericInstance ? ret.ElementType ?? ret : ret;
+        return FrameworkIdentity.IsCoreLibraryType(def, "System.Collections.Generic", "IEnumerator`1")
+            || FrameworkIdentity.IsCoreLibraryType(def, "System.Collections", "IEnumerator");
+    }
+
     // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
     // enumerating at the call site. A helper that returns such a query is itself a deferred
     // linear scan — the scan runs when the caller enumerates the result.
@@ -1625,6 +1642,25 @@ public sealed class LibraryBodyIndex
                                 true,
                                 offset,
                                 null));
+                        }
+                        else if (IsInterfaceEnumeratorAllocation(callee) && IsInLoopRegion(offset, loopRegions))
+                        {
+                            // foreach over an interface (IEnumerable/IEnumerable<T>) binds to a
+                            // GetEnumerator returning the reference-type IEnumerator/IEnumerator<T>,
+                            // whose implementation is a heap object — one allocation per foreach.
+                            // foreach over a concrete type uses a struct enumerator and allocates
+                            // nothing. Only the in-loop case is reported: a foreach inside a loop
+                            // re-allocates the enumerator each outer iteration. A one-shot foreach
+                            // allocates once and was measured to be essentially all noise.
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "enumerator-allocation",
+                                $"foreach over an interface allocates a reference-type enumerator ({callee.ReturnType.ToQualifiedDisplayString()})",
+                                "Iterating an interface-typed sequence inside a loop allocates an enumerator each pass; foreach over the concrete type (e.g. List<T>) uses a struct enumerator, or index/iterate it once outside the loop.",
+                                "medium",
+                                true,
+                                offset,
+                                "No allocation when the static type has a struct enumerator; worthwhile only if the concrete type is reachable at this call site."));
                         }
                         break;
                     }
