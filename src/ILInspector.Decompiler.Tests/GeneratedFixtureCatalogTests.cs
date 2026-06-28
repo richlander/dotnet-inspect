@@ -189,6 +189,20 @@ public class GeneratedFixtureCatalogTests
             "Method1",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
+        AssertTarget(
+            run,
+            "minimal.switch-int",
+            "GeneratedFixtures.MinimalSwitchInt.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.switch-int",
+            "GeneratedFixtures.MinimalSwitchInt.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
 
         Assert.Contains("minimal.property.literal", report);
         Assert.Contains("minimal.primary-ctor.field-init", report);
@@ -201,6 +215,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.try-finally", report);
         Assert.Contains("minimal.using-dispose", report);
         Assert.Contains("minimal.foreach-array", report);
+        Assert.Contains("minimal.switch-int", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
     }
@@ -223,6 +238,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.primary-ctor.field-init",
                 "minimal.property.literal",
                 "minimal.static-method-call",
+                "minimal.switch-int",
                 "minimal.try-finally",
                 "minimal.using-dispose",
             ],
@@ -248,6 +264,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.try-finally");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.using-dispose");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.foreach-array");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-int");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
