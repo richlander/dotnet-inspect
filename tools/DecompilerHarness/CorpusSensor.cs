@@ -698,55 +698,55 @@ internal static class CorpusSensor
             PrintRiskyCoverageGuidance(current);
         PrintBaselineStaleness(baseline, current);
         Console.WriteLine();
-        Console.WriteLine("| Metric | Baseline | PR | Delta |");
+        Console.WriteLine("| Metric (desired direction) | Baseline | PR | Count delta |");
         Console.WriteLine("| --- | ---: | ---: | ---: |");
         PrintMetric(
-            "Fully raised",
+            "Fully raised (+)",
             CountPercent(baseline.Metrics.FullyRaisedMethods, baseline.Metrics.FullyRaisedBasisPoints),
             CountPercent(current.Metrics.FullyRaisedMethods, current.Metrics.FullyRaisedBasisPoints),
             Delta(current.Metrics.FullyRaisedMethods - baseline.Metrics.FullyRaisedMethods));
         PrintMetric(
-            "Conditional-branch residual",
+            "Conditional-branch residual (-)",
             CountPercent(baseline.Metrics.ConditionalBranchMethods, baseline.Metrics.ConditionalBranchBasisPoints),
             CountPercent(current.Metrics.ConditionalBranchMethods, current.Metrics.ConditionalBranchBasisPoints),
             Delta(current.Metrics.ConditionalBranchMethods - baseline.Metrics.ConditionalBranchMethods));
         PrintMetric(
-            "Forward-merge stops",
+            "Forward-merge stops (-)",
             CountPercent(baseline.Metrics.ForwardMergeStoppedContainers, baseline.Metrics.ForwardMergeBasisPoints),
             CountPercent(current.Metrics.ForwardMergeStoppedContainers, current.Metrics.ForwardMergeBasisPoints),
             Delta(current.Metrics.ForwardMergeStoppedContainers - baseline.Metrics.ForwardMergeStoppedContainers));
         if (current.ValidityCompileCap <= 0)
         {
-            PrintMetric("Full malformed", "not run", "not run", "-");
-            PrintMetric("Semantic defects", "not run", "not run", "-");
+            PrintMetric("Full malformed (-)", "not run", "not run", "-");
+            PrintMetric("Semantic defects (-)", "not run", "not run", "-");
         }
         else
         {
             PrintMetric(
-                "Full malformed",
+                "Full malformed (-)",
                 Number(baseline.Metrics.FullMalformedMethods),
                 Number(current.Metrics.FullMalformedMethods),
                 Delta(current.Metrics.FullMalformedMethods - baseline.Metrics.FullMalformedMethods));
             PrintMetric(
-                "Semantic defects",
+                "Semantic defects (-)",
                 FractionWithCoverage(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods, baseline.Metrics.TotalMethods),
                 FractionWithCoverage(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods, current.Metrics.TotalMethods),
                 Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
         }
         if (current.FidelityCompileCap <= 0)
         {
-            PrintMetric("Fidelity diffs", "not run", "not run", "-");
+            PrintMetric("Fidelity diffs (-)", "not run", "not run", "-");
         }
         else
         {
             PrintMetric(
-                "Fidelity diffs",
+                "Fidelity diffs (-)",
                 FidelityWithCoverage(baseline.Metrics.Fidelity, baseline.Metrics.TotalMethods),
                 FidelityWithCoverage(current.Metrics.Fidelity, current.Metrics.TotalMethods),
                 Delta(current.Metrics.Fidelity.OpcodeDiffMethods - baseline.Metrics.Fidelity.OpcodeDiffMethods));
         }
         PrintMetric(
-            "Pass bugs",
+            "Pass bugs (-)",
             Number(baseline.Metrics.PassBugs),
             Number(current.Metrics.PassBugs),
             Delta(current.Metrics.PassBugs - baseline.Metrics.PassBugs));
