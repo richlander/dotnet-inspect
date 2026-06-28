@@ -68,6 +68,27 @@ public class StackSlotReuseRenderingTests
     }
 
     [Fact]
+    public void BoolSlotWithIntegerTypedConsumerUsesBoolNameWhenTargetIsBool()
+    {
+        var field = new FieldRef(Holder, "Flag", Bool);
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Conditional(
+            new LoadArgument(0, "isValueType", Bool),
+            new Constant(false, Bool),
+            new LoadArgument(1, "hasDefaultConstructor", Bool))
+        { MergedType = Bool }));
+        block.Add(new StoreField(field, null, new LoadStackSlot(0, Int32)));
+        block.Add(new Return(null));
+
+        var output = CSharpPrinter.Print(Function(Void, block)).Output!;
+
+        Assert.Contains("bool S_0", output);
+        Assert.Contains("Flag = S_0;", output);
+        Assert.DoesNotContain("int S_0_1", output);
+        Assert.DoesNotContain("Flag = S_0_1;", output);
+    }
+
+    [Fact]
     public void SubtypeStoreSupertypeLoadStaysOneVariable()
     {
         var consumeObject = new MethodRef(Holder, "ConsumeObject", Void, [Object], HasThis: false);
