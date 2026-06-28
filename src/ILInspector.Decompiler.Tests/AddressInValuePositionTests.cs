@@ -42,4 +42,26 @@ public class AddressInValuePositionTests
         Assert.Contains("(nuint)(&value)", output);
         Assert.DoesNotContain("ref value", output);
     }
+
+    [Fact]
+    public void ArgumentAddressConvertedToNativeUInt_RendersAddressOf()
+    {
+        // EventSource payload helpers lower DataPointer assignments as
+        // `ldarga; conv.u`; value-position argument addresses use `&`, not `ref`.
+        var output = Render(nameof(CfgSampleClass.ArgumentAddressAsNativeUInt));
+
+        Assert.Contains("(nuint)(&value)", output);
+        Assert.DoesNotContain("ref value", output);
+    }
+
+    [Fact]
+    public void ArgumentAddressStoredToNativeInt_RendersAddressOf()
+    {
+        // Some store/call boundaries consume the converted native-int type and see
+        // the raw address node; that value-position spelling is still `&value`.
+        var output = Render(nameof(CfgSampleClass.StoreArgumentAddressAsNativeInt));
+
+        Assert.Contains("s_argumentAddress = (nint)(&value);", output);
+        Assert.DoesNotContain("ref value", output);
+    }
 }
