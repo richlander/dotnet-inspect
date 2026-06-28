@@ -147,6 +147,20 @@ public class GeneratedFixtureCatalogTests
             "Method1",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
+        AssertTarget(
+            run,
+            "minimal.try-finally",
+            "GeneratedFixtures.MinimalTryFinally.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.try-finally",
+            "GeneratedFixtures.MinimalTryFinally.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
 
         Assert.Contains("minimal.property.literal", report);
         Assert.Contains("minimal.primary-ctor.field-init", report);
@@ -156,6 +170,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.static-method-call", report);
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.null-coalesce", report);
+        Assert.Contains("minimal.try-finally", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
     }
@@ -177,6 +192,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.primary-ctor.field-init",
                 "minimal.property.literal",
                 "minimal.static-method-call",
+                "minimal.try-finally",
             ],
             GeneratedFixtureCatalog.Select("minimal").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
@@ -197,6 +213,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-method-call");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.null-coalesce");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.try-finally");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");

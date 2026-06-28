@@ -189,6 +189,36 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "null-coalesce"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalTryFinally = new(
+        "minimal.try-finally",
+        """
+        namespace GeneratedFixtures.MinimalTryFinally;
+
+        public class Class1
+        {
+            private int _count;
+
+            public int Method1(int value)
+            {
+                try
+                {
+                    return value + 1;
+                }
+                finally
+                {
+                    _count++;
+                }
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalTryFinally.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalTryFinally.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "try-finally", "lifetime"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
@@ -199,6 +229,7 @@ internal static class GeneratedFixtureCatalog
         MinimalStaticMethodCall,
         MinimalIfElse,
         MinimalNullCoalesce,
+        MinimalTryFinally,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
