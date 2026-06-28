@@ -141,11 +141,17 @@ public sealed class MixedShortCircuitChainPass : IIrPass
         // guard must branch to the fall arm (else all target the branch arm — the
         // pure-OR chain OrChainDiamondPass owns). The fall arm is reached by a
         // guard's taken edge, not the chain fall-through, so the mix is genuine.
+        // Each guard condition must be boolean: the fold negates fall-arm guards
+        // and composes with && / ||, so a non-boolean condition (e.g. a brtrue on
+        // an int slot) would yield invalid C# (`!intVal`, CS0023). Pure-OR keeps
+        // conditions as-is and stays sound; the mixed fold cannot.
         bool mixed = false;
         for (int i = p; i <= q; i++)
         {
             int target = TakenTarget(blocks[i]) ?? -1;
             if (target != branchArmOffset && target != fallArmOffset)
+                return null;
+            if (!IsBoolean(((ConditionalBranch)blocks[i].Children[^1]).Condition))
                 return null;
             if (i < q && target == fallArmOffset)
                 mixed = true;
@@ -168,6 +174,13 @@ public sealed class MixedShortCircuitChainPass : IIrPass
         => block.Children.Count > 0 && block.Children[^1] is ConditionalBranch conditional
             ? conditional.TargetOffset
             : null;
+
+    /// <summary>True when the guard condition is boolean — composing/negating a non-boolean
+    /// (a brtrue on an int slot) would yield invalid C# (CS0023). Comparisons and
+    /// short-circuit forms are already boolean; otherwise the type must say so.</summary>
+    static bool IsBoolean(IrExpression condition)
+        => condition is Comparison or LogicalBinary or LogicalNot
+            || TypeFamilies.IsBoolean(condition.ResultType);
 
     /// <summary>The single branch target of a pure one-statement condition block, or null.</summary>
     static int? ConditionTarget(Block block)
