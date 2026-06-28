@@ -13,12 +13,11 @@ generated-fixture catalogue entries into a temporary class library, runs the
 compile-back oracle, and prints results by stable fixture ID plus target method.
 This is the first step toward an addressable progressive fixture ladder:
 `minimal.property.literal`, `minimal.ctor-field.getter`,
-`minimal.auto-property.getter`, and `minimal.method-call.same-type` are expected
-`Exact`, while
-`minimal.primary-ctor.field-init` records the current constructor `OpcodeDiff`
-frontier and the exact getter. With no selector, all generated fixtures run; use
-`list` to list fixture IDs, `--json` for machine-readable list/results, and
-`--keep-generated-fixtures` to preserve the generated project for drill-down.
+`minimal.auto-property.getter`, `minimal.method-call.same-type`, and
+`minimal.primary-ctor.field-init` are expected `Exact`. With no selector, all
+generated fixtures run; use `list` to list fixture IDs, `--json` for
+machine-readable list/results, and `--keep-generated-fixtures` to preserve the
+generated project for drill-down.
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
 residual buckets from `--gaps` with the Roslyn-backed validity oracle from
