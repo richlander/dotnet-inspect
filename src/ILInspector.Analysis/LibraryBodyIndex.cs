@@ -24,7 +24,7 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
-        IReadOnlySet<string> inAssemblyValueTypeNames)
+        IReadOnlySet<int> nonHeapNewObjOperandTokens)
     {
         Path = path;
         Methods = methods;
@@ -39,7 +39,7 @@ public sealed class LibraryBodyIndex
         _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
-        _inAssemblyValueTypeNames = inAssemblyValueTypeNames;
+        _nonHeapNewObjOperandTokens = nonHeapNewObjOperandTokens;
     }
 
     public string Path { get; }
@@ -95,25 +95,6 @@ public sealed class LibraryBodyIndex
         return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
     }
 
-    // True when a `newobj` of this type does NOT allocate on the heap: a value type (struct/
-    // enum). The common framework value types constructed in hot loops (Span/ReadOnlySpan/
-    // Memory/Nullable/ValueTuple) are matched by identity; in-assembly structs/enums are
-    // matched via the value-type name set resolved from metadata. Counting these as heap
-    // allocations would inflate allocation-hotspot density (e.g. generated JSON parse loops
-    // are full of ReadOnlySpan<byte>/Nullable<T> constructors that allocate nothing).
-    bool IsNonHeapConstruction(TypeRef type)
-    {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        if (definition.Kind == TypeRefKind.Unsupported)
-            return false;
-        if (definition.Namespace == "System" && definition.Name is
-                "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
-                or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
-                or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
-            return true;
-        return _inAssemblyValueTypeNames.Contains(definition.ToQualifiedDisplayString());
-    }
-
     // A method that allocates densely is a real perf signal only when the allocations are
     // both REPEATED (in a loop) and not already pinpointed by a specific shape — otherwise
     // the count is dominated by intrinsic, non-reducible construction (e.g. a serializer
@@ -159,10 +140,10 @@ public sealed class LibraryBodyIndex
             if (call.Callee.Kind != MemberKind.Unsupported
                 && IsExceptionConstruction(call.Callee.DeclaringType))
                 continue;
-            // A `newobj` of a value type (Span/Nullable/ValueTuple/in-assembly struct) does not
-            // allocate on the heap, so it must not count toward allocation density.
-            if (call.Callee.Kind != MemberKind.Unsupported
-                && IsNonHeapConstruction(call.Callee.DeclaringType))
+            // A `newobj` of a value type (Span/Nullable/ValueTuple/in-assembly struct, or a
+            // cross-assembly generic struct resolved via the TypeSpec blob during Build) does
+            // not allocate on the heap, so it must not count toward allocation density (#1804).
+            if (_nonHeapNewObjOperandTokens.Contains(call.OperandToken))
                 continue;
             int token = call.Caller.MetadataToken;
             steadyNewobj[token] = steadyNewobj.GetValueOrDefault(token) + 1;
@@ -257,6 +238,23 @@ public sealed class LibraryBodyIndex
         => member.Kind != MemberKind.Unsupported
             && member.Name == "Concat"
             && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "String");
+
+    // A GetEnumerator call that returns a reference-type enumerator — i.e. iterating the
+    // sequence allocates an enumerator object on the heap. `foreach` over a concrete type with a
+    // struct enumerator (List<T>.Enumerator, …) returns it by value and allocates nothing; only
+    // a foreach over an interface (IEnumerable/IEnumerable<T>) binds to GetEnumerator returning
+    // the framework IEnumerator/IEnumerator<T> interface, whose implementation is a heap object.
+    // The return type is matched by trusted-framework identity (#1708), not namespace+name, so a
+    // user type that merely reuses the IEnumerator namespace and name is not mistaken for it.
+    public static bool IsInterfaceEnumeratorAllocation(MemberRef member)
+    {
+        if (member.Kind == MemberKind.Unsupported || member.Name != "GetEnumerator")
+            return false;
+        var ret = member.ReturnType;
+        var def = ret.Kind == TypeRefKind.GenericInstance ? ret.ElementType ?? ret : ret;
+        return FrameworkIdentity.IsCoreLibraryType(def, "System.Collections.Generic", "IEnumerator`1")
+            || FrameworkIdentity.IsCoreLibraryType(def, "System.Collections", "IEnumerator");
+    }
 
     // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
     // enumerating at the call site. A helper that returns such a query is itself a deferred
@@ -417,14 +415,14 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
-    readonly IReadOnlySet<string> _inAssemblyValueTypeNames;
+    readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _inAssemblyTypeIsException);
+    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -554,7 +552,7 @@ public sealed class LibraryBodyIndex
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
-            index.InAssemblyValueTypeNames);
+            index.NonHeapNewObjOperandTokens);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -990,7 +988,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<string> InAssemblyValueTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -1001,7 +999,6 @@ public sealed class LibraryBodyIndex
             var bodySignals = new Dictionary<int, BodySignals>();
             var suppressedOpportunityTokens = new HashSet<int>();
             var exceptionTypeNames = ComputeExceptionTypeNames();
-            var inAssemblyValueTypeNames = ComputeInAssemblyValueTypeNames();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -1063,9 +1060,85 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
+            var directCalls = calls.ToImmutable();
+            var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
+            return (methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
-                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, inAssemblyValueTypeNames);
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
+        }
+
+        // The metadata operand tokens of `newobj` instructions that construct a VALUE TYPE
+        // (struct/enum) and therefore do not allocate on the heap (#1804). Classified here,
+        // during Build, where the metadata reader is available — the lazy signal and
+        // allocation-density paths run after the reader is released, so they consult this set
+        // by operand token. Resolves: framework/in-assembly value types by name, in-assembly
+        // value-type definitions, and cross-assembly GENERIC structs via the TypeSpec
+        // signature blob (the same authority box detection uses). A cross-assembly NON-generic
+        // user struct is a bare TypeRef whose value-type-ness is unresolvable from this
+        // assembly alone, so it is intentionally excluded (an owned false positive at the
+        // no-referenced-assembly-loading boundary, like the rung-2 `*Exception` suffix).
+        HashSet<int> ComputeNonHeapNewObjOperandTokens(ImmutableArray<DirectCall> directCalls)
+        {
+            var set = new HashSet<int>();
+            foreach (var call in directCalls)
+            {
+                if (call.Kind != CallKind.NewObject || set.Contains(call.OperandToken))
+                    continue;
+                if (IsNonHeapNewObj(call.OperandToken, call.Callee.DeclaringType))
+                    set.Add(call.OperandToken);
+            }
+            return set;
+        }
+
+        // True when a `newobj` of this operand constructs a value type. Combines a name-based
+        // FRAMEWORK fast path with an authoritative metadata resolution of the constructor's
+        // declaring type (TypeDef base chain, or TypeSpec signature blob for constructed
+        // generics) — the latter is what classifies in-assembly and cross-assembly structs.
+        bool IsNonHeapNewObj(int operandToken, TypeRef declaringType)
+        {
+            if (IsNonHeapConstructionByName(declaringType))
+                return true;
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(operandToken);
+                EntityHandle typeHandle = handle.Kind switch
+                {
+                    HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType(),
+                    HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
+                    _ => default,
+                };
+                if (typeHandle.Kind == HandleKind.TypeDefinition)
+                    return IsValueTypeDefinition((TypeDefinitionHandle)typeHandle);
+                if (typeHandle.Kind == HandleKind.TypeSpecification)
+                    return IsValueTypeSpec((TypeSpecificationHandle)typeHandle);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return false;
+            }
+            return false;
+        }
+
+        // Name-based recognition of FRAMEWORK value types whose `newobj` resolves to a bare
+        // TypeRef the token dispatch cannot follow (a non-generic framework struct like DateTime
+        // or Guid lives in an assembly this one does not load). The common generic framework
+        // value types (Span/ReadOnlySpan/Memory/Nullable/ValueTuple`n) are constructed through a
+        // TypeSpec and are resolved authoritatively by the signature blob, so they are listed
+        // here only as a fast path. In-assembly and cross-assembly value types are NOT matched by
+        // name — that is the operand-token metadata path's job — because a display name omits
+        // assembly identity and would misclassify an external reference type that shares a
+        // namespace+name with an in-assembly struct (#1804 review).
+        static bool IsNonHeapConstructionByName(TypeRef type)
+        {
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            if (definition.Kind != TypeRefKind.Definition || !definition.TrustedFrameworkAssembly)
+                return false;
+            if (definition.Namespace == "System" && definition.Name is
+                    "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
+                    or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
+                    or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
+                return true;
+            return IsWellKnownValueType(definition.Namespace, definition.Name);
         }
 
         // Classifies in-assembly types by whether they derive from System.Exception,
@@ -1129,26 +1202,6 @@ public sealed class LibraryBodyIndex
                 }
                 return false;
             }
-        }
-
-        // In-assembly value types (struct/enum) by qualified name. A `newobj` of one of these
-        // does NOT allocate on the heap, so it must not be counted toward allocation density.
-        IReadOnlySet<string> ComputeInAssemblyValueTypeNames()
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var typeHandle in _reader.TypeDefinitions)
-            {
-                var baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
-                if (baseHandle.Kind != HandleKind.TypeReference)
-                    continue;
-                var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
-                if (_reader.GetString(baseRef.Namespace) == "System"
-                    && _reader.GetString(baseRef.Name) is "ValueType" or "Enum")
-                {
-                    names.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0).ToQualifiedDisplayString());
-                }
-            }
-            return names;
         }
 
         IReadOnlySet<string> ComputeExceptionTypeNames()
@@ -1589,6 +1642,25 @@ public sealed class LibraryBodyIndex
                                 true,
                                 offset,
                                 null));
+                        }
+                        else if (IsInterfaceEnumeratorAllocation(callee) && IsInLoopRegion(offset, loopRegions))
+                        {
+                            // foreach over an interface (IEnumerable/IEnumerable<T>) binds to a
+                            // GetEnumerator returning the reference-type IEnumerator/IEnumerator<T>,
+                            // whose implementation is a heap object — one allocation per foreach.
+                            // foreach over a concrete type uses a struct enumerator and allocates
+                            // nothing. Only the in-loop case is reported: a foreach inside a loop
+                            // re-allocates the enumerator each outer iteration. A one-shot foreach
+                            // allocates once and was measured to be essentially all noise.
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "enumerator-allocation",
+                                $"foreach over an interface allocates a reference-type enumerator ({callee.ReturnType.ToQualifiedDisplayString()})",
+                                "Iterating an interface-typed sequence inside a loop allocates an enumerator each pass; foreach over the concrete type (e.g. List<T>) uses a struct enumerator, or index/iterate it once outside the loop.",
+                                "medium",
+                                true,
+                                offset,
+                                "No allocation when the static type has a struct enumerator; worthwhile only if the concrete type is reachable at this call site."));
                         }
                         break;
                     }

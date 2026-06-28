@@ -498,6 +498,142 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserOperatorStaticFieldPostfixValueForm_FoldsToOperator()
+    {
+        // S = SF; SF = op_Increment(S); use S;  ->  use SF++  (value-form #1777).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new LoadStackSlot(0, ValueType))));
+
+        // Capture + update are removed; the consumer holds the SF++ increment.
+        var consumer = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        var increment = Assert.IsType<IncrementDecrement>(consumer.Value);
+        Assert.True(increment is { IsIncrement: true, IsPrefix: false, IsUserDefined: true });
+        Assert.IsType<LoadField>(increment.Target);
+    }
+
+    [Fact]
+    public void UserOperatorStaticFieldPrefixValueForm_FoldsToOperator()
+    {
+        // S = op_Increment(SF); SF = S; use S;  ->  use ++SF  (value-form #1777).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, IncrementCall("op_Increment", ValueType, new LoadField(field, instance: null))),
+            new StoreField(field, instance: null, new LoadStackSlot(0, ValueType)),
+            new StoreLocal(1, ValueType, new LoadStackSlot(0, ValueType))));
+
+        var consumer = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        var increment = Assert.IsType<IncrementDecrement>(consumer.Value);
+        Assert.True(increment is { IsIncrement: true, IsPrefix: true, IsUserDefined: true });
+        Assert.IsType<LoadField>(increment.Target);
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_ConsumerReadsLvalue_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); use (SF + S);  must NOT fold to SF++ —
+        // folding moves the consumer's own SF read across the update, changing the
+        // result. The op stays an honest residual (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                new LoadField(field, instance: null), new LoadStackSlot(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_LocalTempAddressTaken_IsNotFolded()
+    {
+        // loc0 = SF; SF = op_Increment(loc0); use loc0; ref loc0;  must NOT fold —
+        // the address-of is an observation the load count misses, so removing the
+        // capture would drop a live use (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreLocal(0, ValueType, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadLocal(0, ValueType))),
+            new StoreLocal(1, ValueType, new LoadLocal(0, ValueType)),
+            new StoreLocal(2, ValueType, new LoadLocalAddress(0, ValueType))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_CallBeforeUse_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); use (Read() + S);  must NOT fold — Read()
+        // is evaluated before the use, so moving the increment to the use site
+        // would run Read() before instead of after the increment (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var read = new Call(new MethodRef(ValueType, "Read", ValueType, [], HasThis: false), isVirtual: false, []);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                read, new LoadStackSlot(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_ThrowingExprBeforeUse_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); use ((a / b) + S);  must NOT fold — the
+        // division is evaluated before the use and can throw, so moving the
+        // increment to the use site would reorder it past the exception (#1783).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var div = new Binary(BinaryKind.Divide, isChecked: false, isUnsigned: false,
+            new LoadArgument(0, "a", ValueType), new LoadArgument(1, "b", ValueType));
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                div, new LoadStackSlot(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_PureLeafBeforeUse_StillFolds()
+    {
+        // S = SF; SF = op_Increment(S); use (const + S);  the Binary is evaluated
+        // after the use and the only thing before it is a non-throwing constant,
+        // so the value form still folds to const + SF++.
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                new Constant(1, ValueType), new LoadStackSlot(0, ValueType)))));
+
+        var increment = Assert.Single(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+        Assert.True(increment is { IsIncrement: true, IsUserDefined: true });
+        Assert.IsType<LoadField>(increment.Target);
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_ConditionalUse_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); return cond ? S : default;  must NOT fold —
+        // the use sits in a ternary arm, so folding would make the unconditional
+        // increment run only when cond holds (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new Return(new Conditional(
+                new LoadArgument(0, "cond", ValueType),
+                new LoadStackSlot(0, ValueType),
+                new Constant(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
     public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
     {
         // A normal method that happens to be named op_Increment (no operator

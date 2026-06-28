@@ -40,8 +40,8 @@ public class GeneratedFixtureCatalogTests
             "minimal.primary-ctor.field-init",
             "GeneratedFixtures.MinimalPrimaryCtorFieldInit.Class1",
             ".ctor",
-            FidelityCheck.CompileBackStatus.OpcodeDiff,
-            frontier: true);
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
         AssertTarget(
             run,
             "minimal.primary-ctor.field-init",
@@ -68,15 +68,15 @@ public class GeneratedFixtureCatalogTests
             "minimal.auto-property.getter",
             "GeneratedFixtures.MinimalAutoPropertyGetter.Class1",
             ".ctor",
-            FidelityCheck.CompileBackStatus.RecompileFail,
-            frontier: true);
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
         AssertTarget(
             run,
             "minimal.auto-property.getter",
             "GeneratedFixtures.MinimalAutoPropertyGetter.Class1",
             "get_Method1",
-            FidelityCheck.CompileBackStatus.RecompileFail,
-            frontier: true);
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
         AssertTarget(
             run,
             "minimal.method-call.same-type",
@@ -104,9 +104,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.ctor-field.getter", report);
         Assert.Contains("minimal.auto-property.getter", report);
         Assert.Contains("minimal.method-call.same-type", report);
-        Assert.Contains("PASS frontier", report);
         Assert.Contains("decompiler=Full", report);
-        Assert.Contains("compile-back=OpcodeDiff", report);
+        Assert.Contains("compile-back=Exact", report);
     }
 
     [Fact]
@@ -145,8 +144,8 @@ public class GeneratedFixtureCatalogTests
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
         var ctor = Assert.Single(primaryCtor.GetProperty("Targets").EnumerateArray(),
             target => target.GetProperty("Method").GetString() == ".ctor");
-        Assert.Equal("OpcodeDiff", ctor.GetProperty("ExpectedStatus").GetString());
-        Assert.True(ctor.GetProperty("IsFrontier").GetBoolean());
+        Assert.Equal("Exact", ctor.GetProperty("ExpectedStatus").GetString());
+        Assert.False(ctor.GetProperty("IsFrontier").GetBoolean());
     }
 
     [Fact]

@@ -499,9 +499,38 @@ public class DiffCommand
 
     private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool oldAllocInLoop = false, bool newAllocInLoop = false)
     {
-        if (oldValue == newValue)
-            return;
         var delta = newValue - oldValue;
+        if (delta == 0)
+        {
+            // #1736: hotness-only allocation change. The raw count is unchanged but an
+            // allocation moved into or out of a loop, which a count delta alone misses.
+            // Only the allocations signal carries loop hotness, and only when at least one
+            // allocation remains to be hot. false->true is a regression (became hot);
+            // true->false is an improvement (left the loop).
+            if (newValue > 0 && oldAllocInLoop != newAllocInLoop)
+            {
+                bool becameHot = newAllocInLoop;
+                // The allocation that changed hotness is in a loop on its cost-bearing side
+                // (the new method when it became hot, the old method when it left the loop),
+                // so annotate "in-loop" either way — matching the count-change path, which
+                // also annotates improvements from the old (cost-bearing) version. Direction
+                // (+1 regression / -1 improvement) carries the hot-vs-cold meaning.
+                rows.Add(new RankedAnalysisRow(
+                    new AnalysisDiffRow(
+                        MarkoutInline.Code(display),
+                        signal,
+                        oldValue.ToString(),
+                        newValue.ToString(),
+                        becameHot ? "hot" : "cold",
+                        "in-loop",
+                        evidence),
+                    1,
+                    becameHot ? 1 : -1,
+                    inBoth,
+                    true));
+            }
+            return;
+        }
         // Annotate from the version that bears the cost: the new method for a
         // regression (allocations up), the old method for an improvement. A loop
         // allocation is repeated/hot; one-time or error-path allocations are not.

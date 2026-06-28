@@ -1754,6 +1754,12 @@ public static class IrImporter
                 var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
                 if (accessorKind == AccessorKind.Unknown && IsTrustedPlatformMemberReference(reader, member.Parent))
                     accessorKind = AccessorKindFromName(memberName);
+                bool inferredSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
+                    || memberName.StartsWith("set_", StringComparison.Ordinal)
+                    || memberName.StartsWith("add_", StringComparison.Ordinal)
+                    || memberName.StartsWith("remove_", StringComparison.Ordinal)
+                    || memberName.StartsWith("op_", StringComparison.Ordinal)
+                    || memberName is ".ctor" or ".cctor";
                 return new MethodRef(
                     declaring,
                     memberName,
@@ -1764,12 +1770,8 @@ public static class IrImporter
                     // MemberRefs carry no flags; keep name-inferred SpecialName
                     // separate from AccessorKind so property/event sugar requires
                     // positive metadata semantics rather than a get_/set_ prefix.
-                    IsSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
-                        || memberName.StartsWith("set_", StringComparison.Ordinal)
-                        || memberName.StartsWith("add_", StringComparison.Ordinal)
-                        || memberName.StartsWith("remove_", StringComparison.Ordinal)
-                        || memberName.StartsWith("op_", StringComparison.Ordinal)
-                        || memberName is ".ctor" or ".cctor",
+                    IsSpecialName = inferredSpecialName,
+                    IsSpecialNameInferred = inferredSpecialName,
                     AccessorKind = accessorKind,
                     DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
                         ? MetadataFactState.Yes

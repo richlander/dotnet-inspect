@@ -83,6 +83,8 @@ internal static class NativePasses
     public static TypedConstantsPass TypedConstants => new();
     [Native(NativeCategory.IlErasure, "bool marshalled as int (cgt against 0) normalized")]
     public static BoolToIntNormalizationPass BoolToIntNormalization => new();
+    [Native(NativeCategory.IlErasure, "a bool operand of integer arithmetic (erased to i4 on the IL stack) materialized back to (cond ? 1 : 0) so the mix is not CS0019 int + bool")]
+    public static ArithmeticBoolOperandPass ArithmeticBoolOperand => new();
     [Native(NativeCategory.IlErasure, "a bool operand of an integer bitwise &/|/^ (erased to i4 on the IL stack) materialized back to (cond ? 1 : 0) so the mix is not CS0019 bool & int")]
     public static BitwiseBoolOperandPass BitwiseBoolOperand => new();
     [Native(NativeCategory.IlErasure, "a standing static function-pointer load (ldftn) spelled &Method")]

@@ -86,6 +86,32 @@ public class LibraryBodyIndexTests
         Assert.True(loopingCaller.Perf?.InLoop);
     }
 
+    // #1739 scope pin: the Caller Graph is a static `callvirt`-operand graph. It does not
+    // expand runtime virtual-dispatch targets, so callers are attributed to the statically
+    // declared operand (the virtual base method), never to the override reached at runtime.
+    // This characterizes the owned scope boundary: it must flip deliberately if override /
+    // devirtualization target expansion is ever added.
+    [Fact]
+    public void BuildCallerTree_VirtualDispatch_AttributesCallersToStaticOperand_NotOverride()
+    {
+        var index = LibraryBodyIndex.Open(typeof(VirtualDispatchCallers).Assembly.Location);
+
+        // Both call sites resolve to VirtualDispatchBase.Work — including ViaDerived, whose
+        // receiver is a runtime VirtualDispatchDerived but whose callvirt operand is the base.
+        var baseRoot = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(VirtualDispatchBase) && method.Name == nameof(VirtualDispatchBase.Work)));
+        var baseTree = index.BuildCallerTree(baseRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
+        Assert.Contains(baseTree.Children, child => child.Member.Name == nameof(VirtualDispatchCallers.ViaBase));
+        Assert.Contains(baseTree.Children, child => child.Member.Name == nameof(VirtualDispatchCallers.ViaDerived));
+
+        // The override is attributed no callers: virtual dispatch to it is not inferred.
+        var derivedRoot = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(VirtualDispatchDerived) && method.Name == nameof(VirtualDispatchDerived.Work)));
+        var derivedTree = index.BuildCallerTree(derivedRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
+        Assert.Equal("target", derivedTree.Perf?.RootKind);
+        Assert.Empty(derivedTree.Children);
+    }
+
     [Fact]
     public void BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod()
     {
@@ -1434,6 +1460,54 @@ public class LibraryBodyIndexTests
             .Where(o => o.Method.Name == methodName && o.Shape == "string-build-in-loop")
             .ToList();
 
+    static System.Collections.Generic.List<OptimizationOpportunity> EnumeratorRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "enumerator-allocation")
+            .ToList();
+
+    [Fact]
+    public void OptimizationOpportunities_ForeachInterfaceInLoop_IsEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // foreach over an interface-typed sequence inside a loop allocates a reference-type
+        // enumerator each outer iteration.
+        var row = Assert.Single(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachInterfaceInLoop)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.True(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ForeachInterfaceOnce_IsNotEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A one-shot foreach (not in a loop) allocates one enumerator -> not flagged (the
+        // non-loop tier was measured to be essentially all noise).
+        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachInterfaceOnce)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ForeachConcreteListInLoop_IsNotEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // foreach over a concrete List<T> uses a struct enumerator (returns by value): no heap
+        // allocation, so it must not be flagged even inside a loop.
+        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachConcreteListInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ForeachLookalikeEnumeratorInLoop_IsNotEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // foreach binding to a GetEnumerator that returns an untrusted IEnumerator lookalike (a
+        // user type reusing the framework namespace + name) must not be flagged: the enumerator
+        // identity is trust-gated (#1708), so only the real framework IEnumerator counts.
+        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachLookalikeEnumeratorInLoop)));
+    }
+
     [Fact]
     public void OptimizationOpportunities_StringAppendInLoop_IsHighStringBuild()
     {
@@ -1564,6 +1638,49 @@ public class LibraryBodyIndexTests
         // A loop densely constructing VALUE types (Nullable + an in-assembly struct) clears the
         // >= 16 newobj count but allocates nothing on the heap -> must not be a hotspot.
         Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ConstructsManyValueTypesInLoop)));
+    }
+
+    // #1804 / rung 7 cross-assembly shape honesty: the allocation signal must classify a
+    // `newobj` by the constructed type's true shape, resolving what it can from the inspected
+    // assembly's own metadata and degrading honestly otherwise.
+    [Fact]
+    public void Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
+
+        // Case 1 (in-assembly struct): resolvable from this assembly's metadata -> not heap.
+        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsInAssemblyStructInLoop)));
+
+        // Case 2 (cross-assembly GENERIC struct): the consumer's own TypeSpec signature blob
+        // encodes VALUETYPE, so the `newobj` is resolved as non-heap even though the defining
+        // assembly is not loaded.
+        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossGenericStructInLoop)));
+
+        // A cross-assembly REFERENCE type's `newobj` is a real heap allocation (recall kept).
+        Assert.True(AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossRefTypeInLoop)) >= 1);
+
+        // A cross-assembly enum cast/use allocates nothing.
+        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.UsesCrossEnum)));
+    }
+
+    [Fact]
+    public void Allocations_CrossAssemblyNonGenericStructNewobj_IsOwnedFalsePositive()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
+
+        // #1804 / rung 7 owned boundary. A cross-assembly NON-generic user struct is a bare
+        // TypeRef whose value-type-ness cannot be proven without loading the referenced
+        // assembly (Invariant 1: the product is SRM-direct). Its `newobj` is therefore counted
+        // as a heap allocation -- a deliberately-owned false positive, pinned here so the
+        // boundary is explicit rather than silent. If referenced-assembly shape resolution is
+        // ever added, this assertion flips to 0.
+        Assert.True(AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossNonGenericStructInLoop)) >= 1);
+    }
+
+    static int AllocationsOf(LibraryBodyIndex index, string methodName)
+    {
+        int token = index.Methods.First(method => method.Name == methodName).MetadataToken;
+        return index.GetMethodSignals().GetValueOrDefault(token, MethodSignals.None).Allocations;
     }
 
     [Fact]
@@ -2424,6 +2541,62 @@ public class OptimizationOpportunityFixtures
         return s;
     }
 
+    // --- Enumerator allocation (enumerator-allocation) ---
+
+    // foreach over an interface-typed sequence INSIDE a loop: GetEnumerator returns the
+    // reference-type IEnumerator<T>, allocated on each outer iteration.
+    public static int ForeachInterfaceInLoop(System.Collections.Generic.IEnumerable<int> items, int times)
+    {
+        var total = 0;
+        for (int i = 0; i < times; i++)
+        {
+            foreach (var x in items)
+                total += x;
+        }
+
+        return total;
+    }
+
+    // foreach over an interface-typed sequence with no enclosing loop: a single enumerator
+    // allocation -> not flagged.
+    public static int ForeachInterfaceOnce(System.Collections.Generic.IEnumerable<int> items)
+    {
+        var total = 0;
+        foreach (var x in items)
+            total += x;
+        return total;
+    }
+
+    // foreach over a concrete List<T> inside a loop: List<T>.GetEnumerator returns the struct
+    // List<T>.Enumerator by value -> no heap allocation, must not be flagged.
+    public static int ForeachConcreteListInLoop(System.Collections.Generic.List<int> items, int times)
+    {
+        var total = 0;
+        for (int i = 0; i < times; i++)
+        {
+            foreach (var x in items)
+                total += x;
+        }
+
+        return total;
+    }
+
+    // foreach over a collection whose GetEnumerator returns an UNTRUSTED IEnumerator lookalike
+    // (defined in this test assembly). Even inside a loop it must not be flagged — the framework
+    // enumerator identity is trust-gated, so a same-namespace/name user type is not mistaken for
+    // the real IEnumerator.
+    public static int ForeachLookalikeEnumeratorInLoop(LookalikeEnumeratorCollection c, int times)
+    {
+        var total = 0;
+        for (int i = 0; i < times; i++)
+        {
+            foreach (var x in c)
+                total += x;
+        }
+
+        return total;
+    }
+
     // --- Copy allocation (span-to-array) ---
 
     // ReadOnlySpan<T>.ToArray() materializes a copy -> span-to-array-copy.
@@ -3019,6 +3192,57 @@ public struct PlainValue
     public PlainValue(int v) => V = v;
 
     public int V { get; }
+}
+
+// #1804 / rung 7. Consumes the cross-assembly shape fixtures (defined in the separate
+// ILInspector.Analysis.CrossAsmShapeFixtures assembly, which the SRM-direct product does not
+// load) plus an in-assembly struct. Each method constructs a value as a method ARGUMENT in a
+// loop, which forces a `newobj` (a value assigned to a local emits `call .ctor` instead), so
+// the allocation signal's shape classification is exercised.
+public static class CrossAsmShapeConsumer
+{
+    static int SinkInAssembly(PlainValue value) => value.V;
+    static int SinkStruct(CrossAsmShapeFixtures.CrossValueStruct value) => value.Value;
+    static int SinkGeneric(CrossAsmShapeFixtures.CrossGenericStruct<int> value) => value.Value;
+    static int SinkRef(CrossAsmShapeFixtures.CrossRefType value) => value.Value;
+
+    public static int ConstructsInAssemblyStructInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkInAssembly(new PlainValue(i));
+        return total;
+    }
+
+    public static int ConstructsCrossNonGenericStructInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkStruct(new CrossAsmShapeFixtures.CrossValueStruct(i));
+        return total;
+    }
+
+    public static int ConstructsCrossGenericStructInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkGeneric(new CrossAsmShapeFixtures.CrossGenericStruct<int>(i));
+        return total;
+    }
+
+    public static int ConstructsCrossRefTypeInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkRef(new CrossAsmShapeFixtures.CrossRefType(i));
+        return total;
+    }
+
+    public static int UsesCrossEnum(int n)
+    {
+        var value = (CrossAsmShapeFixtures.CrossEnum)(n % 2);
+        return (int)value;
+    }
 }
 
 public sealed class FixtureException : Exception
@@ -3649,6 +3873,30 @@ public static class BodilessRootFixtures
     public static void InvokesThroughInterface(ICallerGraphTarget target) => target.Target();
 }
 
+public class VirtualDispatchBase
+{
+    public virtual int Work() => 1;
+}
+
+public sealed class VirtualDispatchDerived : VirtualDispatchBase
+{
+    public override int Work() => 2;
+}
+
+public static class VirtualDispatchCallers
+{
+    // C# emits `callvirt VirtualDispatchBase::Work` because `value` is statically typed Base.
+    public static int ViaBase(VirtualDispatchBase value) => value.Work();
+
+    // A VirtualDispatchDerived is constructed, but the local is typed Base, so the callvirt
+    // operand is still VirtualDispatchBase::Work; the override is only reached at runtime.
+    public static int ViaDerived()
+    {
+        VirtualDispatchBase value = new VirtualDispatchDerived();
+        return value.Work();
+    }
+}
+
 public static class CallTreeFixtures
 {
     public static void Root()
@@ -3854,4 +4102,12 @@ public static class OverloadCallers
         OverloadTargets.M(1);
         OverloadTargets.M("x");
     }
+}
+
+// A collection whose GetEnumerator returns an untrusted IEnumerator lookalike (see
+// EnumeratorLookalikeStub.cs). foreach binds to this GetEnumerator via the enumerator pattern;
+// because the return type is not the trusted framework IEnumerator, it must not be flagged.
+public sealed class LookalikeEnumeratorCollection
+{
+    public System.Collections.Generic.IEnumeratorLookalike GetEnumerator() => new();
 }

@@ -791,14 +791,142 @@ static class FidelityCheck
             catch { continue; }
             if (body is null)
                 continue;
+            PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(reader, method, function, body);
             var original = ILDisassembler.Disassemble(pe, reader, method);
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier, primaryConstructor), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
         }
         return (fullType, entries);
+    }
+
+    static PrimaryConstructorShape? PrimaryConstructorFromPrologue(
+        MetadataReader reader,
+        MethodDefinition method,
+        IrFunction function,
+        string renderedBody)
+    {
+        if (reader.GetString(method.Name) != ".ctor"
+            || method.Attributes.HasFlag(MethodAttributes.Static))
+            return null;
+        var declaringHandle = method.GetDeclaringType();
+        var declaringType = reader.GetTypeDefinition(declaringHandle);
+        if (CountInstanceConstructors(reader, declaringType) != 1
+            || HasInAssemblyDerivedType(reader, declaringHandle))
+            return null;
+        if (function.Body.Blocks is not [{ } entry, ..])
+            return null;
+
+        int? chainIndex = null;
+        for (int i = 0; i < entry.Children.Count; i++)
+        {
+            if (entry.Children[i] is ExpressionStatement
+                {
+                    Expression: Call { Callee: { Name: ".ctor", HasThis: true }, Arguments: [LoadArgument { Index: 0 }] }
+                })
+            {
+                chainIndex = i;
+                break;
+            }
+        }
+
+        if (chainIndex is not > 0)
+            return null;
+        if (entry.Children.Skip(chainIndex.Value + 1).Any(node => node is not Return))
+            return null;
+
+        var parameterNames = ParameterNames(reader, method);
+        if (parameterNames.Count == 0)
+            return null;
+
+        var initializers = new List<(string Field, string Value)>();
+        foreach (var node in entry.Children.Take(chainIndex.Value))
+        {
+            if (node is not StoreField
+                {
+                    HasInstance: true,
+                    Instance: LoadArgument { Index: 0 },
+                    Value: LoadArgument { Index: > 0 } value
+                } store)
+                return null;
+            if (!parameterNames.TryGetValue(value.Index - 1, out string? parameterName))
+                return null;
+
+            initializers.Add((store.Field.Name, parameterName));
+        }
+
+        if (initializers.Count == 0)
+            return null;
+        if (!RenderedBodyMatchesPrimaryConstructorInitializers(renderedBody, initializers))
+            return null;
+
+        string parameters = Parameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)));
+        return new PrimaryConstructorShape(parameters, initializers);
+    }
+
+    static int CountInstanceConstructors(MetadataReader reader, TypeDefinition typeDef)
+    {
+        int count = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) == ".ctor"
+                && !method.Attributes.HasFlag(MethodAttributes.Static))
+                count++;
+        }
+        return count;
+    }
+
+    static bool HasInAssemblyDerivedType(MetadataReader reader, TypeDefinitionHandle baseHandle)
+    {
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            if (typeHandle == baseHandle)
+                continue;
+            var type = reader.GetTypeDefinition(typeHandle);
+            if (type.BaseType.Kind == HandleKind.TypeDefinition
+                && (TypeDefinitionHandle)type.BaseType == baseHandle)
+                return true;
+        }
+        return false;
+    }
+
+    static bool RenderedBodyMatchesPrimaryConstructorInitializers(
+        string renderedBody,
+        IReadOnlyList<(string Field, string Value)> initializers)
+    {
+        var lines = renderedBody
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Length > 0)
+            .ToArray();
+        if (lines.Length != initializers.Count)
+            return false;
+
+        for (int i = 0; i < initializers.Count; i++)
+        {
+            var (field, value) = initializers[i];
+            string fieldName = Identifier(field);
+            string expectedBare = $"{fieldName} = {value};";
+            string expectedThis = $"this.{fieldName} = {value};";
+            if (lines[i] != expectedBare && lines[i] != expectedThis)
+                return false;
+        }
+        return true;
+    }
+
+    static Dictionary<int, string> ParameterNames(MetadataReader reader, MethodDefinition method)
+    {
+        var names = new Dictionary<int, string>();
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber >= 1)
+                names[parameter.SequenceNumber - 1] = Identifier(reader.GetString(parameter.Name));
+        }
+        return names;
     }
 
     /// <summary>
@@ -949,7 +1077,7 @@ static class FidelityCheck
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions, string fullType, Entry e)
     {
         string unit;
-        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits, references.Accessibility); }
+        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility); }
         catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
@@ -1058,7 +1186,7 @@ static class FidelityCheck
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
             string unit;
-            try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits, references.Accessibility, include); }
+            try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include); }
             catch { return null; } // fall back to the whole-module build
 
             var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
@@ -1372,15 +1500,24 @@ static class FidelityCheck
     /// assembly.
     /// </summary>
     /// <summary>The real decompiled body (and optional ctor chain) for one target method.</summary>
-    public readonly record struct TargetBody(string Body, string? Chain, bool RequiresAsync);
+    public readonly record struct TargetBody(
+        string Body,
+        string? Chain,
+        bool RequiresAsync,
+        PrimaryConstructorShape? PrimaryConstructor = null);
+
+    public sealed record PrimaryConstructorShape(
+        string Parameters,
+        IReadOnlyList<(string Field, string Value)> FieldInitializers);
 
     /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
     static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain,
         bool targetRequiresAsync,
+        PrimaryConstructorShape? targetPrimaryConstructor,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
         SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
-        var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync) };
+        var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync, targetPrimaryConstructor) };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
         return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots);
     }
@@ -1504,13 +1641,21 @@ static class FidelityCheck
         // struct otherwise has no such conversion and the body fails to recompile.
         if (kind == TypeKind.Struct && InlineArrayAttributeText(reader, typeDef) is { } inlineArrayAttr)
             sb.AppendLine($"{pad}{inlineArrayAttr}");
+        var primaryConstructorTarget = targets
+            .FirstOrDefault(target =>
+                target.Value.PrimaryConstructor is not null
+                && reader.GetMethodDefinition(target.Key).GetDeclaringType() == typeHandle);
+        var primaryConstructor = primaryConstructorTarget.Value.PrimaryConstructor;
+        string primaryParameters = primaryConstructor is null ? "" : $"({primaryConstructor.Parameters})";
         string unsafeModifier = TypeHasAwaitTarget(reader, typeHandle, targets) ? "" : "unsafe ";
-        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{baseClause}{whereClauses}");
+        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{primaryParameters}{baseClause}{whereClauses}");
         sb.AppendLine($"{pad}{{");
 
         // Field initializers lifted from a target ctor apply to this type's
         // fields only when this is the type that lifted them.
         var thisFieldInits = typeHandle == fieldInitType ? fieldInits : [];
+        if (primaryConstructor is not null)
+            thisFieldInits = [.. thisFieldInits, .. primaryConstructor.FieldInitializers];
 
         foreach (var fh in typeDef.GetFields())
             EmitField(reader, fh, typeContext, thisFieldInits, accessibility, sb, pad + "    ");
@@ -1530,6 +1675,8 @@ static class FidelityCheck
         {
             if (stubPropertyAccessors.Contains(mh))
                 continue; // emitted as a property accessor above
+            if (mh == primaryConstructorTarget.Key)
+                continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
             EmitMethod(reader, typeHandle, mh,
                 hasTarget ? target.Body : null,
@@ -1551,7 +1698,10 @@ static class FidelityCheck
         // ordinal and compare it against this throwing stub. Last-ordinal keeps the
         // real ctors at 0..k-1 and the synthetic at k (never requested), so it
         // cannot change a target's fidelity.
-        if (keyword == "class" && !IsStaticClass(typeDef) && !HasParameterlessInstanceCtor(reader, typeDef))
+        if (keyword == "class"
+            && primaryConstructor is null
+            && !IsStaticClass(typeDef)
+            && !HasParameterlessInstanceCtor(reader, typeDef))
             sb.AppendLine($"{pad}    public {Identifier(name)}() {{ throw null; }}");
 
         foreach (var nested in typeDef.GetNestedTypes())
@@ -1677,12 +1827,14 @@ static class FidelityCheck
     /// namespace inclusion and ctor stubs land, because the method loop otherwise
     /// emits a property's <c>get_X</c>/<c>set_X</c> as plain methods that a
     /// property access cannot resolve to. Scoped to pure-stub properties: a
-    /// property whose getter or setter is a target is skipped (left to the method
-    /// loop), so the target accessor's own emission and opcode comparison are
-    /// unchanged. The replaced accessor method names are added to
-    /// <paramref name="skipAccessors"/> so the caller does not also emit them as
-    /// methods. Stub accessors throw; over-permissive accessibility on a stub is
-    /// safe because the body never runs and only needs to bind.
+    /// property whose getter or setter is a target is normally skipped (left to
+    /// the method loop), unless the metadata has a compiler auto-property backing
+    /// field: in that case, emitting the auto-property lets the generated accessor
+    /// and constructor assignment round-trip through normal C# syntax. The replaced
+    /// accessor method names are added to <paramref name="skipAccessors"/> so the
+    /// caller does not also emit them as methods. Stub accessors throw;
+    /// over-permissive accessibility on a stub is safe because the body never runs
+    /// and only needs to bind.
     /// </summary>
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
@@ -1693,10 +1845,6 @@ static class FidelityCheck
         {
             var prop = reader.GetPropertyDefinition(ph);
             var pa = prop.GetAccessors();
-            // A target accessor must stay a method so its own body is emitted and
-            // compared unchanged — skip the whole property.
-            if ((!pa.Getter.IsNil && targets.ContainsKey(pa.Getter)) || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter)))
-                continue;
             string pname = reader.GetString(prop.Name);
             if (pname.Contains('<') || pname.Contains('.'))
                 continue; // compiler-generated / explicit interface impl
@@ -1728,6 +1876,21 @@ static class FidelityCheck
                     && !accessorMethod.Attributes.HasFlag(MethodAttributes.Final);
                 string modifier = isStatic ? "static " : (emitVirtual ? "virtual " : "");
                 string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
+                bool isAutoProperty = hasGet
+                    && AccessorsAreCompilerGenerated(reader, pa)
+                    && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
+                bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
+                    || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
+                if (accessorIsTarget && !isAutoProperty)
+                    continue;
+                if (isAutoProperty)
+                {
+                    string autoBody = " get;" + (hasSet ? " set;" : "");
+                    sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{autoBody} }}");
+                    if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
+                    if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
+                    continue;
+                }
                 string body = (hasGet ? " get => throw null;" : "") + (hasSet ? " set => throw null;" : "");
                 sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{body} }}");
                 if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
@@ -1735,6 +1898,55 @@ static class FidelityCheck
             }
             catch { }
         }
+    }
+
+    static bool HasAutoPropertyBackingField(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string propertyName,
+        string propertyType,
+        bool isStaticProperty)
+    {
+        string backingName = $"<{propertyName}>k__BackingField";
+        var context = GenericContext.ForType(reader, typeDef);
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) != backingName)
+                continue;
+            if (field.Attributes.HasFlag(FieldAttributes.Static) != isStaticProperty)
+                continue;
+            if (!HasCompilerGeneratedAttribute(reader, field.GetCustomAttributes()))
+                return false;
+            try
+            {
+                return Clean(field.DecodeSignature(SignatureDecoder.Instance, context)) == propertyType;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    static bool AccessorsAreCompilerGenerated(MetadataReader reader, PropertyAccessors accessors)
+    {
+        if (!accessors.Getter.IsNil
+            && !HasCompilerGeneratedAttribute(reader, reader.GetMethodDefinition(accessors.Getter).GetCustomAttributes()))
+            return false;
+        if (!accessors.Setter.IsNil
+            && !HasCompilerGeneratedAttribute(reader, reader.GetMethodDefinition(accessors.Setter).GetCustomAttributes()))
+            return false;
+        return true;
+    }
+
+    static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var attributeHandle in attributes)
+            if (AttributeTypeFullName(reader, reader.GetCustomAttribute(attributeHandle)) == "System.Runtime.CompilerServices.CompilerGeneratedAttribute")
+                return true;
+        return false;
     }
 
     static bool CanEmitAccessor(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle, SignatureAccessibility accessibility)

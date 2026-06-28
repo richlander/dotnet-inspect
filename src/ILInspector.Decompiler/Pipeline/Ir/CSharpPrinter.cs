@@ -522,6 +522,19 @@ public sealed partial class CSharpPrinter
             }
         }
 
+        foreach (var storeElement in nodes.OfType<StoreElement>())
+        {
+            if (storeElement is not { Value: LoadStackSlot load, ElementType: { } elementType })
+                continue;
+            if (!storesBySlot.TryGetValue(load.Slot, out var stores)
+                || stores.Count == 0
+                || !stores.All(store => store is Conditional conditional && CanRenderConditionalForTarget(conditional, elementType)))
+            {
+                continue;
+            }
+            (loadsBySlot.TryGetValue(load.Slot, out var loads) ? loads : loadsBySlot[load.Slot] = []).Add(elementType);
+        }
+
         foreach (int slot in storesBySlot.Keys.Concat(loadsBySlot.Keys).Distinct())
         {
             if (TryChooseUnifiedStackSlotType(
@@ -590,6 +603,8 @@ public sealed partial class CSharpPrinter
     bool CanAssignTo(IrExpression value, TypeRef target)
         => value is Constant { Value: null }
             ? IsReferenceLike(target)
+            : value is Conditional conditional && CanRenderConditionalForTarget(conditional, target)
+                ? true
             : value.ResultType is { } source && CanAssignType(source, target);
 
     bool CanAssignType(TypeRef source, TypeRef target)
@@ -1473,7 +1488,7 @@ public sealed partial class CSharpPrinter
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         PositionalPattern p => PositionalPatternText(p),
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
-        UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
+        UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
         LoadArgumentAddress a => $"ref {CSharpNaming.EscapeIdentifier(a.Name)}",
@@ -1601,8 +1616,43 @@ public sealed partial class CSharpPrinter
         {
             TypeShape.Reference => reference,
             TypeShape.Enum => integer,
-            _ => null,   // a struct cannot be a branch operand; unknown stays raw
+            // A cross-assembly type is unresolved (Unknown shape): an interface like
+            // IDisposable or a framework class is indistinguishable from a framework
+            // enum by its TypeRef alone. Fall back to provenance — a value produced
+            // by `isinst`/`as` is always a reference (or null), so its truthiness is
+            // `is null`/`is not null`, never `!x` (CS0023). Spelling the integer
+            // `!= 0` form for a genuine cross-assembly enum is handled above by the
+            // operand's resolved type, not by this branch-operand provenance.
+            _ => ProducesReference(operand) ? reference : null,
         };
+    }
+
+    /// <summary>True when the branch operand provably holds a reference because its sole definition is an <c>isinst</c>/<c>as</c> (which yields a reference or null). Sees through a single-store stack slot or local the value was spilled to.</summary>
+    bool ProducesReference(IrExpression operand) => SoleDefinition(operand) is IsInstance;
+
+    IrExpression? SoleDefinition(IrExpression operand)
+    {
+        switch (operand)
+        {
+            case IsInstance:
+                return operand;
+            case LoadStackSlot load:
+            {
+                // Scope to the current function body: stack-slot numbers are
+                // per-imported-function, so a nested local function / lambda can
+                // reuse this slot independently and must not count as a second
+                // definition (that would disable the provenance and reprint `!x`).
+                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
+                return stores.Count == 1 ? stores[0].Value : null;
+            }
+            case LoadLocal load:
+            {
+                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
+                return stores.Count == 1 ? stores[0].Value : null;
+            }
+            default:
+                return null;
+        }
     }
 
     // `box T; unbox.any U` is the generic-math `(U)(object)x` idiom: the box is an
@@ -1610,8 +1660,29 @@ public sealed partial class CSharpPrinter
     // object slot. `(U)x` over a generic type parameter has no direct conversion and
     // is CS0030 — and even for a concrete type, collapsing box+unbox.any to a plain
     // `(U)x` drops the round-trip the IL actually performs. Keep the intermediary.
-    string UnboxAnyOperand(IrExpression operand)
-        => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
+    string UnboxAnyOperand(UnboxAny unbox)
+    {
+        if (unbox.Operand is Box box)
+            return $"(object){Operand(box.Operand)}";
+        if (NeedsObjectBridgeForGenericUnbox(unbox.Type, unbox.Operand.ResultType))
+            return $"(object){Operand(unbox.Operand)}";
+        return Operand(unbox.Operand);
+    }
+
+    bool NeedsObjectBridgeForGenericUnbox(TypeRef target, TypeRef? source)
+    {
+        if (target.Kind is not (TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
+            || source is null
+            || source is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" })
+        {
+            return false;
+        }
+
+        return TypeFamilies.Of(source) == StackFamily.O
+            || source.Kind is TypeRefKind.SzArray or TypeRefKind.Array
+            || source.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
+            || _function.TypeShapes.GetValueOrDefault(source) == TypeShape.Reference;
+    }
 
     /// <summary>
     /// True when an expression renders as a C# <c>bool</c> regardless of its IR
@@ -2094,6 +2165,19 @@ public sealed partial class CSharpPrinter
         var lvalueType = targetType ?? binary.Left.ResultType;
         string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
             ? ShiftCount(binary)
+            // A bitwise &=/|=/^= against an enum lvalue whose right operand is still
+            // a bare integer (`result |= 512`) is `enum |= int` — CS0019, the
+            // compound sibling of the `enum & int` cast in BinaryBody. A
+            // cross-assembly enum is unresolved (TypeShape.Unknown), so the
+            // structural IsEnumLikeInteger test catches it; cast the integer operand
+            // to the enum. IsIntegerLike (not IsInteger) excludes Boolean — which
+            // shares the I4 stack family — so a bool operand is never cast to
+            // `(Enum)true`. A same-assembly enum already had its operand retyped, so
+            // its right type is the enum (not integer-like) and this is skipped.
+            : binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
+                && IsEnumLikeInteger(lvalueType)
+                && binary.Right.ResultType is { } rightType && TypeFamilies.IsIntegerLike(rightType)
+                ? EnumIntegerCast(binary.Right, lvalueType!)
             // A mixed-sign same-width compound (`nuint -= nint`, `ulong /= long`)
             // has no C# common type, so `target op= right` is CS0034. For the
             // sign-NEUTRAL operators (unchecked +/-/*, bitwise &/|/^) the bit
@@ -2210,11 +2294,20 @@ public sealed partial class CSharpPrinter
                 "op_UnaryPlus" => $"+{Operand(arguments[0])}",
                 "op_LogicalNot" => $"!{Operand(arguments[0])}",
                 "op_OnesComplement" => $"~{Operand(arguments[0])}",
-                "op_Implicit" or "op_Explicit" => $"({TypeText(call.Callee.ReturnType)}){Operand(arguments[0])}",
+                "op_Implicit" or "op_Explicit" => ConversionOperatorSpelling(call.Callee.ReturnType, arguments[0]),
                 _ => null,
             };
         }
         return null;
+    }
+
+    string ConversionOperatorSpelling(TypeRef target, IrExpression value)
+    {
+        string operand = Operand(value);
+        string targetText = TypeText(target);
+        if (NeedsCastOperandParentheses(operand, targetText))
+            operand = $"({operand})";
+        return $"({targetText}){operand}";
     }
 
     /// <summary>The checked-context spelling of a user-defined checked operator call (op_Checked*), or null when the name has no faithful operator form.</summary>
@@ -2224,7 +2317,7 @@ public sealed partial class CSharpPrinter
 
         // checked explicit conversion: checked((T)x).
         if (call.Callee.Name == "op_CheckedExplicit" && arguments.Count == 1)
-            return WrapChecked(() => $"({TypeText(call.Callee.ReturnType)}){Operand(arguments[0])}");
+            return WrapChecked(() => ConversionOperatorSpelling(call.Callee.ReturnType, arguments[0]));
 
         // The remaining checked operators share their symbol with the unchecked
         // form (op_CheckedAddition → "+"); reuse the single mapping the signature
@@ -2498,13 +2591,18 @@ public sealed partial class CSharpPrinter
         // keyword type the parser treats as cast-disambiguating. `nint`/`nuint`
         // are contextual keywords and named types are not, so `(nint)-1` misparses
         // — wrap the operand: `(nint)(-1)`. The parens are opcode-identical.
-        if (operand.Length > 0 && operand[0] is '-' or '+' && !s_castDisambiguatingKeywords.Contains(targetText))
+        if (NeedsCastOperandParentheses(operand, targetText))
             operand = $"({operand})";
         string cast = $"({targetText}){operand}";
         if (wrap)
             return $"checked({cast})";
         return uncheckedOverflow ? $"unchecked({cast})" : cast;
     }
+
+    static bool NeedsCastOperandParentheses(string operand, string targetText)
+        => operand.Length > 0
+            && operand[0] is '-' or '+'
+            && !s_castDisambiguatingKeywords.Contains(targetText);
 
     // The predefined-type keyword spellings the C# parser treats as
     // cast-disambiguating: `(int)-1` is a cast, but `(nint)-1` (a contextual

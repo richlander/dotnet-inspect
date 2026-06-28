@@ -13,13 +13,11 @@ generated-fixture catalogue entries into a temporary class library, runs the
 compile-back oracle, and prints results by stable fixture ID plus target method.
 This is the first step toward an addressable progressive fixture ladder:
 `minimal.property.literal`, `minimal.ctor-field.getter`,
-and `minimal.method-call.same-type` are expected `Exact`, while
-`minimal.auto-property.getter` records the current get-only auto-property
-`RecompileFail` frontier and
-`minimal.primary-ctor.field-init` records the current constructor `OpcodeDiff`
-frontier and the exact getter. With no selector, all generated fixtures run; use
-`list` to list fixture IDs, `--json` for machine-readable list/results, and
-`--keep-generated-fixtures` to preserve the generated project for drill-down.
+`minimal.auto-property.getter`, `minimal.method-call.same-type`, and
+`minimal.primary-ctor.field-init` are expected `Exact`. With no selector, all
+generated fixtures run; use `list` to list fixture IDs, `--json` for
+machine-readable list/results, and `--keep-generated-fixtures` to preserve the
+generated project for drill-down.
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
 residual buckets from `--gaps` with the Roslyn-backed validity oracle from
@@ -134,6 +132,19 @@ assemblies. The hash-ranked sample avoids the order churn of "first N" metadata
 rows while still staying small. The run skips the expensive semantic validity
 and compile-back fidelity oracles so it stays small; the daily workflow remains
 the authoritative full-corpus signal.
+
+Keep the corpus-prep script paired with its matching baseline. The PR quick card
+uses `eng/prepare-decompiler-pr-corpus.sh` with
+`tools/DecompilerHarness/corpus/pr-quick-baseline.json`; the daily/manual
+real-world card uses `eng/prepare-decompiler-corpus.sh` with
+`tools/DecompilerHarness/corpus/real-world-baseline.json`. Do not mix the full
+corpus script with the PR quick baseline, or the card will report artificial
+assembly additions/removals such as System.Private.CoreLib appearing to drop out
+of the sample.
+
+When a card shows capped changed rows, use
+[Reproducing decompiler corpus deltas](../../docs/decompiler-corpus-delta-repro.md)
+to select the matching PR commit and regenerate the full local delta.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false

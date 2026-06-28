@@ -175,12 +175,14 @@ internal static class LibraryReport
                 report.SemanticChecked++;
 
                 var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
+                var semanticModel = compilation.GetSemanticModel(tree);
                 var defects = compilation.GetDiagnostics()
                     .Where(ValidityCheck.IsError)
                     .Where(d => !ValidityCheck.BindingNoise.Contains(d.Id))
                     .Where(d => !ValidityCheck.IsShellArtifact(d))
                     .Where(d => !ValidityCheck.IsGenericArityCollisionNoise(d, tree, function))
                     .Where(d => !ValidityCheck.IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
+                    .Where(d => !ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))
                     .ToList();
                 if (defects.Count == 0)
                 {

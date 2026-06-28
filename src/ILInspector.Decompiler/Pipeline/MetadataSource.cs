@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Xml.Linq;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -98,6 +99,13 @@ public sealed class MetadataSource : IDisposable
     public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null, MetadataContext? context = null)
         => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, context);
 
+    /// <summary>
+    /// Default referenced-assembly probing policy for callers that need to share a
+    /// <see cref="MetadataContext"/> across several <see cref="MetadataSource"/>
+    /// instances.
+    /// </summary>
+    public static AssemblyLocator DefaultAssemblyLocator(string path) => SiblingLocator(path);
+
     static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, MetadataContext? context)
     {
         var stream = File.OpenRead(path);
@@ -111,7 +119,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, locator ?? SiblingLocator(path), context);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, locator ?? DefaultAssemblyLocator(path), context);
         }
         catch
         {
@@ -131,13 +139,236 @@ public sealed class MetadataSource : IDisposable
     static AssemblyLocator SiblingLocator(string path)
     {
         string? dir = System.IO.Path.GetDirectoryName(path);
+        var packageProbe = NuGetPackageProbe(path);
+        var packageCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         return (name, trust) =>
         {
-            if (dir is null)
+            if (dir is not null)
+            {
+                string sibling = System.IO.Path.Combine(dir, name + ".dll");
+                if (File.Exists(sibling))
+                    return sibling;
+            }
+
+            if (trust == AssemblyTrust.Platform || packageProbe is null)
                 return null;
-            string sibling = System.IO.Path.Combine(dir, name + ".dll");
-            return File.Exists(sibling) ? sibling : null;
+
+            if (!packageCache.TryGetValue(name, out var cached))
+            {
+                cached = packageProbe(name);
+                packageCache[name] = cached;
+            }
+            return cached;
         };
+    }
+
+    static Func<string, string?>? NuGetPackageProbe(string path)
+    {
+        var roots = NuGetPackageRoots()
+            .Where(Directory.Exists)
+            .Select(root => System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (roots.Length == 0)
+            return null;
+
+        string fullPath = System.IO.Path.GetFullPath(path);
+        IReadOnlyDictionary<string, string?>? packageVersions = null;
+        string? startingTfm = null;
+        bool isNuGetPackageAsset = false;
+        foreach (string root in roots)
+        {
+            string prefix = root + System.IO.Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var parts = fullPath[prefix.Length..].Split(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+            if (parts.Length >= 5 && (parts[2] == "lib" || parts[2] == "ref"))
+            {
+                string packageId = parts[0];
+                string packageVersion = parts[1];
+                startingTfm = parts[3];
+                isNuGetPackageAsset = true;
+                packageVersions = NuGetDependencyPackageVersions(System.IO.Path.Combine(root, packageId, packageVersion), packageId, packageVersion, startingTfm);
+            }
+            break;
+        }
+        if (!isNuGetPackageAsset || packageVersions is null)
+            return null;
+
+        return assemblyName =>
+        {
+            string fileName = assemblyName + ".dll";
+            foreach (string root in roots)
+            {
+                if (ProbeNuGetPackages(root, fileName, packageVersions, startingTfm) is { } anyVersion)
+                    return anyVersion;
+            }
+            return null;
+        };
+    }
+
+    static IEnumerable<string> NuGetPackageRoots()
+    {
+        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
+            yield return envRoot;
+
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home))
+            yield return System.IO.Path.Combine(home, ".nuget", "packages");
+    }
+
+    static IReadOnlyDictionary<string, string?> NuGetDependencyPackageVersions(string packageVersionDir, string packageId, string packageVersion, string? tfm)
+    {
+        var versions = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            [packageId] = packageVersion,
+        };
+
+        try
+        {
+            foreach (string nuspec in Directory.EnumerateFiles(packageVersionDir, "*.nuspec"))
+            {
+                var document = XDocument.Load(nuspec);
+                AddDependencyVersions(versions, SelectNuGetDependencies(document, tfm));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+        }
+
+        return versions;
+    }
+
+    static IEnumerable<XElement> SelectNuGetDependencies(XDocument document, string? tfm)
+    {
+        var dependencies = document.Descendants().FirstOrDefault(e => e.Name.LocalName == "dependencies");
+        if (dependencies is null)
+            yield break;
+
+        var directDependencies = dependencies.Elements().Where(e => e.Name.LocalName == "dependency").ToArray();
+        var groups = dependencies.Elements().Where(e => e.Name.LocalName == "group").ToArray();
+        string? normalizedTfm = NormalizeNuGetFramework(tfm);
+        var selectedGroup = normalizedTfm is null
+            ? null
+            : groups.FirstOrDefault(g => NormalizeNuGetFramework(g.Attribute("targetFramework")?.Value) == normalizedTfm);
+
+        if (selectedGroup is not null)
+        {
+            foreach (var dependency in selectedGroup.Elements().Where(e => e.Name.LocalName == "dependency"))
+                yield return dependency;
+            yield break;
+        }
+
+        foreach (var dependency in directDependencies)
+            yield return dependency;
+    }
+
+    static void AddDependencyVersions(Dictionary<string, string?> versions, IEnumerable<XElement> dependencies)
+    {
+        foreach (var dependency in dependencies)
+        {
+            string? id = dependency.Attribute("id")?.Value;
+            if (string.IsNullOrWhiteSpace(id))
+                continue;
+            versions.TryAdd(id, DependencyExactVersion(dependency.Attribute("version")?.Value));
+        }
+    }
+
+    static string? NormalizeNuGetFramework(string? tfm)
+    {
+        if (string.IsNullOrWhiteSpace(tfm))
+            return null;
+
+        tfm = tfm.Trim().ToLowerInvariant();
+        if (tfm.StartsWith(".netstandard", StringComparison.Ordinal))
+            return "netstandard" + tfm[".netstandard".Length..];
+        if (tfm.StartsWith(".netcoreapp", StringComparison.Ordinal))
+            return "netcoreapp" + tfm[".netcoreapp".Length..];
+        if (tfm.StartsWith(".netframework", StringComparison.Ordinal))
+            return "net" + tfm[".netframework".Length..].Replace(".", "", StringComparison.Ordinal);
+        return tfm;
+    }
+
+    static string? DependencyExactVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return null;
+
+        version = version.Trim();
+        if (version.Length >= 5 && version[0] == '[' && version[^1] == ']')
+        {
+            string inner = version[1..^1].Trim();
+            var range = inner.Split(',', 2);
+            if (range.Length == 1)
+                return inner;
+            if (range.Length == 2
+                && string.Equals(range[0].Trim(), range[1].Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return range[0].Trim();
+            }
+        }
+
+        return version.IndexOfAny(['[', ']', '(', ')', ',']) < 0 ? version : null;
+    }
+
+    static string? ProbeNuGetPackages(string root, string fileName, IReadOnlyDictionary<string, string?> packageVersions, string? tfm)
+    {
+        try
+        {
+            foreach (var (packageId, version) in packageVersions)
+            {
+                string packageDir = System.IO.Path.Combine(root, packageId.ToLowerInvariant());
+                if (!Directory.Exists(packageDir))
+                    continue;
+
+                if (version is not null)
+                {
+                    string versionDir = System.IO.Path.Combine(packageDir, version.ToLowerInvariant());
+                    if (Directory.Exists(versionDir)
+                        && ProbeNuGetPackageVersion(versionDir, fileName, tfm) is { } exact)
+                    {
+                        return exact;
+                    }
+                    continue;
+                }
+
+                foreach (string versionDir in Directory.EnumerateDirectories(packageDir).OrderDescending(StringComparer.OrdinalIgnoreCase))
+                {
+                    if (ProbeNuGetPackageVersion(versionDir, fileName, tfm) is { } found)
+                        return found;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+        return null;
+    }
+
+    static string? ProbeNuGetPackageVersion(string versionDir, string fileName, string? tfm)
+    {
+        foreach (string assetKind in (string[])["lib", "ref"])
+        {
+            if (tfm is not null)
+            {
+                string candidate = System.IO.Path.Combine(versionDir, assetKind, tfm, fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            string assetRoot = System.IO.Path.Combine(versionDir, assetKind);
+            if (!Directory.Exists(assetRoot))
+                continue;
+
+            foreach (string tfmDir in Directory.EnumerateDirectories(assetRoot).OrderDescending(StringComparer.OrdinalIgnoreCase))
+            {
+                string candidate = System.IO.Path.Combine(tfmDir, fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+        return null;
     }
 
     /// <summary>

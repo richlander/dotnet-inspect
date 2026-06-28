@@ -134,4 +134,46 @@ public class InfiniteLoopStructuringTests
         Assert.Contains("finally", output);
         Assert.DoesNotContain("goto", output);
     }
+
+    [Fact]
+    public void EnumeratorLoopCatchContinue_RaisesLeaveToContinue()
+    {
+        var function = Raised(nameof(CfgSampleClass.EnumeratorLoopCatchContinue));
+
+        Assert.Contains(function.Descendants.OfType<TryCatch>(), tryCatch =>
+            tryCatch.Clauses.Any(clause => clause.Body.Descendants.OfType<Continue>().Any()));
+        Assert.Empty(function.Descendants.OfType<Leave>());
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch", output);
+        Assert.Contains("continue;", output);
+        Assert.DoesNotContain("goto IL_", output);
+    }
+
+    [Fact]
+    public void EnumeratorLoopCatchBreak_RaisesLeaveToBreak()
+    {
+        var function = Raised(nameof(CfgSampleClass.EnumeratorLoopCatchBreak));
+
+        Assert.Contains(function.Descendants.OfType<TryCatch>(), tryCatch =>
+            tryCatch.Clauses.Any(clause => clause.Body.Descendants.OfType<Break>().Any()));
+        Assert.Empty(function.Descendants.OfType<Leave>());
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch", output);
+        Assert.Contains("break;", output);
+        Assert.DoesNotContain("goto IL_", output);
+    }
+
+    [Fact]
+    public void GuardedWhileNestedContinue_StaysFlat()
+    {
+        var function = Raised(nameof(CfgSampleClass.WhileNestedContinueKeepsArmExclusive));
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("goto IL_", output);
+        Assert.Contains("throw new FormatException();", output);
+    }
 }

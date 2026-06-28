@@ -179,7 +179,14 @@ public sealed partial class CSharpPrinter
     {
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
-        return CheckedSafeCast($"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}");
+        // A negative constant into an unsigned- or narrow-backed enum is CS0221 as a
+        // plain cast even outside a checked region — `(U)(-1)` for `enum U : uint`,
+        // the int bit-pattern of a high-bit flags member. The underlying type of a
+        // cross-assembly enum is unknown, so force `unchecked` to keep the
+        // reinterpret legal; the parentheses also satisfy CS0075.
+        return CheckedSafeCast(
+            $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
+            force: negativeLiteral);
     }
 
     string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)
@@ -707,21 +714,25 @@ public sealed partial class CSharpPrinter
         }
         // The `cgt.un`/`clt.un` against null idiom csc emits for a reference
         // inequality (`ldnull; cgt.un` = `obj != null`): an unsigned ordering of a
-        // reference against null tests non-nullness (null is 0, so `x > 0` / `0 <
-        // x` unsigned is `x != 0`). There is no is-null ordering form, so this is
-        // always the not-null test; rendered literally `obj > null` is CS0019.
-        // Pointers forbid the is-pattern (CS8521), so spell those `!= null`.
+        // reference against null tests nullness (null is 0, so `x > 0` / `0 < x`
+        // unsigned is `x != 0`; the inverted dual is `x == 0`). There is no
+        // is-null ordering form; rendered literally `obj > null` or `obj <= null`
+        // is CS0019. Pointers forbid the is-pattern (CS8521), so spell those with
+        // equality.
         if (isUnsigned
             && ((kind == ComparisonKind.GreaterThan && right is Constant { Value: null })
-                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })))
+                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })
+                || (kind == ComparisonKind.LessThanOrEqual && right is Constant { Value: null })
+                || (kind == ComparisonKind.GreaterThanOrEqual && left is Constant { Value: null })))
         {
-            var operand = kind == ComparisonKind.GreaterThan ? left : right;
-            if (IsInstanceNullTestText(operand, isNotNull: true) is { } typeTest)
+            bool isNullTest = kind is ComparisonKind.LessThanOrEqual or ComparisonKind.GreaterThanOrEqual;
+            var operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
+            if (IsInstanceNullTestText(operand, isNotNull: !isNullTest) is { } typeTest)
                 return typeTest;
 
             return operand.ResultType is { Kind: TypeRefKind.Pointer }
-                ? $"{Operand(operand)} != null"
-                : $"{Operand(operand)} is not null";
+                ? $"{Operand(operand)} {(isNullTest ? "==" : "!=")} null"
+                : $"{Operand(operand)} is {(isNullTest ? "" : "not ")}null";
         }
         // A pointer compared to a native-int zero is a null check: csc lowers
         // `ptr == null` to `ldc.i4.0; conv.u; ceq`, so the zero arrives as an
@@ -858,6 +869,12 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CastValue(IrExpression value, TypeRef? target)
     {
+        if (target is { } nativeTarget
+            && IsNativeInteger(nativeTarget)
+            && AddressOfValue(value) is { } address)
+        {
+            return $"({TypeText(nativeTarget)})(&{Deref(address)})";
+        }
         // A fixed-statement pinned local reads as a pointer (the fixed variable),
         // so the IL's conv.u/conv.i deriving an unmanaged pointer from it
         // (Convert over the pinned load) is a pointer reinterpret. Into a pointer
@@ -952,6 +969,10 @@ public sealed partial class CSharpPrinter
         if (target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(value) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
             return $"{Condition(value)} ? 1 : 0";
+        if (value is Conditional conditional
+            && target is { } conditionalTarget
+            && TryConditionalTextForTarget(conditional, conditionalTarget) is { } targetedConditional)
+            return targetedConditional;
         // Cast only off a value whose rendered C# type reliably equals its IR
         // result type. A merge node (ternary/coalesce) reports a merged type the
         // arms may not actually share, and a stack slot's type is the join of
@@ -980,13 +1001,27 @@ public sealed partial class CSharpPrinter
         return $"({TypeText(target!)}){Operand(value)}";
     }
 
+    static IrExpression? AddressOfValue(IrExpression value)
+        => value switch
+        {
+            LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => value,
+            Convert
+            {
+                Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
+                Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
+            } convert => convert.Operand,
+            _ => null,
+        };
+
     static bool SameNumericSlotWidth(TypeRef? a, TypeRef? b)
         => TypeFamilies.SameWidth(a, b)
             || TypeFamilies.Of(a) == StackFamily.I && TypeFamilies.Of(b) == StackFamily.I;
 
     string ConditionalText(Conditional conditional)
+        => ConditionalText(conditional, conditional.MergedType);
+
+    string ConditionalText(Conditional conditional, TypeRef? target)
     {
-        var target = conditional.MergedType;
         // `?:` is right-associative, so a conditional in the condition position
         // reassociates without parentheses (`(a ? b : c) ? d : e` would reparse
         // as `a ? b : (c ? d : e)`). The arms render through Operand, which
@@ -998,10 +1033,61 @@ public sealed partial class CSharpPrinter
     }
 
     string ConditionalArm(IrExpression arm, TypeRef? target)
-        => target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
+        => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
+            ? charText
+            // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
+            // into StringComparison) is CS0266 — int does not convert to the enum.
+            // A cross-assembly enum is unresolved (TypeShape.Unknown), so
+            // IsEnumLikeInteger catches it; cast each integer arm (constant or not).
+            // IsIntegerLike (not IsInteger) excludes Boolean — which shares the I4
+            // stack family — so a bool arm is never cast to `(Enum)true`. A
+            // same-assembly enum arm is enum-typed (not integer-like) and renders
+            // its member name via Operand.
+            : target is { } enumTarget && IsEnumLikeInteger(enumTarget)
+                && arm.ResultType is { } armType && TypeFamilies.IsIntegerLike(armType)
+                ? EnumIntegerCast(arm, enumTarget)
+            : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
                 ? $"({Condition(arm)} ? 1 : 0)"
                 : Operand(arm);
+
+    string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
+        => CanRenderConditionalForTarget(conditional, target)
+            ? ConditionalText(conditional, target)
+            : null;
+
+    bool CanRenderConditionalForTarget(Conditional conditional, TypeRef target)
+        => (IsCoreChar(target)
+                && TryCharConstantText(conditional.WhenTrue, out _)
+                && TryCharConstantText(conditional.WhenFalse, out _))
+            || (IsEnumLikeInteger(target)
+                && IsIntegerArm(conditional.WhenTrue)
+                && IsIntegerArm(conditional.WhenFalse));
+
+    static bool IsIntegerArm(IrExpression arm)
+        => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
+
+    static bool IsCoreChar(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
+
+    static bool TryCharConstantText(IrExpression expression, out string text)
+    {
+        switch (expression)
+        {
+            case Constant { Value: char c }:
+                text = CharText(c);
+                return true;
+            case Constant { Value: int i } when i is >= char.MinValue and <= char.MaxValue:
+                text = CharText((char)i);
+                return true;
+            case Constant { Value: long l } when l is >= char.MinValue and <= char.MaxValue:
+                text = CharText((char)l);
+                return true;
+            default:
+                text = "";
+                return false;
+        }
+    }
 
     /// <summary>
     /// An integer constant rendered for a numeric target: bare when in range (C#

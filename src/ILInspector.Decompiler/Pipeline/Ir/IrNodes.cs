@@ -61,6 +61,14 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
+    /// True when <see cref="IsSpecialName"/> came from a MemberRef name prefix
+    /// rather than MethodDef metadata. The flag preserves the distinction between
+    /// "could be an accessor/operator if metadata resolves" and "metadata proves
+    /// SpecialName" for final spellability checks.
+    /// </summary>
+    public bool IsSpecialNameInferred { get; init; }
+
+    /// <summary>
     /// Positive metadata evidence that this method is a user-defined C# operator.
     /// MemberRefs may carry name-inferred <see cref="IsSpecialName"/>, but resolved
     /// non-operators use this fact to keep explicit method-call spelling.

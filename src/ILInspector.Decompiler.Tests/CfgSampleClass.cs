@@ -87,6 +87,10 @@ public class CfgSampleClass
     // with a null operand. The printer must spell it `o is not null`, not the
     // CS0019 `o > null`.
     public static bool IsNotNullReference(object o) => o != null;
+
+    public static bool IsNotByteArrayMultiContent(object? content)
+        => content is System.Collections.IEnumerable && content is not string && content is not byte[];
+
     // A string literal containing the C# line terminators that are not
     // `char.IsControl`: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR.
     // The printer must escape them (\u2028/\u2029) or the emitted literal splits
@@ -177,6 +181,17 @@ public class CfgSampleClass
     // CS0019 in the live tree.
     public static int AndNestedBoolIntMix(int a, int i, int j)
         => ((((a > 0 ? 1 : 0) & i) != 0) ? 1 : 0) & j;
+
+    // A comparison result consumed directly by integer arithmetic stays an i4 0/1
+    // on the IL stack (`cgt; add`). C# cannot spell `int + bool`, so the bool
+    // operand must materialize back to `cond ? 1 : 0`.
+    public static int BoolArithmeticChunkCount(string value)
+        => (value.Length / 10240) + ((value.Length % 10240) > 0 ? 1 : 0);
+
+    // Both arithmetic operands can be comparison-produced bools. Each one must
+    // materialize; leaving either side raw is still invalid C#.
+    public static int BoolArithmeticTwoComparisons(int left, int right)
+        => (left > 0 ? 1 : 0) + (right > 0 ? 1 : 0);
 
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
@@ -497,6 +512,9 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    public static void CharConditionalElementStore(char[] chars, int index, long ticks)
+        => chars[index] = ticks >= 0 ? '+' : '-';
+
     public static int BoolArrayVisited(int index)
     {
         bool[] visited = new bool[index + 1];
@@ -657,6 +675,76 @@ public class CfgSampleClass
                 LastValue = x;
             }
         }
+    }
+
+    public static int EnumeratorLoopCatchContinue(System.Collections.Generic.IEnumerable<int> values)
+    {
+        int total = 0;
+        int failures = 0;
+        foreach (int value in values)
+        {
+            try
+            {
+                if (value < 0)
+                    throw new InvalidOperationException();
+            }
+            catch (InvalidOperationException)
+            {
+                failures++;
+                continue;
+            }
+
+            total += value;
+        }
+
+        return total + failures;
+    }
+
+    public static int EnumeratorLoopCatchBreak(System.Collections.Generic.IEnumerable<int> values)
+    {
+        int total = 0;
+        int failures = 0;
+        foreach (int value in values)
+        {
+            try
+            {
+                if (value < 0)
+                    throw new InvalidOperationException();
+            }
+            catch (InvalidOperationException)
+            {
+                failures++;
+                break;
+            }
+
+            total += value;
+        }
+
+        return total + failures;
+    }
+
+    public static int WhileNestedContinueKeepsArmExclusive(string text)
+    {
+        int index = 0;
+        int total = 0;
+        while (index < text.Length)
+        {
+            if (text[index] == '\\')
+            {
+                index++;
+                if (index < text.Length)
+                {
+                    total += text[index++];
+                    continue;
+                }
+
+                throw new FormatException();
+            }
+
+            total += text[index++];
+        }
+
+        return total;
     }
 
     public static int LastValue;
@@ -1182,6 +1270,9 @@ public class CfgSampleClass
     // (object) cast the printer must keep — `(byte)left` over a generic T is CS0030.
     public static bool GreaterAsByte<T>(T left, T right) where T : struct
         => (byte)(object)left > (byte)(object)right;
+
+    public static T ArrayAsTypeParameter<T>(System.Array array)
+        => (T)(object)array;
 
     public struct Pair { public int A; public int B; }
 
@@ -3081,6 +3172,18 @@ public class CfgSampleClass
         return (nuint)(&value);
     }
 
+    public static unsafe nuint ArgumentAddressAsNativeUInt(int value)
+    {
+        return (nuint)(&value);
+    }
+
+    static nint s_argumentAddress;
+
+    public static unsafe void StoreArgumentAddressAsNativeInt(int value)
+    {
+        s_argumentAddress = (nint)(&value);
+    }
+
     // A pointer compared to null: csc lowers `p == null` to `ldc.i4.0; conv.u;
     // ceq`, so the zero arrives as a native-int constant. The branch must spell
     // `p == null`, not the CS0019 `p == (nuint)0`.
@@ -4078,4 +4181,108 @@ public static class UserGridCalls
 {
     public static int UserGet(UserGridSample g, int i, int j) => g.Get(i, j);
     public static void UserSet(UserGridSample g, int i, int j, int v) => g.Set(i, j, v);
+}
+
+// Issues #1766 / #1772: a cross-assembly (framework) enum resolves to
+// TypeShape.Unknown, so an integer constant flowing into it through a
+// conditional arm or a bitwise compound assignment renders as a bare int —
+// invalid `int->enum` (CS0266) / `enum |= int` (CS0019) at Full. The printer
+// must cast structurally.
+public static class EnumCastSamples
+{
+    // #1766: ternary with enum-constant arms stored to a cross-assembly enum
+    // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
+    public static bool EnumConditional(string name, bool ci)
+    {
+        System.StringComparison c = ci ? System.StringComparison.Ordinal : System.StringComparison.OrdinalIgnoreCase;
+        return name.EndsWith("x", c);
+    }
+
+    // #1772: bitwise compound assignment to a cross-assembly [Flags] enum local
+    // (AttributeTargets.Class = 4, AttributeTargets.Struct = 8).
+    public static System.AttributeTargets EnumFlagsCompound(bool a, bool b)
+    {
+        System.AttributeTargets result = (System.AttributeTargets)0;
+        if (a)
+        {
+            result |= System.AttributeTargets.Class;
+        }
+        if (b)
+        {
+            result |= System.AttributeTargets.Struct;
+        }
+        return result;
+    }
+
+    // #1766 review finding 1: a conditional with one constant arm and one
+    // non-constant integer arm into a cross-assembly enum — both arms must be cast
+    // (`ci ? (StringComparison)4 : (StringComparison)raw`), not just the constant.
+    public static bool EnumConditionalMixedArm(string name, bool ci, int raw)
+    {
+        System.StringComparison c = ci ? System.StringComparison.Ordinal : (System.StringComparison)raw;
+        return name.EndsWith("x", c);
+    }
+
+    // #1772 review finding 2: a negative integer constant into a cross-assembly
+    // enum (`~AttributeTargets.Class` folds to ldc.i4 -5) must force `unchecked`,
+    // since an unsigned- or narrow-backed enum would reject `(Enum)(-5)` (CS0221).
+    public static System.AttributeTargets EnumFlagsCompoundNegative(System.AttributeTargets seed)
+    {
+        seed &= ~System.AttributeTargets.Class;
+        return seed;
+    }
+}
+
+
+// Issue #1759: a reference-typed value produced by `as`/isinst and tested for
+// truthiness in a branch (here the `?.Dispose()` null-conditional inside a
+// finally) must render `is null`/`is not null`, not `!S` — `!IDisposable` is
+// CS0023. IDisposable is a cross-assembly interface (TypeShape.Unknown), so the
+// reference classification comes from the isinst provenance.
+public static class FinallyDisposeSamples
+{
+    public static void DisposeEnumeratorInFinally(System.Collections.IDictionary dictionary)
+    {
+        System.Collections.IDictionaryEnumerator enumerator = dictionary.GetEnumerator();
+        try
+        {
+            while (enumerator.MoveNext())
+            {
+            }
+        }
+        finally
+        {
+            (enumerator as System.IDisposable)?.Dispose();
+        }
+    }
+}
+
+// Issue #1759 (review): a nested local function reusing the same stack-slot
+// number must not disable the isinst provenance for the outer finally-dispose
+// slot. Provenance is scoped to the current function body, so this still renders
+// `is null`, not `!S`.
+public static class FinallyDisposeNestedSamples
+{
+    public static int DisposeWithNestedLocalFunction(System.Collections.IDictionary dictionary, int x)
+    {
+        int seed = SquarePlusOne(x);
+        System.Collections.IDictionaryEnumerator enumerator = dictionary.GetEnumerator();
+        try
+        {
+            while (enumerator.MoveNext())
+            {
+            }
+        }
+        finally
+        {
+            (enumerator as System.IDisposable)?.Dispose();
+        }
+        return seed;
+
+        static int SquarePlusOne(int v)
+        {
+            int y = v + 1;
+            return y * y;
+        }
+    }
 }

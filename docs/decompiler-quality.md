@@ -478,17 +478,35 @@ less uniform: they use BenchmarkDotNet tables, Speedometer/PR-validation links,
 allocation/trace snippets, and reviewer-requested reruns rather than one
 standard card.
 
-Generate the aggregate rows with the real-world corpus sensor
+Generate corpus rows with the harness
 (`--diff-corpus-baseline --quality-diff-card`) and paste the harness output into
-the PR. Do not ask an agent to construct or re-key the table: that is wasteful,
-open to hallucination, and harder for a reviewer to validate. Method-level
-examples are the only hand-authored addendum, and only when the PR intentionally
-changes behaviour. The card is reviewer-sized evidence, not a dump-stage
-artifact; keep `--dump --steps` output in linked diagnosis notes only when
-reviewers need the drill-down.
+the PR. Use one of the documented corpus/baseline pairs, never a mixed pair:
+
+- **PR quick card:** `eng/prepare-decompiler-pr-corpus.sh` with
+  `tools/DecompilerHarness/corpus/pr-quick-baseline.json`.
+- **Daily/manual real-world card:** `eng/prepare-decompiler-corpus.sh` with
+  `tools/DecompilerHarness/corpus/real-world-baseline.json`.
+
+Mixing the full corpus script with the PR quick baseline (or the reverse) makes
+the card compare different populations and can produce bogus assembly
+additions/removals and misleading aggregate deltas. Do not ask an agent to
+construct or re-key the table: that is wasteful, open to hallucination, and
+harder for a reviewer to validate. Method-level examples are the only
+hand-authored addendum, and only when the PR intentionally changes behaviour. The
+card is reviewer-sized evidence, not a dump-stage artifact; keep `--dump
+--steps` output in linked diagnosis notes only when reviewers need the
+drill-down. To reproduce the full row set behind a capped card, follow
+[Reproducing decompiler corpus deltas](decompiler-corpus-delta-repro.md).
+Use the terse PR body shape in
+[docs/templates/decompiler-pr.md](templates/decompiler-pr.md) when writing the
+human summary around the generated card.
+
+Rate deltas in card prose use **percentage points** (`pp`): `+0.49 pp` means
+the rate increased from, for example, `82.17%` to `82.66%`. Counts still use raw
+signed count deltas in `Count delta`.
 
 For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
-sensor values are enough:
+sensor values are enough when you need the broader daily/manual signal:
 
 Run the sensor with the same command documented in the harness README. The
 `--quality-diff-card` flag is what emits the PR-ready Markdown block:
@@ -519,15 +537,15 @@ The tool emits a block like:
 Corpus: #1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies. 14 assemblies, 87,907 methods
 Correctness coverage: validity sampled 350 / 87,907 (0.40%); fidelity sampled 6 / 87,907 (0.01%)
 
-| Metric | Baseline | PR | Delta |
+| Metric (desired direction) | Baseline | PR | Count delta |
 | --- | ---: | ---: | ---: |
-| Fully raised | 77,376 (88.02%) | 77,376 (88.02%) | 0 |
-| Conditional-branch residual | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
-| Forward-merge stops | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
-| Full malformed | 165 | 165 | 0 |
-| Semantic defects | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
-| Fidelity diffs | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
-| Pass bugs | 0 | 0 | 0 |
+| Fully raised (+) | 77,376 (88.02%) | 77,376 (88.02%) | 0 |
+| Conditional-branch residual (-) | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
+| Forward-merge stops (-) | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
+| Full malformed (-) | 165 | 165 | 0 |
+| Semantic defects (-) | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
+| Fidelity diffs (-) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
+| Pass bugs (-) | 0 | 0 | 0 |
 
 Verdict: corpus sensor matched baseline tolerances.
 ```
