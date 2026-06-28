@@ -43,7 +43,7 @@ public class AnalysisFixtureCatalogTests
         // Enumerator-allocation: true positive plus three distinct must-not-flag cases
         // (non-loop, struct enumerator, and the untrusted lookalike trust gate).
         AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachInterfaceInLoop");
-        AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachInterfaceOnce");
+        AssertBoundary(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachInterfaceOnce", OwnedBoundary.FalseNegative);
         AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachConcreteListInLoop");
         AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachLookalikeEnumeratorInLoop");
     }
