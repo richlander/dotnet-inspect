@@ -161,6 +161,20 @@ public class GeneratedFixtureCatalogTests
             "Method1",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
+        AssertTarget(
+            run,
+            "minimal.using-dispose",
+            "GeneratedFixtures.MinimalUsingDispose.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.using-dispose",
+            "GeneratedFixtures.MinimalUsingDispose.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
 
         Assert.Contains("minimal.property.literal", report);
         Assert.Contains("minimal.primary-ctor.field-init", report);
@@ -171,6 +185,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.null-coalesce", report);
         Assert.Contains("minimal.try-finally", report);
+        Assert.Contains("minimal.using-dispose", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
     }
@@ -193,6 +208,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.property.literal",
                 "minimal.static-method-call",
                 "minimal.try-finally",
+                "minimal.using-dispose",
             ],
             GeneratedFixtureCatalog.Select("minimal").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
@@ -214,6 +230,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.null-coalesce");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.try-finally");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.using-dispose");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
