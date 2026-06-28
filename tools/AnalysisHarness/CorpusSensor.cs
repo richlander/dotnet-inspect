@@ -10,6 +10,7 @@ namespace ILInspector.AnalysisHarness;
 public sealed record AssemblyMetrics(
     string Name,
     bool Opened,
+    bool TimedOut,
     int Methods,
     int Diagnostics,
     int Allocations,
@@ -44,13 +45,27 @@ public static class AnalysisCorpusSensor
         Converters = { new JsonStringEnumConverter() },
     };
 
-    public static CorpusSnapshot Measure(IReadOnlyList<string> assemblyPaths)
+    public static CorpusSnapshot Measure(IReadOnlyList<string> assemblyPaths, int perAssemblyTimeoutSeconds = 60)
     {
         var assemblies = new List<AssemblyMetrics>(assemblyPaths.Count);
         foreach (var path in assemblyPaths)
-            assemblies.Add(MeasureOne(path));
+            assemblies.Add(MeasureWithTimeout(path, perAssemblyTimeoutSeconds));
         assemblies.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
         return new CorpusSnapshot(assemblies);
+    }
+
+    // Bound each assembly so one pathological input cannot hang the whole sweep. A timeout is
+    // recorded as a stable signal (TimedOut) rather than a crash; the orphaned worker exits with
+    // the process. Going from measured to timed-out (or vice versa) is a regression in the diff.
+    static AssemblyMetrics MeasureWithTimeout(string path, int timeoutSeconds)
+    {
+        string name = Path.GetFileName(path);
+        AssemblyMetrics? result = null;
+        var worker = new Thread(() => result = MeasureOne(path)) { IsBackground = true };
+        worker.Start();
+        if (worker.Join(TimeSpan.FromSeconds(timeoutSeconds)) && result is not null)
+            return result;
+        return new AssemblyMetrics(name, Opened: false, TimedOut: true, 0, 0, 0, 0, new Dictionary<string, int>());
     }
 
     static AssemblyMetrics MeasureOne(string path)
@@ -63,7 +78,7 @@ public static class AnalysisCorpusSensor
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException)
         {
-            return new AssemblyMetrics(name, Opened: false, 0, 0, 0, 0, new Dictionary<string, int>());
+            return new AssemblyMetrics(name, Opened: false, TimedOut: false, 0, 0, 0, 0, new Dictionary<string, int>());
         }
 
         var signals = index.GetMethodSignals();
@@ -83,6 +98,7 @@ public static class AnalysisCorpusSensor
         return new AssemblyMetrics(
             name,
             Opened: true,
+            TimedOut: false,
             index.Methods.Length,
             index.Diagnostics.Length,
             allocations,
@@ -113,7 +129,7 @@ public static class AnalysisCorpusSensor
             }
 
             if (b!.Opened && !c!.Opened)
-                regressions.Add($"{name}: stopped opening (was {b.Methods} methods)");
+                regressions.Add($"{name}: {(c.TimedOut ? "timed out" : "stopped opening")} (was {b.Methods} methods)");
             if (c!.Opened && c.Diagnostics > b.Diagnostics)
                 regressions.Add($"{name}: analyzer diagnostics {b.Diagnostics} -> {c.Diagnostics}");
 
@@ -140,6 +156,7 @@ public static class AnalysisCorpusSensor
     {
         var sb = new StringBuilder();
         int failed = snapshot.Assemblies.Count(a => !a.Opened);
+        int timedOut = snapshot.Assemblies.Count(a => a.TimedOut);
         int diagnostics = snapshot.Assemblies.Sum(a => a.Diagnostics);
         int methods = snapshot.Assemblies.Sum(a => a.Methods);
         int allocations = snapshot.Assemblies.Sum(a => a.Allocations);
@@ -148,12 +165,12 @@ public static class AnalysisCorpusSensor
             foreach (var (shape, count) in assembly.Shapes)
                 shapeTotals[shape] = shapeTotals.GetValueOrDefault(shape) + count;
 
-        sb.AppendLine($"ANALYSIS CORPUS CARD: {snapshot.Assemblies.Count} assemblies, {failed} failed to open");
+        sb.AppendLine($"ANALYSIS CORPUS CARD: {snapshot.Assemblies.Count} assemblies, {failed} not measured ({timedOut} timed out)");
         sb.AppendLine($"  methods={methods} diagnostics={diagnostics} allocations={allocations}");
         sb.AppendLine($"  opportunity shapes: {string.Join(", ", shapeTotals.Select(kv => $"{kv.Key}={kv.Value}"))}");
         foreach (var assembly in snapshot.Assemblies)
         {
-            string status = assembly.Opened ? "" : " FAILED";
+            string status = assembly.Opened ? "" : assembly.TimedOut ? " TIMED-OUT" : " FAILED";
             sb.AppendLine($"  {assembly.Name}{status}  methods={assembly.Methods} diag={assembly.Diagnostics} alloc={assembly.Allocations} shapes={assembly.Shapes.Values.Sum()}");
         }
         return sb.ToString();

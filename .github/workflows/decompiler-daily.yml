@@ -77,6 +77,19 @@ jobs:
             --corpus-fidelity-cap 3 \
             --max-examples 3
 
+      # Analysis corpus stability sensor (#1818, Layer 2): same pinned corpus, but it checks
+      # analyzer robustness (every assembly opens, no analyzer-diagnostic jump) against a
+      # committed baseline. Signal-count drift is reported, not failed; only a regression
+      # (stops opening / times out / diagnostics increase) is nonzero.
+      - name: Run analysis corpus sensor
+        shell: bash
+        run: |
+          mkdir -p artifacts/analysis-daily
+          dotnet run --project tools/AnalysisHarness -c Release -- \
+            --corpus-list corpus-assemblies.txt \
+            --emit-corpus-snapshot artifacts/analysis-daily/analysis-corpus-snapshot.json \
+            --diff-corpus-baseline tools/AnalysisHarness/corpus/analysis-baseline.json
+
       - name: Upload corpus snapshot
         if: always()
         uses: actions/upload-artifact@v7
