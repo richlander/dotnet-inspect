@@ -188,7 +188,10 @@ Report:
 4. per-method delta artifact;
 5. changed-method fidelity result, or a clear statement that changed methods are
    not currently checkable;
-6. cross-model adversarial review summary with resolution commit links.
+6. cross-model adversarial review summary with resolution commit links (two
+   reviewers from the AGENTS.md
+   [Adversarial Review](../AGENTS.md#adversarial-review) roster, never your own
+   model).
 
 For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
