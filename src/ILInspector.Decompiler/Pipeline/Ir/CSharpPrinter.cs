@@ -589,7 +589,8 @@ public sealed partial class CSharpPrinter
         foreach (var candidate in candidates)
         {
             if (stores.All(store => CanAssignTo(store, candidate))
-                && loads.All(load => load is null || CanAssignType(candidate, load)))
+                && loads.All(load => load is null || CanAssignType(candidate, load))
+                && loads.All(load => load is null || !StrictlyNarrowsReference(candidate, load)))
             {
                 unifiedType = candidate;
                 return true;
@@ -600,12 +601,36 @@ public sealed partial class CSharpPrinter
         return false;
     }
 
+    /// <summary>True when naming the slot <paramref name="candidate"/> would give a load site a narrower reference type than its own (e.g. picking <c>string</c> for an <c>object</c> load), which can silently rebind an overloaded call. Equal or wider candidates are fine.</summary>
+    bool StrictlyNarrowsReference(TypeRef candidate, TypeRef load)
+        => IsReferenceLike(candidate)
+            && !candidate.Equals(load)
+            && CanAssignType(candidate, load)
+            && !CanAssignType(load, candidate);
+
     bool CanAssignTo(IrExpression value, TypeRef target)
-        => value is Constant { Value: null }
-            ? IsReferenceLike(target)
-            : value is Conditional conditional && CanRenderConditionalForTarget(conditional, target)
-                ? true
-            : value.ResultType is { } source && CanAssignType(source, target);
+    {
+        if (value is Constant { Value: null })
+            return IsReferenceLike(target);
+        if (value is Conditional conditional)
+            // A conditional unifies to a target its arms each satisfy — e.g.
+            // `cond ? null : value` (null + string) is assignable to `string`,
+            // even though its IL-merged ResultType widened to `object`. Without
+            // this the slot's object-typed store and string-typed load get
+            // different names (S_1 vs S_1_1) and the consumer reads an unassigned
+            // local (#1767). Restricted to reference-like targets: a non-reference
+            // target (char/numeric) needs per-arm target rendering that the
+            // conditional printer only does for immediate constant arms, so a
+            // nested conditional would unify to `char` yet render an `int` ternary
+            // (CS0266). The char/enum arm-cast path and the merged-ResultType
+            // fallback remain.
+            return CanRenderConditionalForTarget(conditional, target)
+                || (IsReferenceLike(target)
+                    && CanAssignTo(conditional.WhenTrue, target)
+                    && CanAssignTo(conditional.WhenFalse, target))
+                || (conditional.ResultType is { } condType && CanAssignType(condType, target));
+        return value.ResultType is { } source && CanAssignType(source, target);
+    }
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
