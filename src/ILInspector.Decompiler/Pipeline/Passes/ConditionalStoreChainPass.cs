@@ -199,7 +199,19 @@ public sealed class ConditionalStoreChainPass : IIrPass
 
         if (storeLocalIndex is not { } localIndex || storeType is not { } type || mergeOffset is not { } merge)
             return null;
-        if (!offsetToIndex.ContainsKey(merge))
+        if (!offsetToIndex.TryGetValue(merge, out int mergeIndex))
+            return null;
+        // The merge must be strictly forward of the whole dispatch — after every
+        // guard and arm block. A backward/self merge (arms that branch back to the
+        // dispatch, i.e. a loop) must never fold: removing the arms and falling
+        // through would turn the loop into straight-line code (a miscompile).
+        int maxDispatchOrArm = head;
+        foreach (int g in guardIndices)
+            maxDispatchOrArm = System.Math.Max(maxDispatchOrArm, g);
+        maxDispatchOrArm = System.Math.Max(maxDispatchOrArm, terminalIndex);
+        foreach (var arm in arms)
+            maxDispatchOrArm = System.Math.Max(maxDispatchOrArm, arm.BlockIndex);
+        if (mergeIndex <= maxDispatchOrArm)
             return null;
 
         // 3. No external entry: every dispatch/arm block other than the head must

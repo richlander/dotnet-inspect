@@ -109,6 +109,52 @@ public class ConditionalStoreChainPassTests
         Assert.Equal(7, function.Body.Blocks.Count);
     }
 
+    [Fact]
+    public void DeclinesBackwardMerge()
+    {
+        // Arms that branch BACK to the dispatch head form a loop. Folding them and
+        // letting control fall through would turn the loop into straight-line code
+        // (a miscompile) — the pass must decline a non-forward merge.
+        var function = BuildThreeWaySwitchStoreBackwardMerge();
+
+        new ConditionalStoreChainPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        // The loop back-edges survive (nothing folded or dropped).
+        Assert.Equal(3, function.Descendants.OfType<Branch>().Count(b => b.TargetOffset == 0));
+    }
+
+    // The dispatch lives after the entry; each arm stores then branches BACK to the
+    // dispatch head (offset 0) — a re-dispatch loop. The merge is therefore the
+    // head (a backward edge), which must not fold.
+    static IrFunction BuildThreeWaySwitchStoreBackwardMerge()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var body = new BlockContainer();
+
+        var d0 = new Block(0);
+        d0.Add(new ConditionalBranch(Eq(0), 12));
+        var d1 = new Block(4);
+        d1.Add(new ConditionalBranch(Eq(1), 16));
+        var d2 = new Block(8);
+        d2.Add(new Branch(20));
+
+        var arm0 = new Block(12);
+        arm0.Add(new StoreLocal(0, Int32, new Constant(10, Int32)));
+        arm0.Add(new Branch(0));                 // back-edge to the dispatch head
+        var arm1 = new Block(16);
+        arm1.Add(new StoreLocal(0, Int32, new Constant(20, Int32)));
+        arm1.Add(new Branch(0));
+        var arm2 = new Block(20);
+        arm2.Add(new StoreLocal(0, Int32, new Constant(30, Int32)));
+        arm2.Add(new Branch(0));
+
+        foreach (var block in (Block[])[d0, d1, d2, arm0, arm1, arm2])
+            body.Add(block);
+
+        return Function(owner, body);
+    }
+
     static IrExpression Eq(int constant)
         => new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadLocal(2, Int32), new Constant(constant, Int32));
 

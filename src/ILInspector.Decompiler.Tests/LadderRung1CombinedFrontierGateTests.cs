@@ -57,10 +57,11 @@ public class LadderRung1CombinedFrontierGateTests
         {
             var m = members.Single(x => x.Name == name);
             Assert.Null(Completeness.Residual(m.Function));
+            // Assert on the IR shape (the switch dispatch folded to a Conditional
+            // store of the bucket local) rather than printer substrings, plus the
+            // absence of a goto ladder in the rendered output.
+            Assert.NotEmpty(m.Function.Descendants.OfType<Conditional>());
             var body = CSharpPrinter.PrintRaised(m.Function).Output ?? "";
-            // The switch raised to a nested conditional store, not a goto ladder.
-            Assert.Contains("bucket = ", body);
-            Assert.Contains(" ? ", body);
             Assert.DoesNotContain("goto IL_", body);
         }
 
