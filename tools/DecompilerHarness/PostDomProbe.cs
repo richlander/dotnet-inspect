@@ -45,6 +45,12 @@ static class PostDomProbe
         // (shape bucket x merge shape) so the reader sees which residual shapes
         // carry foldable merges.
         var crossTab = new Dictionary<(string, MergeShape), long>();
+        // Within the safe non-crossing forward-merge buckets, split by whether the
+        // residual is a pure boolean-expression diamond (all guard blocks pure ->
+        // extendable via sound OR-combination, no all-or-nothing relaxation) or a
+        // genuine merge with effectful guard blocks (needs the structurer).
+        long safePureGuards = 0, safeEffectful = 0;
+        string? pureExample = null, effectfulExample = null;
         var samples = new List<string>();
         bool capped = false;
 
@@ -73,6 +79,21 @@ static class PostDomProbe
                 var priorM = byMerge.GetValueOrDefault(merge);
                 byMerge[merge] = (priorM.Count + 1, priorM.Example ?? $"{typeName}::{methodName}");
                 crossTab[(shape, merge)] = crossTab.GetValueOrDefault((shape, merge)) + 1;
+
+                // The safe slice = non-crossing forward merges with a real join.
+                if (merge is MergeShape.SingleMerge or MergeShape.SingleMergeReturnTail or MergeShape.MultiMergeNested)
+                {
+                    if (AllGuardsPure(container))
+                    {
+                        safePureGuards++;
+                        pureExample ??= $"{typeName}::{methodName}";
+                    }
+                    else
+                    {
+                        safeEffectful++;
+                        effectfulExample ??= $"{typeName}::{methodName}";
+                    }
+                }
 
                 if (samples.Count < sample
                     && merge is MergeShape.SingleMerge or MergeShape.SingleMergeReturnTail)
@@ -110,7 +131,39 @@ static class PostDomProbe
                 Console.WriteLine(s);
             }
         }
+
+        Console.WriteLine();
+        Console.WriteLine("safe non-crossing slice (SingleMerge + ReturnTail + MultiMergeNested) by guard purity:");
+        Console.WriteLine($"  {safePureGuards,8}  pure-guard boolean diamonds (OR-combination-extensible, no all-or-nothing relaxation)  e.g. {pureExample}");
+        Console.WriteLine($"  {safeEffectful,8}  effectful-condition genuine merges (need the structurer)  e.g. {effectfulExample}");
         return 0;
+    }
+
+    /// <summary>
+    /// Approximates "this residual is a boolean-expression diamond an extended
+    /// OR-combination could fold soundly" — mirrors <c>OrChainDiamondPass</c>'s
+    /// rule that inner guards are pure single-condition blocks (<c>[ConditionalBranch]</c>),
+    /// allowing only the root guard to carry leading operand setup. When at most
+    /// one guard block carries extra statements, the guard run is a pure
+    /// short-circuit chain (the condition is the only work); two or more
+    /// effectful guards mean the decisions do independent side-effecting work — a
+    /// genuine merge that needs the structurer, not condition-combining.
+    /// </summary>
+    static bool AllGuardsPure(BlockContainer container)
+    {
+        int guardsWithSetup = 0;
+        foreach (var block in container.Blocks)
+        {
+            if (block.Children.Count == 0 || block.Children[^1] is not ConditionalBranch)
+                continue;
+            // Any control flow among the non-terminal statements disqualifies outright.
+            for (int s = 0; s < block.Children.Count - 1; s++)
+                if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+                    return false;
+            if (block.Children.Count > 1)
+                guardsWithSetup++;
+        }
+        return guardsWithSetup <= 1;
     }
 
     /// <summary>The first container holding a residual flat conditional branch, or null.</summary>
