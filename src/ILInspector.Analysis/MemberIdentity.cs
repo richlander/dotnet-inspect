@@ -93,6 +93,16 @@ public sealed record MemberRef(
     public ImmutableArray<TypeRef> OpenSignatureParameters
         => OpenParameterTypes.IsDefaultOrEmpty ? ParameterTypes : OpenParameterTypes;
 
+    /// <summary>
+    /// The return type with generic markers preserved (before instantiation), for the
+    /// same cross-assembly keying reason as <see cref="OpenParameterTypes"/> (#1741).
+    /// Null when not separately captured, in which case <see cref="OpenSignatureReturn"/>
+    /// falls back to <see cref="ReturnType"/>.
+    /// </summary>
+    public TypeRef? OpenReturnType { get; init; }
+
+    public TypeRef OpenSignatureReturn => OpenReturnType ?? ReturnType;
+
     public static MemberRef Unsupported(string reason)
         => new(TypeRef.Unsupported(reason), "?", [], TypeRef.Unsupported("unknown return"), MemberKind.Unsupported);
 }

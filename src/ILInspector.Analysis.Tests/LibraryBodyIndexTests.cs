@@ -240,6 +240,32 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain("UseBox", listCallers);
     }
 
+    // #1741 (review): Box<T> (Box`1) and Box<T1,T2> (Box`2) share a simple name but have
+    // different generic arity, each with a same-name/same-arity Store. The declaring-type
+    // portion of the caller-graph key must preserve arity so the two Stores stay distinct.
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsSameNameGenericTypesOfDifferentArityDistinct()
+    {
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var box1Store = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
+        var box2Store = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`2" && method.Name == "Store");
+
+        var box1Callers = targetIndex.BuildCallerTree(box1Store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+        var box2Callers = targetIndex.BuildCallerTree(box2Store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+
+        Assert.Contains("UseBox", box1Callers);
+        Assert.DoesNotContain("UseBox2", box1Callers);
+        Assert.Contains("UseBox2", box2Callers);
+        Assert.DoesNotContain("UseBox", box2Callers);
+    }
+
     // #1731 (adversarial review): the cross-assembly caller-graph shape keys on the OPEN
     // signature (VAR/MVAR markers), not the substituted concrete types. A constructed
     // Box<int>.Store(T) call carries a concrete int as its instantiated parameter, but the
@@ -339,6 +365,58 @@ public class LibraryBodyIndexTests
             projectName + ".dll"));
         Assert.True(File.Exists(path), $"Expected caller-graph fixture assembly at {path}");
         return path;
+    }
+
+    static string NamedFixturePath(string projectName, string assemblyName)
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            projectName,
+            outputDirectory.Name,
+            assemblyName + ".dll"));
+        Assert.True(File.Exists(path), $"Expected fixture assembly at {path}");
+        return path;
+    }
+
+    // #1741: two Ping overloads whose parameter types share the FQN Shared.Token but come
+    // from different assemblies (DiffAsmLibA vs DiffAsmLibB). The cross-assembly caller
+    // graph must keep them distinct — rooting at one overload reports only its own caller.
+    // The prior key rendered parameter types with ToQualifiedDisplayString(), which omits
+    // assembly, so both collapsed and cross-linked the callers (de-verified #1623 rung 1).
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsSameFqnParametersFromDifferentAssembliesDistinct()
+    {
+        var target = LibraryBodyIndex.Open(NamedFixturePath("DiffAsmFixtures.Target", "DiffAsmTarget"));
+        var caller = LibraryBodyIndex.Open(NamedFixturePath("DiffAsmFixtures.Caller", "DiffAsmCaller"));
+
+        var pingA = target.Methods.First(method =>
+            method.Name == "Ping" && method.ParameterTypes[0].Assembly == "DiffAsmLibA");
+        var pingB = target.Methods.First(method =>
+            method.Name == "Ping" && method.ParameterTypes[0].Assembly == "DiffAsmLibB");
+
+        var aCallers = target.BuildCallerTree(pingA.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+        var bCallers = target.BuildCallerTree(pingB.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+
+        Assert.Contains("UseA", aCallers);
+        Assert.DoesNotContain("UseB", aCallers);
+        Assert.Contains("UseB", bCallers);
+        Assert.DoesNotContain("UseA", bCallers);
+    }
+
+    // #1741 (unit): the key fragment for a type includes its assembly, so same-FQN types
+    // from different assemblies do not collapse.
+    [Fact]
+    public void KeyFragment_QualifiesNamedTypeByAssembly()
+    {
+        var tokenA = TypeRef.Definition("LibA", "Shared", "Token");
+        var tokenB = TypeRef.Definition("LibB", "Shared", "Token");
+
+        Assert.NotEqual(GenericMemberIdentity.KeyFragment(tokenA), GenericMemberIdentity.KeyFragment(tokenB));
     }
 
     [Fact]

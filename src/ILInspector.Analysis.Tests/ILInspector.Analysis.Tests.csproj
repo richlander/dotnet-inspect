@@ -30,6 +30,8 @@
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCallerTwin\ILInspector.Analysis.CallerGraphCallerTwin.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphLookalikeCaller\ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DiffAsmFixtures.Target\DiffAsmFixtures.Target.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DiffAsmFixtures.Caller\DiffAsmFixtures.Caller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
   </ItemGroup>
 

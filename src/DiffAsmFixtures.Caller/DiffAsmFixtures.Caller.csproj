@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>DiffAsmCaller</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DiffAsmFixtures.Target\DiffAsmFixtures.Target.csproj" />
+    <ProjectReference Include="..\DiffAsmFixtures.LibA\DiffAsmFixtures.LibA.csproj"><Aliases>LibA</Aliases></ProjectReference>
+    <ProjectReference Include="..\DiffAsmFixtures.LibB\DiffAsmFixtures.LibB.csproj"><Aliases>LibB</Aliases></ProjectReference>
+  </ItemGroup>
+</Project>
