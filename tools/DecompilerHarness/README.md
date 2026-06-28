@@ -135,6 +135,15 @@ rows while still staying small. The run skips the expensive semantic validity
 and compile-back fidelity oracles so it stays small; the daily workflow remains
 the authoritative full-corpus signal.
 
+Keep the corpus-prep script paired with its matching baseline. The PR quick card
+uses `eng/prepare-decompiler-pr-corpus.sh` with
+`tools/DecompilerHarness/corpus/pr-quick-baseline.json`; the daily/manual
+real-world card uses `eng/prepare-decompiler-corpus.sh` with
+`tools/DecompilerHarness/corpus/real-world-baseline.json`. Do not mix the full
+corpus script with the PR quick baseline, or the card will report artificial
+assembly additions/removals such as System.Private.CoreLib appearing to drop out
+of the sample.
+
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-pr-corpus.sh /tmp/pr-corpus-assemblies.txt

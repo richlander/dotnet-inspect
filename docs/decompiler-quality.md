@@ -478,17 +478,27 @@ less uniform: they use BenchmarkDotNet tables, Speedometer/PR-validation links,
 allocation/trace snippets, and reviewer-requested reruns rather than one
 standard card.
 
-Generate the aggregate rows with the real-world corpus sensor
+Generate corpus rows with the harness
 (`--diff-corpus-baseline --quality-diff-card`) and paste the harness output into
-the PR. Do not ask an agent to construct or re-key the table: that is wasteful,
-open to hallucination, and harder for a reviewer to validate. Method-level
-examples are the only hand-authored addendum, and only when the PR intentionally
-changes behaviour. The card is reviewer-sized evidence, not a dump-stage
-artifact; keep `--dump --steps` output in linked diagnosis notes only when
-reviewers need the drill-down.
+the PR. Use one of the documented corpus/baseline pairs, never a mixed pair:
+
+- **PR quick card:** `eng/prepare-decompiler-pr-corpus.sh` with
+  `tools/DecompilerHarness/corpus/pr-quick-baseline.json`.
+- **Daily/manual real-world card:** `eng/prepare-decompiler-corpus.sh` with
+  `tools/DecompilerHarness/corpus/real-world-baseline.json`.
+
+Mixing the full corpus script with the PR quick baseline (or the reverse) makes
+the card compare different populations and can produce bogus assembly
+additions/removals and misleading aggregate deltas. Do not ask an agent to
+construct or re-key the table: that is wasteful, open to hallucination, and
+harder for a reviewer to validate. Method-level examples are the only
+hand-authored addendum, and only when the PR intentionally changes behaviour. The
+card is reviewer-sized evidence, not a dump-stage artifact; keep `--dump
+--steps` output in linked diagnosis notes only when reviewers need the
+drill-down.
 
 For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
-sensor values are enough:
+sensor values are enough when you need the broader daily/manual signal:
 
 Run the sensor with the same command documented in the harness README. The
 `--quality-diff-card` flag is what emits the PR-ready Markdown block:
