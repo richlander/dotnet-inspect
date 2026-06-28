@@ -36,11 +36,22 @@ delegates, stateless instance methods — so hot, fixable members surface first.
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance Triage"
+dnx dotnet-inspect -y -- library MyLib.dll --loop --min-confidence high --top 20 --tsv
+dnx dotnet-inspect -y -- library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
 ```
 
 Target IL-visible costs (allocations: box, newarr, delegate newobj,
 ToArray/ToList/Concat), not JIT-handled concerns (isinst/castclass folding,
 devirtualization, bounds-check elimination, null-check folding).
+
+Use `--loop` for repeated hot costs, `--min-confidence high|medium|low` for a
+confidence floor, `--triage-shape` for one or more shapes, and `--top N` for the
+curated ranked prefix. Supplying any of those flags selects `Performance Triage`
+automatically on `library`, `type`, and `member`. `--top` narrows the ranked data
+before rendering; `-n N --rows` is a generic rendered-row cap applied afterward.
+Common shapes include `capturing-delegate`, `box-value-type`, `small-array`,
+`linq-scan-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
+`allocation-hotspot`.
 
 ## Drill a candidate
 

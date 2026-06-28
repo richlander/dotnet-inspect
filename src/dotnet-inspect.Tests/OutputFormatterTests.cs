@@ -299,6 +299,32 @@ public class OutputFormatterTests
         Assert.True(knownHighReach < knownReachLow, "higher reach must precede lower reach at equal tier");
     }
 
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_AppliesPaydirtPredicatesAfterRanking()
+    {
+        var opportunities = new[]
+        {
+            Opp("LoopMediumDelegate", inLoop: true, confidence: "medium", rootReach: 10, shape: "capturing-delegate"),
+            Opp("LoopHighDelegateLowReach", inLoop: true, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
+            Opp("LoopHighArray", inLoop: true, confidence: "high", rootReach: 99, shape: "small-array"),
+            Opp("NoLoopHighDelegate", inLoop: false, confidence: "high", rootReach: 500, shape: "capturing-delegate"),
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    LoopOnly = true,
+                    MinConfidence = "High",
+                    Shapes = ["capturing-delegate"],
+                    Top = 1
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["LoopHighDelegateLowReach"], filtered);
+    }
+
     static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape)
     {
         var declaring = ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Type");

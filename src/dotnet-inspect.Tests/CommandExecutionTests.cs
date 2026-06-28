@@ -246,6 +246,39 @@ public class CommandExecutionTests
         });
     }
 
+    [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriagePredicates_DoNotAlterDiscovery(string command)
+    {
+        string[] BaseArgs() => command switch
+        {
+            "library" => [command, TestAssemblyPath, "--discover"],
+            "type" => [command, nameof(OutputFormatterTests), "--library", TestAssemblyPath, "--discover"],
+            "member" => [command, nameof(OutputFormatterTests), "--library", TestAssemblyPath, "--discover"],
+            _ => throw new ArgumentOutOfRangeException(nameof(command), command, null)
+        };
+
+        var baseline = await RunAppAsync(BaseArgs());
+        var filtered = await RunAppAsync([.. BaseArgs(), "--loop"]);
+
+        Assert.Equal(0, baseline.Exit);
+        Assert.Equal(0, filtered.Exit);
+        Assert.Equal(baseline.Output, filtered.Output);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageShape_UnknownShapeReportsValidShapes()
+    {
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "--triage-shape", "typo-shape", "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Unknown Performance Triage shape 'typo-shape'", error);
+        Assert.Contains("capturing-delegate", error);
+    }
+
     // ── bare router ───────────────────────────────────────────────────
 
     [Fact]

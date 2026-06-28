@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -109,6 +110,12 @@ public static class TypeOptionsParser
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
         var routePolicy = TypeRoutePolicy.Resolve(sourceSelection.Args, sourceSelection.HasExplicitSource, source);
+        var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
+        if (!PerformanceTriageOptions.TryValidateShapes(performanceTriage, out var triageShapeError))
+            return new VersionError(triageShapeError);
+        var select = opts.ParseSelect(parseResult);
+        if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
+            select = [.. select ?? [], SectionNames.PerformanceTriage];
 
         var options = routePolicy.ApplyTo(new TypeOptions
         {
@@ -143,11 +150,12 @@ public static class TypeOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
-            Select = opts.ParseSelect(parseResult),
+            Select = select,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
+            PerformanceTriage = performanceTriage,
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

@@ -93,6 +93,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
         opts.AddCountOptionTo(typeCommand);
+        opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
         typeCommand.Options.Add(opts.Bare);
@@ -223,6 +224,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
+        opts.AddPerformanceTriageOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Bare);

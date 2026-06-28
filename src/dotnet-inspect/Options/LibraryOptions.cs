@@ -189,6 +189,11 @@ public record LibraryOptions
     public int? Rows { get; init; }
 
     /// <summary>
+    /// Row predicates for the Performance Triage section.
+    /// </summary>
+    public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

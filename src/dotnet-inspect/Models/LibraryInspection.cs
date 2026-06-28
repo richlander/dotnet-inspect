@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Options;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Models;
@@ -215,6 +216,9 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
+
+    [JsonIgnore]
+    public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
 
     /// <summary>
     /// Public P/Invoke (DllImport/LibraryImport) methods.

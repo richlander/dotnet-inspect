@@ -672,6 +672,7 @@ public class ApiCommand
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections,
+                    options.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }

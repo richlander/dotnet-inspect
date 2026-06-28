@@ -99,7 +99,8 @@ public static class LibrarySections
             .Add(ScannerTopLeverage, ctx =>
                 ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerOptimizationOpportunities, ctx =>
-                ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
+                    ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
