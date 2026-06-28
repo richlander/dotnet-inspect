@@ -126,7 +126,14 @@ public sealed class IncrementDecrementPass : IIrPass
         }
 
         // The temp must be written once and read exactly twice — the update above
-        // plus one downstream consumer — so removing the capture is sound.
+        // plus one downstream consumer — so removing the capture is sound. For a
+        // local temp, an address-of (ref/out) is an observation the load count
+        // misses, so reject it outright.
+        if (capture is StoreLocal { Index: var captureIndex }
+            && function.Descendants.OfType<LoadLocalAddress>().Any(a => a.Index == captureIndex))
+        {
+            return false;
+        }
         var tempLoads = function.Descendants.OfType<IrExpression>().Where(isTempLoad).ToList();
         if (tempLoads.Count != 2)
             return false;
@@ -142,6 +149,13 @@ public sealed class IncrementDecrementPass : IIrPass
         if (StatementOf(useLoad, block) is not { } useStatement || useStatement.ChildIndex != i + 2)
             return false;
 
+        // The consumer must not access the lvalue itself other than through the
+        // folded temp: `S = SF; SF = op_Increment(S); return SF + S;` would fold to
+        // `return SF + SF++`, moving the SF read across the update and changing the
+        // result. Such a shape stays an honest residual.
+        if (AccessesPlaceOf(useStatement, lvalueLoad))
+            return false;
+
         lvalueLoad.Detach();
         var increment = new IncrementDecrement(lvalueLoad, isIncrement, isPrefix, isUserDefined: true, isChecked: isChecked);
         stepper.StepOver($"fold user-defined {(isIncrement ? "++" : "--")} value form into operator", useLoad);
@@ -149,6 +163,26 @@ public sealed class IncrementDecrementPass : IIrPass
         update.Detach();
         capture.Detach();
         return true;
+    }
+
+    /// <summary>True when <paramref name="node"/> or any descendant reads, writes, or takes the address of the same field/indirect place as <paramref name="lvalueLoad"/>.</summary>
+    static bool AccessesPlaceOf(IrNode node, IrExpression lvalueLoad)
+    {
+        foreach (var current in (IEnumerable<IrNode>)[node, .. node.Descendants])
+        {
+            bool hit = (current, lvalueLoad) switch
+            {
+                (LoadField n, LoadField lv) => SameField(n.Field, lv.Field) && SamePlaceExpr(n.Instance, lv.Instance),
+                (StoreField n, LoadField lv) => SameField(n.Field, lv.Field) && SamePlaceExpr(n.Instance, lv.Instance),
+                (LoadFieldAddress n, LoadField lv) => SameField(n.Field, lv.Field) && SamePlaceExpr(n.Instance, lv.Instance),
+                (LoadIndirect n, LoadIndirect lv) => SamePlaceExpr(n.Address, lv.Address),
+                (StoreIndirect n, LoadIndirect lv) => SamePlaceExpr(n.Address, lv.Address),
+                _ => false,
+            };
+            if (hit)
+                return true;
+        }
+        return false;
     }
 
     static int CountTempStores(IrFunction function, IrNode capture) => capture switch

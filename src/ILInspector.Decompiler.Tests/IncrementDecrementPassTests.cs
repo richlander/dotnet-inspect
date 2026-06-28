@@ -531,6 +531,38 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserOperatorValueForm_ConsumerReadsLvalue_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); use (SF + S);  must NOT fold to SF++ —
+        // folding moves the consumer's own SF read across the update, changing the
+        // result. The op stays an honest residual (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                new LoadField(field, instance: null), new LoadStackSlot(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_LocalTempAddressTaken_IsNotFolded()
+    {
+        // loc0 = SF; SF = op_Increment(loc0); use loc0; ref loc0;  must NOT fold —
+        // the address-of is an observation the load count misses, so removing the
+        // capture would drop a live use (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreLocal(0, ValueType, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadLocal(0, ValueType))),
+            new StoreLocal(1, ValueType, new LoadLocal(0, ValueType)),
+            new StoreLocal(2, ValueType, new LoadLocalAddress(0, ValueType))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
     public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
     {
         // A normal method that happens to be named op_Increment (no operator
