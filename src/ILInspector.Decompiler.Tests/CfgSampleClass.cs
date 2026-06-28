@@ -4240,6 +4240,8 @@ public static class EnumCastSamples
         return seed;
     }
 }
+
+
 // Issue #1759: a reference-typed value produced by `as`/isinst and tested for
 // truthiness in a branch (here the `?.Dispose()` null-conditional inside a
 // finally) must render `is null`/`is not null`, not `!S` — `!IDisposable` is
