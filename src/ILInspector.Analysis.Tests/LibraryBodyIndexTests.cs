@@ -1460,6 +1460,43 @@ public class LibraryBodyIndexTests
             .Where(o => o.Method.Name == methodName && o.Shape == "string-build-in-loop")
             .ToList();
 
+    static System.Collections.Generic.List<OptimizationOpportunity> EnumeratorRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "enumerator-allocation")
+            .ToList();
+
+    [Fact]
+    public void OptimizationOpportunities_ForeachInterfaceInLoop_IsEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // foreach over an interface-typed sequence inside a loop allocates a reference-type
+        // enumerator each outer iteration.
+        var row = Assert.Single(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachInterfaceInLoop)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.True(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ForeachInterfaceOnce_IsNotEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A one-shot foreach (not in a loop) allocates one enumerator -> not flagged (the
+        // non-loop tier was measured to be essentially all noise).
+        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachInterfaceOnce)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ForeachConcreteListInLoop_IsNotEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // foreach over a concrete List<T> uses a struct enumerator (returns by value): no heap
+        // allocation, so it must not be flagged even inside a loop.
+        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachConcreteListInLoop)));
+    }
+
     [Fact]
     public void OptimizationOpportunities_StringAppendInLoop_IsHighStringBuild()
     {
@@ -2448,6 +2485,46 @@ public class OptimizationOpportunityFixtures
         foreach (var x in items)
             s = x + " " + s.Trim();
         return s;
+    }
+
+    // --- Enumerator allocation (enumerator-allocation) ---
+
+    // foreach over an interface-typed sequence INSIDE a loop: GetEnumerator returns the
+    // reference-type IEnumerator<T>, allocated on each outer iteration.
+    public static int ForeachInterfaceInLoop(System.Collections.Generic.IEnumerable<int> items, int times)
+    {
+        var total = 0;
+        for (int i = 0; i < times; i++)
+        {
+            foreach (var x in items)
+                total += x;
+        }
+
+        return total;
+    }
+
+    // foreach over an interface-typed sequence with no enclosing loop: a single enumerator
+    // allocation -> not flagged.
+    public static int ForeachInterfaceOnce(System.Collections.Generic.IEnumerable<int> items)
+    {
+        var total = 0;
+        foreach (var x in items)
+            total += x;
+        return total;
+    }
+
+    // foreach over a concrete List<T> inside a loop: List<T>.GetEnumerator returns the struct
+    // List<T>.Enumerator by value -> no heap allocation, must not be flagged.
+    public static int ForeachConcreteListInLoop(System.Collections.Generic.List<int> items, int times)
+    {
+        var total = 0;
+        for (int i = 0; i < times; i++)
+        {
+            foreach (var x in items)
+                total += x;
+        }
+
+        return total;
     }
 
     // --- Copy allocation (span-to-array) ---
