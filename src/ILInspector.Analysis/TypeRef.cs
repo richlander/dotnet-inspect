@@ -55,13 +55,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
     // it is derived metadata, not part of structural type identity.
     public bool TrustedFrameworkAssembly { get; private init; } = true;
 
-    public static TypeRef Definition(string assembly, string ns, string name, bool trustedFrameworkAssembly = true)
+    // Whether this type's declaring assembly identity is NOT a Google.Protobuf spoof: false
+    // only for a type resolved through a reference (or self-assembly) named Google.Protobuf
+    // whose public-key-token is not the real one (#1735). Stamped per decoded reference so
+    // generated-code suppression rejects a spoofed Google.Protobuf reference even when an
+    // authentic one coexists. Defaults to true (synthetic/corelib refs and all non-protobuf
+    // identities are not spoofs). Excluded from equality/hash: derived metadata, not identity.
+    public bool TrustedProtobufAssembly { get; private init; } = true;
+
+    public static TypeRef Definition(string assembly, string ns, string name, bool trustedFrameworkAssembly = true, bool trustedProtobufAssembly = true)
         => new(TypeRefKind.Definition)
         {
             Assembly = CanonicalAssembly(assembly),
             Namespace = ns,
             Name = name,
             TrustedFrameworkAssembly = trustedFrameworkAssembly,
+            TrustedProtobufAssembly = trustedProtobufAssembly,
         };
 
     public static TypeRef CoreLib(string ns, string name) => Definition(CoreLibrary, ns, name);

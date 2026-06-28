@@ -44,12 +44,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (typeDef.IsNested)
         {
             var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
-            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", declaring.TrustedFrameworkAssembly);
+            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", declaring.TrustedFrameworkAssembly, declaring.TrustedProtobufAssembly);
         }
         string assembly = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
             : "";
-        return TypeRef.Definition(assembly, ns, name, FrameworkAssemblyKeys.IsFrameworkDefinition(reader));
+        return TypeRef.Definition(assembly, ns, name, FrameworkAssemblyKeys.IsFrameworkDefinition(reader), FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
     }
 
     public TypeRef GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
@@ -63,7 +63,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope).Name),
                 ns,
                 name,
-                FrameworkAssemblyKeys.IsFrameworkReference(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope)),
+                FrameworkAssemblyKeys.IsFrameworkReference(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope),
+                FrameworkAssemblyKeys.IsAuthenticProtobufReference(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope)),
             HandleKind.TypeReference => NestedReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope, name),
             // ModuleReference / nil scope: the type is in the current assembly (another
             // module of it, or an exported/forwarded type resolved in this manifest), so
@@ -74,7 +75,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "",
                 ns,
                 name,
-                FrameworkAssemblyKeys.IsFrameworkDefinition(reader)),
+                FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
+                FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader)),
         };
     }
 
@@ -99,7 +101,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     static TypeRef NestedReference(MetadataReader reader, TypeReferenceHandle declaringHandle, string nestedName)
     {
         var declaring = Instance.GetTypeFromReference(reader, declaringHandle, 0);
-        return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{nestedName}", declaring.TrustedFrameworkAssembly);
+        return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{nestedName}", declaring.TrustedFrameworkAssembly, declaring.TrustedProtobufAssembly);
     }
 
     static string NameAt(ImmutableArray<string> names, int index)

@@ -911,7 +911,7 @@ public class LibraryBodyIndexTests
     public void GoogleProtobufIdentity_AuthenticatesByPublicKeyToken()
     {
         using (var pe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(ProtobufSpoofAssemblyPath())))
-            Assert.False(FrameworkAssemblyKeys.GoogleProtobufIdentityIsAuthentic(pe.GetMetadataReader()),
+            Assert.False(FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(pe.GetMetadataReader()),
                 "an unsigned same-name assembly must not be treated as the real Google.Protobuf");
 
         var realProtobuf = FindRealGoogleProtobufAssembly();
@@ -919,7 +919,7 @@ public class LibraryBodyIndexTests
             return; // the Google.Protobuf package is not restored in this environment
 
         using var realPe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(realProtobuf));
-        Assert.True(FrameworkAssemblyKeys.GoogleProtobufIdentityIsAuthentic(realPe.GetMetadataReader()),
+        Assert.True(FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(realPe.GetMetadataReader()),
             "the real strong-named Google.Protobuf must be authentic");
     }
 

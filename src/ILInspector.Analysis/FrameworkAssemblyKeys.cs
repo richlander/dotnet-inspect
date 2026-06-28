@@ -47,26 +47,34 @@ public static class FrameworkAssemblyKeys
     public const string GoogleProtobufToken = "a7d26565bac4d604";
 
     /// <summary>
-    /// Whether the Google.Protobuf identity visible to the inspected assembly (a
-    /// reference to it, or the inspected assembly itself) carries the real
-    /// Google.Protobuf public-key-token. True when no Google.Protobuf identity is present
-    /// — there is then no spoof to reject, and the protobuf type predicates also gate on
-    /// the assembly name (#1735).
+    /// Whether a specific assembly reference is NOT a Google.Protobuf spoof: true unless the
+    /// reference is named Google.Protobuf with a public-key-token other than the real one.
+    /// Stamped onto each decoded reference so generated-code suppression can reject a spoofed
+    /// reference even when an authentic Google.Protobuf reference coexists in the same assembly
+    /// (#1735). References to other assemblies are never protobuf, so they return true.
     /// </summary>
-    public static bool GoogleProtobufIdentityIsAuthentic(MetadataReader reader)
+    public static bool IsAuthenticProtobufReference(MetadataReader reader, AssemblyReferenceHandle handle)
     {
-        foreach (var handle in reader.AssemblyReferences)
-        {
-            var reference = reader.GetAssemblyReference(handle);
-            if (reader.GetString(reference.Name) != "Google.Protobuf")
-                continue;
-            return TokenHex(
-                reader.GetBlobBytes(reference.PublicKeyOrToken),
-                isFullKey: (reference.Flags & AssemblyFlags.PublicKey) != 0) == GoogleProtobufToken;
-        }
-        if (reader.IsAssembly && reader.GetString(reader.GetAssemblyDefinition().Name) == "Google.Protobuf")
-            return TokenHex(reader.GetBlobBytes(reader.GetAssemblyDefinition().PublicKey), isFullKey: true) == GoogleProtobufToken;
-        return true;
+        var reference = reader.GetAssemblyReference(handle);
+        if (reader.GetString(reference.Name) != "Google.Protobuf")
+            return true;
+        return TokenHex(
+            reader.GetBlobBytes(reference.PublicKeyOrToken),
+            isFullKey: (reference.Flags & AssemblyFlags.PublicKey) != 0) == GoogleProtobufToken;
+    }
+
+    /// <summary>
+    /// Whether the inspected assembly definition is NOT a Google.Protobuf spoof: true unless the
+    /// assembly is itself named Google.Protobuf with a public-key-token other than the real one.
+    /// Used when a type resolves to the inspected assembly (a definition or a module-scoped
+    /// reference) so a self-named unsigned Google.Protobuf cannot bootstrap-suppress its own
+    /// types (#1735).
+    /// </summary>
+    public static bool IsAuthenticProtobufDefinition(MetadataReader reader)
+    {
+        if (!reader.IsAssembly || reader.GetString(reader.GetAssemblyDefinition().Name) != "Google.Protobuf")
+            return true;
+        return TokenHex(reader.GetBlobBytes(reader.GetAssemblyDefinition().PublicKey), isFullKey: true) == GoogleProtobufToken;
     }
 
     static bool IsFrameworkKeyOrToken(byte[] keyOrToken, bool isFullKey)
