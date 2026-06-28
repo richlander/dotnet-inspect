@@ -248,10 +248,16 @@ public class DiffCommandTests
     {
         var v1 = DiffFixturePath("DiffFixtures.V1");
 
-        var result = DiffCommand.BuildAnalysisDiff([v1], [v1], new DiffOptions { ChangedOnly = true });
+        // Full diff: self-diff must have neither in-place deltas nor spurious
+        // added/removed rows.
+        var full = DiffCommand.BuildAnalysisDiff([v1], [v1], new DiffOptions());
+        Assert.Empty(full.Rows);
+        Assert.Equal("No analysis signal changes detected.", full.Summary);
 
-        Assert.Empty(result.Rows);
-        Assert.Equal("No in-place analysis signal changes detected.", result.Summary);
+        // Changed-only view agrees.
+        var changedOnly = DiffCommand.BuildAnalysisDiff([v1], [v1], new DiffOptions { ChangedOnly = true });
+        Assert.Empty(changedOnly.Rows);
+        Assert.Equal("No in-place analysis signal changes detected.", changedOnly.Summary);
     }
 
     static string DiffFixturePath(string project)
