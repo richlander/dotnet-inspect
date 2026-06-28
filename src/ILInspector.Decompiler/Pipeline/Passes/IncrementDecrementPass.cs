@@ -149,11 +149,14 @@ public sealed class IncrementDecrementPass : IIrPass
         if (StatementOf(useLoad, block) is not { } useStatement || useStatement.ChildIndex != i + 2)
             return false;
 
-        // The consumer must not access the lvalue itself other than through the
-        // folded temp: `S = SF; SF = op_Increment(S); return SF + S;` would fold to
-        // `return SF + SF++`, moving the SF read across the update and changing the
-        // result. Such a shape stays an honest residual.
-        if (AccessesPlaceOf(useStatement, lvalueLoad))
+        // Folding moves the operator to the use site, so the increment now runs at
+        // the use's position in the consumer's evaluation order rather than before
+        // the whole statement. Anything evaluated earlier in the consumer that can
+        // observe or mutate the lvalue — a field/indirect read, a call, or an
+        // aliasing access — would then see a different value. Only fold when every
+        // node evaluated before the use is a pure local computation, which keeps
+        // shapes like `return SF + S` or `return Read(a).V + old` honest residuals.
+        if (ObservesBeforeUse(useStatement, useLoad))
             return false;
 
         lvalueLoad.Detach();
@@ -165,25 +168,34 @@ public sealed class IncrementDecrementPass : IIrPass
         return true;
     }
 
-    /// <summary>True when <paramref name="node"/> or any descendant reads, writes, or takes the address of the same field/indirect place as <paramref name="lvalueLoad"/>.</summary>
-    static bool AccessesPlaceOf(IrNode node, IrExpression lvalueLoad)
+    /// <summary>True when any node evaluated before <paramref name="use"/> in <paramref name="statement"/> is something other than a pure local computation (constant/local/argument load or arithmetic), i.e. could observe or mutate heap/lvalue state.</summary>
+    static bool ObservesBeforeUse(IrNode statement, IrExpression use)
     {
-        foreach (var current in (IEnumerable<IrNode>)[node, .. node.Descendants])
+        foreach (var node in EvaluationOrder(statement))
         {
-            bool hit = (current, lvalueLoad) switch
-            {
-                (LoadField n, LoadField lv) => SameField(n.Field, lv.Field) && SamePlaceExpr(n.Instance, lv.Instance),
-                (StoreField n, LoadField lv) => SameField(n.Field, lv.Field) && SamePlaceExpr(n.Instance, lv.Instance),
-                (LoadFieldAddress n, LoadField lv) => SameField(n.Field, lv.Field) && SamePlaceExpr(n.Instance, lv.Instance),
-                (LoadIndirect n, LoadIndirect lv) => SamePlaceExpr(n.Address, lv.Address),
-                (StoreIndirect n, LoadIndirect lv) => SamePlaceExpr(n.Address, lv.Address),
-                _ => false,
-            };
-            if (hit)
+            if (ReferenceEquals(node, use))
+                return false;
+            if (!IsPureLocalComputation(node))
                 return true;
         }
         return false;
     }
+
+    /// <summary>Yields the nodes of <paramref name="node"/> in left-to-right post-order, matching IL evaluation order (operands before their parent).</summary>
+    static IEnumerable<IrNode> EvaluationOrder(IrNode node)
+    {
+        foreach (var child in node.Children)
+            foreach (var inner in EvaluationOrder(child))
+                yield return inner;
+        yield return node;
+    }
+
+    static bool IsPureLocalComputation(IrNode node) => node switch
+    {
+        Constant or LoadLocal or LoadStackSlot or LoadArgument => true,
+        Unary or Convert or Binary => true,
+        _ => false,
+    };
 
     static int CountTempStores(IrFunction function, IrNode capture) => capture switch
     {

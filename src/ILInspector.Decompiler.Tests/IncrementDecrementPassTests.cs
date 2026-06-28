@@ -563,6 +563,23 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserOperatorValueForm_CallBeforeUse_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); use (Read() + S);  must NOT fold — Read()
+        // is evaluated before the use, so moving the increment to the use site
+        // would run Read() before instead of after the increment (#1783 review).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var read = new Call(new MethodRef(ValueType, "Read", ValueType, [], HasThis: false), isVirtual: false, []);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                read, new LoadStackSlot(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
     public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
     {
         // A normal method that happens to be named op_Increment (no operator
