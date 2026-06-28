@@ -183,6 +183,30 @@ public readonly struct CheckedMeters
     }
 }
 
+// A class user type with a checked ++ operator: a checked for-loop over a class
+// loop variable raises to a `for` whose header increment is checked, which has no
+// in-header checked spelling. The decompiler wraps the whole loop in checked { }
+// so the bare i++ selects the checked overload (#1712).
+public class CheckedStep
+{
+    public int Value;
+
+    public static CheckedStep operator ++(CheckedStep c) => new CheckedStep { Value = c.Value + 1 };
+
+    public static CheckedStep operator checked ++(CheckedStep c) => checked(new CheckedStep { Value = c.Value + 1 });
+
+    public static int CheckedForLoop(CheckedStep start, int n)
+    {
+        checked
+        {
+            for (CheckedStep i = start; i.Value < n; i++)
+            {
+            }
+        }
+        return n;
+    }
+}
+
 // C# 12 primary constructor on a class. The captured parameters lift into
 // unspeakable <param>P fields; the decompiler must render them as the parameter
 // name (a real lowered field + this.-qualified constructor stores), never the raw

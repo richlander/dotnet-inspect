@@ -268,6 +268,16 @@ public class LadderRung5GateTests
         var stmtChecked = Body("StatementIncrementChecked");
         Assert.Contains("checked { a++; }", stmtChecked);
         Assert.DoesNotContain("op_", stmtChecked);
+
+        // A checked for-loop over a class loop variable wraps the whole loop in
+        // checked { } so the header i++ selects the checked overload.
+        var classLoop = CSharpPrinter.PrintRaised(
+            LoadRaisedMembers().Single(m => m.Type == typeof(LadderRung5.CheckedStep).FullName && m.Name == "CheckedForLoop").Function)
+            .Output ?? "";
+        Assert.Contains("checked", classLoop);
+        Assert.Contains("for (", classLoop);
+        Assert.Contains("i++", classLoop);
+        Assert.DoesNotContain("op_", classLoop);
     }
 
     // C# 12 primary constructor on a class. The captured parameters lift into

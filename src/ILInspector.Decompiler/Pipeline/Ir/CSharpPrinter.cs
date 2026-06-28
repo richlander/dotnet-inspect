@@ -931,13 +931,40 @@ public sealed partial class CSharpPrinter
         }
         if (node is ForLoop forLoop)
         {
-            string initializer = ForHeaderClause(forLoop.Initializer);
-            string increment = ForHeaderClause(forLoop.Increment);
-            sb.Append(pad).Append("for (").Append(initializer).Append("; ")
-                .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
-            AppendStatements(sb, forLoop.Body.Children, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            // A checked user-defined ++/-- can land in the for-header (a class loop
+            // variable lets ForLoopPass raise the loop before the increment folds).
+            // It has no in-header checked spelling and a bare i++ would rebind to
+            // the unchecked overload, so wrap the whole loop in checked { ... } —
+            // the header increment then selects the checked overload from that
+            // context. See #1712.
+            bool checkedLoop = IsCheckedIncrementStatement(forLoop.Initializer)
+                || IsCheckedIncrementStatement(forLoop.Increment);
+            int forIndent = indent;
+            bool savedContext = _checkedContext;
+            if (checkedLoop)
+            {
+                sb.Append(pad).AppendLine("checked");
+                sb.Append(pad).AppendLine("{");
+                forIndent = indent + 1;
+                _checkedContext = true;
+            }
+            try
+            {
+                string forPad = new(' ', forIndent * 4);
+                string initializer = ForHeaderClause(forLoop.Initializer);
+                string increment = ForHeaderClause(forLoop.Increment);
+                sb.Append(forPad).Append("for (").Append(initializer).Append("; ")
+                    .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
+                sb.Append(forPad).AppendLine("{");
+                AppendStatements(sb, forLoop.Body.Children, forIndent + 1);
+                sb.Append(forPad).AppendLine("}");
+            }
+            finally
+            {
+                _checkedContext = savedContext;
+            }
+            if (checkedLoop)
+                sb.Append(pad).AppendLine("}");
             return;
         }
         if (node is WhileLoop whileLoop)
@@ -2355,7 +2382,7 @@ public sealed partial class CSharpPrinter
         return _localScopeNames.Contains(fieldName);
     }
 
-    /// <summary>A <c>for</c> header clause (initializer/increment) without the trailing <c>;</c>. A checked user-defined <c>++</c>/<c>--</c> has no for-header spelling (a <c>checked { }</c> block is invalid there) — such loops are structured as <c>while</c> instead, so this only guards a theoretical residual by rendering the bare operator.</summary>
+    /// <summary>A <c>for</c> header clause (initializer/increment) without the trailing <c>;</c>. A checked user-defined <c>++</c>/<c>--</c> has no for-header spelling (a <c>checked { }</c> block is invalid there); the enclosing loop is wrapped in <c>checked { }</c> instead, so the bare operator rendered here selects the checked overload from that context.</summary>
     string ForHeaderClause(IrNode node)
     {
         if (node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } id })
@@ -2373,6 +2400,9 @@ public sealed partial class CSharpPrinter
         }
         return Statement(node)?.TrimEnd(';') ?? "";
     }
+
+    static bool IsCheckedIncrementStatement(IrNode node)
+        => node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } };
 
     string IncrementDecrementText(IncrementDecrement id)
     {
