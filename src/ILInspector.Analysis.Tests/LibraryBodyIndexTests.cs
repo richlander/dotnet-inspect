@@ -1498,6 +1498,17 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_ForeachLookalikeEnumeratorInLoop_IsNotEnumeratorAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // foreach binding to a GetEnumerator that returns an untrusted IEnumerator lookalike (a
+        // user type reusing the framework namespace + name) must not be flagged: the enumerator
+        // identity is trust-gated (#1708), so only the real framework IEnumerator counts.
+        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachLookalikeEnumeratorInLoop)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_StringAppendInLoop_IsHighStringBuild()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -2521,6 +2532,22 @@ public class OptimizationOpportunityFixtures
         for (int i = 0; i < times; i++)
         {
             foreach (var x in items)
+                total += x;
+        }
+
+        return total;
+    }
+
+    // foreach over a collection whose GetEnumerator returns an UNTRUSTED IEnumerator lookalike
+    // (defined in this test assembly). Even inside a loop it must not be flagged — the framework
+    // enumerator identity is trust-gated, so a same-namespace/name user type is not mistaken for
+    // the real IEnumerator.
+    public static int ForeachLookalikeEnumeratorInLoop(LookalikeEnumeratorCollection c, int times)
+    {
+        var total = 0;
+        for (int i = 0; i < times; i++)
+        {
+            foreach (var x in c)
                 total += x;
         }
 
@@ -3981,4 +4008,12 @@ public static class OverloadCallers
         OverloadTargets.M(1);
         OverloadTargets.M("x");
     }
+}
+
+// A collection whose GetEnumerator returns an untrusted IEnumerator lookalike (see
+// EnumeratorLookalikeStub.cs). foreach binds to this GetEnumerator via the enumerator pattern;
+// because the return type is not the trusted framework IEnumerator, it must not be flagged.
+public sealed class LookalikeEnumeratorCollection
+{
+    public System.Collections.Generic.IEnumeratorLookalike GetEnumerator() => new();
 }

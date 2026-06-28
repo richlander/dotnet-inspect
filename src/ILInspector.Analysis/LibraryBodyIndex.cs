@@ -263,16 +263,16 @@ public sealed class LibraryBodyIndex
     // struct enumerator (List<T>.Enumerator, …) returns it by value and allocates nothing; only
     // a foreach over an interface (IEnumerable/IEnumerable<T>) binds to GetEnumerator returning
     // the framework IEnumerator/IEnumerator<T> interface, whose implementation is a heap object.
-    // Gating on the framework interface return type is the precise reference-vs-struct signal.
+    // The return type is matched by trusted-framework identity (#1708), not namespace+name, so a
+    // user type that merely reuses the IEnumerator namespace and name is not mistaken for it.
     public static bool IsInterfaceEnumeratorAllocation(MemberRef member)
     {
         if (member.Kind == MemberKind.Unsupported || member.Name != "GetEnumerator")
             return false;
         var ret = member.ReturnType;
         var def = ret.Kind == TypeRefKind.GenericInstance ? ret.ElementType ?? ret : ret;
-        return def.Kind != TypeRefKind.Unsupported
-            && (def.Namespace == "System.Collections" || def.Namespace == "System.Collections.Generic")
-            && def.Name.StartsWith("IEnumerator", StringComparison.Ordinal);
+        return FrameworkIdentity.IsCoreLibraryType(def, "System.Collections.Generic", "IEnumerator`1")
+            || FrameworkIdentity.IsCoreLibraryType(def, "System.Collections", "IEnumerator");
     }
 
     // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
