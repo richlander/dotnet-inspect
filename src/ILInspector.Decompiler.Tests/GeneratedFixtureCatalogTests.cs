@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -53,6 +55,55 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("PASS frontier", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=OpcodeDiff", report);
+    }
+
+    [Fact]
+    public void CatalogueSelection_MatchesExactIdOrPrefix()
+    {
+        Assert.Equal(
+            ["minimal.property.literal"],
+            GeneratedFixtureCatalog.Select("minimal.property.literal").Select(fixture => fixture.Id).ToArray());
+
+        Assert.Equal(
+            ["minimal.primary-ctor.field-init", "minimal.property.literal"],
+            GeneratedFixtureCatalog.Select("minimal").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
+
+        Assert.Empty(GeneratedFixtureCatalog.Select("missing"));
+    }
+
+    [Fact]
+    public void CatalogueListJson_ContainsFixtureIdsAndExpectedStatuses()
+    {
+        string json = GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.All);
+
+        using var document = JsonDocument.Parse(json);
+        var fixtures = document.RootElement.EnumerateArray().ToArray();
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.property.literal");
+
+        var primaryCtor = Assert.Single(fixtures,
+            fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
+        var ctor = Assert.Single(primaryCtor.GetProperty("Targets").EnumerateArray(),
+            target => target.GetProperty("Method").GetString() == ".ctor");
+        Assert.Equal("OpcodeDiff", ctor.GetProperty("ExpectedStatus").GetString());
+        Assert.True(ctor.GetProperty("IsFrontier").GetBoolean());
+    }
+
+    [Fact]
+    public void SelectedFixtureRunJson_ContainsOnlySelectedFixtureResults()
+    {
+        var selected = GeneratedFixtureCatalog.Select("minimal.property.literal");
+        var run = GeneratedFixtureRunner.Run(selected);
+        string json = GeneratedFixtureRunner.FormatJson(run);
+
+        using var document = JsonDocument.Parse(json);
+        var results = document.RootElement.GetProperty("Results").EnumerateArray().ToArray();
+
+        Assert.Equal(2, results.Length);
+        Assert.All(results, result =>
+        {
+            Assert.Equal("minimal.property.literal", result.GetProperty("FixtureId").GetString());
+            Assert.Equal("Exact", result.GetProperty("ActualStatus").GetString());
+        });
     }
 
     static void AssertTarget(

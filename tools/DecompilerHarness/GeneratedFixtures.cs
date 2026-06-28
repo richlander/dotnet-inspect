@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using ILInspector.Decompiler.Pipeline;
 
@@ -56,11 +58,24 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "primary-constructor", "field-initializer"]);
 
-    public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs { get; } =
+    public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
         MinimalPrimaryCtorFieldInit,
     ];
+
+    public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
+
+    public static IReadOnlyList<GeneratedFixtureDefinition> Select(string? selector)
+    {
+        if (string.IsNullOrWhiteSpace(selector))
+            return All;
+
+        return All
+            .Where(fixture => fixture.Id.Equals(selector, StringComparison.Ordinal)
+                || fixture.Id.StartsWith(selector, StringComparison.Ordinal))
+            .ToArray();
+    }
 }
 
 internal sealed record GeneratedFixtureDefinition(
@@ -113,6 +128,12 @@ internal sealed record GeneratedFixtureResult(
 
 internal static class GeneratedFixtureRunner
 {
+    static readonly JsonSerializerOptions s_jsonOptions = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     public static GeneratedFixtureRunResult Run(
         IReadOnlyList<GeneratedFixtureDefinition> fixtures,
         GeneratedFixtureRunOptions? options = null)
@@ -192,6 +213,56 @@ internal static class GeneratedFixtureRunner
                 sb.AppendLine($"      note: {result.Note}");
         }
         return sb.ToString();
+    }
+
+    public static string FormatJson(GeneratedFixtureRunResult run)
+    {
+        var payload = new
+        {
+            ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
+            AssemblyPath = File.Exists(run.AssemblyPath) ? run.AssemblyPath : null,
+            run.Results,
+            run.Passed,
+        };
+        return JsonSerializer.Serialize(payload, s_jsonOptions);
+    }
+
+    public static string FormatList(IReadOnlyList<GeneratedFixtureDefinition> fixtures)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"GENERATED FIXTURE CATALOG ({fixtures.Count} fixture(s))");
+        foreach (var fixture in fixtures.OrderBy(fixture => fixture.Id, StringComparer.Ordinal))
+        {
+            sb.AppendLine($"  {fixture.Id}  [{string.Join(", ", fixture.Tags)}]");
+            foreach (var target in fixture.Targets)
+            {
+                string frontier = target.IsFrontier ? " frontier" : "";
+                sb.AppendLine(
+                    $"      {target.DisplayMember}  expected={target.ExpectedStatus}{frontier}");
+            }
+        }
+        return sb.ToString();
+    }
+
+    public static string FormatListJson(IReadOnlyList<GeneratedFixtureDefinition> fixtures)
+    {
+        var items = fixtures
+            .OrderBy(fixture => fixture.Id, StringComparer.Ordinal)
+            .Select(fixture => new
+            {
+                fixture.Id,
+                fixture.Tags,
+                Targets = fixture.Targets.Select(target => new
+                {
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    ExpectedStatus = target.ExpectedStatus.ToString(),
+                    target.IsFrontier,
+                    target.Note,
+                }),
+            });
+        return JsonSerializer.Serialize(items, s_jsonOptions);
     }
 
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";

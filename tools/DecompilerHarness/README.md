@@ -8,13 +8,15 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 **Gaps** (`--gaps`): the completeness view — see below.
 
-**Generated fixtures** (`--generated-fixtures`): builds the seed generated-fixture
-catalogue into a temporary class library, runs the compile-back oracle, and prints
-results by stable fixture ID plus target method. This is the first step toward an
-addressable progressive fixture ladder: `minimal.property.literal` is expected
-`Exact`, while `minimal.primary-ctor.field-init` records the current constructor
-`OpcodeDiff` frontier and the exact getter. Add `--keep-generated-fixtures` to
-preserve the generated project for drill-down.
+**Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
+generated-fixture catalogue entries into a temporary class library, runs the
+compile-back oracle, and prints results by stable fixture ID plus target method.
+This is the first step toward an addressable progressive fixture ladder:
+`minimal.property.literal` is expected `Exact`, while
+`minimal.primary-ctor.field-init` records the current constructor `OpcodeDiff`
+frontier and the exact getter. With no selector, all generated fixtures run; use
+`list` to list fixture IDs, `--json` for machine-readable list/results, and
+`--keep-generated-fixtures` to preserve the generated project for drill-down.
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
 residual buckets from `--gaps` with the Roslyn-backed validity oracle from
@@ -451,6 +453,9 @@ CB_TYPE=CfgSampleClass CB_DUMP=1 dotnet run --project tools/DecompilerHarness -c
 
 # Generated progressive fixture catalogue: build source snippets, then compile-back.
 dotnet run --project tools/DecompilerHarness -c Release -- --generated-fixtures
+dotnet run --project tools/DecompilerHarness -c Release -- --generated-fixtures list
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --generated-fixtures minimal.property.literal --json
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --generated-fixtures --keep-generated-fixtures
 
