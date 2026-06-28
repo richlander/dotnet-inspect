@@ -3081,6 +3081,18 @@ public class CfgSampleClass
         return (nuint)(&value);
     }
 
+    public static unsafe nuint ArgumentAddressAsNativeUInt(int value)
+    {
+        return (nuint)(&value);
+    }
+
+    static nint s_argumentAddress;
+
+    public static unsafe void StoreArgumentAddressAsNativeInt(int value)
+    {
+        s_argumentAddress = (nint)(&value);
+    }
+
     // A pointer compared to null: csc lowers `p == null` to `ldc.i4.0; conv.u;
     // ceq`, so the zero arrives as a native-int constant. The branch must spell
     // `p == null`, not the CS0019 `p == (nuint)0`.

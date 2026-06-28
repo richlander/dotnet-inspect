@@ -858,6 +858,12 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CastValue(IrExpression value, TypeRef? target)
     {
+        if (target is { } nativeTarget
+            && IsNativeInteger(nativeTarget)
+            && AddressOfValue(value) is { } address)
+        {
+            return $"({TypeText(nativeTarget)})(&{Deref(address)})";
+        }
         // A fixed-statement pinned local reads as a pointer (the fixed variable),
         // so the IL's conv.u/conv.i deriving an unmanaged pointer from it
         // (Convert over the pinned load) is a pointer reinterpret. Into a pointer
@@ -979,6 +985,18 @@ public sealed partial class CSharpPrinter
                 : $"({TypeText(target!)}){Operand(conv.Operand)}";
         return $"({TypeText(target!)}){Operand(value)}";
     }
+
+    static IrExpression? AddressOfValue(IrExpression value)
+        => value switch
+        {
+            LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => value,
+            Convert
+            {
+                Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
+                Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
+            } convert => convert.Operand,
+            _ => null,
+        };
 
     static bool SameNumericSlotWidth(TypeRef? a, TypeRef? b)
         => TypeFamilies.SameWidth(a, b)
