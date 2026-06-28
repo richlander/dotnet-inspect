@@ -109,6 +109,12 @@ public static class IrPasses
         // of or-chain-guard for the else-arm case; runs last so it folds the final
         // normalized shape just before structuring.
         new OrChainDiamondPass(),
+        // Sibling of or-chain-diamond for the MIXED case: a guard chain whose
+        // guards branch to BOTH diamond arms (a condition mixing || and &&, e.g.
+        // `a || (b && c)`). Reverse the short-circuit lowering into one conditional
+        // the structuring pass can name. Runs right after the pure-OR fold so it
+        // sees the same pre-structuring normalized shape (#1175).
+        new MixedShortCircuitChainPass(),
         // Raise csc's single-element string-array list-pattern lowering after
         // the OR-chain folds expose its null/length guard, equality chain, and
         // bool-result diamond as one pre-structuring run.

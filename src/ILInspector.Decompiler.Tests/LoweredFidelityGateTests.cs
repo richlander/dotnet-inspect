@@ -77,6 +77,13 @@ public class LoweredFidelityGateTests
         // `(uint)` mixed-sign reinterpret. The And* siblings stay opcode-exact.
         "OrBoolIntMix",
         "OrBoolUintMix",
+        // SwitchStoreThenUse (#1743) is a known opcode-diff in the sibling sugared
+        // FidelityGateTests docket — the ConditionalStoreChainPass ternary
+        // (sel == 0 ? 11 : ...) re-lowers differently than the per-arm stores. It
+        // diffs identically in the lowered view; this entry was missing because the
+        // lowered gate is Speed=Slow and only runs in the daily, not PR CI. Verified
+        // pre-existing (fails with MixedShortCircuitChainPass off as well).
+        "SwitchStoreThenUse",
     };
 
     /// <summary>
