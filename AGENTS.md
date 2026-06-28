@@ -125,12 +125,11 @@ For decompiler-affecting PRs, follow this evidence and review contract:
   pass tests.
 - Do not paste raw `--dump --steps` walls into PR bodies; link drill-down
   artifacts when needed.
-- Request adversarial review from another model family at the end, or earlier if
-  progress slows. Current default pairing: GPT-5.5 should request Opus 4.8, and
-  Opus 4.8 should request GPT-5.5. Other models should pick the strongest
-  available reviewer from a different model family.
-- It is fine to open the PR before the final adversarial review.
-- Always post a PR comment summarizing the adversarial review result and any
+- Request adversarial review per the [Adversarial Review](#adversarial-review)
+  policy (two reviewers from a different model family than your own). You may
+  open the PR before the reviews finish, and may request earlier if progress
+  slows.
+- Always post a PR comment summarizing the adversarial review results and any
   follow-up changes or explicit non-actions.
 
 See `docs/decompiler-quality.md` and `tools/DecompilerHarness/README.md` for the
@@ -185,6 +184,34 @@ authoritative and adjust PR evidence/status accordingly.
 Create feature branches with descriptive names, e.g.:
 - `feature/issue-3-assembly-references`
 - `fix/null-reference-in-parser`
+
+## Adversarial Review
+
+Complicated PRs — including **all decompiler and analysis PRs**, and any PR with
+non-trivial behavior changes, new heuristics/shapes, or subtle correctness risk
+— must request adversarial review from **two** different models, chosen from:
+
+- Claude Opus 4.8
+- GPT-5.5
+- the MAI Flash family (e.g. MAI-Code-1-Flash)
+
+Rules:
+
+- **Do not review with your own model.** If you are running as one of the models
+  above, pick the two reviewers from the *other* entries. The only exception is a
+  single-model agent (e.g. Claude Code or Codex) that cannot delegate to another
+  model — it may use its own model, but should still use two independent review
+  passes where possible.
+- Give each reviewer the same self-contained, adversarial prompt (the PR's diff,
+  the design intent, and concrete attack points) so their findings are
+  comparable. Require evidence from real runs, not theorizing.
+- It is fine to open the PR before the reviews finish.
+- **Reconcile and surface the results on the PR**: post a PR review/comment
+  summarizing both reviews (attributed by model), where they agreed or diverged,
+  which findings you verified vs dismissed, and the follow-up changes or explicit
+  non-actions. Do not merely summarize reviews back to the requester — they must
+  be visible on the PR.
+- Simple/docs-only PRs do not need this; state that the change is low-risk.
 
 ## PR Strategy and CI Cost
 
