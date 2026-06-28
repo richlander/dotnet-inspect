@@ -510,6 +510,11 @@ public class DiffCommand
             if (newValue > 0 && oldAllocInLoop != newAllocInLoop)
             {
                 bool becameHot = newAllocInLoop;
+                // The allocation that changed hotness is in a loop on its cost-bearing side
+                // (the new method when it became hot, the old method when it left the loop),
+                // so annotate "in-loop" either way — matching the count-change path, which
+                // also annotates improvements from the old (cost-bearing) version. Direction
+                // (+1 regression / -1 improvement) carries the hot-vs-cold meaning.
                 rows.Add(new RankedAnalysisRow(
                     new AnalysisDiffRow(
                         MarkoutInline.Code(display),
@@ -517,12 +522,12 @@ public class DiffCommand
                         oldValue.ToString(),
                         newValue.ToString(),
                         becameHot ? "hot" : "cold",
-                        becameHot ? "in-loop" : null,
+                        "in-loop",
                         evidence),
                     1,
                     becameHot ? 1 : -1,
                     inBoth,
-                    becameHot));
+                    true));
             }
             return;
         }

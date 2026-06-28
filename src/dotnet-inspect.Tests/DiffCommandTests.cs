@@ -263,6 +263,18 @@ public class DiffCommandTests
         var focus = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { AllocRegressionsOnly = true });
         Assert.Contains(focus.Rows, r =>
             r.Member.Contains("SameAllocationCountBecomesHot") && r.Signal == "allocations" && r.Shape == "in-loop");
+
+        // Reversed (V2 -> V1): the allocation leaves the loop. Count is still 1 -> 1, but it
+        // surfaces as a "cold" improvement annotated in-loop (the old, cost-bearing version
+        // was hot) and must NOT be kept by allocation-regression focus.
+        var reversed = DiffCommand.BuildAnalysisDiff([v2], [v1], new DiffOptions { ChangedOnly = true });
+        var cold = Assert.Single(reversed.Rows, r =>
+            r.Member.Contains("SameAllocationCountBecomesHot") && r.Signal == "allocations");
+        Assert.Equal("cold", cold.Delta);
+        Assert.Equal("in-loop", cold.Shape);
+
+        var reversedFocus = DiffCommand.BuildAnalysisDiff([v2], [v1], new DiffOptions { AllocRegressionsOnly = true });
+        Assert.DoesNotContain(reversedFocus.Rows, r => r.Member.Contains("SameAllocationCountBecomesHot"));
     }
 
     // #1623 rung 6: identity / no spurious deltas. Diffing a build against itself must
