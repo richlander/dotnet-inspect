@@ -601,11 +601,22 @@ public sealed partial class CSharpPrinter
     }
 
     bool CanAssignTo(IrExpression value, TypeRef target)
-        => value is Constant { Value: null }
-            ? IsReferenceLike(target)
-            : value is Conditional conditional && CanRenderConditionalForTarget(conditional, target)
-                ? true
-            : value.ResultType is { } source && CanAssignType(source, target);
+    {
+        if (value is Constant { Value: null })
+            return IsReferenceLike(target);
+        if (value is Conditional conditional)
+            // A conditional unifies to a target its arms each satisfy — e.g.
+            // `cond ? null : value` (null + string) is assignable to `string`,
+            // even though its IL-merged ResultType widened to `object`. Without
+            // this the slot's object-typed store and string-typed load get
+            // different names (S_1 vs S_1_1) and the consumer reads an unassigned
+            // local (#1767). The char/enum arm-cast path and the merged-ResultType
+            // fallback remain.
+            return CanRenderConditionalForTarget(conditional, target)
+                || (CanAssignTo(conditional.WhenTrue, target) && CanAssignTo(conditional.WhenFalse, target))
+                || (conditional.ResultType is { } condType && CanAssignType(condType, target));
+        return value.ResultType is { } source && CanAssignType(source, target);
+    }
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
