@@ -677,6 +677,76 @@ public class CfgSampleClass
         }
     }
 
+    public static int EnumeratorLoopCatchContinue(System.Collections.Generic.IEnumerable<int> values)
+    {
+        int total = 0;
+        int failures = 0;
+        foreach (int value in values)
+        {
+            try
+            {
+                if (value < 0)
+                    throw new InvalidOperationException();
+            }
+            catch (InvalidOperationException)
+            {
+                failures++;
+                continue;
+            }
+
+            total += value;
+        }
+
+        return total + failures;
+    }
+
+    public static int EnumeratorLoopCatchBreak(System.Collections.Generic.IEnumerable<int> values)
+    {
+        int total = 0;
+        int failures = 0;
+        foreach (int value in values)
+        {
+            try
+            {
+                if (value < 0)
+                    throw new InvalidOperationException();
+            }
+            catch (InvalidOperationException)
+            {
+                failures++;
+                break;
+            }
+
+            total += value;
+        }
+
+        return total + failures;
+    }
+
+    public static int WhileNestedContinueKeepsArmExclusive(string text)
+    {
+        int index = 0;
+        int total = 0;
+        while (index < text.Length)
+        {
+            if (text[index] == '\\')
+            {
+                index++;
+                if (index < text.Length)
+                {
+                    total += text[index++];
+                    continue;
+                }
+
+                throw new FormatException();
+            }
+
+            total += text[index++];
+        }
+
+        return total;
+    }
+
     public static int LastValue;
 
     public static int FilteredLength(string s)

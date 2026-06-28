@@ -141,4 +141,48 @@ public class StructuringGotoScopeTests
         Assert.Empty(function.Descendants.OfType<IfStatement>());
         Assert.NotEmpty(function.Descendants.OfType<Leave>());
     }
+
+    [Fact]
+    public void RegionExitLeaveInsideNonTailLoop_DoesNotBecomeBreak()
+    {
+        // A leave to the enclosing EH continuation can be raised to a loop break
+        // only when the loop's normal exit reaches that continuation. If statements
+        // follow the loop in the try body, `break` would run them while the leave
+        // skips them, so the retry leave must stay explicit.
+        var tryBody = new BlockContainer();
+        var enter = new Block(0);
+        enter.Add(new Branch(24));                       // guarded while preheader -> condition
+        var catchBlock = new Block(8);
+        catchBlock.Add(new Leave(64));                   // exits enclosing finally, not the loop
+        var catchBody = new BlockContainer();
+        catchBody.Add(catchBlock);
+        var body = new Block(8);
+        body.Add(new TryCatch(new BlockContainer(), [new CatchClause(TypeRef.CoreLib("System", "Exception"), catchBody)]));
+        var condition = new Block(24);
+        condition.Add(new ConditionalBranch(Cond(), 8)); // while condition -> body
+        var afterLoop = new Block(32);
+        afterLoop.Add(new StoreLocal(0, Int32, new Constant(42, Int32)));
+        foreach (var block in (Block[])[enter, body, condition, afterLoop])
+            tryBody.Add(block);
+
+        var finallyBody = new BlockContainer();
+        var finallyBlock = new Block(48);
+        finallyBlock.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        finallyBody.Add(finallyBlock);
+
+        var root = new BlockContainer();
+        var holder = new Block(0);
+        holder.Add(new TryFinally(tryBody, finallyBody));
+        var tail = new Block(64);
+        tail.Add(new Return(new LoadLocal(0, Int32)));
+        root.Add(holder);
+        root.Add(tail);
+        var function = new IrFunction("M", Owner, new MethodSignature(Int32, [new Parameter("a", Int32)], HasThis: false, GenericParameterCount: 0), [Int32], root);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<Leave>(), leave => leave.TargetOffset == 64);
+        Assert.Empty(function.Descendants.OfType<Break>());
+    }
 }
