@@ -269,6 +269,12 @@ public class LadderRung5GateTests
         Assert.Contains("checked { a++; }", stmtChecked);
         Assert.DoesNotContain("op_", stmtChecked);
 
+        // #1777: a value-form non-local (static field) increment recovers to
+        // Counter++, never the CS0571 op_Increment call.
+        var bump = Body("BumpCounter");
+        Assert.Contains("Counter++", bump);
+        Assert.DoesNotContain("op_", bump);
+
         // #1712 follow-up: a checked for-loop over a class loop variable has no
         // valid for-header spelling for the checked increment (checked(i++) is
         // CS0201), so it stays a while loop with the increment localized to a

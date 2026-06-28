@@ -33,8 +33,130 @@ public sealed class IncrementDecrementPass : IIrPass
 
         FoldForLoopIncrements(function, context.Stepper);
         FoldUserOperatorSelfUpdates(function, context.Stepper);
+        FoldUserOperatorValueForms(function, context.Stepper);
         MarkSurvivingUserIncrements(function, context.Stepper);
     }
+
+    // Recover a value-form user-defined ++/-- on a NON-LOCAL lvalue (return
+    // obj.Field++, return ++SF) — the dup fold (TryFold) only handles local/argument
+    // updates. The IL captures the lvalue's old (postfix) or new (prefix) value in a
+    // temp, updates the field/indirect place through the operator, and uses the temp
+    // downstream:
+    //   V = lvalue; lvalue = op_Increment(V); use V    →  use lvalue++
+    //   V = op_Increment(lvalue); lvalue = V; use V     →  use ++lvalue
+    // See #1777.
+    static void FoldUserOperatorValueForms(IrFunction function, Stepper stepper)
+    {
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var block in function.Descendants.OfType<Block>().ToList())
+            {
+                for (int i = 0; i + 1 < block.Children.Count; i++)
+                {
+                    if (TryFoldValueForm(function, block, i, stepper))
+                    {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (changed)
+                    break;
+            }
+        }
+    }
+
+    static bool TryFoldValueForm(IrFunction function, Block block, int i, Stepper stepper)
+    {
+        var capture = block.Children[i];
+        var update = block.Children[i + 1];
+
+        // The captured temp is a local or a stack slot, written by the capture.
+        Func<IrExpression, bool>? isTempLoad = capture switch
+        {
+            StoreLocal s => e => e is LoadLocal l && l.Index == s.Index,
+            StoreStackSlot s => e => e is LoadStackSlot l && l.Slot == s.Slot,
+            _ => null,
+        };
+        IrExpression? captureValue = capture switch
+        {
+            StoreLocal s => s.Value,
+            StoreStackSlot s => s.Value,
+            _ => null,
+        };
+        if (isTempLoad is null || captureValue is null)
+            return false;
+
+        // The update must write a NON-LOCAL lvalue (field/indirect); the local and
+        // argument value forms are handled by the dup fold.
+        IrExpression? updateValue = update switch
+        {
+            StoreField s => s.Value,
+            StoreIndirect s => s.Value,
+            _ => null,
+        };
+        if (updateValue is null)
+            return false;
+
+        bool isPrefix;
+        IrExpression lvalueLoad;
+        bool isIncrement;
+        bool isChecked;
+
+        if (AsIncrementCall(updateValue) is { } postOp && isTempLoad(postOp.Operand) && WritesSamePlaceAsRead(update, captureValue))
+        {
+            // V = lvalue; lvalue = op_Increment(V);  →  lvalue++
+            isPrefix = false;
+            lvalueLoad = captureValue;
+            isIncrement = postOp.IsIncrement;
+            isChecked = postOp.IsChecked;
+        }
+        else if (AsIncrementCall(captureValue) is { } preOp && isTempLoad(updateValue) && WritesSamePlaceAsRead(update, preOp.Operand))
+        {
+            // V = op_Increment(lvalue); lvalue = V;  →  ++lvalue
+            isPrefix = true;
+            lvalueLoad = preOp.Operand;
+            isIncrement = preOp.IsIncrement;
+            isChecked = preOp.IsChecked;
+        }
+        else
+        {
+            return false;
+        }
+
+        // The temp must be written once and read exactly twice — the update above
+        // plus one downstream consumer — so removing the capture is sound.
+        var tempLoads = function.Descendants.OfType<IrExpression>().Where(isTempLoad).ToList();
+        if (tempLoads.Count != 2)
+            return false;
+        if (CountTempStores(function, capture) != 1)
+            return false;
+        if (tempLoads.Count(l => ReferenceOwnership.IsInside(l, update)) != 1)
+            return false;
+        if (tempLoads.FirstOrDefault(l => !ReferenceOwnership.IsInside(l, update)) is not { } useLoad)
+            return false;
+
+        // The consumer must be the statement immediately after the update, so the
+        // lvalue is neither read nor written between its update and the use site.
+        if (StatementOf(useLoad, block) is not { } useStatement || useStatement.ChildIndex != i + 2)
+            return false;
+
+        lvalueLoad.Detach();
+        var increment = new IncrementDecrement(lvalueLoad, isIncrement, isPrefix, isUserDefined: true, isChecked: isChecked);
+        stepper.StepOver($"fold user-defined {(isIncrement ? "++" : "--")} value form into operator", useLoad);
+        useLoad.ReplaceWith(increment);
+        update.Detach();
+        capture.Detach();
+        return true;
+    }
+
+    static int CountTempStores(IrFunction function, IrNode capture) => capture switch
+    {
+        StoreLocal s => function.Descendants.OfType<StoreLocal>().Count(x => x.Index == s.Index),
+        StoreStackSlot s => function.Descendants.OfType<StoreStackSlot>().Count(x => x.Slot == s.Slot),
+        _ => 0,
+    };
 
     // A user-defined increment/decrement operator call that survived all folds
     // sits in a position with no faithful C# spelling — e.g. a value-form

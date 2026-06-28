@@ -498,6 +498,39 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserOperatorStaticFieldPostfixValueForm_FoldsToOperator()
+    {
+        // S = SF; SF = op_Increment(S); use S;  ->  use SF++  (value-form #1777).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new LoadStackSlot(0, ValueType))));
+
+        // Capture + update are removed; the consumer holds the SF++ increment.
+        var consumer = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        var increment = Assert.IsType<IncrementDecrement>(consumer.Value);
+        Assert.True(increment is { IsIncrement: true, IsPrefix: false, IsUserDefined: true });
+        Assert.IsType<LoadField>(increment.Target);
+    }
+
+    [Fact]
+    public void UserOperatorStaticFieldPrefixValueForm_FoldsToOperator()
+    {
+        // S = op_Increment(SF); SF = S; use S;  ->  use ++SF  (value-form #1777).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, IncrementCall("op_Increment", ValueType, new LoadField(field, instance: null))),
+            new StoreField(field, instance: null, new LoadStackSlot(0, ValueType)),
+            new StoreLocal(1, ValueType, new LoadStackSlot(0, ValueType))));
+
+        var consumer = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        var increment = Assert.IsType<IncrementDecrement>(consumer.Value);
+        Assert.True(increment is { IsIncrement: true, IsPrefix: true, IsUserDefined: true });
+        Assert.IsType<LoadField>(increment.Target);
+    }
+
+    [Fact]
     public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
     {
         // A normal method that happens to be named op_Increment (no operator
