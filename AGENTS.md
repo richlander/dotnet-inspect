@@ -130,7 +130,8 @@ For decompiler-affecting PRs, follow this evidence and review contract:
   open the PR before the reviews finish, and may request earlier if progress
   slows.
 - Always post a PR comment summarizing the adversarial review results and any
-  follow-up changes or explicit non-actions.
+  follow-up changes or explicit non-actions. Include references or links to the
+  commit(s) that resolved actionable review guidance.
 
 See `docs/decompiler-quality.md` and `tools/DecompilerHarness/README.md` for the
 broader workflow and command details.
@@ -209,8 +210,10 @@ Rules:
 - **Reconcile and surface the results on the PR**: post a PR review/comment
   summarizing both reviews (attributed by model), where they agreed or diverged,
   which findings you verified vs dismissed, and the follow-up changes or explicit
-  non-actions. Do not merely summarize reviews back to the requester — they must
-  be visible on the PR.
+  non-actions. Include references or links to the commit(s) that resolved
+  actionable review guidance; for dismissed or non-actioned guidance, state why
+  no resolution commit applies. Do not merely summarize reviews back to the
+  requester — they must be visible on the PR.
 - Simple/docs-only PRs do not need this; state that the change is low-risk.
 
 ## PR Strategy and CI Cost
