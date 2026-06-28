@@ -213,3 +213,28 @@ public class ModernHolder
 
     public required int Count { get; init; }
 }
+
+// A class user type with a checked ++ operator. A checked for-loop over a class
+// loop variable raises to a `for` whose header increment is checked, which has no
+// valid for-header spelling (checked(i++) is CS0201). The decompiler keeps such a
+// loop as a while so the checked increment localizes to a checked { i++; } body
+// statement (#1712).
+public class CheckedStep
+{
+    public int Value;
+
+    public static CheckedStep operator ++(CheckedStep c) => new CheckedStep { Value = c.Value + 1 };
+
+    public static CheckedStep operator checked ++(CheckedStep c) => checked(new CheckedStep { Value = c.Value + 1 });
+
+    public static int CheckedForLoop(CheckedStep start, int n)
+    {
+        checked
+        {
+            for (CheckedStep i = start; i.Value < n; i++)
+            {
+            }
+        }
+        return n;
+    }
+}
