@@ -164,6 +164,13 @@ public readonly struct CheckedMeters
 
     public static CheckedMeters PreDecrement(CheckedMeters a) => --a;
 
+    // Value-form non-local (static field) increment (#1777): the old value is
+    // captured, the field updated through the operator, and the old value returned.
+    // Recovers to Counter++, never the CS0571 op_Increment call.
+    public static CheckedMeters Counter;
+
+    public static CheckedMeters BumpCounter() => Counter++;
+
     // Statement form (the increment value is discarded): folds to a++; not the
     // CS0571 op_Increment(a) call. The checked statement needs a checked { ... }
     // block, since checked(a++) is CS0201 in statement position.

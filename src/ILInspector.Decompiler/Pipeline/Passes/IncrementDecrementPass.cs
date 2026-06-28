@@ -33,8 +33,206 @@ public sealed class IncrementDecrementPass : IIrPass
 
         FoldForLoopIncrements(function, context.Stepper);
         FoldUserOperatorSelfUpdates(function, context.Stepper);
+        FoldUserOperatorValueForms(function, context.Stepper);
         MarkSurvivingUserIncrements(function, context.Stepper);
     }
+
+    // Recover a value-form user-defined ++/-- on a NON-LOCAL lvalue (return
+    // obj.Field++, return ++SF) — the dup fold (TryFold) only handles local/argument
+    // updates. The IL captures the lvalue's old (postfix) or new (prefix) value in a
+    // temp, updates the field/indirect place through the operator, and uses the temp
+    // downstream:
+    //   V = lvalue; lvalue = op_Increment(V); use V    →  use lvalue++
+    //   V = op_Increment(lvalue); lvalue = V; use V     →  use ++lvalue
+    // See #1777.
+    static void FoldUserOperatorValueForms(IrFunction function, Stepper stepper)
+    {
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var block in function.Descendants.OfType<Block>().ToList())
+            {
+                for (int i = 0; i + 1 < block.Children.Count; i++)
+                {
+                    if (TryFoldValueForm(function, block, i, stepper))
+                    {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (changed)
+                    break;
+            }
+        }
+    }
+
+    static bool TryFoldValueForm(IrFunction function, Block block, int i, Stepper stepper)
+    {
+        var capture = block.Children[i];
+        var update = block.Children[i + 1];
+
+        // The captured temp is a local or a stack slot, written by the capture.
+        Func<IrExpression, bool>? isTempLoad = capture switch
+        {
+            StoreLocal s => e => e is LoadLocal l && l.Index == s.Index,
+            StoreStackSlot s => e => e is LoadStackSlot l && l.Slot == s.Slot,
+            _ => null,
+        };
+        IrExpression? captureValue = capture switch
+        {
+            StoreLocal s => s.Value,
+            StoreStackSlot s => s.Value,
+            _ => null,
+        };
+        if (isTempLoad is null || captureValue is null)
+            return false;
+
+        // The update must write a NON-LOCAL lvalue (field/indirect); the local and
+        // argument value forms are handled by the dup fold.
+        IrExpression? updateValue = update switch
+        {
+            StoreField s => s.Value,
+            StoreIndirect s => s.Value,
+            _ => null,
+        };
+        if (updateValue is null)
+            return false;
+
+        bool isPrefix;
+        IrExpression lvalueLoad;
+        bool isIncrement;
+        bool isChecked;
+
+        if (AsIncrementCall(updateValue) is { } postOp && isTempLoad(postOp.Operand) && WritesSamePlaceAsRead(update, captureValue))
+        {
+            // V = lvalue; lvalue = op_Increment(V);  →  lvalue++
+            isPrefix = false;
+            lvalueLoad = captureValue;
+            isIncrement = postOp.IsIncrement;
+            isChecked = postOp.IsChecked;
+        }
+        else if (AsIncrementCall(captureValue) is { } preOp && isTempLoad(updateValue) && WritesSamePlaceAsRead(update, preOp.Operand))
+        {
+            // V = op_Increment(lvalue); lvalue = V;  →  ++lvalue
+            isPrefix = true;
+            lvalueLoad = preOp.Operand;
+            isIncrement = preOp.IsIncrement;
+            isChecked = preOp.IsChecked;
+        }
+        else
+        {
+            return false;
+        }
+
+        // The temp must be written once and read exactly twice — the update above
+        // plus one downstream consumer — so removing the capture is sound. For a
+        // local temp, an address-of (ref/out) is an observation the load count
+        // misses, so reject it outright.
+        if (capture is StoreLocal { Index: var captureIndex }
+            && function.Descendants.OfType<LoadLocalAddress>().Any(a => a.Index == captureIndex))
+        {
+            return false;
+        }
+        var tempLoads = function.Descendants.OfType<IrExpression>().Where(isTempLoad).ToList();
+        if (tempLoads.Count != 2)
+            return false;
+        if (CountTempStores(function, capture) != 1)
+            return false;
+        if (tempLoads.Count(l => ReferenceOwnership.IsInside(l, update)) != 1)
+            return false;
+        if (tempLoads.FirstOrDefault(l => !ReferenceOwnership.IsInside(l, update)) is not { } useLoad)
+            return false;
+
+        // The consumer must be the statement immediately after the update, so the
+        // lvalue is neither read nor written between its update and the use site.
+        if (StatementOf(useLoad, block) is not { } useStatement || useStatement.ChildIndex != i + 2)
+            return false;
+
+        // Folding moves the operator to the use site, so the increment now runs at
+        // the use's position in the consumer's evaluation order rather than before
+        // the whole statement. Anything evaluated earlier in the consumer that can
+        // observe or mutate the lvalue — a field/indirect read, a call, or an
+        // aliasing access — would then see a different value. Only fold when every
+        // node evaluated before the use is a pure local computation, which keeps
+        // shapes like `return SF + S` or `return Read(a).V + old` honest residuals.
+        if (ObservesBeforeUse(useStatement, useLoad))
+            return false;
+
+        // The use must also be reached unconditionally: folding the unconditional
+        // update into the use must not make the increment conditional. `return cond
+        // ? S : default` would otherwise fold to `return cond ? SF++ : default`,
+        // incrementing only when cond holds. Reject conditional-evaluation ancestors
+        // (ternary / ?? / ?. / switch-expression / short-circuit) and any non-linear
+        // consumer statement (an `if`/loop/switch body is conditionally reached).
+        if (!IsLinearStatement(useStatement) || ReachedConditionally(useLoad, useStatement))
+            return false;
+
+        lvalueLoad.Detach();
+        var increment = new IncrementDecrement(lvalueLoad, isIncrement, isPrefix, isUserDefined: true, isChecked: isChecked);
+        stepper.StepOver($"fold user-defined {(isIncrement ? "++" : "--")} value form into operator", useLoad);
+        useLoad.ReplaceWith(increment);
+        update.Detach();
+        capture.Detach();
+        return true;
+    }
+
+    /// <summary>True when any node evaluated before <paramref name="use"/> in <paramref name="statement"/> is something other than a pure local computation (constant/local/argument load or arithmetic), i.e. could observe or mutate heap/lvalue state.</summary>
+    static bool ObservesBeforeUse(IrNode statement, IrExpression use)
+    {
+        foreach (var node in EvaluationOrder(statement))
+        {
+            if (ReferenceEquals(node, use))
+                return false;
+            if (!IsPureLocalComputation(node))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Yields the nodes of <paramref name="node"/> in left-to-right post-order, matching IL evaluation order (operands before their parent).</summary>
+    static IEnumerable<IrNode> EvaluationOrder(IrNode node)
+    {
+        foreach (var child in node.Children)
+            foreach (var inner in EvaluationOrder(child))
+                yield return inner;
+        yield return node;
+    }
+
+    static bool IsPureLocalComputation(IrNode node) => node switch
+    {
+        // Only non-throwing leaf loads are safe to evaluate before the use. A
+        // compound Binary/Unary/Convert fully evaluated before the use (e.g. the
+        // left operand `1 / z` in `1 / z + old`) can throw — div-by-zero, checked
+        // overflow, checked conversion — so moving the increment past it would
+        // reorder the increment relative to that exception. Such nodes only appear
+        // *before* the use when they are an earlier sibling subexpression; a
+        // Binary/Unary/Convert whose subtree contains the use is evaluated after
+        // it and never reaches this check, so simple shapes like `5 + old` still
+        // fold.
+        Constant or LoadLocal or LoadStackSlot or LoadArgument => true,
+        _ => false,
+    };
+
+    /// <summary>A statement whose body runs unconditionally and in evaluation order — the value form's use must sit in one of these, not in an if/loop/switch body that is conditionally reached.</summary>
+    static bool IsLinearStatement(IrNode statement) => statement is
+        Return or ExpressionStatement or StoreLocal or StoreStackSlot or StoreField or StoreIndirect or StoreArgument or StoreElement;
+
+    /// <summary>True when <paramref name="use"/> is nested inside a conditional-evaluation construct (ternary, ??, ?., switch-expression, short-circuit) below <paramref name="statement"/>, so the use is not guaranteed to execute.</summary>
+    static bool ReachedConditionally(IrNode use, IrNode statement)
+    {
+        for (var node = use.Parent; node is not null && !ReferenceEquals(node, statement); node = node.Parent)
+            if (node is Conditional or Coalesce or NullConditional or SwitchExpression or LogicalBinary)
+                return true;
+        return false;
+    }
+
+    static int CountTempStores(IrFunction function, IrNode capture) => capture switch
+    {
+        StoreLocal s => function.Descendants.OfType<StoreLocal>().Count(x => x.Index == s.Index),
+        StoreStackSlot s => function.Descendants.OfType<StoreStackSlot>().Count(x => x.Slot == s.Slot),
+        _ => 0,
+    };
 
     // A user-defined increment/decrement operator call that survived all folds
     // sits in a position with no faithful C# spelling — e.g. a value-form
