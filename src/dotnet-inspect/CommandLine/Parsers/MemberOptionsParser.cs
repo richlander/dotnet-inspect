@@ -219,6 +219,9 @@ public static class MemberOptionsParser
         var select = opts.ParseSelect(parseResult);
         if (showMemberIndex)
             select = [.. select ?? [], SectionNames.MemberIndex];
+        var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
+        if (performanceTriage.HasFilters)
+            select = [.. select ?? [], SectionNames.PerformanceTriage];
 
         var options = new MemberOptions
         {
@@ -261,6 +264,7 @@ public static class MemberOptionsParser
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
+            PerformanceTriage = performanceTriage,
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

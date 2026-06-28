@@ -70,6 +70,7 @@ public partial record ApiOptions
     public bool Schema { get; init; }
     public bool Count { get; init; }
     public int? Rows { get; init; }
+    public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>

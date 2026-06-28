@@ -65,7 +65,8 @@ internal static class LibraryMetadataService
                 FileName = Path.GetFileName(path),
                 FileType = "dll",
                 IsFacadeAssembly = isPlatformAssembly ? PlatformResolver.IsFacadeOnlyAssembly(path) : null,
-                UseDependenciesView = options.IncludeDependencies
+                UseDependenciesView = options.IncludeDependencies,
+                PerformanceTriageOptions = options.PerformanceTriage
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
@@ -707,18 +708,21 @@ internal static class LibraryMetadataService
 
     /// <summary>
     /// Collects safe, local optimization opportunities across the whole assembly. Emits the
-    /// full set (ordered by declaring type, member, then IL offset) so the generic row limiter
-    /// (<c>-n</c>/<c>--rows</c>) controls how many rows are shown, matching the type-scoped view.
+    /// filtered set in triage priority order so the highest-value pay-dirt surfaces first.
     /// </summary>
-    internal static List<OptimizationOpportunitySummary>? ScanOptimizationOpportunities(string path, VerboseLogger logger)
+    internal static List<OptimizationOpportunitySummary>? ScanOptimizationOpportunities(
+        string path,
+        VerboseLogger logger,
+        PerformanceTriageOptions? options = null)
     {
         try
         {
             var index = Analysis.LibraryBodyIndex.Open(path);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
-            var rows = OrderByTriagePriority(
+            var rows = FilterAndOrderTriageOpportunities(
                     index.OptimizationOpportunities
-                        .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)))
+                        .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)),
+                    options)
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
                     Member = FormatMethod(opportunity.Method),
@@ -762,6 +766,29 @@ internal static class LibraryMetadataService
         "medium" => 1,
         _ => 0,
     };
+
+    internal static IEnumerable<Analysis.OptimizationOpportunity> FilterAndOrderTriageOpportunities(
+        IEnumerable<Analysis.OptimizationOpportunity> opportunities,
+        PerformanceTriageOptions? options)
+    {
+        options ??= PerformanceTriageOptions.Default;
+        var filtered = opportunities;
+        if (options.LoopOnly)
+            filtered = filtered.Where(opportunity => opportunity.InLoop);
+        if (options.MinConfidence is { Length: > 0 } confidence)
+        {
+            var minimumRank = ConfidenceRank(confidence);
+            filtered = filtered.Where(opportunity => ConfidenceRank(opportunity.Confidence) >= minimumRank);
+        }
+        if (options.Shapes.Length > 0)
+        {
+            var shapes = options.Shapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            filtered = filtered.Where(opportunity => shapes.Contains(opportunity.Shape));
+        }
+
+        var ordered = OrderByTriagePriority(filtered);
+        return options.Top is { } top ? ordered.Take(top) : ordered;
+    }
 
     internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
     {

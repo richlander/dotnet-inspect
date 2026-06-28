@@ -112,16 +112,20 @@ allocation pay-dirt first — ranking in-loop (hot) and high-confidence
 opportunities ahead of raw leverage — across actionable rewrite shapes (small
 non-escaping arrays, temporary or span-to-array copies, capturing and instance
 method-group delegates, and value-type boxing) plus `allocation-hotspot` rows
-for methods that allocate heavily without matching a specific shape. Drill
-candidates with `Call Graph` (bounded outbound tree) and `Caller Graph`
-(bounded reverse tree to entry points), and project per-node cost with
-`--fields`. Ranking rows carry a copyable `Stable` selector, `Visibility`, and
-`Selector`; add `--all` to drill non-public members.
+for methods that allocate heavily without matching a specific shape. Use
+`--top`, `--loop`, `--min-confidence`, and `--triage-shape` to ask the tool for
+the curated pay-dirt rows directly instead of post-processing. Drill candidates
+with `Call Graph` (bounded outbound tree) and `Caller Graph` (bounded reverse
+tree to entry points), and project per-node cost with `--fields`. Ranking rows
+carry a copyable `Stable` selector, `Visibility`, and `Selector`; add `--all` to
+drill non-public members.
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Top Leverage"
 dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
 dotnet-inspect library MyLib.dll -S "Performance Triage"
+dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
+dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
 ```

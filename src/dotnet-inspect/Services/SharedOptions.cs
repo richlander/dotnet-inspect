@@ -50,6 +50,16 @@ public class SharedOptions
     public Option<bool> Schema { get; } = new("--schema") { Description = "With -D: show the full static schema without resolving/loading source (offline)" };
     public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
 
+    // Performance Triage row predicates
+    public Option<bool> PerformanceTriageLoop { get; } = new("--loop") { Description = "Performance Triage: show only opportunities inside loops" };
+    public Option<string?> PerformanceTriageMinConfidence { get; } = new("--min-confidence") { Description = "Performance Triage: minimum confidence (low, medium, high)" };
+    public Option<string[]> PerformanceTriageShape { get; } = new("--triage-shape")
+    {
+        Description = "Performance Triage: include only shape(s), comma-separated or repeated",
+        AllowMultipleArgumentsPerToken = true
+    };
+    public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Performance Triage: show the top N ranked rows" };
+
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
     {
@@ -69,6 +79,7 @@ public class SharedOptions
     public SharedOptions()
     {
         Verbosity.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
+        PerformanceTriageMinConfidence.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, "low", "medium", "high");
 
         Limit = new Option<int?>("-n") { Description = "Limit to first N lines (like head -n)" };
         Limit.Aliases.Add("--head");
@@ -167,6 +178,17 @@ public class SharedOptions
     }
 
     /// <summary>
+    /// Adds Performance Triage row predicates to commands that can render that section.
+    /// </summary>
+    public void AddPerformanceTriageOptionsTo(Command command)
+    {
+        command.Options.Add(PerformanceTriageLoop);
+        command.Options.Add(PerformanceTriageMinConfidence);
+        command.Options.Add(PerformanceTriageShape);
+        command.Options.Add(PerformanceTriageTop);
+    }
+
+    /// <summary>
     /// Adds the print output option to commands that can render a printable document section.
     /// </summary>
     public void AddPrintOptionTo(Command command)
@@ -176,6 +198,24 @@ public class SharedOptions
 
     public int? ParseRows(ParseResult parseResult)
         => parseResult.GetValue(Rows) ? parseResult.GetValue(Limit) : null;
+
+    public PerformanceTriageOptions ParsePerformanceTriageOptions(ParseResult parseResult)
+    {
+        var shapes = (parseResult.GetValue(PerformanceTriageShape) ?? [])
+            .SelectMany(value => value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(value => value.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var top = parseResult.GetValue(PerformanceTriageTop);
+        return new PerformanceTriageOptions
+        {
+            LoopOnly = parseResult.GetValue(PerformanceTriageLoop),
+            MinConfidence = parseResult.GetValue(PerformanceTriageMinConfidence),
+            Shapes = shapes,
+            Top = top is > 0 ? top : null
+        };
+    }
 
     /// <summary>
     /// Adds NuGet source options to a command.

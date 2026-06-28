@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.CommandLine;
@@ -150,6 +151,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(extractResourcesOption);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
+        opts.AddPerformanceTriageOptionsTo(assemblyCommand);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -208,8 +210,11 @@ public static class InspectionCommandDefinitions
 
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
+            var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!string.IsNullOrWhiteSpace(typeFilter))
                 select = [.. select ?? [], "Source Files"];
+            if (performanceTriage.HasFilters)
+                select = [.. select ?? [], SectionNames.PerformanceTriage];
 
             var options = new LibraryOptions
             {
@@ -245,6 +250,7 @@ public static class InspectionCommandDefinitions
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
+                PerformanceTriage = performanceTriage,
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
