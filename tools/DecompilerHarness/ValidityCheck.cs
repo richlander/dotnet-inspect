@@ -224,6 +224,7 @@ static class ValidityCheck
                         .Where(d => !IsShellArtifact(d))
                         .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
                         .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
+                        .Where(d => !IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function))
                         .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
                         .ToImmutableArray();
                     results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: true, defects));
@@ -656,6 +657,65 @@ static class ValidityCheck
 
         return ShellNoise.ReferencesNonGenericTypeNamed(function, simpleName)
             && !ShellNoise.ReferencesGenericTypeNamed(function, simpleName);
+    }
+
+    /// <summary>
+    /// The shell wraps a static constructor body in <c>__Shell.__M</c>, so a
+    /// same-full-name platform type can win over the reconstructed declaring type.
+    /// A get-only auto-property assignment backed by an original static backing
+    /// field store is legal inside the real declaring type's static constructor;
+    /// CS0200 here means the shell resolved the receiver to the colliding external
+    /// type instead.
+    /// </summary>
+    internal static bool IsDeclaringTypeStaticPropertyCtorAssignmentNoise(Diagnostic diagnostic, SyntaxTree tree, IrFunction function)
+    {
+        if (diagnostic.Id != "CS0200" || function.Name != ".cctor" || diagnostic.Location.SourceTree != tree)
+            return false;
+
+        var node = tree.GetRoot().FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
+        if (node.FirstAncestorOrSelf<MemberAccessExpressionSyntax>() is not { } memberAccess)
+            return false;
+        if (!IsAssignmentLeft(memberAccess))
+            return false;
+        if (!ReceiverNamesDeclaringType(memberAccess.Expression, function.DeclaringType))
+            return false;
+
+        string propertyName = memberAccess.Name.Identifier.ValueText;
+        return function.Descendants.OfType<StoreField>().Any(store =>
+            !store.HasInstance
+            && store.Field.BackingPropertyName == propertyName
+            && SameTypeDefinition(store.Field.DeclaringType, function.DeclaringType));
+    }
+
+    static bool IsAssignmentLeft(MemberAccessExpressionSyntax memberAccess)
+    {
+        var assignment = memberAccess.FirstAncestorOrSelf<AssignmentExpressionSyntax>();
+        return assignment is not null
+            && assignment.Left.Span.Start <= memberAccess.Span.Start
+            && memberAccess.Span.End <= assignment.Left.Span.End;
+    }
+
+    static bool ReceiverNamesDeclaringType(ExpressionSyntax receiver, TypeRef declaringType)
+    {
+        string text = receiver.ToString();
+        string simpleName = ShellNoise.SimpleName(declaringType.Name);
+        if (text == simpleName)
+            return true;
+        if (declaringType.Namespace.Length == 0)
+            return false;
+        string fullName = declaringType.Namespace + "." + simpleName;
+        return text == fullName || text == "global::" + fullName;
+    }
+
+    static bool SameTypeDefinition(TypeRef left, TypeRef right)
+    {
+        left = left.Kind == TypeRefKind.GenericInstance ? left.ElementType! : left;
+        right = right.Kind == TypeRefKind.GenericInstance ? right.ElementType! : right;
+        return left.Kind == TypeRefKind.Definition
+            && right.Kind == TypeRefKind.Definition
+            && left.Assembly == right.Assembly
+            && left.Namespace == right.Namespace
+            && left.Name == right.Name;
     }
 
     static string? SimpleNameAtDiagnosticLocation(Diagnostic diagnostic, SyntaxTree tree)

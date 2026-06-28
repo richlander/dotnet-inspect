@@ -181,6 +181,7 @@ internal static class LibraryReport
                     .Where(d => !ValidityCheck.IsShellArtifact(d))
                     .Where(d => !ValidityCheck.IsGenericArityCollisionNoise(d, tree, function))
                     .Where(d => !ValidityCheck.IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
+                    .Where(d => !ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function))
                     .ToList();
                 if (defects.Count == 0)
                 {
