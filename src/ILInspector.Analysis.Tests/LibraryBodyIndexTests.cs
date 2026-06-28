@@ -1267,6 +1267,16 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_ValueTypeConstructionInLoop_IsNotHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A loop densely constructing VALUE types (Nullable + an in-assembly struct) clears the
+        // >= 16 newobj count but allocates nothing on the heap -> must not be a hotspot.
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ConstructsManyValueTypesInLoop)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_LowAllocationMethod_IsNotHotspot()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -2414,6 +2424,28 @@ public class OptimizationOpportunityFixtures
         return total;
     }
 
+    // Densely constructs VALUE types in a loop (Nullable + an in-assembly struct). None of
+    // these `newobj` allocate on the heap, so the method must NOT be an allocation-hotspot
+    // even though it clears the >= 16 newobj count.
+    public static int ConstructsManyValueTypesInLoop(int n)
+    {
+        var total = 0;
+        for (int i = 0; i < n; i++)
+        {
+            System.Nullable<int> n0 = new System.Nullable<int>(0); System.Nullable<int> n1 = new System.Nullable<int>(1);
+            System.Nullable<int> n2 = new System.Nullable<int>(2); System.Nullable<int> n3 = new System.Nullable<int>(3);
+            System.Nullable<int> n4 = new System.Nullable<int>(4); System.Nullable<int> n5 = new System.Nullable<int>(5);
+            System.Nullable<int> n6 = new System.Nullable<int>(6); System.Nullable<int> n7 = new System.Nullable<int>(7);
+            System.Nullable<int> n8 = new System.Nullable<int>(8); System.Nullable<int> n9 = new System.Nullable<int>(9);
+            var p0 = new PlainValue(0); var p1 = new PlainValue(1); var p2 = new PlainValue(2);
+            var p3 = new PlainValue(3); var p4 = new PlainValue(4); var p5 = new PlainValue(5);
+            var p6 = new PlainValue(6); var p7 = new PlainValue(7);
+            total += (n0 ?? 0) + (n1 ?? 0) + (n2 ?? 0) + (n3 ?? 0) + (n4 ?? 0) + (n5 ?? 0) + (n6 ?? 0)
+                + (n7 ?? 0) + (n8 ?? 0) + (n9 ?? 0) + p0.V + p1.V + p2.V + p3.V + p4.V + p5.V + p6.V + p7.V;
+        }
+        return total;
+    }
+
     public static int AllocatesManyPlainObjects()
     {
         var a0 = new PlainObject(0);
@@ -2552,6 +2584,15 @@ public sealed class PlainObject
     public PlainObject(int value) => Value = value;
 
     public int Value { get; }
+}
+
+// An in-assembly value type: `new PlainValue(...)` does not allocate on the heap, so it must
+// not count toward allocation-hotspot density.
+public struct PlainValue
+{
+    public PlainValue(int v) => V = v;
+
+    public int V { get; }
 }
 
 public sealed class FixtureException : Exception

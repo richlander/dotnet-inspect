@@ -23,7 +23,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<int, BodySignals> bodySignals,
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
-        IReadOnlySet<string> exceptionTypeNames)
+        IReadOnlySet<string> exceptionTypeNames,
+        IReadOnlySet<string> inAssemblyValueTypeNames)
     {
         Path = path;
         Methods = methods;
@@ -38,6 +39,7 @@ public sealed class LibraryBodyIndex
         _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
+        _inAssemblyValueTypeNames = inAssemblyValueTypeNames;
     }
 
     public string Path { get; }
@@ -93,6 +95,25 @@ public sealed class LibraryBodyIndex
         return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
     }
 
+    // True when a `newobj` of this type does NOT allocate on the heap: a value type (struct/
+    // enum). The common framework value types constructed in hot loops (Span/ReadOnlySpan/
+    // Memory/Nullable/ValueTuple) are matched by identity; in-assembly structs/enums are
+    // matched via the value-type name set resolved from metadata. Counting these as heap
+    // allocations would inflate allocation-hotspot density (e.g. generated JSON parse loops
+    // are full of ReadOnlySpan<byte>/Nullable<T> constructors that allocate nothing).
+    bool IsNonHeapConstruction(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (definition.Kind == TypeRefKind.Unsupported)
+            return false;
+        if (definition.Namespace == "System" && definition.Name is
+                "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
+                or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
+                or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
+            return true;
+        return _inAssemblyValueTypeNames.Contains(definition.ToQualifiedDisplayString());
+    }
+
     // A method that allocates densely is a real perf signal only when the allocations are
     // both REPEATED (in a loop) and not already pinpointed by a specific shape — otherwise
     // the count is dominated by intrinsic, non-reducible construction (e.g. a serializer
@@ -137,6 +158,11 @@ public sealed class LibraryBodyIndex
                 continue;
             if (call.Callee.Kind != MemberKind.Unsupported
                 && IsExceptionConstruction(call.Callee.DeclaringType))
+                continue;
+            // A `newobj` of a value type (Span/Nullable/ValueTuple/in-assembly struct) does not
+            // allocate on the heap, so it must not count toward allocation density.
+            if (call.Callee.Kind != MemberKind.Unsupported
+                && IsNonHeapConstruction(call.Callee.DeclaringType))
                 continue;
             int token = call.Caller.MetadataToken;
             steadyNewobj[token] = steadyNewobj.GetValueOrDefault(token) + 1;
@@ -382,6 +408,7 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
+    readonly IReadOnlySet<string> _inAssemblyValueTypeNames;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
@@ -516,7 +543,8 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
+            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
+            index.InAssemblyValueTypeNames);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -950,7 +978,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<string> InAssemblyValueTypeNames) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -961,6 +989,7 @@ public sealed class LibraryBodyIndex
             var bodySignals = new Dictionary<int, BodySignals>();
             var suppressedOpportunityTokens = new HashSet<int>();
             var exceptionTypeNames = ComputeExceptionTypeNames();
+            var inAssemblyValueTypeNames = ComputeInAssemblyValueTypeNames();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -1024,7 +1053,7 @@ public sealed class LibraryBodyIndex
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
-                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames);
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, inAssemblyValueTypeNames);
         }
 
         // Classifies in-assembly types by whether they derive from System.Exception,
@@ -1088,6 +1117,26 @@ public sealed class LibraryBodyIndex
                 }
                 return false;
             }
+        }
+
+        // In-assembly value types (struct/enum) by qualified name. A `newobj` of one of these
+        // does NOT allocate on the heap, so it must not be counted toward allocation density.
+        IReadOnlySet<string> ComputeInAssemblyValueTypeNames()
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var typeHandle in _reader.TypeDefinitions)
+            {
+                var baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
+                if (baseHandle.Kind != HandleKind.TypeReference)
+                    continue;
+                var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
+                if (_reader.GetString(baseRef.Namespace) == "System"
+                    && _reader.GetString(baseRef.Name) is "ValueType" or "Enum")
+                {
+                    names.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0).ToQualifiedDisplayString());
+                }
+            }
+            return names;
         }
 
         IReadOnlySet<string> ComputeExceptionTypeNames()
