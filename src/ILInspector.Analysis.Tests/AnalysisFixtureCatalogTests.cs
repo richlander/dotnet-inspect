@@ -1,0 +1,59 @@
+using System.Linq;
+
+using ILInspector.AnalysisHarness;
+
+namespace ILInspector.Analysis.Tests;
+
+/// <summary>
+/// The seed analysis-fixture catalogue (#1819): materialize small source-shape entries into
+/// temporary consumer + external assemblies, grade each target method's signals against its
+/// expected-signal ledger entry with the real analyzer, and report by stable fixture id. Slow
+/// because each fixture runs `dotnet build`; excluded from the fast PR lane like the decompiler
+/// generated-fixture catalogue.
+/// </summary>
+[Trait("Speed", "Slow")]
+public class AnalysisFixtureCatalogTests
+{
+    [Fact]
+    public void SeedCatalogue_GradesEveryTargetByFixtureId()
+    {
+        var run = AnalysisFixtureRunner.Run(AnalysisFixtureCatalog.All);
+        string report = AnalysisFixtureRunner.FormatReport(run);
+
+        Assert.True(run.Passed, report);
+
+        // Resolved cases: the allocation signal classifies the newobj by true shape.
+        AssertAllocations(run, "alloc.value-struct-newobj.in-assembly", "ConstructsInLoop", 0);
+        AssertAllocations(run, "alloc.value-struct-newobj.cross-asm-generic", "ConstructsInLoop", 0);
+        AssertAllocationsAtLeast(run, "alloc.reftype-newobj.cross-asm-name-collision", "ConstructsInLoop", 1);
+
+        // Owned boundaries: deliberately-imperfect outcomes at the no-referenced-assembly edge.
+        AssertBoundary(run, "alloc.value-struct-newobj.cross-asm-nongeneric", "ConstructsInLoop", OwnedBoundary.FalsePositive);
+        AssertBoundary(run, "exception.suffix-lookalike.external", "ConstructsLookalike", OwnedBoundary.FalsePositive);
+        AssertBoundary(run, "exception.unsuffixed.external", "Throws", OwnedBoundary.FalseNegative);
+    }
+
+    static AnalysisFixtureResult Result(AnalysisFixtureRunResult run, string fixtureId, string method)
+        => Assert.Single(run.Results, r => r.FixtureId == fixtureId && r.Method == method);
+
+    static void AssertAllocations(AnalysisFixtureRunResult run, string fixtureId, string method, int expected)
+    {
+        var result = Result(run, fixtureId, method);
+        Assert.True(result.Passed, result.Failure);
+        Assert.Equal(expected, result.Allocations);
+    }
+
+    static void AssertAllocationsAtLeast(AnalysisFixtureRunResult run, string fixtureId, string method, int atLeast)
+    {
+        var result = Result(run, fixtureId, method);
+        Assert.True(result.Passed, result.Failure);
+        Assert.True(result.Allocations >= atLeast);
+    }
+
+    static void AssertBoundary(AnalysisFixtureRunResult run, string fixtureId, string method, OwnedBoundary expected)
+    {
+        var result = Result(run, fixtureId, method);
+        Assert.Equal(expected, result.Boundary);
+        Assert.True(result.Passed, result.Failure);
+    }
+}
