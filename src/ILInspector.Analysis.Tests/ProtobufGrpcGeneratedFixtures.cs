@@ -1,10 +1,11 @@
 // Minimal stand-ins for the gRPC infrastructure that real generated code calls, plus
 // protobuf/gRPC consumer fixtures. The protobuf runtime stand-ins (FileDescriptor,
 // GeneratedClrTypeInfo, MessageParser<T>) live in the separate ILInspector.Analysis.ProtobufFixtures
-// project, which compiles to an assembly named Google.Protobuf; the consumers below bind to
-// those external types so the generated-bootstrap predicates see real Google.Protobuf assembly
-// identity (#1580). The gRPC stand-in is matched by namespace + generated __* members, not by
-// assembly, so it stays local.
+// project, which compiles to an unsigned assembly literally named Google.Protobuf. Because that
+// assembly does NOT carry the real Google.Protobuf public-key-token, it is a same-name *spoof*:
+// generated-bootstrap suppression must require strong identity, so the consumers below that bind
+// to it must NOT be classified as protobuf-generated (#1735). The gRPC stand-in is matched by
+// namespace + generated __* members (not by assembly identity), so it stays local and is detected.
 
 namespace Grpc.Core
 {
