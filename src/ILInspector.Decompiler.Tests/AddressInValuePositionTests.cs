@@ -46,6 +46,23 @@ public class AddressInValuePositionTests
         return CSharpPrinter.Print(function).Output!;
     }
 
+    static string RenderSyntheticRawAddress()
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, NInt, new LoadArgumentAddress(0, "value", Int)));
+        block.Add(new Return(null));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("value", Int)], HasThis: false, GenericParameterCount: 0),
+            [NInt],
+            body);
+        return CSharpPrinter.Print(function).Output!;
+    }
+
     [Fact]
     public void ValueTypeArrayElementMemberAccess_DropsRefOnTheReceiver()
     {
@@ -99,6 +116,15 @@ public class AddressInValuePositionTests
 
         Assert.Contains("nint V_0 = (int)(&value);", output);
         Assert.DoesNotContain("= (nint)(&value);", output);
+        Assert.DoesNotContain("ref value", output);
+    }
+
+    [Fact]
+    public void RawArgumentAddressStoredToNativeInt_RendersAddressOf()
+    {
+        var output = RenderSyntheticRawAddress();
+
+        Assert.Contains("nint V_0 = (nint)(&value);", output);
         Assert.DoesNotContain("ref value", output);
     }
 }
