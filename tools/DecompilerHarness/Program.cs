@@ -56,6 +56,7 @@ static class Program
         bool bindCheck = false;
         bool classifyDec0009 = false;
         bool generatedFixtures = false;
+        string? generatedFixtureSelector = null;
         bool keepGeneratedFixtures = false;
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
@@ -114,7 +115,13 @@ static class Program
                 case "--bind-check": bindCheck = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
                 case "--dec0009-shapes": classifyDec0009 = true; break;
-                case "--generated-fixtures": generatedFixtures = true; break;
+                case "--generated-fixtures":
+                    generatedFixtures = true;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
+                        && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1])
+                        && !LooksLikePath(args[i + 1]))
+                        generatedFixtureSelector = args[++i];
+                    break;
                 case "--keep-generated-fixtures": keepGeneratedFixtures = true; break;
                 case "--emit-corpus-baseline": emitCorpusSnapshot = args[++i]; break;
                 case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
@@ -145,7 +152,7 @@ static class Program
         {
             if (inputs.Count > 0)
                 return Fail("--generated-fixtures generates its own temporary input assembly; do not pass assembly paths.");
-            return GeneratedFixtures(keepGeneratedFixtures);
+            return GeneratedFixtures(generatedFixtureSelector, keepGeneratedFixtures, json);
         }
 
         var assemblies = ResolveAssemblies(inputs);
@@ -225,13 +232,33 @@ static class Program
         return Inventory(assemblies);
     }
 
-    static int GeneratedFixtures(bool keepArtifacts)
+    static int GeneratedFixtures(string? selector, bool keepArtifacts, bool json)
     {
+        var fixtures = GeneratedFixtureCatalog.Select(selector);
+        if (selector == "list")
+        {
+            if (json)
+                Console.WriteLine(GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.All));
+            else
+                Console.Write(GeneratedFixtureRunner.FormatList(GeneratedFixtureCatalog.All));
+            return 0;
+        }
+
+        if (fixtures.Count == 0)
+            return Fail($"No generated fixture IDs match '{selector}'. Use '--generated-fixtures list'.");
+
         var run = GeneratedFixtureRunner.Run(
-            GeneratedFixtureCatalog.MinimalCompileBackRungs,
+            fixtures,
             new GeneratedFixtureRunOptions(KeepArtifacts: keepArtifacts));
-        Console.Write(GeneratedFixtureRunner.FormatReport(run));
-        if (keepArtifacts)
+        if (json)
+        {
+            Console.WriteLine(GeneratedFixtureRunner.FormatJson(run));
+        }
+        else
+        {
+            Console.Write(GeneratedFixtureRunner.FormatReport(run));
+        }
+        if (keepArtifacts && !json)
         {
             Console.WriteLine();
             Console.WriteLine($"Generated fixture project: {run.ProjectDirectory}");
@@ -239,6 +266,14 @@ static class Program
         }
         return run.Passed ? 0 : 1;
     }
+
+    static bool LooksLikePath(string value) =>
+        value.Contains(Path.DirectorySeparatorChar)
+        || value.Contains(Path.AltDirectorySeparatorChar)
+        || value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+        || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+        || value.EndsWith(".so", StringComparison.OrdinalIgnoreCase)
+        || value.EndsWith(".dylib", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The self-contained real-gap view. It inspects only the raised tree:
@@ -1152,9 +1187,13 @@ static class Program
                                 remarks by generated-name family. Use --json for
                                 machine-readable output.
           --dec0009-shapes       alias for --classify-dec0009.
-          --generated-fixtures   generate the seed fixture catalogue into a
+          --generated-fixtures [id|prefix|list]
+                                generate selected fixture catalogue entries into a
                                 temporary class library, run compile-back, and
-                                report by fixture ID and target method.
+                                report by fixture ID and target method. With no
+                                selector, run all generated fixtures. Use
+                                "list" to list fixture IDs. Add --json for
+                                machine-readable list/results.
           --keep-generated-fixtures
                                 with --generated-fixtures: keep the temporary
                                 project and print its paths.
