@@ -226,8 +226,8 @@ jobs:
       - name: Run decompiler unit tests (fast)
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
-      - name: Run analysis tests
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
+      - name: Run analysis tests (fast)
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
 
       # The IL round-trip oracle (vendored managed ILAssembler) is
       # platform-neutral at the IL level, so one leg suffices. It is expensive,
