@@ -1960,6 +1960,14 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    string? _dateTimeFormat;
+
+    public string? SlotMergedDateTimeFormat
+    {
+        get => _dateTimeFormat;
+        set => _dateTimeFormat = string.IsNullOrEmpty(value) ? null : value;
+    }
+
     public static int GuardReturnAfterLocalPrelude(int value, int whenPositive, int otherwise)
     {
         int positive = whenPositive;
@@ -4232,8 +4240,6 @@ public static class EnumCastSamples
         return seed;
     }
 }
-
-
 // Issue #1759: a reference-typed value produced by `as`/isinst and tested for
 // truthiness in a branch (here the `?.Dispose()` null-conditional inside a
 // finally) must render `is null`/`is not null`, not `!S` — `!IDisposable` is

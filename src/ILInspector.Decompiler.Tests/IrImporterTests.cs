@@ -1953,6 +1953,91 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void ReferenceConditionalStore_UsesConsumerSlotType()
+    {
+        // A null/string conditional can arrive with object as its merged stack type
+        // while the single live consumer is a string field store. The slot must
+        // declare as the consumer type; otherwise the load gets a split S_0_1 name
+        // that was never assigned (CS0165).
+        var owner = TypeRef.Definition("Synthetic", "Samples", "SlotProbe");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Conditional(
+            new LoadArgument(1, "empty", boolType),
+            new Constant(null, objectType),
+            new LoadArgument(2, "value", stringType))
+        { MergedType = objectType }));
+        block.Add(new StoreField(
+            new FieldRef(owner, "_fmt", stringType),
+            new LoadArgument(0, "this", owner),
+            new LoadStackSlot(0, stringType)));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(voidType,
+            [new Parameter("empty", boolType), new Parameter("value", stringType)],
+            HasThis: true,
+            GenericParameterCount: 0);
+        var function = new IrFunction("set_DateTimeFormat", owner, signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("string S_0", output);
+        Assert.Contains("_fmt = S_0;", output);
+        Assert.DoesNotContain("object S_0", output);
+        Assert.DoesNotContain("S_0_1", output);
+    }
+
+    [Fact]
+    public void ReferenceConditionalStore_DoesNotNarrowToUnprovenReferenceTarget()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "SlotProbe");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var unresolved = TypeRef.Definition("OtherAssembly", "Samples", "MaybeStruct");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Conditional(
+            new LoadArgument(0, "empty", boolType),
+            new Constant(null, objectType),
+            new LoadArgument(1, "value", unresolved))
+        { MergedType = objectType }));
+        block.Add(new StoreField(
+            new FieldRef(owner, "Maybe", unresolved),
+            new LoadArgument(2, "this", owner),
+            new LoadStackSlot(0, unresolved)));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(voidType,
+            [new Parameter("empty", boolType), new Parameter("value", unresolved)],
+            HasThis: true,
+            GenericParameterCount: 0);
+        var function = new IrFunction("set_Maybe", owner, signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("object S_0", output);
+        Assert.DoesNotContain("MaybeStruct S_0 =", output);
+    }
+
+    [Fact]
+    public void ReferenceConditionalStore_CompiledSetterUsesOneSlotName()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, "set_SlotMergedDateTimeFormat", source);
+
+        Assert.Contains("_dateTimeFormat", output);
+        Assert.DoesNotContain("object S_", output);
+        Assert.DoesNotContain("S_1_1", output);
+    }
+
+    [Fact]
     public void BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct()
     {
         // A ?. bool test can reuse the same edge slot first for the string
