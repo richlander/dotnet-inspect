@@ -178,6 +178,17 @@ public class CfgSampleClass
     public static int AndNestedBoolIntMix(int a, int i, int j)
         => ((((a > 0 ? 1 : 0) & i) != 0) ? 1 : 0) & j;
 
+    // A comparison result consumed directly by integer arithmetic stays an i4 0/1
+    // on the IL stack (`cgt; add`). C# cannot spell `int + bool`, so the bool
+    // operand must materialize back to `cond ? 1 : 0`.
+    public static int BoolArithmeticChunkCount(string value)
+        => (value.Length / 10240) + ((value.Length % 10240) > 0 ? 1 : 0);
+
+    // Both arithmetic operands can be comparison-produced bools. Each one must
+    // materialize; leaving either side raw is still invalid C#.
+    public static int BoolArithmeticTwoComparisons(int left, int right)
+        => (left > 0 ? 1 : 0) + (right > 0 ? 1 : 0);
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.

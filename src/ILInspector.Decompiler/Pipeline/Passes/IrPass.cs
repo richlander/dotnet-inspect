@@ -204,6 +204,10 @@ public static class IrPasses
         // flat it renders `b > false` (CS0019) and the method never binds. Runs
         // after inlining so the bool operand is in its final position.
         new BoolToIntNormalizationPass(),
+        // A comparison or bool slot consumed by integer arithmetic is an i4 0/1
+        // value in IL, but C# rejects `int + bool`; materialize the bool operand
+        // before the printer sees the binary.
+        new ArithmeticBoolOperandPass(),
         // The operand-side complement of the bool→int normalization: a bool
         // operand of an integer bitwise &/|/^ (a comparison result or bool slot
         // landing in `flags | (b ? 1 : 0)` shape) is `bool & int` (CS0019).
