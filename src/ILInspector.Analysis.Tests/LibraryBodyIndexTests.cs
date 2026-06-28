@@ -1295,27 +1295,48 @@ public class LibraryBodyIndexTests
             .ToList();
 
     [Fact]
-    public void OptimizationOpportunities_AllocationDenseMethod_IsAllocationHotspot()
+    public void OptimizationOpportunities_AllocationDenseNonLoopMethod_IsNotHotspot()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        // A method that allocates many objects but matches no specific shape still surfaces as
-        // an allocation-hotspot (the count itself is the file-able signal). Not in a loop -> medium.
-        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
-        Assert.Equal("medium", row.Confidence);
-        Assert.False(row.InLoop);
-        Assert.Contains("heap allocations", row.Evidence);
+        // A dense but NON-loop method is usually intrinsic one-shot construction, not
+        // reducible repeated waste -> no hotspot row (avoids flooding allocation-heavy code).
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
     }
 
     [Fact]
-    public void OptimizationOpportunities_AllocationDenseLoop_IsHighConfidenceHotspot()
+    public void OptimizationOpportunities_AllocationDenseLoop_IsMediumHotspot()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        // Allocating in a loop is repeated cost -> the hotspot is promoted to high confidence.
+        // Dense allocation inside a loop, matching no specific shape -> a medium hotspot.
         var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)));
-        Assert.Equal("high", row.Confidence);
+        Assert.Equal("medium", row.Confidence);
         Assert.True(row.InLoop);
+        Assert.Contains("in a loop", row.Evidence);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_AllocationDenseLoopWithSpecificShape_IsDeduped()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // The method is dense-in-loop but already has a specific (capturing-delegate) row, so
+        // the vague aggregate hotspot row is deduped away.
+        Assert.NotEmpty(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.AllocatesDenselyInLoopWithDelegate)
+            && o.Shape == "capturing-delegate"));
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesDenselyInLoopWithDelegate)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ValueTypeConstructionInLoop_IsNotHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A loop densely constructing VALUE types (Nullable + an in-assembly struct) clears the
+        // >= 16 newobj count but allocates nothing on the heap -> must not be a hotspot.
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ConstructsManyValueTypesInLoop)));
     }
 
     [Fact]
@@ -1338,29 +1359,37 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_PseudoExceptionAllocations_AreAllocationHotspot()
+    public void OptimizationOpportunities_PseudoExceptionAllocationsInLoop_AreAllocationHotspot()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
         var signals = index.GetMethodSignals();
 
+        // Pseudo-exceptions (non-Exception types named like exceptions) are real steady-state
+        // allocations and must not be excluded as exception construction.
         var method = Assert.Single(index.Methods.Where(m =>
-            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptions)));
+            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptionsInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
-        Assert.True(s.Allocations >= 8, $"expected >= 8 allocations, got {s.Allocations}");
+        Assert.True(s.Allocations >= 16, $"expected >= 16 allocations, got {s.Allocations}");
 
-        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptions)));
+        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptionsInLoop)));
         Assert.Equal("medium", row.Confidence);
-        Assert.False(row.InLoop);
+        Assert.True(row.InLoop);
     }
 
     [Fact]
-    public void OptimizationOpportunities_PlainObjectAllocations_RemainAllocationHotspot()
+    public void OptimizationOpportunities_PlainObjectAllocationsNonLoop_AreNotHotspot()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
 
-        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPlainObjects)));
-        Assert.Equal("medium", row.Confidence);
-        Assert.False(row.InLoop);
+        // Plain custom objects are counted as allocations (not excluded), but a non-loop
+        // dense method is no longer flagged as a hotspot.
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyPlainObjects)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.Allocations >= 8, $"expected >= 8 allocations, got {s.Allocations}");
+
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPlainObjects)));
     }
 
     [Fact]
@@ -1525,17 +1554,17 @@ public class LibraryBodyIndexTests
         Assert.True(Signal(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)).AllocInLoop, "alloc-in-loop hot path");
 
         // --- OptimizationOpportunity shapes ---
-        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.AllocatesManyObjects), "allocation-hotspot"), "allocation-hotspot");
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot"), "allocation-hotspot");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate"), "stackalloc-candidate");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy), "span-to-array-copy"), "span-to-array-copy");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.FirstValueByte), "temporary-byte-array-copy"), "temporary-byte-array-copy");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), "box-value-type"), "box-value-type");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type"), "box: external well-known value type (Guid)");
 
-        // High-confidence (in-loop) promotion of an allocation hotspot is itself a recalled signal.
+        // A dense in-loop allocation hotspot (matching no specific shape) is recalled at medium.
         Assert.Contains(index.OptimizationOpportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)
-            && o.Shape == "allocation-hotspot" && o.InLoop && o.Confidence == "high");
+            && o.Shape == "allocation-hotspot" && o.InLoop && o.Confidence == "medium");
     }
 
     [Fact]
@@ -2372,20 +2401,39 @@ public class OptimizationOpportunityFixtures
         return items;
     }
 
-    // >= threshold heap allocations with allocations inside a loop -> a high allocation-hotspot.
+    // >= threshold heap allocations inside a loop, matching no specific shape -> a medium
+    // allocation-hotspot (repeated, dense, not otherwise pinpointed).
     public static object AllocatesManyObjectsInLoop(int n)
     {
         var items = new System.Collections.Generic.List<object>();
         for (int i = 0; i < n; i++)
         {
-            items.Add(new object());
-            items.Add(new object());
-            items.Add(new object());
-            items.Add(new object());
-            items.Add(new object());
-            items.Add(new object());
-            items.Add(new object());
-            items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+        }
+        return items;
+    }
+
+    // Dense allocations inside a loop, but the method ALSO allocates a capturing delegate (a
+    // specific shape). The hotspot row is deduped away so it doesn't double-count the
+    // already-pinpointed method.
+    public static object AllocatesDenselyInLoopWithDelegate(int n)
+    {
+        var items = new System.Collections.Generic.List<object>();
+        System.Func<int> captured = () => n + 1;
+        items.Add(captured());
+        for (int i = 0; i < n; i++)
+        {
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
+            items.Add(new object()); items.Add(new object()); items.Add(new object());
         }
         return items;
     }
@@ -2419,6 +2467,46 @@ public class OptimizationOpportunityFixtures
         var a6 = new PseudoException(6);
         var a7 = new PseudoException(7);
         return a0.Value + a1.Value + a2.Value + a3.Value + a4.Value + a5.Value + a6.Value + a7.Value;
+    }
+
+    // Pseudo-exceptions (non-Exception types named like exceptions) are real steady-state
+    // allocations, so a loop densely constructing them is a hotspot (confirms they are not
+    // wrongly excluded as exception construction).
+    public static int AllocatesManyPseudoExceptionsInLoop(int n)
+    {
+        var total = 0;
+        for (int i = 0; i < n; i++)
+        {
+            total += new PseudoException(0).Value + new PseudoException(1).Value + new PseudoException(2).Value
+                + new PseudoException(3).Value + new PseudoException(4).Value + new PseudoException(5).Value
+                + new PseudoException(6).Value + new PseudoException(7).Value + new PseudoException(8).Value
+                + new PseudoException(9).Value + new PseudoException(10).Value + new PseudoException(11).Value
+                + new PseudoException(12).Value + new PseudoException(13).Value + new PseudoException(14).Value
+                + new PseudoException(15).Value + new PseudoException(16).Value + new PseudoException(17).Value;
+        }
+        return total;
+    }
+
+    // Densely constructs VALUE types in a loop (Nullable + an in-assembly struct). None of
+    // these `newobj` allocate on the heap, so the method must NOT be an allocation-hotspot
+    // even though it clears the >= 16 newobj count.
+    public static int ConstructsManyValueTypesInLoop(int n)
+    {
+        var total = 0;
+        for (int i = 0; i < n; i++)
+        {
+            System.Nullable<int> n0 = new System.Nullable<int>(0); System.Nullable<int> n1 = new System.Nullable<int>(1);
+            System.Nullable<int> n2 = new System.Nullable<int>(2); System.Nullable<int> n3 = new System.Nullable<int>(3);
+            System.Nullable<int> n4 = new System.Nullable<int>(4); System.Nullable<int> n5 = new System.Nullable<int>(5);
+            System.Nullable<int> n6 = new System.Nullable<int>(6); System.Nullable<int> n7 = new System.Nullable<int>(7);
+            System.Nullable<int> n8 = new System.Nullable<int>(8); System.Nullable<int> n9 = new System.Nullable<int>(9);
+            var p0 = new PlainValue(0); var p1 = new PlainValue(1); var p2 = new PlainValue(2);
+            var p3 = new PlainValue(3); var p4 = new PlainValue(4); var p5 = new PlainValue(5);
+            var p6 = new PlainValue(6); var p7 = new PlainValue(7);
+            total += (n0 ?? 0) + (n1 ?? 0) + (n2 ?? 0) + (n3 ?? 0) + (n4 ?? 0) + (n5 ?? 0) + (n6 ?? 0)
+                + (n7 ?? 0) + (n8 ?? 0) + (n9 ?? 0) + p0.V + p1.V + p2.V + p3.V + p4.V + p5.V + p6.V + p7.V;
+        }
+        return total;
     }
 
     public static int AllocatesManyPlainObjects()
@@ -2559,6 +2647,15 @@ public sealed class PlainObject
     public PlainObject(int value) => Value = value;
 
     public int Value { get; }
+}
+
+// An in-assembly value type: `new PlainValue(...)` does not allocate on the heap, so it must
+// not count toward allocation-hotspot density.
+public struct PlainValue
+{
+    public PlainValue(int v) => V = v;
+
+    public int V { get; }
 }
 
 public sealed class FixtureException : Exception

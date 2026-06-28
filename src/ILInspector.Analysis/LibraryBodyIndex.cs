@@ -23,7 +23,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<int, BodySignals> bodySignals,
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
-        IReadOnlySet<string> exceptionTypeNames)
+        IReadOnlySet<string> exceptionTypeNames,
+        IReadOnlySet<string> inAssemblyValueTypeNames)
     {
         Path = path;
         Methods = methods;
@@ -38,6 +39,7 @@ public sealed class LibraryBodyIndex
         _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
+        _inAssemblyValueTypeNames = inAssemblyValueTypeNames;
     }
 
     public string Path { get; }
@@ -74,7 +76,7 @@ public sealed class LibraryBodyIndex
                         var confidence = AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
                         return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
                     }),
-                    .. AllocationHotspots(reachByToken),
+                    .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities.Select(o => o.Method.MetadataToken))),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
             }
@@ -93,14 +95,34 @@ public sealed class LibraryBodyIndex
         return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
     }
 
-    // Methods that allocate heavily but match no specific rewrite shape are the most
-    // commonly-missed real perf issues (e.g. a number parser doing many small allocations).
-    // The steady-state allocation count is itself a file-able signal — "reduce allocations in
-    // this hot method" — so surface allocation-dense methods as their own opportunity, ranked
-    // by the same loop/leverage priority as shaped rows. Exception-construction allocations are
-    // excluded (they only allocate on throw paths, not steady state), and source-/compiler-
-    // generated methods are suppressed just as for shaped opportunities.
-    const int AllocationHotspotThreshold = 8;
+    // True when a `newobj` of this type does NOT allocate on the heap: a value type (struct/
+    // enum). The common framework value types constructed in hot loops (Span/ReadOnlySpan/
+    // Memory/Nullable/ValueTuple) are matched by identity; in-assembly structs/enums are
+    // matched via the value-type name set resolved from metadata. Counting these as heap
+    // allocations would inflate allocation-hotspot density (e.g. generated JSON parse loops
+    // are full of ReadOnlySpan<byte>/Nullable<T> constructors that allocate nothing).
+    bool IsNonHeapConstruction(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (definition.Kind == TypeRefKind.Unsupported)
+            return false;
+        if (definition.Namespace == "System" && definition.Name is
+                "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
+                or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
+                or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
+            return true;
+        return _inAssemblyValueTypeNames.Contains(definition.ToQualifiedDisplayString());
+    }
+
+    // A method that allocates densely is a real perf signal only when the allocations are
+    // both REPEATED (in a loop) and not already pinpointed by a specific shape — otherwise
+    // the count is dominated by intrinsic, non-reducible construction (e.g. a serializer
+    // building its output model), which floods the section on allocation-heavy assemblies.
+    // So allocation-hotspot fires only for a method that (1) is not already covered by a
+    // specific-shape row, (2) allocates inside a loop, and (3) clears a high density bar.
+    // Exception-construction allocations are excluded (throw-path only), and source-/
+    // compiler-generated methods are suppressed just as for shaped opportunities.
+    const int AllocationHotspotThreshold = 16;
 
     // A non-loop delegate is allocated once per call, so it is low-value in a cold method —
     // but on a high-reach (widely-reached, hot) method it is a real per-call heap allocation
@@ -120,7 +142,7 @@ public sealed class LibraryBodyIndex
             ? "medium"
             : confidence;
 
-    IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken)
+    IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
     {
         var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
         foreach (var method in Methods)
@@ -137,6 +159,11 @@ public sealed class LibraryBodyIndex
             if (call.Callee.Kind != MemberKind.Unsupported
                 && IsExceptionConstruction(call.Callee.DeclaringType))
                 continue;
+            // A `newobj` of a value type (Span/Nullable/ValueTuple/in-assembly struct) does not
+            // allocate on the heap, so it must not count toward allocation density.
+            if (call.Callee.Kind != MemberKind.Unsupported
+                && IsNonHeapConstruction(call.Callee.DeclaringType))
+                continue;
             int token = call.Caller.MetadataToken;
             steadyNewobj[token] = steadyNewobj.GetValueOrDefault(token) + 1;
             if (call.InLoop)
@@ -147,20 +174,29 @@ public sealed class LibraryBodyIndex
         {
             if (_suppressedOpportunityTokens.Contains(token))
                 continue;
+            // Dedup: a method already pinpointed by a specific shape (delegate/box/array/…)
+            // doesn't also need a vague aggregate-density row; that only double-counts and
+            // drowns the actionable specific rows.
+            if (methodsWithSpecificShape.Contains(token))
+                continue;
             _bodySignals.TryGetValue(token, out var body);
+            // Only loop allocations are repeated; a once-per-call dense method is usually
+            // intrinsic construction (e.g. building an output object), not reducible waste.
+            bool inLoop = steadyNewobjLoop.Contains(token) || body.AllocInLoop;
+            if (!inLoop)
+                continue;
             int allocations = steadyNewobj.GetValueOrDefault(token) + body.Newarr + body.Boxes;
             if (allocations < AllocationHotspotThreshold)
                 continue;
-            bool inLoop = steadyNewobjLoop.Contains(token) || body.AllocInLoop;
             yield return new OptimizationOpportunity(
                 method,
                 "allocation-hotspot",
-                $"{allocations} heap allocations (newobj/newarr/box)",
-                "Many allocations in one method are often reducible: pool or cache reused objects, use spans/stackalloc for transient buffers, and avoid intermediate collections on hot paths.",
-                inLoop ? "high" : "medium",
-                inLoop,
+                $"{allocations} heap allocations in a loop (newobj/newarr/box)",
+                "Many allocations in one loop are often reducible: pool or cache reused objects, use spans/stackalloc for transient buffers, and avoid intermediate collections on hot paths.",
+                "medium",
+                true,
                 null,
-                "Aggregate allocation density (excludes exception construction); review the method's hot paths.",
+                "Aggregate loop-allocation density (excludes exception construction); some may be intrinsic object construction. Review the loop body for reducible temporaries.",
                 reachByToken.GetValueOrDefault(token));
         }
     }
@@ -372,6 +408,7 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
+    readonly IReadOnlySet<string> _inAssemblyValueTypeNames;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
@@ -506,7 +543,8 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
+            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
+            index.InAssemblyValueTypeNames);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -942,7 +980,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<string> InAssemblyValueTypeNames) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -953,6 +991,7 @@ public sealed class LibraryBodyIndex
             var bodySignals = new Dictionary<int, BodySignals>();
             var suppressedOpportunityTokens = new HashSet<int>();
             var exceptionTypeNames = ComputeExceptionTypeNames();
+            var inAssemblyValueTypeNames = ComputeInAssemblyValueTypeNames();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -1016,7 +1055,7 @@ public sealed class LibraryBodyIndex
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
-                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames);
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, inAssemblyValueTypeNames);
         }
 
         // Classifies in-assembly types by whether they derive from System.Exception,
@@ -1080,6 +1119,26 @@ public sealed class LibraryBodyIndex
                 }
                 return false;
             }
+        }
+
+        // In-assembly value types (struct/enum) by qualified name. A `newobj` of one of these
+        // does NOT allocate on the heap, so it must not be counted toward allocation density.
+        IReadOnlySet<string> ComputeInAssemblyValueTypeNames()
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var typeHandle in _reader.TypeDefinitions)
+            {
+                var baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
+                if (baseHandle.Kind != HandleKind.TypeReference)
+                    continue;
+                var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
+                if (_reader.GetString(baseRef.Namespace) == "System"
+                    && _reader.GetString(baseRef.Name) is "ValueType" or "Enum")
+                {
+                    names.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0).ToQualifiedDisplayString());
+                }
+            }
+            return names;
         }
 
         IReadOnlySet<string> ComputeExceptionTypeNames()
