@@ -9,6 +9,9 @@ namespace ILInspector.Decompiler.Tests;
 // rendering the bare `ref` form.
 public class AddressInValuePositionTests
 {
+    static readonly TypeRef Int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef NInt = TypeRef.CoreLib("System", "IntPtr");
+
     static string Render(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -16,6 +19,30 @@ public class AddressInValuePositionTests
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
+        return CSharpPrinter.Print(function).Output!;
+    }
+
+    static string RenderSyntheticNarrowedAddress()
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(
+            0,
+            NInt,
+            new ILInspector.Decompiler.Pipeline.Convert(
+                Int,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgumentAddress(0, "value", Int))));
+        block.Add(new Return(null));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("value", Int)], HasThis: false, GenericParameterCount: 0),
+            [NInt],
+            body);
         return CSharpPrinter.Print(function).Output!;
     }
 
@@ -62,6 +89,16 @@ public class AddressInValuePositionTests
         var output = Render(nameof(CfgSampleClass.StoreArgumentAddressAsNativeInt));
 
         Assert.Contains("s_argumentAddress = (nint)(&value);", output);
+        Assert.DoesNotContain("ref value", output);
+    }
+
+    [Fact]
+    public void NonNativeAddressConversion_PreservesIntermediateConversion()
+    {
+        var output = RenderSyntheticNarrowedAddress();
+
+        Assert.Contains("nint V_0 = (int)(&value);", output);
+        Assert.DoesNotContain("= (nint)(&value);", output);
         Assert.DoesNotContain("ref value", output);
     }
 }

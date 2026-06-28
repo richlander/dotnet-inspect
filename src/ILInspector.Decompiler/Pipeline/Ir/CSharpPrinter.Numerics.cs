@@ -990,7 +990,11 @@ public sealed partial class CSharpPrinter
         => value switch
         {
             LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => value,
-            Convert { Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress } convert => convert.Operand,
+            Convert
+            {
+                Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
+                Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
+            } convert => convert.Operand,
             _ => null,
         };
 
