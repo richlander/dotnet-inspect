@@ -89,6 +89,14 @@ public class FidelityGateTests
         // they are not docketed.
         "OrBoolIntMix",
         "OrBoolUintMix",
+        // SwitchStoreThenUse is the #1710 ConditionalStoreChainPass fold: a
+        // compare-chain switch assigning a local folds to a nested conditional
+        // store, which csc re-lowers differently than the original per-arm stores
+        // (push-then-store-once vs store-per-arm) — valid C#, not opcode-exact.
+        // Pinned here (plus SwitchStoreFold_StaysCompileBackCheckable) so the fold
+        // is compile-back-checked on every fidelity-gate run rather than left to
+        // the sampled corpus.
+        "SwitchStoreThenUse",
     };
 
     /// <summary>
@@ -263,5 +271,32 @@ public class FidelityGateTests
                     $"{method} regressed to {result.Status}: a prior fidelity check fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
         }
+    }
+
+    /// <summary>
+    /// The #1710 switch-store fold (<c>ConditionalStoreChainPass</c>) recovers an
+    /// intentional opcode-diff (the nested ternary re-lowers differently), so it
+    /// cannot be pinned exact. But its danger mode is a <em>silent</em> regression
+    /// that produces uncompilable output: that would drop it out of the opcode-diff
+    /// set, so <see cref="NoNewOpcodeDiffsBeyondKnownDocket"/> would not catch it.
+    /// Pin that the fold's fixture stays compile-back-<em>checkable</em> — rendered
+    /// and recompilable (<c>Exact</c> or <c>OpcodeDiff</c>), never
+    /// <c>RecompileFail</c>/<c>ContextFail</c> — so a regression that breaks
+    /// recompilation fails the always-run fidelity gate rather than only the
+    /// sampled corpus.
+    /// </summary>
+    [Fact]
+    public void SwitchStoreFold_StaysCompileBackCheckable()
+    {
+        var matches = EvaluateFixtures().Where(r => r.Method == "SwitchStoreThenUse").ToList();
+
+        Assert.True(matches.Count > 0,
+            "Expected the fidelity check to render SwitchStoreThenUse, but it was not evaluated.");
+        foreach (var result in matches)
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                $"SwitchStoreThenUse regressed to {result.Status}: the switch-store fold (#1710) no longer "
+                    + "recompiles. Its decompiled C# must stay recompilable.\n"
+                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
     }
 }
