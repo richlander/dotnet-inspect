@@ -202,12 +202,75 @@ public class LibraryBodyIndexTests
         var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
 
         var store = targetIndex.Methods.First(method =>
-            method.DeclaringType.Name == "Box`1" && method.Name == "Store");
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
         var tree = targetIndex.BuildCallerTree(store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
 
         var callerNames = tree.Children.Select(child => child.Member.Name).ToList();
         Assert.Contains("UseBox", callerNames);
         Assert.Contains("ILInspector.Analysis.CallerGraphCaller", tree.Children.Select(child => child.Perf?.Source));
+    }
+
+    // #1731: Box<T>.Store(T) and Box<T>.Store(List<T>) share name and arity on the same
+    // generic declaring type. Cross-assembly caller graph identity must keep them distinct
+    // — rooting at one overload reports only its own constructed caller, not the other's.
+    // The prior arity-only erasure (open declaring + name + parameter count) collapsed them
+    // and cross-linked the callers, which de-verified #1623 rung 1.
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsSameArityGenericOverloadsDistinct()
+    {
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var storeValue = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
+        var storeList = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericInstance);
+
+        var valueCallers = targetIndex.BuildCallerTree(storeValue.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+        var listCallers = targetIndex.BuildCallerTree(storeList.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+
+        Assert.Contains("UseBox", valueCallers);
+        Assert.DoesNotContain("UseBoxList", valueCallers);
+        Assert.Contains("UseBoxList", listCallers);
+        Assert.DoesNotContain("UseBox", listCallers);
+    }
+
+    // #1731 (adversarial review): the cross-assembly caller-graph shape keys on the OPEN
+    // signature (VAR/MVAR markers), not the substituted concrete types. A constructed
+    // Box<int>.Store(T) call carries a concrete int as its instantiated parameter, but the
+    // open signature retains the type-parameter marker — so a type-parameter instantiation
+    // stays distinct from a literal of the same type, and the shape matches the open target.
+    [Fact]
+    public void ResolvedCall_PreservesOpenGenericMarker_DistinctFromInstantiatedParameter()
+    {
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var storeValueCall = caller.DirectCalls.First(call =>
+            call.Callee.Name == "Store" && call.Callee.ParameterTypes[0].Kind == TypeRefKind.Definition);
+
+        // Instantiated parameter is the concrete int; the open signature keeps the marker.
+        Assert.Equal(TypeRefKind.Definition, storeValueCall.Callee.ParameterTypes[0].Kind);
+        Assert.Equal(TypeRefKind.GenericParameter, storeValueCall.Callee.OpenSignatureParameters[0].Kind);
+    }
+
+    // #1731 (adversarial review, finding B): the erased generic shape qualifies a generic
+    // instance by namespace, so N1.Foo<T> and N2.Foo<T> (same metadata name, different
+    // namespace) do not collapse.
+    [Fact]
+    public void ErasedParameterShape_QualifiesGenericInstanceByNamespace()
+    {
+        var typeParameter = TypeRef.GenericParameter(0, "T");
+        var foo1 = TypeRef.GenericInstance(TypeRef.Definition("AsmA", "N1", "Foo`1"), [typeParameter]);
+        var foo2 = TypeRef.GenericInstance(TypeRef.Definition("AsmB", "N2", "Foo`1"), [typeParameter]);
+
+        Assert.NotEqual(
+            GenericMemberIdentity.ErasedParameterShape([foo1]),
+            GenericMemberIdentity.ErasedParameterShape([foo2]));
     }
 
     [Fact]

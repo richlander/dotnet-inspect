@@ -25,7 +25,7 @@ namespace ILInspector.Analysis;
 /// are an accepted coarsening, far preferable to the prior zero-match under-report.
 /// Non-generic members are left on their exact instantiated signature.
 /// </summary>
-internal static class GenericMemberIdentity
+public static class GenericMemberIdentity
 {
     /// <summary>
     /// The open named definition of a (possibly constructed) declaring type, so a
@@ -79,4 +79,36 @@ internal static class GenericMemberIdentity
             || typeArguments.Length > 0
             || ContainsGenericParameter(returnType)
             || parameterTypes.Any(ContainsGenericParameter);
+
+    /// <summary>
+    /// A cross-assembly-stable parameter shape for an erased generic member, computed
+    /// from the <em>open</em> signature (VAR/MVAR markers preserved): a type generic
+    /// parameter renders as <c>!i</c>, a method generic parameter as <c>!!i</c>, generic
+    /// instances and array/byref/pointer wrappers recurse, and any other type uses its
+    /// namespace-qualified display. The open definition and a constructed call site both
+    /// carry the same markers, so they collapse onto one key, while same-arity overloads
+    /// with a different parameter structure — <c>Box&lt;T&gt;.Store(T)</c> vs
+    /// <c>Box&lt;T&gt;.Store(List&lt;T&gt;)</c>, or a type-parameter vs a literal of the
+    /// same instantiated type — stay distinct (#1731). The earlier erasure kept only the
+    /// parameter count.
+    /// </summary>
+    public static string ErasedParameterShape(ImmutableArray<TypeRef> openParameterTypes)
+        => string.Join(",", openParameterTypes.Select(NormalizeShape));
+
+    static string NormalizeShape(TypeRef type) => type.Kind switch
+    {
+        TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
+        TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
+        TypeRefKind.GenericInstance when type.ElementType is { } definition
+            => $"{definition.ToQualifiedDisplayString()}<{string.Join(",", type.TypeArguments.Select(NormalizeShape))}>",
+        TypeRefKind.SzArray when type.ElementType is { } element
+            => $"{NormalizeShape(element)}[]",
+        TypeRefKind.Array when type.ElementType is { } element
+            => $"{NormalizeShape(element)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
+        TypeRefKind.ByRef when type.ElementType is { } element
+            => $"ref {NormalizeShape(element)}",
+        TypeRefKind.Pointer when type.ElementType is { } element
+            => $"{NormalizeShape(element)}*",
+        _ => type.ToQualifiedDisplayString(),
+    };
 }

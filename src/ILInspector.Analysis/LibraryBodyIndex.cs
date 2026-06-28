@@ -886,6 +886,7 @@ public sealed class LibraryBodyIndex
             member.DeclaringType,
             member.Name,
             member.ParameterTypes,
+            member.ParameterTypes,
             member.ReturnType,
             GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, []));
 
@@ -894,14 +895,15 @@ public sealed class LibraryBodyIndex
             member.DeclaringType,
             member.Name,
             member.ParameterTypes,
+            member.OpenSignatureParameters,
             member.ReturnType,
             GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, member.TypeArguments));
 
-    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType, bool eraseGenericSignature)
+    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, ImmutableArray<TypeRef> openParameterTypes, TypeRef returnType, bool eraseGenericSignature)
     {
         var openDeclaring = GenericMemberIdentity.OpenDeclaringType(declaringType);
         return eraseGenericSignature
-            ? $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|<generic>"
+            ? $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{GenericMemberIdentity.ErasedParameterShape(openParameterTypes)}"
             : $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
     }
 
