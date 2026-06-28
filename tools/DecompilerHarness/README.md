@@ -14,7 +14,8 @@ compile-back oracle, and prints results by stable fixture ID plus target method.
 This is the first step toward an addressable progressive fixture ladder:
 `minimal.property.literal`, `minimal.ctor-field.getter`,
 `minimal.auto-property.getter`, `minimal.method-call.same-type`, and
-`minimal.primary-ctor.field-init` are expected `Exact`. With no selector, all
+`minimal.primary-ctor.field-init` are expected `Exact`; the static-call, if/else,
+and null-coalescing rungs extend that minimal exact set. With no selector, all
 generated fixtures run; use `list` to list fixture IDs, `--json` for
 machine-readable list/results, and `--keep-generated-fixtures` to preserve the
 generated project for drill-down.

@@ -126,6 +126,69 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "method-call"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalStaticMethodCall = new(
+        "minimal.static-method-call",
+        """
+        namespace GeneratedFixtures.MinimalStaticMethodCall;
+
+        public class Class1
+        {
+            public static string Method1() => Helper();
+
+            private static string Helper() => "Hello World";
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStaticMethodCall.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticMethodCall.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticMethodCall.Class1", "Helper",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "static", "method-call"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
+        "minimal.if-else",
+        """
+        namespace GeneratedFixtures.MinimalIfElse;
+
+        public class Class1
+        {
+            public int Method1(int value)
+            {
+                if (value < 0)
+                    return -1;
+                return 1;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalIfElse.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIfElse.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "branch", "if-else"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalNullCoalesce = new(
+        "minimal.null-coalesce",
+        """
+        namespace GeneratedFixtures.MinimalNullCoalesce;
+
+        public class Class1
+        {
+            public string Method1(string value) => value ?? "fallback";
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalNullCoalesce.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalNullCoalesce.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "null-coalesce"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
@@ -133,6 +196,9 @@ internal static class GeneratedFixtureCatalog
         MinimalCtorFieldGetter,
         MinimalAutoPropertyGetter,
         MinimalMethodCallSameType,
+        MinimalStaticMethodCall,
+        MinimalIfElse,
+        MinimalNullCoalesce,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
