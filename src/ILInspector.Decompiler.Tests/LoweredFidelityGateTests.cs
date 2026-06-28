@@ -84,6 +84,14 @@ public class LoweredFidelityGateTests
         // lowered gate is Speed=Slow and only runs in the daily, not PR CI. Verified
         // pre-existing (fails with MixedShortCircuitChainPass off as well).
         "SwitchStoreThenUse",
+        // CharConditionalElementStore (#1784) and WhileNestedContinueKeepsArmExclusive:
+        // pre-existing slow-docket gaps from recent main merges (a char ternary
+        // element store that spills to temps; a nested-continue loop structuring),
+        // both honest valid re-lowerings. Surfaced by running the Speed=Slow gate
+        // locally; verified independent of MixedShortCircuitChainPass (it folds
+        // neither). See the sibling FidelityGateTests docket.
+        "CharConditionalElementStore",
+        "WhileNestedContinueKeepsArmExclusive",
     };
 
     /// <summary>

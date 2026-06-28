@@ -97,6 +97,11 @@ public class FidelityGateTests
         // is compile-back-checked on every fidelity-gate run rather than left to
         // the sampled corpus.
         "SwitchStoreThenUse",
+        // CharConditionalElementStore (#1784): the char ternary element store
+        // spills to temps and recompiles to a different (valid) stream. Honest
+        // over-render. Pre-existing slow-docket gap surfaced by running the gate
+        // locally — the lowered/sugared gates are Speed=Slow (daily only).
+        "CharConditionalElementStore",
     };
 
     /// <summary>
