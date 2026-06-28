@@ -1592,6 +1592,49 @@ public class LibraryBodyIndexTests
         Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ConstructsManyValueTypesInLoop)));
     }
 
+    // #1804 / rung 7 cross-assembly shape honesty: the allocation signal must classify a
+    // `newobj` by the constructed type's true shape, resolving what it can from the inspected
+    // assembly's own metadata and degrading honestly otherwise.
+    [Fact]
+    public void Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
+
+        // Case 1 (in-assembly struct): resolvable from this assembly's metadata -> not heap.
+        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsInAssemblyStructInLoop)));
+
+        // Case 2 (cross-assembly GENERIC struct): the consumer's own TypeSpec signature blob
+        // encodes VALUETYPE, so the `newobj` is resolved as non-heap even though the defining
+        // assembly is not loaded.
+        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossGenericStructInLoop)));
+
+        // A cross-assembly REFERENCE type's `newobj` is a real heap allocation (recall kept).
+        Assert.True(AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossRefTypeInLoop)) >= 1);
+
+        // A cross-assembly enum cast/use allocates nothing.
+        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.UsesCrossEnum)));
+    }
+
+    [Fact]
+    public void Allocations_CrossAssemblyNonGenericStructNewobj_IsOwnedFalsePositive()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
+
+        // #1804 / rung 7 owned boundary. A cross-assembly NON-generic user struct is a bare
+        // TypeRef whose value-type-ness cannot be proven without loading the referenced
+        // assembly (Invariant 1: the product is SRM-direct). Its `newobj` is therefore counted
+        // as a heap allocation -- a deliberately-owned false positive, pinned here so the
+        // boundary is explicit rather than silent. If referenced-assembly shape resolution is
+        // ever added, this assertion flips to 0.
+        Assert.True(AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossNonGenericStructInLoop)) >= 1);
+    }
+
+    static int AllocationsOf(LibraryBodyIndex index, string methodName)
+    {
+        int token = index.Methods.First(method => method.Name == methodName).MetadataToken;
+        return index.GetMethodSignals().GetValueOrDefault(token, MethodSignals.None).Allocations;
+    }
+
     [Fact]
     public void OptimizationOpportunities_LowAllocationMethod_IsNotHotspot()
     {
@@ -3045,6 +3088,57 @@ public struct PlainValue
     public PlainValue(int v) => V = v;
 
     public int V { get; }
+}
+
+// #1804 / rung 7. Consumes the cross-assembly shape fixtures (defined in the separate
+// ILInspector.Analysis.CrossAsmShapeFixtures assembly, which the SRM-direct product does not
+// load) plus an in-assembly struct. Each method constructs a value as a method ARGUMENT in a
+// loop, which forces a `newobj` (a value assigned to a local emits `call .ctor` instead), so
+// the allocation signal's shape classification is exercised.
+public static class CrossAsmShapeConsumer
+{
+    static int SinkInAssembly(PlainValue value) => value.V;
+    static int SinkStruct(CrossAsmShapeFixtures.CrossValueStruct value) => value.Value;
+    static int SinkGeneric(CrossAsmShapeFixtures.CrossGenericStruct<int> value) => value.Value;
+    static int SinkRef(CrossAsmShapeFixtures.CrossRefType value) => value.Value;
+
+    public static int ConstructsInAssemblyStructInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkInAssembly(new PlainValue(i));
+        return total;
+    }
+
+    public static int ConstructsCrossNonGenericStructInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkStruct(new CrossAsmShapeFixtures.CrossValueStruct(i));
+        return total;
+    }
+
+    public static int ConstructsCrossGenericStructInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkGeneric(new CrossAsmShapeFixtures.CrossGenericStruct<int>(i));
+        return total;
+    }
+
+    public static int ConstructsCrossRefTypeInLoop(int n)
+    {
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += SinkRef(new CrossAsmShapeFixtures.CrossRefType(i));
+        return total;
+    }
+
+    public static int UsesCrossEnum(int n)
+    {
+        var value = (CrossAsmShapeFixtures.CrossEnum)(n % 2);
+        return (int)value;
+    }
 }
 
 public sealed class FixtureException : Exception
