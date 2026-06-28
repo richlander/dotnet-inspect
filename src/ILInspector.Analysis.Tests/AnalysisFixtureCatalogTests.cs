@@ -39,6 +39,13 @@ public class AnalysisFixtureCatalogTests
         AssertPasses(run, "suppress.box.throw-path", "BoxesIntoStringFormat");
         AssertPasses(run, "suppress.box.throw-path", "ThrowsWithBoxedValue");
         AssertBoundary(run, "suppress.box.throw-path", "ThrowsViaHelper", OwnedBoundary.FalsePositive);
+
+        // Enumerator-allocation: true positive plus three distinct must-not-flag cases
+        // (non-loop, struct enumerator, and the untrusted lookalike trust gate).
+        AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachInterfaceInLoop");
+        AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachInterfaceOnce");
+        AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachConcreteListInLoop");
+        AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachLookalikeEnumeratorInLoop");
     }
 
     static void AssertPasses(AnalysisFixtureRunResult run, string fixtureId, string method)

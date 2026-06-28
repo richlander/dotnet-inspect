@@ -371,6 +371,82 @@ public static class AnalysisFixtureCatalog
         ],
         ["opportunity", "box", "suppression", "in-assembly", "rung5"]);
 
+    public static readonly AnalysisFixtureDefinition EnumeratorInterfaceForeachInLoop = new(
+        "alloc.enumerator.interface-foreach-in-loop",
+        """
+        using System.Collections.Generic;
+        namespace Fix
+        {
+            public static class Consumer
+            {
+                // True positive: foreach over an interface-typed sequence inside a loop allocates
+                // the reference-type IEnumerator<T> each outer iteration.
+                public static int ForeachInterfaceInLoop(IEnumerable<int> items, int times)
+                {
+                    var total = 0;
+                    for (int i = 0; i < times; i++)
+                        foreach (var x in items) total += x;
+                    return total;
+                }
+                // Must-not-flag: foreach over the interface with no enclosing loop (one allocation).
+                public static int ForeachInterfaceOnce(IEnumerable<int> items)
+                {
+                    var total = 0;
+                    foreach (var x in items) total += x;
+                    return total;
+                }
+                // Must-not-flag: List<T>.GetEnumerator returns the struct List<T>.Enumerator by
+                // value -- no heap allocation.
+                public static int ForeachConcreteListInLoop(List<int> items, int times)
+                {
+                    var total = 0;
+                    for (int i = 0; i < times; i++)
+                        foreach (var x in items) total += x;
+                    return total;
+                }
+                // Must-not-flag: GetEnumerator returns a user reference type that is NOT the
+                // framework IEnumerator/IEnumerator<T>. The shape is matched by trusted framework
+                // enumerator identity (exact corelib namespace+name), not by the foreach pattern,
+                // so even a reference-type user enumerator is not flagged.
+                public static int ForeachLookalikeEnumeratorInLoop(LookalikeEnumeratorCollection c, int times)
+                {
+                    var total = 0;
+                    for (int i = 0; i < times; i++)
+                        foreach (var x in c) total += x;
+                    return total;
+                }
+            }
+
+            public sealed class LookalikeEnumeratorCollection
+            {
+                public System.Collections.Generic.IEnumeratorLookalike GetEnumerator() => new();
+            }
+        }
+        namespace System.Collections.Generic
+        {
+            // A user reference type in the framework collections namespace whose name is NOT the
+            // exact framework enumerator name; returned by a user GetEnumerator. The
+            // enumerator-allocation shape requires the exact trusted corelib IEnumerator identity,
+            // so this is not flagged (#1814).
+            public sealed class IEnumeratorLookalike
+            {
+                public bool MoveNext() => false;
+                public int Current => 0;
+            }
+        }
+        """,
+        ExternalSource: null,
+        ExternalNeedsAlias: false,
+        [
+            new("ForeachInterfaceInLoop", new AnalysisExpectation(OpportunityShapePresent: "enumerator-allocation")),
+            new("ForeachInterfaceOnce", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation")),
+            new("ForeachConcreteListInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
+                Note: "Concrete List<T> uses a struct enumerator -- no heap allocation."),
+            new("ForeachLookalikeEnumeratorInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
+                Note: "GetEnumerator returns a non-framework reference type; the shape requires the exact trusted corelib IEnumerator identity, not just any reference-type enumerator (#1814)."),
+        ],
+        ["opportunity", "enumerator", "in-assembly", "rung5"]);
+
     public static IReadOnlyList<AnalysisFixtureDefinition> All { get; } =
     [
         AllocInAssemblyStruct,
@@ -381,6 +457,7 @@ public static class AnalysisFixtureCatalog
         ExceptionUnsuffixedExternal,
         StringBuildAccumulationInLoop,
         BoxThrowPathSuppression,
+        EnumeratorInterfaceForeachInLoop,
     ];
 
     public static IReadOnlyList<AnalysisFixtureDefinition> Select(string? selector)
