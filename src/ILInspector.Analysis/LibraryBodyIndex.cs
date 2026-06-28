@@ -74,7 +74,7 @@ public sealed class LibraryBodyIndex
                         var confidence = AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
                         return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
                     }),
-                    .. AllocationHotspots(reachByToken),
+                    .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities.Select(o => o.Method.MetadataToken))),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
             }
@@ -93,14 +93,15 @@ public sealed class LibraryBodyIndex
         return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
     }
 
-    // Methods that allocate heavily but match no specific rewrite shape are the most
-    // commonly-missed real perf issues (e.g. a number parser doing many small allocations).
-    // The steady-state allocation count is itself a file-able signal — "reduce allocations in
-    // this hot method" — so surface allocation-dense methods as their own opportunity, ranked
-    // by the same loop/leverage priority as shaped rows. Exception-construction allocations are
-    // excluded (they only allocate on throw paths, not steady state), and source-/compiler-
-    // generated methods are suppressed just as for shaped opportunities.
-    const int AllocationHotspotThreshold = 8;
+    // A method that allocates densely is a real perf signal only when the allocations are
+    // both REPEATED (in a loop) and not already pinpointed by a specific shape — otherwise
+    // the count is dominated by intrinsic, non-reducible construction (e.g. a serializer
+    // building its output model), which floods the section on allocation-heavy assemblies.
+    // So allocation-hotspot fires only for a method that (1) is not already covered by a
+    // specific-shape row, (2) allocates inside a loop, and (3) clears a high density bar.
+    // Exception-construction allocations are excluded (throw-path only), and source-/
+    // compiler-generated methods are suppressed just as for shaped opportunities.
+    const int AllocationHotspotThreshold = 16;
 
     // A non-loop delegate is allocated once per call, so it is low-value in a cold method —
     // but on a high-reach (widely-reached, hot) method it is a real per-call heap allocation
@@ -120,7 +121,7 @@ public sealed class LibraryBodyIndex
             ? "medium"
             : confidence;
 
-    IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken)
+    IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
     {
         var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
         foreach (var method in Methods)
@@ -147,20 +148,29 @@ public sealed class LibraryBodyIndex
         {
             if (_suppressedOpportunityTokens.Contains(token))
                 continue;
+            // Dedup: a method already pinpointed by a specific shape (delegate/box/array/…)
+            // doesn't also need a vague aggregate-density row; that only double-counts and
+            // drowns the actionable specific rows.
+            if (methodsWithSpecificShape.Contains(token))
+                continue;
             _bodySignals.TryGetValue(token, out var body);
+            // Only loop allocations are repeated; a once-per-call dense method is usually
+            // intrinsic construction (e.g. building an output object), not reducible waste.
+            bool inLoop = steadyNewobjLoop.Contains(token) || body.AllocInLoop;
+            if (!inLoop)
+                continue;
             int allocations = steadyNewobj.GetValueOrDefault(token) + body.Newarr + body.Boxes;
             if (allocations < AllocationHotspotThreshold)
                 continue;
-            bool inLoop = steadyNewobjLoop.Contains(token) || body.AllocInLoop;
             yield return new OptimizationOpportunity(
                 method,
                 "allocation-hotspot",
-                $"{allocations} heap allocations (newobj/newarr/box)",
-                "Many allocations in one method are often reducible: pool or cache reused objects, use spans/stackalloc for transient buffers, and avoid intermediate collections on hot paths.",
-                inLoop ? "high" : "medium",
-                inLoop,
+                $"{allocations} heap allocations in a loop (newobj/newarr/box)",
+                "Many allocations in one loop are often reducible: pool or cache reused objects, use spans/stackalloc for transient buffers, and avoid intermediate collections on hot paths.",
+                "medium",
+                true,
                 null,
-                "Aggregate allocation density (excludes exception construction); review the method's hot paths.",
+                "Aggregate loop-allocation density (excludes exception construction); some may be intrinsic object construction. Review the loop body for reducible temporaries.",
                 reachByToken.GetValueOrDefault(token));
         }
     }
