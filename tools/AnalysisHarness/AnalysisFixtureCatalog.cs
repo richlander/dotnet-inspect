@@ -366,8 +366,8 @@ public static class AnalysisFixtureCatalog
             new("ThrowsWithBoxedValue", new AnalysisExpectation(OpportunityShapeAbsent: "box-value-type"),
                 Note: "Box feeding a throw is suppressed as an error-path allocation (#1747)."),
             new("ThrowsViaHelper", new AnalysisExpectation(OpportunityShapePresent: "box-value-type"),
-                OwnedBoundary.FalseNegative, BlockedOn: "#1714",
-                Note: "Box feeding a throwing helper is not yet recognized as throw-path; deferred broadening (#1714)."),
+                OwnedBoundary.FalsePositive, BlockedOn: "#1714",
+                Note: "Box feeding a throwing helper is not yet recognized as throw-path, so it is still flagged; deferred suppression broadening (#1714)."),
         ],
         ["opportunity", "box", "suppression", "in-assembly", "rung5"]);
 

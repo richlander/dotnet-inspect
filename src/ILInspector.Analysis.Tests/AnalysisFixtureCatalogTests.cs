@@ -38,7 +38,7 @@ public class AnalysisFixtureCatalogTests
         AssertBoundary(run, "alloc.string-build.accumulation-in-loop", "DerivedAccumulatorInLoop", OwnedBoundary.FalseNegative);
         AssertPasses(run, "suppress.box.throw-path", "BoxesIntoStringFormat");
         AssertPasses(run, "suppress.box.throw-path", "ThrowsWithBoxedValue");
-        AssertBoundary(run, "suppress.box.throw-path", "ThrowsViaHelper", OwnedBoundary.FalseNegative);
+        AssertBoundary(run, "suppress.box.throw-path", "ThrowsViaHelper", OwnedBoundary.FalsePositive);
     }
 
     static void AssertPasses(AnalysisFixtureRunResult run, string fixtureId, string method)
