@@ -958,6 +958,10 @@ public sealed partial class CSharpPrinter
         if (target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(value) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
             return $"{Condition(value)} ? 1 : 0";
+        if (value is Conditional conditional
+            && target is { } conditionalTarget
+            && TryConditionalTextForTarget(conditional, conditionalTarget) is { } targetedConditional)
+            return targetedConditional;
         // Cast only off a value whose rendered C# type reliably equals its IR
         // result type. A merge node (ternary/coalesce) reports a merged type the
         // arms may not actually share, and a stack slot's type is the join of
@@ -1003,8 +1007,10 @@ public sealed partial class CSharpPrinter
             || TypeFamilies.Of(a) == StackFamily.I && TypeFamilies.Of(b) == StackFamily.I;
 
     string ConditionalText(Conditional conditional)
+        => ConditionalText(conditional, conditional.MergedType);
+
+    string ConditionalText(Conditional conditional, TypeRef? target)
     {
-        var target = conditional.MergedType;
         // `?:` is right-associative, so a conditional in the condition position
         // reassociates without parentheses (`(a ? b : c) ? d : e` would reparse
         // as `a ? b : (c ? d : e)`). The arms render through Operand, which
@@ -1016,10 +1022,44 @@ public sealed partial class CSharpPrinter
     }
 
     string ConditionalArm(IrExpression arm, TypeRef? target)
-        => target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
+        => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
+            ? charText
+            : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
                 ? $"({Condition(arm)} ? 1 : 0)"
                 : Operand(arm);
+
+    string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
+        => CanRenderConditionalForTarget(conditional, target)
+            ? ConditionalText(conditional, target)
+            : null;
+
+    static bool CanRenderConditionalForTarget(Conditional conditional, TypeRef target)
+        => IsCoreChar(target)
+            && TryCharConstantText(conditional.WhenTrue, out _)
+            && TryCharConstantText(conditional.WhenFalse, out _);
+
+    static bool IsCoreChar(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
+
+    static bool TryCharConstantText(IrExpression expression, out string text)
+    {
+        switch (expression)
+        {
+            case Constant { Value: char c }:
+                text = CharText(c);
+                return true;
+            case Constant { Value: int i } when i is >= char.MinValue and <= char.MaxValue:
+                text = CharText((char)i);
+                return true;
+            case Constant { Value: long l } when l is >= char.MinValue and <= char.MaxValue:
+                text = CharText((char)l);
+                return true;
+            default:
+                text = "";
+                return false;
+        }
+    }
 
     /// <summary>
     /// An integer constant rendered for a numeric target: bare when in range (C#

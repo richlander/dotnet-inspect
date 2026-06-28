@@ -522,6 +522,19 @@ public sealed partial class CSharpPrinter
             }
         }
 
+        foreach (var storeElement in nodes.OfType<StoreElement>())
+        {
+            if (storeElement is not { Value: LoadStackSlot load, ElementType: { } elementType })
+                continue;
+            if (!storesBySlot.TryGetValue(load.Slot, out var stores)
+                || stores.Count == 0
+                || !stores.All(store => store is Conditional conditional && CanRenderConditionalForTarget(conditional, elementType)))
+            {
+                continue;
+            }
+            (loadsBySlot.TryGetValue(load.Slot, out var loads) ? loads : loadsBySlot[load.Slot] = []).Add(elementType);
+        }
+
         foreach (int slot in storesBySlot.Keys.Concat(loadsBySlot.Keys).Distinct())
         {
             if (TryChooseUnifiedStackSlotType(
@@ -590,6 +603,8 @@ public sealed partial class CSharpPrinter
     bool CanAssignTo(IrExpression value, TypeRef target)
         => value is Constant { Value: null }
             ? IsReferenceLike(target)
+            : value is Conditional conditional && CanRenderConditionalForTarget(conditional, target)
+                ? true
             : value.ResultType is { } source && CanAssignType(source, target);
 
     bool CanAssignType(TypeRef source, TypeRef target)
