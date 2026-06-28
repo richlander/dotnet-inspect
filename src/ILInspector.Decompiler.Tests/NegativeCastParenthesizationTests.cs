@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using System.Numerics;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -10,9 +11,12 @@ namespace ILInspector.Decompiler.Tests;
 public class NegativeCastParenthesizationTests
 {
     static string Render(string methodName)
+        => Render(typeof(CfgSampleClass), methodName);
+
+    static string Render(Type declaringType, string methodName)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        using var source = MetadataSource.Open(declaringType.Assembly.Location);
+        var function = IrImporter.Import(source, declaringType.FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
@@ -27,4 +31,28 @@ public class NegativeCastParenthesizationTests
         Assert.Contains("(nint)(-1)", output);
         Assert.DoesNotContain("(nint)-1", output);
     }
+
+    [Fact]
+    public void NegativeUserDefinedConversion_ParenthesizesOperand()
+    {
+        var output = Render(typeof(NegativeConversionSpecimens), nameof(NegativeConversionSpecimens.NegativeBigInteger));
+
+        Assert.Contains("(BigInteger)(-128)", output);
+        Assert.DoesNotContain("(BigInteger)-128", output);
+    }
+
+    [Fact]
+    public void PositiveUserDefinedConversion_StaysBare()
+    {
+        var output = Render(typeof(NegativeConversionSpecimens), nameof(NegativeConversionSpecimens.PositiveBigInteger));
+
+        Assert.Contains("(BigInteger)128", output);
+        Assert.DoesNotContain("(BigInteger)(128)", output);
+    }
+}
+
+public class NegativeConversionSpecimens
+{
+    public static BigInteger NegativeBigInteger() => -128;
+    public static BigInteger PositiveBigInteger() => 128;
 }

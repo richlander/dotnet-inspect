@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using IrConvert = ILInspector.Decompiler.Pipeline.Convert;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -8,6 +9,7 @@ public class StackAllocSpanPassTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Byte = TypeRef.CoreLib("System", "Byte");
+    static readonly TypeRef VoidPointer = TypeRef.Pointer(Void);
 
     [Fact]
     public void CorelibSpanDirectStackalloc_Raises()
@@ -36,6 +38,68 @@ public class StackAllocSpanPassTests
         var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.Equal("int", raised.ElementType.ToDisplayString());
         Assert.Empty(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SystemMemorySpanDirectStackalloc_Raises()
+    {
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.Definition("System.Memory", "System", "Span`1"),
+            new StackAllocate(new Constant(4, Int32))));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal("int", raised.ElementType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SystemMemoryReadOnlySpanDirectStackalloc_Raises()
+    {
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.Definition("System.Memory", "System", "ReadOnlySpan`1"),
+            new StackAllocate(new Constant(4, Int32))));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal("int", raised.ElementType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ConvertWrappedStackallocPointer_Raises()
+    {
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new IrConvert(VoidPointer, isChecked: false, isUnsigned: false, new StackAllocate(new Constant(4, Int32)))));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal("int", raised.ElementType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<IrConvert>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CheckedConvertWrappedStackallocPointer_DoesNotRaise()
+    {
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new IrConvert(VoidPointer, isChecked: true, isUnsigned: false, new StackAllocate(new Constant(4, Int32)))));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<IrConvert>());
+        Assert.Single(function.Descendants.OfType<StackAllocate>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
         function.CheckInvariant();
     }
 
@@ -75,7 +139,7 @@ public class StackAllocSpanPassTests
     static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer)
     {
         var span = TypeRef.GenericInstance(spanDefinition, [Int32]);
-        var ctor = new MethodRef(span, ".ctor", Void, [TypeRef.Pointer(Void), Int32], HasThis: true);
+        var ctor = new MethodRef(span, ".ctor", Void, [VoidPointer, Int32], HasThis: true);
         return new NewObject(ctor, [pointer, new Constant(1, Int32)]);
     }
 

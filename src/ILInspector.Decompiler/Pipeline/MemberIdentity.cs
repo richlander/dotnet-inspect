@@ -820,8 +820,8 @@ public static class MemberIdentity
         => type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
 
     static bool IsSpanLikeType(TypeRef type)
-        => IsCoreLibraryType(type, "System", "Span`1")
-            || IsCoreLibraryType(type, "System", "ReadOnlySpan`1");
+        => IsCoreLibraryOrFacadeType(type, "System", "Span`1", "System.Memory")
+            || IsCoreLibraryOrFacadeType(type, "System", "ReadOnlySpan`1", "System.Memory");
 
     static bool IsCollectionsMarshalType(TypeRef type)
         => IsCoreLibraryOrFacadeType(type, "System.Runtime.InteropServices", "CollectionsMarshal", "System.Runtime.InteropServices");
