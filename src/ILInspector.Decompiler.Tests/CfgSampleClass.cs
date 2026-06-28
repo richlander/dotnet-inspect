@@ -497,6 +497,9 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    public static void CharConditionalElementStore(char[] chars, int index, long ticks)
+        => chars[index] = ticks >= 0 ? '+' : '-';
+
     public static int BoolArrayVisited(int index)
     {
         bool[] visited = new bool[index + 1];
