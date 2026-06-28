@@ -246,6 +246,28 @@ public class CommandExecutionTests
         });
     }
 
+    [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriagePredicates_DoNotAlterDiscovery(string command)
+    {
+        string[] BaseArgs() => command switch
+        {
+            "library" => [command, TestAssemblyPath, "--discover"],
+            "type" => [command, nameof(OutputFormatterTests), "--library", TestAssemblyPath, "--discover"],
+            "member" => [command, nameof(OutputFormatterTests), "--library", TestAssemblyPath, "--discover"],
+            _ => throw new ArgumentOutOfRangeException(nameof(command), command, null)
+        };
+
+        var baseline = await RunAppAsync(BaseArgs());
+        var filtered = await RunAppAsync([.. BaseArgs(), "--loop"]);
+
+        Assert.Equal(0, baseline.Exit);
+        Assert.Equal(0, filtered.Exit);
+        Assert.Equal(baseline.Output, filtered.Output);
+    }
+
     // ── bare router ───────────────────────────────────────────────────
 
     [Fact]

@@ -213,7 +213,7 @@ public static class InspectionCommandDefinitions
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!string.IsNullOrWhiteSpace(typeFilter))
                 select = [.. select ?? [], "Source Files"];
-            if (performanceTriage.HasFilters)
+            if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
                 select = [.. select ?? [], SectionNames.PerformanceTriage];
 
             var options = new LibraryOptions

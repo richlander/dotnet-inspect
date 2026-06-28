@@ -315,7 +315,7 @@ public class OutputFormatterTests
                 new PerformanceTriageOptions
                 {
                     LoopOnly = true,
-                    MinConfidence = "high",
+                    MinConfidence = "High",
                     Shapes = ["capturing-delegate"],
                     Top = 1
                 })

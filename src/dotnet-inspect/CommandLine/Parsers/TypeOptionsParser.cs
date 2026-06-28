@@ -112,7 +112,7 @@ public static class TypeOptionsParser
         var routePolicy = TypeRoutePolicy.Resolve(sourceSelection.Args, sourceSelection.HasExplicitSource, source);
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
         var select = opts.ParseSelect(parseResult);
-        if (performanceTriage.HasFilters)
+        if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
             select = [.. select ?? [], SectionNames.PerformanceTriage];
 
         var options = routePolicy.ApplyTo(new TypeOptions

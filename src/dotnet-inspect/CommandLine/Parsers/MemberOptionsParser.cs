@@ -220,7 +220,7 @@ public static class MemberOptionsParser
         if (showMemberIndex)
             select = [.. select ?? [], SectionNames.MemberIndex];
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
-        if (performanceTriage.HasFilters)
+        if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
             select = [.. select ?? [], SectionNames.PerformanceTriage];
 
         var options = new MemberOptions

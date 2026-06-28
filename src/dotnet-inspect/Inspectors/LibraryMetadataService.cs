@@ -760,12 +760,14 @@ internal static class LibraryMetadataService
             .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
 
     // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
-    static int ConfidenceRank(string confidence) => confidence switch
+    static int ConfidenceRank(string confidence)
     {
-        "high" => 2,
-        "medium" => 1,
-        _ => 0,
-    };
+        if (confidence.Equals("high", StringComparison.OrdinalIgnoreCase))
+            return 2;
+        if (confidence.Equals("medium", StringComparison.OrdinalIgnoreCase))
+            return 1;
+        return 0;
+    }
 
     internal static IEnumerable<Analysis.OptimizationOpportunity> FilterAndOrderTriageOpportunities(
         IEnumerable<Analysis.OptimizationOpportunity> opportunities,
