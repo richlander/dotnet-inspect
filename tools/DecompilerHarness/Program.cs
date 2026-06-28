@@ -55,6 +55,8 @@ static class Program
         bool typeCheck = false;
         bool bindCheck = false;
         bool classifyDec0009 = false;
+        bool generatedFixtures = false;
+        bool keepGeneratedFixtures = false;
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
         string? emitCorpusDelta = null;
@@ -112,6 +114,8 @@ static class Program
                 case "--bind-check": bindCheck = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
                 case "--dec0009-shapes": classifyDec0009 = true; break;
+                case "--generated-fixtures": generatedFixtures = true; break;
+                case "--keep-generated-fixtures": keepGeneratedFixtures = true; break;
                 case "--emit-corpus-baseline": emitCorpusSnapshot = args[++i]; break;
                 case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
                 case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
@@ -135,6 +139,13 @@ static class Program
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
+        }
+
+        if (generatedFixtures)
+        {
+            if (inputs.Count > 0)
+                return Fail("--generated-fixtures generates its own temporary input assembly; do not pass assembly paths.");
+            return GeneratedFixtures(keepGeneratedFixtures);
         }
 
         var assemblies = ResolveAssemblies(inputs);
@@ -212,6 +223,21 @@ static class Program
 
         // Default: the pipeline's fidelity/stop-reason inventory.
         return Inventory(assemblies);
+    }
+
+    static int GeneratedFixtures(bool keepArtifacts)
+    {
+        var run = GeneratedFixtureRunner.Run(
+            GeneratedFixtureCatalog.MinimalCompileBackRungs,
+            new GeneratedFixtureRunOptions(KeepArtifacts: keepArtifacts));
+        Console.Write(GeneratedFixtureRunner.FormatReport(run));
+        if (keepArtifacts)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Generated fixture project: {run.ProjectDirectory}");
+            Console.WriteLine($"Generated fixture assembly: {run.AssemblyPath}");
+        }
+        return run.Passed ? 0 : 1;
     }
 
     /// <summary>
@@ -1126,6 +1152,12 @@ static class Program
                                 remarks by generated-name family. Use --json for
                                 machine-readable output.
           --dec0009-shapes       alias for --classify-dec0009.
+          --generated-fixtures   generate the seed fixture catalogue into a
+                                temporary class library, run compile-back, and
+                                report by fixture ID and target method.
+          --keep-generated-fixtures
+                                with --generated-fixtures: keep the temporary
+                                project and print its paths.
           --emit-corpus-baseline <f>     run the real-world corpus sensor and write
                                 the current JSON baseline to <f>.
           --emit-corpus-snapshot <f>     alias for --emit-corpus-baseline; intended
