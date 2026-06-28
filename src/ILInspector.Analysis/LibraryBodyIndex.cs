@@ -68,9 +68,12 @@ public sealed class LibraryBodyIndex
                 _opportunities =
                 [
                     .. _rawOpportunities.Select(opportunity =>
-                        reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int reach) && reach != opportunity.RootReach
-                            ? opportunity with { RootReach = reach }
-                            : opportunity),
+                    {
+                        int reach = reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach;
+                        var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
+                        var confidence = AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
+                        return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                    }),
                     .. AllocationHotspots(reachByToken),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
@@ -98,6 +101,24 @@ public sealed class LibraryBodyIndex
     // excluded (they only allocate on throw paths, not steady state), and source-/compiler-
     // generated methods are suppressed just as for shaped opportunities.
     const int AllocationHotspotThreshold = 8;
+
+    // A non-loop delegate is allocated once per call, so it is low-value in a cold method —
+    // but on a high-reach (widely-reached, hot) method it is a real per-call heap allocation
+    // worth surfacing. Lift such rows from "low" to "medium" so genuinely hot escaping
+    // delegates are not buried among the cold one-shots. Threshold chosen against real
+    // assemblies (on Aspire.Dashboard this promotes ~19 of 293 non-loop delegate rows).
+    public const int DelegateHotRootReach = 10;
+
+    // Adjust a delegate row's confidence once its method's RootReach is known: a cold-looking
+    // (low) non-loop delegate on a high-reach method becomes medium. Loop delegates (already
+    // high) and non-delegate shapes are unchanged. Pure for testability.
+    public static string AdjustDelegateConfidenceForReach(string shape, bool inLoop, string confidence, int rootReach)
+        => !inLoop
+            && confidence == "low"
+            && rootReach >= DelegateHotRootReach
+            && shape is "capturing-delegate" or "instance-method-group-delegate"
+            ? "medium"
+            : confidence;
 
     IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken)
     {
@@ -969,7 +990,8 @@ public sealed class LibraryBodyIndex
                         var methodAttributes = methodDef.GetCustomAttributes();
                         if (!typeSourceGenerated
                             && !HasGeneratedCodeAttribute(methodAttributes)
-                            && !HasCompilerGeneratedAttribute(methodAttributes))
+                            && !HasCompilerGeneratedAttribute(methodAttributes)
+                            && !IsBlazorRenderMethod(caller))
                             optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
                         else
                             suppressedOpportunityTokens.Add(caller.MetadataToken);
@@ -1167,6 +1189,26 @@ public sealed class LibraryBodyIndex
         bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
             => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
+        // True when the method is Razor/Blazor-generated render plumbing: any method that
+        // takes a Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder parameter
+        // (the component BuildRenderTree override and the Create*_N render-fragment helpers
+        // the Razor compiler emits). These are emitted from .razor markup, carry no
+        // [GeneratedCode]/[CompilerGenerated] attribute, and their allocations (event-handler
+        // delegates, EventCallback boxing, RenderFragment closures) are intrinsic to the
+        // component model — not user-actionable source-shape fixes. Hand-written code
+        // essentially never takes a RenderTreeBuilder, so the parameter is a precise signal.
+        static bool IsBlazorRenderMethod(MethodIdentity caller)
+        {
+            foreach (var parameter in caller.ParameterTypes)
+            {
+                var definition = parameter.Kind == TypeRefKind.GenericInstance ? parameter.ElementType ?? parameter : parameter;
+                if (definition.Namespace == "Microsoft.AspNetCore.Components.Rendering"
+                    && definition.Name == "RenderTreeBuilder")
+                    return true;
+            }
+            return false;
+        }
+
         (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
         {
             if (constructor.Kind == HandleKind.MemberReference
@@ -1352,27 +1394,33 @@ public sealed class LibraryBodyIndex
                             // method groups are compiler-cached, so they are not reported.
                             if (pendingDelegateCapturing)
                             {
+                                // Confidence tracks loop membership: an in-loop delegate is a
+                                // repeated allocation (high); a one-shot delegate in a cold
+                                // method is low-value, especially since .NET 10+ partially
+                                // stack-allocates non-escaping ones (low).
+                                var inLoop = IsInLoopRegion(offset, loopRegions);
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "capturing-delegate",
                                     "delegate over a captured receiver or closure",
                                     "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
-                                    "high",
-                                    IsInLoopRegion(offset, loopRegions),
+                                    inLoop ? "high" : "low",
+                                    inLoop,
                                     offset,
                                     "On .NET 10+ the JIT can partially stack-allocate a non-escaping closure (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when the closure escapes the method — stored, returned, or passed to a callee that lets it escape."));
                             }
                             else if (pendingDelegateInstanceGroup)
                             {
+                                var inLoop = IsInLoopRegion(offset, loopRegions);
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "instance-method-group-delegate",
                                     "delegate over an instance method group (binds the receiver)",
                                     "Each call allocates a delegate that binds the receiver; cache it in a field when the receiver is stable, or use a static method with explicit state.",
-                                    "high",
-                                    IsInLoopRegion(offset, loopRegions),
+                                    inLoop ? "high" : "low",
+                                    inLoop,
                                     offset,
                                     "On .NET 10+ the JIT can partially stack-allocate a non-escaping delegate (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when it escapes the method — stored, returned, or passed to a callee that lets it escape."));
                             }

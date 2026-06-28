@@ -980,6 +980,53 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_DelegateConfidence_IsLoopGated()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A one-shot capturing delegate (not in a loop) is low-value -> low confidence,
+        // especially since .NET 10+ partially stack-allocates non-escaping closures.
+        var oneShot = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambda)
+            && o.Shape == "capturing-delegate"));
+        Assert.False(oneShot.InLoop);
+        Assert.Equal("low", oneShot.Confidence);
+
+        // A capturing delegate allocated inside a loop is a repeated allocation -> high.
+        var inLoop = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingDelegateInLoop)
+            && o.Shape == "capturing-delegate"));
+        Assert.True(inLoop.InLoop);
+        Assert.Equal("high", inLoop.Confidence);
+    }
+
+    [Theory]
+    // Non-loop delegate on a high-reach method -> lifted from low to medium.
+    [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach, "medium")]
+    [InlineData("instance-method-group-delegate", false, "low", 50, "medium")]
+    // Below the reach threshold -> stays low (cold one-shot).
+    [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach - 1, "low")]
+    // In-loop (already high) and non-delegate shapes are never adjusted.
+    [InlineData("capturing-delegate", true, "high", 99, "high")]
+    [InlineData("box-value-type", false, "low", 99, "low")]
+    public void AdjustDelegateConfidenceForReach_LiftsHotNonLoopDelegatesOnly(
+        string shape, bool inLoop, string confidence, int rootReach, string expected)
+    {
+        Assert.Equal(expected, LibraryBodyIndex.AdjustDelegateConfidenceForReach(shape, inLoop, confidence, rootReach));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SuppressesBlazorRenderMethods()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // RenderLikeMethod takes a RenderTreeBuilder and allocates a capturing delegate, but
+        // Razor render plumbing is suppressed (intrinsic component-model cost, not actionable).
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.RenderLikeMethod));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_DelegateConsumedByLazyLinq_FixDescribesMovedAllocation()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1831,6 +1878,26 @@ public class OptimizationOpportunityFixtures
     private readonly int _field = 3;
     private readonly UserDisplayClassTarget _displayClassTarget = new();
     private int[]? _arrayField;
+
+    // A capturing delegate created INSIDE a loop: a repeated allocation -> high confidence.
+    public static int CapturingDelegateInLoop(int[] values, int seed)
+    {
+        var total = 0;
+        foreach (var v in values)
+        {
+            System.Func<int> f = () => v + seed;
+            total += f();
+        }
+        return total;
+    }
+
+    // Razor/Blazor render plumbing: a method taking a RenderTreeBuilder. Even though it
+    // allocates a capturing delegate, it must be suppressed (intrinsic component-model cost).
+    public static void RenderLikeMethod(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, int seed)
+    {
+        System.Func<int> handler = () => seed + 1;
+        builder.Use(handler);
+    }
 
     public int[] MakesArrayAfterFieldAccess()
     {
