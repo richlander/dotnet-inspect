@@ -2135,10 +2135,13 @@ public sealed partial class CSharpPrinter
             // compound sibling of the `enum & int` cast in BinaryBody. A
             // cross-assembly enum is unresolved (TypeShape.Unknown), so the
             // structural IsEnumLikeInteger test catches it; cast the integer operand
-            // to the enum. A same-assembly enum already had its operand retyped, so
-            // its right type is the enum (not integer) and this is skipped.
+            // to the enum. IsIntegerLike (not IsInteger) excludes Boolean — which
+            // shares the I4 stack family — so a bool operand is never cast to
+            // `(Enum)true`. A same-assembly enum already had its operand retyped, so
+            // its right type is the enum (not integer-like) and this is skipped.
             : binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
-                && IsEnumLikeInteger(lvalueType) && TypeFamilies.IsInteger(binary.Right.ResultType)
+                && IsEnumLikeInteger(lvalueType)
+                && binary.Right.ResultType is { } rightType && TypeFamilies.IsIntegerLike(rightType)
                 ? EnumIntegerCast(binary.Right, lvalueType!)
             // A mixed-sign same-width compound (`nuint -= nint`, `ulong /= long`)
             // has no C# common type, so `target op= right` is CS0034. For the

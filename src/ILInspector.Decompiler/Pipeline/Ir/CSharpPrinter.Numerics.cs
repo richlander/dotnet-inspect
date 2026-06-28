@@ -1039,10 +1039,12 @@ public sealed partial class CSharpPrinter
             // into StringComparison) is CS0266 — int does not convert to the enum.
             // A cross-assembly enum is unresolved (TypeShape.Unknown), so
             // IsEnumLikeInteger catches it; cast each integer arm (constant or not).
-            // A same-assembly enum arm is enum-typed (not integer) and renders its
-            // member name via Operand.
+            // IsIntegerLike (not IsInteger) excludes Boolean — which shares the I4
+            // stack family — so a bool arm is never cast to `(Enum)true`. A
+            // same-assembly enum arm is enum-typed (not integer-like) and renders
+            // its member name via Operand.
             : target is { } enumTarget && IsEnumLikeInteger(enumTarget)
-                && TypeFamilies.IsInteger(arm.ResultType)
+                && arm.ResultType is { } armType && TypeFamilies.IsIntegerLike(armType)
                 ? EnumIntegerCast(arm, enumTarget)
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
@@ -1063,7 +1065,7 @@ public sealed partial class CSharpPrinter
                 && IsIntegerArm(conditional.WhenFalse));
 
     static bool IsIntegerArm(IrExpression arm)
-        => TypeFamilies.IsInteger(arm.ResultType);
+        => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
 
     static bool IsCoreChar(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
