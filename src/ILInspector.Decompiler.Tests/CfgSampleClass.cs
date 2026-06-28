@@ -4213,4 +4213,23 @@ public static class EnumCastSamples
         }
         return result;
     }
+
+    // #1766 review finding 1: a conditional with one constant arm and one
+    // non-constant integer arm into a cross-assembly enum — both arms must be cast
+    // (`ci ? (StringComparison)4 : (StringComparison)raw`), not just the constant.
+    public static bool EnumConditionalMixedArm(string name, bool ci, int raw)
+    {
+        System.StringComparison c = ci ? System.StringComparison.Ordinal : (System.StringComparison)raw;
+        return name.EndsWith("x", c);
+    }
+
+    // #1772 review finding 2: a negative integer constant into a cross-assembly
+    // enum (`~AttributeTargets.Class` folds to ldc.i4 -5) must force `unchecked`,
+    // since an unsigned- or narrow-backed enum would reject `(Enum)(-5)` (CS0221).
+    public static System.AttributeTargets EnumFlagsCompoundNegative(System.AttributeTargets seed)
+    {
+        seed &= ~System.AttributeTargets.Class;
+        return seed;
+    }
 }
+

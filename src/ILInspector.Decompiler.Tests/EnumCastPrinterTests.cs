@@ -35,6 +35,26 @@ public class EnumCastPrinterTests
         AssertCompiles("public static AttributeTargets M(bool a, bool b)", body);
     }
 
+    [Fact]
+    public void EnumConditional_MixedConstantAndNonConstantArms_CastsBoth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumConditionalMixedArm));
+
+        Assert.Contains("(StringComparison)4", body);
+        Assert.Contains("(StringComparison)raw", body);
+        Assert.DoesNotContain(": raw", body);
+        AssertCompiles("public static bool M(string name, bool ci, int raw)", body);
+    }
+
+    [Fact]
+    public void EnumCompound_NegativeConstant_ForcesUncheckedCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumFlagsCompoundNegative));
+
+        Assert.Contains("unchecked((AttributeTargets)(-5))", body);
+        AssertCompiles("public static AttributeTargets M(AttributeTargets seed)", body);
+    }
+
     static string RenderFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);

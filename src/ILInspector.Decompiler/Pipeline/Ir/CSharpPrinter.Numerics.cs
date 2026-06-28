@@ -179,7 +179,14 @@ public sealed partial class CSharpPrinter
     {
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
-        return CheckedSafeCast($"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}");
+        // A negative constant into an unsigned- or narrow-backed enum is CS0221 as a
+        // plain cast even outside a checked region — `(U)(-1)` for `enum U : uint`,
+        // the int bit-pattern of a high-bit flags member. The underlying type of a
+        // cross-assembly enum is unknown, so force `unchecked` to keep the
+        // reinterpret legal; the parentheses also satisfy CS0075.
+        return CheckedSafeCast(
+            $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
+            force: negativeLiteral);
     }
 
     string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)
@@ -1028,13 +1035,14 @@ public sealed partial class CSharpPrinter
     string ConditionalArm(IrExpression arm, TypeRef? target)
         => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
             ? charText
-            // An integer-constant arm flowing into an enum-typed conditional
-            // (`ci ? 4 : 5` into StringComparison) is CS0266 — int does not convert
-            // to the enum. A cross-assembly enum is unresolved (TypeShape.Unknown),
-            // so IsEnumLikeInteger catches it; cast each arm. A same-assembly enum
-            // arm renders its member name (its type is the enum, not integer).
+            // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
+            // into StringComparison) is CS0266 — int does not convert to the enum.
+            // A cross-assembly enum is unresolved (TypeShape.Unknown), so
+            // IsEnumLikeInteger catches it; cast each integer arm (constant or not).
+            // A same-assembly enum arm is enum-typed (not integer) and renders its
+            // member name via Operand.
             : target is { } enumTarget && IsEnumLikeInteger(enumTarget)
-                && arm is Constant { Value: int or long } && TypeFamilies.IsInteger(arm.ResultType)
+                && TypeFamilies.IsInteger(arm.ResultType)
                 ? EnumIntegerCast(arm, enumTarget)
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
@@ -1051,11 +1059,11 @@ public sealed partial class CSharpPrinter
                 && TryCharConstantText(conditional.WhenTrue, out _)
                 && TryCharConstantText(conditional.WhenFalse, out _))
             || (IsEnumLikeInteger(target)
-                && IsIntegerConstantArm(conditional.WhenTrue)
-                && IsIntegerConstantArm(conditional.WhenFalse));
+                && IsIntegerArm(conditional.WhenTrue)
+                && IsIntegerArm(conditional.WhenFalse));
 
-    static bool IsIntegerConstantArm(IrExpression arm)
-        => arm is Constant { Value: int or long } && TypeFamilies.IsInteger(arm.ResultType);
+    static bool IsIntegerArm(IrExpression arm)
+        => TypeFamilies.IsInteger(arm.ResultType);
 
     static bool IsCoreChar(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
