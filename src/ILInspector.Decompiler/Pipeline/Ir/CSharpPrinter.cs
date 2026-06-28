@@ -1458,7 +1458,7 @@ public sealed partial class CSharpPrinter
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e when MultiDimArrayElementText(e) is { } text => text,
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
-        NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
+        NewArray n => ArrayCreationText(n.ElementType, [n.Length]),
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(Expression))} }}",
         CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(CollectionElementText))}]",

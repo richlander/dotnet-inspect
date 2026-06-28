@@ -282,7 +282,7 @@ public sealed partial class CSharpPrinter
     {
         if (!IsMultiDimArrayType(node.Constructor.DeclaringType) || node.Arguments.Count != node.Constructor.DeclaringType.Rank)
             return null;
-        return $"new {ArrayCreationElementText(node.Constructor.DeclaringType.ElementType!)}[{string.Join(", ", node.Arguments.Select(Expression))}]{ArrayCreationSuffix(node.Constructor.DeclaringType.ElementType!)}";
+        return ArrayCreationText(node.Constructor.DeclaringType.ElementType!, node.Arguments);
     }
 
     static bool HasRepeatedStackSlot(IEnumerable<IrExpression> expressions)
@@ -317,6 +317,9 @@ public sealed partial class CSharpPrinter
             current = element;
         return TypeText(current);
     }
+
+    string ArrayCreationText(TypeRef elementType, IEnumerable<IrExpression> lengths)
+        => $"new {ArrayCreationElementText(elementType)}[{string.Join(", ", lengths.Select(Expression))}]{ArrayCreationSuffix(elementType)}";
 
     string ArrayCreationSuffix(TypeRef type)
     {

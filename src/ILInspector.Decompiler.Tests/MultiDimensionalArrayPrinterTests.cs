@@ -19,6 +19,31 @@ public class MultiDimensionalArrayPrinterTests
     public void RectangularElementAndCreationOps_LowerToIndexerSyntax_AndCompile(string methodName, string header, string expected)
         => AssertImportedBodyAndCompile(methodName, header, expected);
 
+    [Theory]
+    [InlineData(nameof(JaggedArrayCreationSamples.J2), "public static int[][] M()", "return new int[3][];")]
+    [InlineData(nameof(JaggedArrayCreationSamples.J3), "public static int[][][] M()", "return new int[3][][];")]
+    [InlineData(nameof(JaggedArrayCreationSamples.JStr), "public static string[][] M()", "return new string[5][];")]
+    [InlineData(nameof(JaggedArrayCreationSamples.JVar), "public static int[][] M(int n)", "return new int[n][];")]
+    [InlineData(nameof(JaggedArrayCreationSamples.JMdElement), "public static int[][,] M()", "return new int[2][,];")]
+    [InlineData(nameof(JaggedArrayCreationSamples.JSzThenMdElement), "public static int[][][,] M()", "return new int[2][][,];")]
+    [InlineData(nameof(JaggedArrayCreationSamples.JMdThenSzElement), "public static int[][,][] M()", "return new int[2][,][];")]
+    public void JaggedNewArray_PlacesBoundOnOuterRank_AndCompiles(string methodName, string header, string expected)
+    {
+        string body = RenderFixture(methodName, typeof(JaggedArrayCreationSamples).FullName!).Trim();
+        Assert.Equal(expected, body);
+        AssertCompiles(header, body);
+    }
+
+    [Theory]
+    [InlineData(nameof(JaggedArrayCreationSamples.SingleDimNew), "public static int[] M(int n)", "return new int[n];")]
+    [InlineData(nameof(JaggedArrayCreationSamples.ArrayLiteral), "public static int[] M()", "new int[] { 1, 2, 3 }")]
+    public void SingleDimensionalCreationCanaries_StayValid(string methodName, string header, string expected)
+    {
+        string body = RenderFixture(methodName, typeof(JaggedArrayCreationSamples).FullName!).Trim();
+        Assert.Contains(expected, body);
+        AssertCompiles(header, body);
+    }
+
     [Fact]
     public void RectangularSet_LowersToIndexerAssignment_AndCompiles()
     {
