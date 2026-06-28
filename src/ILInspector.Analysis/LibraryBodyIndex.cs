@@ -529,6 +529,7 @@ public sealed class LibraryBodyIndex
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null
+            && definition.TrustedProtobufAssembly
             && definition.Assembly == "Google.Protobuf"
             && definition.Namespace == ns
             && StripGenericArity(definition.Name) == name;

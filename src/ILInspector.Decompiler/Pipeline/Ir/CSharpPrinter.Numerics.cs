@@ -690,6 +690,9 @@ public sealed partial class CSharpPrinter
             && (left is Constant { Value: null } || right is Constant { Value: null }))
         {
             var operand = right is Constant { Value: null } ? left : right;
+            if (IsInstanceNullTestText(operand, isNotNull: kind == ComparisonKind.NotEqual) is { } typeTest)
+                return typeTest;
+
             return kind == ComparisonKind.Equal
                 ? $"{Operand(operand)} is null"
                 : $"{Operand(operand)} is not null";
@@ -713,6 +716,9 @@ public sealed partial class CSharpPrinter
                 || (kind == ComparisonKind.LessThan && left is Constant { Value: null })))
         {
             var operand = kind == ComparisonKind.GreaterThan ? left : right;
+            if (IsInstanceNullTestText(operand, isNotNull: true) is { } typeTest)
+                return typeTest;
+
             return operand.ResultType is { Kind: TypeRefKind.Pointer }
                 ? $"{Operand(operand)} != null"
                 : $"{Operand(operand)} is not null";
@@ -776,6 +782,15 @@ public sealed partial class CSharpPrinter
 
     string BoxedReferenceOperand(IrExpression operand)
         => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
+
+    string? IsInstanceNullTestText(IrExpression operand, bool isNotNull)
+    {
+        if (operand is not IsInstance ii)
+            return null;
+
+        string test = $"{Operand(ii.Operand)} is {TypeText(ii.Type)}";
+        return isNotNull ? test : $"{Operand(ii.Operand)} is not {TypeText(ii.Type)}";
+    }
 
     static bool IsFloatComparison(IrExpression left, IrExpression right)
         => TypeFamilies.IsFloat(left.ResultType) || TypeFamilies.IsFloat(right.ResultType);
