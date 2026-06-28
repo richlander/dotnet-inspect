@@ -161,6 +161,34 @@ public class GeneratedFixtureCatalogTests
             "Method1",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
+        AssertTarget(
+            run,
+            "minimal.using-dispose",
+            "GeneratedFixtures.MinimalUsingDispose.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.using-dispose",
+            "GeneratedFixtures.MinimalUsingDispose.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.foreach-array",
+            "GeneratedFixtures.MinimalForeachArray.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.foreach-array",
+            "GeneratedFixtures.MinimalForeachArray.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
 
         Assert.Contains("minimal.property.literal", report);
         Assert.Contains("minimal.primary-ctor.field-init", report);
@@ -171,6 +199,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.null-coalesce", report);
         Assert.Contains("minimal.try-finally", report);
+        Assert.Contains("minimal.using-dispose", report);
+        Assert.Contains("minimal.foreach-array", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
     }
@@ -186,6 +216,7 @@ public class GeneratedFixtureCatalogTests
             [
                 "minimal.auto-property.getter",
                 "minimal.ctor-field.getter",
+                "minimal.foreach-array",
                 "minimal.if-else",
                 "minimal.method-call.same-type",
                 "minimal.null-coalesce",
@@ -193,6 +224,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.property.literal",
                 "minimal.static-method-call",
                 "minimal.try-finally",
+                "minimal.using-dispose",
             ],
             GeneratedFixtureCatalog.Select("minimal").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
@@ -214,6 +246,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.null-coalesce");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.try-finally");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.using-dispose");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.foreach-array");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");

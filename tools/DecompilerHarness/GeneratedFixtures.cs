@@ -219,6 +219,52 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "try-finally", "lifetime"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalUsingDispose = new(
+        "minimal.using-dispose",
+        """
+        namespace GeneratedFixtures.MinimalUsingDispose;
+
+        public class Class1
+        {
+            public long Method1()
+            {
+                using var stream = new System.IO.MemoryStream();
+                return stream.Length;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalUsingDispose.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalUsingDispose.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "using", "dispose", "lifetime"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalForeachArray = new(
+        "minimal.foreach-array",
+        """
+        namespace GeneratedFixtures.MinimalForeachArray;
+
+        public class Class1
+        {
+            public int Method1(int[] values)
+            {
+                var sum = 0;
+                foreach (var value in values)
+                    sum += value;
+                return sum;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalForeachArray.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalForeachArray.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "foreach", "array", "loop"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
@@ -230,6 +276,8 @@ internal static class GeneratedFixtureCatalog
         MinimalIfElse,
         MinimalNullCoalesce,
         MinimalTryFinally,
+        MinimalUsingDispose,
+        MinimalForeachArray,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
