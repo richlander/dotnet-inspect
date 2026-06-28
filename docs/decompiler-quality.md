@@ -495,7 +495,8 @@ harder for a reviewer to validate. Method-level examples are the only
 hand-authored addendum, and only when the PR intentionally changes behaviour. The
 card is reviewer-sized evidence, not a dump-stage artifact; keep `--dump
 --steps` output in linked diagnosis notes only when reviewers need the
-drill-down.
+drill-down. To reproduce the full row set behind a capped card, follow
+[Reproducing decompiler corpus deltas](decompiler-corpus-delta-repro.md).
 
 For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
 sensor values are enough when you need the broader daily/manual signal:
