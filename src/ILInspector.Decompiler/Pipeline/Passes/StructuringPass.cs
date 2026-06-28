@@ -255,6 +255,16 @@ public sealed class StructuringPass : IIrPass
                     // the break, so this block ends its region cleanly.
                     i++;
                     break;
+                case Leave leave when breakTarget is not null
+                    && IsRegionExitLeave(ctx, leave)
+                    && CanRaiseRetryLeave(leave):
+                    i++;
+                    break;
+                case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
+                    && breakTarget == leaveTarget
+                    && CanRaiseRetryLeave(leave):
+                    i++;
+                    break;
                 case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && continueTarget == leaveTarget
                     && CanRaiseRetryLeave(leave):
@@ -307,8 +317,9 @@ public sealed class StructuringPass : IIrPass
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
                     if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
-                        // The body's breaks target the block after the loop.
-                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget))
+                        // The body's breaks target the block after the loop;
+                        // leaves to the latch/condition are loop continues.
+                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget: branchTarget))
                             return false;
                         i = loop.ContinueAt;
                         break;
@@ -1111,6 +1122,26 @@ public sealed class StructuringPass : IIrPass
                     result.Add(last);
                     i++;
                     break;
+                case Leave leave when breakTarget is not null
+                    && IsRegionExitLeave(ctx, leave)
+                    && CanRaiseRetryLeave(leave):
+                {
+                    var next = new Break();
+                    next.InheritSourceOffset(leave);
+                    result.Add(next);
+                    i++;
+                    break;
+                }
+                case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
+                    && breakTarget == leaveTarget
+                    && CanRaiseRetryLeave(leave):
+                {
+                    var next = new Break();
+                    next.InheritSourceOffset(leave);
+                    result.Add(next);
+                    i++;
+                    break;
+                }
                 case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && continueTarget == leaveTarget
                     && CanRaiseRetryLeave(leave):
@@ -1154,7 +1185,12 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
-                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget);
+                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget: branchTarget);
+                        ReplaceRetryLeavesWithContinues(body, blocks[branchTarget].StartOffset);
+                        if (loop.ContinueAt < blocks.Count)
+                            ReplaceRetryLeavesWithBreaks(body, blocks[loop.ContinueAt].StartOffset);
+                        if (ctx.RegionExitLeaveTarget is { } regionExitTarget)
+                            ReplaceRetryLeavesWithBreaks(body, regionExitTarget);
                         var condition = BuildWhileCondition(loop);
                         result.Add(new WhileLoop(condition, body));
                         i = loop.ContinueAt;
@@ -1264,6 +1300,18 @@ public sealed class StructuringPass : IIrPass
             .ToList())
         {
             var next = new Continue();
+            next.InheritSourceOffset(leave);
+            leave.ReplaceWith(next);
+        }
+    }
+
+    static void ReplaceRetryLeavesWithBreaks(IrNode root, int targetOffset)
+    {
+        foreach (var leave in root.Descendants.OfType<Leave>()
+            .Where(leave => leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
+            .ToList())
+        {
+            var next = new Break();
             next.InheritSourceOffset(leave);
             leave.ReplaceWith(next);
         }
