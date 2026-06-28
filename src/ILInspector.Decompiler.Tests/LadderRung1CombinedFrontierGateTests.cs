@@ -5,31 +5,32 @@ using ILInspector.DecompilerHarness;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The rung 1 <em>combined-code frontier</em> guard for the decompiler product
+/// The rung 1 <em>combined-code recovery</em> guard for the decompiler product
 /// quality ladder (#1599 / #1710). The other rung 1 gates exercise each construct
-/// in isolation in a tiny method, and all raise to <c>Full</c>. But realistic
-/// code combines them, and the structuring pass is fragile to those combinations:
-/// a method mixing a <c>foreach</c> loop, a <c>switch</c>, and a LINQ/lambda can
-/// tip the whole method into a goto-ladder fallback, which also defeats lambda
-/// raising (the delegate target leaks a <c>&lt;&gt;c</c> name). The
-/// <see cref="LadderRung1.CombinedFrontier{T}"/> fixture captures that.
+/// in isolation in a tiny method. This one exercises a realistic combination — a
+/// method mixing a <c>foreach</c> loop, a <c>switch</c> that assigns a local, and
+/// a LINQ/lambda continuation — which used to tip the whole method into a
+/// goto-ladder fallback (issue #1710). The
+/// <see cref="LadderRung1.CombinedFrontier"/> fixture captures that shape.
 ///
-/// <para>This gate owns the frontier honestly. It pins that the combined methods
-/// degrade to <c>Partial</c> (never a lying <c>Full</c>) while the simple members
-/// stay <c>Full</c>, and that the user type has <b>zero malformed <c>Full</c></b>
-/// output — the degradation is honest, not invalid C# claimed as good. It is the
-/// inverse of a positive guard: when the structuring pass is improved to raise
-/// these shapes, the <c>Partial</c> assertions flip and force an intentional
-/// promotion to a recognizable-output guard. Until then, rung 1 is NOT complete
-/// for realistic combined code — this is the blocking row.</para>
+/// <para>The fold of an N-way switch-store dispatch into a nested conditional
+/// store (<c>ConditionalStoreChainPass</c>) now lets these methods structure: the
+/// goto-ladder <em>structuring residual is gone</em> and the body is recognizable
+/// C# (the switch renders as a nested <c>?:</c> store). This gate pins that
+/// recovery — zero structuring residual, the dispatch raised, no goto ladder —
+/// and the standing honesty invariant that the type has zero malformed
+/// <c>Full</c> output. (Through this bare seam the combined methods still report
+/// <c>Partial</c> because it does not raise the cross-method lambda; the product
+/// path raises it, guarded by <see cref="LadderRung1ProductPathGateTests"/>. That
+/// remaining residual is the lambda, not structuring.)</para>
 /// </summary>
 public class LadderRung1CombinedFrontierGateTests
 {
     static string FixturePath => typeof(LadderRung1.CombinedFrontier).Assembly.Location;
     static readonly string FixtureType = typeof(LadderRung1.CombinedFrontier).FullName!;
 
-    // Methods that currently degrade — the frontier. Locked so a structuring
-    // improvement that raises them flips this gate and forces a promotion.
+    // The combined switch-store methods that #1710 recovered: their switch
+    // dispatch now folds to a nested conditional store and structures cleanly.
     static readonly string[] FrontierMembers = ["Summarize", "SwitchThenLinq"];
 
     // Simple members that are unaffected by the combination and stay Full. The
@@ -38,7 +39,7 @@ public class LadderRung1CombinedFrontierGateTests
     static readonly string[] RaisedMembers = [".ctor", "Echo"];
 
     [Fact]
-    public void Rung1CombinedFrontier_DegradesHonestly_FrontierPartial_SimpleFull()
+    public void Rung1CombinedSwitch_RaisesDispatch_NoStructuringResidual()
     {
         var members = LoadProductPathMembers();
 
@@ -46,17 +47,25 @@ public class LadderRung1CombinedFrontierGateTests
             RaisedMembers.Concat(FrontierMembers).Order(StringComparer.Ordinal).ToArray(),
             members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
 
-        // The frontier methods degrade — honestly classified Partial, with a
-        // residual — they are NOT recognizable C#. When structuring is improved
-        // to raise them, these assertions flip and force an intentional promotion.
+        // The combined switch-store methods now structure: the N-way switch
+        // dispatch folds to a nested conditional store (#1710), so the
+        // goto-ladder structuring residual is gone and the body is recognizable
+        // C#. (They render Partial only via this bare seam, which does not raise
+        // the cross-method lambda; the product path raises it — see
+        // LadderRung1ProductPathGateTests. That residual is not structuring.)
         foreach (var name in FrontierMembers)
         {
             var m = members.Single(x => x.Name == name);
-            Assert.Equal(DecompilationFidelity.Partial, m.Function.Fidelity);
-            Assert.NotNull(Completeness.Residual(m.Function));
+            Assert.Null(Completeness.Residual(m.Function));
+            // Assert on the IR shape (the switch dispatch folded to a Conditional
+            // store of the bucket local) rather than printer substrings, plus the
+            // absence of a goto ladder in the rendered output.
+            Assert.NotEmpty(m.Function.Descendants.OfType<Conditional>());
+            var body = CSharpPrinter.PrintRaised(m.Function).Output ?? "";
+            Assert.DoesNotContain("goto IL_", body);
         }
 
-        // The simple members are unaffected by the combination.
+        // The simple members are unaffected.
         foreach (var name in RaisedMembers)
         {
             var m = members.Single(x => x.Name == name);
@@ -66,7 +75,7 @@ public class LadderRung1CombinedFrontierGateTests
     }
 
     [Fact]
-    public void Rung1CombinedFrontier_DegradationIsHonest_NoMalformedFull()
+    public void Rung1CombinedSwitch_HasNoMalformedFull()
     {
         var results = ValidityCheck.Evaluate(FixturePath)
             .Where(r => r.TypeName == FixtureType)
@@ -75,25 +84,20 @@ public class LadderRung1CombinedFrontierGateTests
         Assert.NotEmpty(results);
 
         // The core honesty invariant: the decompiler never claims Full on output
-        // that does not parse. The combined frontier degrades to Partial instead
-        // of leaking its goto/`<>c` rendering under a Full claim.
+        // that does not parse.
         var malformedFull = results
             .Where(r => r.IsFull && r.IsMalformed)
             .Select(r => $"{r.MethodName}: {r.MalformedDiagnostics[0].Id} {r.MalformedDiagnostics[0].Message}")
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.True(malformedFull.Length == 0,
-            "Rung 1 combined frontier must degrade honestly (zero malformed Full); malformed Full: "
+            "Rung 1 combined switch must stay honest (zero malformed Full); malformed Full: "
                 + string.Join("; ", malformedFull));
 
-        // Non-vacuous: the frontier methods must actually be present and at least
-        // one must be malformed-but-Partial, proving this gate is measuring the
-        // real degradation and not an empty/relabeled result.
-        var partialMalformed = results
-            .Where(r => !r.IsFull && r.IsMalformed)
-            .Select(r => r.MethodName)
-            .ToArray();
-        Assert.Contains("Summarize", partialMalformed);
+        // Non-vacuous: the combined methods must actually be present in the
+        // evaluated set, so the no-malformed-Full assertion has teeth.
+        Assert.Contains("Summarize", results.Select(r => r.MethodName));
+        Assert.Contains("SwitchThenLinq", results.Select(r => r.MethodName));
     }
 
     static List<(string Name, IrFunction Function)> LoadProductPathMembers()

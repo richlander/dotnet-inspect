@@ -57,6 +57,8 @@ internal static class NativePasses
     public static ComparisonTreeBoolArmPass ComparisonTreeBoolArm => new();
     [Native(NativeCategory.EmitArtifact, "a shared-forward slot-store diamond folded to one conditional store so structuring can consume the surrounding merge")]
     public static SlotStoreDiamondPass SlotStoreDiamond => new();
+    [Native(NativeCategory.EmitArtifact, "an N-way (>=3 arm) switch-store dispatch folded to one nested conditional store so structuring can consume the surrounding merge")]
+    public static ConditionalStoreChainPass ConditionalStoreChain => new();
     [Native(NativeCategory.EmitArtifact, "generic null-conditional invocation (recv?.M() ?? x — the default(T)-box two-stage null test) folded so structuring can consume it")]
     public static NullConditionalCoalescePass NullConditionalCoalesce => new();
     [Native(NativeCategory.EmitArtifact, "branch-to-adjacent / dead branches removed before structuring")]

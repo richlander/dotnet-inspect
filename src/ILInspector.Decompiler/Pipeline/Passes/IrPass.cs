@@ -143,6 +143,10 @@ public static class IrPasses
         // Fold shared-forward slot diamonds into one conditional store so a
         // later merge can structure instead of carrying the slot through gotos.
         new SlotStoreDiamondPass(),
+        // Fold an N-way (≥3 arm) switch-store dispatch into one nested
+        // conditional store — the multi-arm sibling of the slot-store diamond
+        // over a local — so its merge structures instead of staying flat.
+        new ConditionalStoreChainPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
