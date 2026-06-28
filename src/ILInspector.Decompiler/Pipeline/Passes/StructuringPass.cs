@@ -317,12 +317,15 @@ public sealed class StructuringPass : IIrPass
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
                     if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
-                        // The body's breaks target the block after the loop;
-                        // leaves to the latch/condition are loop continues.
+                        // The body's breaks target the block after the loop.
+                        // EH retry leaves to the condition are converted after
+                        // the body is built; ordinary branches to the condition
+                        // remain outside this slice so nested arm exclusivity is
+                        // not lost.
                         var loopRegionExitBreakTarget = LoopExitReachesRegionExit(ctx, loop.ContinueAt, stop)
                             ? loop.ContinueAt
                             : (int?)null;
-                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget: branchTarget, loopRegionExitBreakTarget))
+                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget))
                             return false;
                         i = loop.ContinueAt;
                         break;
@@ -1209,7 +1212,7 @@ public sealed class StructuringPass : IIrPass
                         var loopRegionExitBreakTarget = LoopExitReachesRegionExit(ctx, loop.ContinueAt, stop)
                             ? loop.ContinueAt
                             : (int?)null;
-                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget: branchTarget, loopRegionExitBreakTarget);
+                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget);
                         ReplaceRetryLeavesWithContinues(body, blocks[branchTarget].StartOffset);
                         if (loop.ContinueAt < blocks.Count)
                             ReplaceRetryLeavesWithBreaks(body, blocks[loop.ContinueAt].StartOffset);

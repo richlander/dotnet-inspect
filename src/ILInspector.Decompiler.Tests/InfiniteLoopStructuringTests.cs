@@ -164,4 +164,16 @@ public class InfiniteLoopStructuringTests
         Assert.Contains("break;", output);
         Assert.DoesNotContain("goto IL_", output);
     }
+
+    [Fact]
+    public void GuardedWhileNestedContinue_StaysFlat()
+    {
+        var function = Raised(nameof(CfgSampleClass.WhileNestedContinueKeepsArmExclusive));
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("goto IL_", output);
+        Assert.Contains("throw new FormatException();", output);
+    }
 }
