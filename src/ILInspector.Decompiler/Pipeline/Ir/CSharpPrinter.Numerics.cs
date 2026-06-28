@@ -707,21 +707,25 @@ public sealed partial class CSharpPrinter
         }
         // The `cgt.un`/`clt.un` against null idiom csc emits for a reference
         // inequality (`ldnull; cgt.un` = `obj != null`): an unsigned ordering of a
-        // reference against null tests non-nullness (null is 0, so `x > 0` / `0 <
-        // x` unsigned is `x != 0`). There is no is-null ordering form, so this is
-        // always the not-null test; rendered literally `obj > null` is CS0019.
-        // Pointers forbid the is-pattern (CS8521), so spell those `!= null`.
+        // reference against null tests nullness (null is 0, so `x > 0` / `0 < x`
+        // unsigned is `x != 0`; the inverted dual is `x == 0`). There is no
+        // is-null ordering form; rendered literally `obj > null` or `obj <= null`
+        // is CS0019. Pointers forbid the is-pattern (CS8521), so spell those with
+        // equality.
         if (isUnsigned
             && ((kind == ComparisonKind.GreaterThan && right is Constant { Value: null })
-                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })))
+                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })
+                || (kind == ComparisonKind.LessThanOrEqual && right is Constant { Value: null })
+                || (kind == ComparisonKind.GreaterThanOrEqual && left is Constant { Value: null })))
         {
-            var operand = kind == ComparisonKind.GreaterThan ? left : right;
-            if (IsInstanceNullTestText(operand, isNotNull: true) is { } typeTest)
+            bool isNullTest = kind is ComparisonKind.LessThanOrEqual or ComparisonKind.GreaterThanOrEqual;
+            var operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
+            if (IsInstanceNullTestText(operand, isNotNull: !isNullTest) is { } typeTest)
                 return typeTest;
 
             return operand.ResultType is { Kind: TypeRefKind.Pointer }
-                ? $"{Operand(operand)} != null"
-                : $"{Operand(operand)} is not null";
+                ? $"{Operand(operand)} {(isNullTest ? "==" : "!=")} null"
+                : $"{Operand(operand)} is {(isNullTest ? "" : "not ")}null";
         }
         // A pointer compared to a native-int zero is a null check: csc lowers
         // `ptr == null` to `ldc.i4.0; conv.u; ceq`, so the zero arrives as an

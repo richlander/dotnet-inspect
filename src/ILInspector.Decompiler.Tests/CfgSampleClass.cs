@@ -87,6 +87,10 @@ public class CfgSampleClass
     // with a null operand. The printer must spell it `o is not null`, not the
     // CS0019 `o > null`.
     public static bool IsNotNullReference(object o) => o != null;
+
+    public static bool IsNotByteArrayMultiContent(object? content)
+        => content is System.Collections.IEnumerable && content is not string && content is not byte[];
+
     // A string literal containing the C# line terminators that are not
     // `char.IsControl`: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR.
     // The printer must escape them (\u2028/\u2029) or the emitted literal splits

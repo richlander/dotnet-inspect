@@ -27,6 +27,16 @@ public class ReferenceNullOrderingTests
     }
 
     [Fact]
+    public void NegatedIsInstanceNullTest_RendersTypeTest()
+    {
+        var output = Render(nameof(CfgSampleClass.IsNotByteArrayMultiContent));
+
+        Assert.Contains("content is not byte[]", output);
+        Assert.DoesNotContain("<= null", output);
+        Assert.DoesNotContain("as byte[]", output);
+    }
+
+    [Fact]
     public void UnsignedGreaterThanZero_StaysComparison_NotNullCheck()
     {
         // `x > 0` on a uint emits the same `cgt.un` opcode against a zero constant,
