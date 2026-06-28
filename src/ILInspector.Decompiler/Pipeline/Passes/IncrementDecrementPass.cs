@@ -192,8 +192,16 @@ public sealed class IncrementDecrementPass : IIrPass
 
     static bool IsPureLocalComputation(IrNode node) => node switch
     {
+        // Only non-throwing leaf loads are safe to evaluate before the use. A
+        // compound Binary/Unary/Convert fully evaluated before the use (e.g. the
+        // left operand `1 / z` in `1 / z + old`) can throw — div-by-zero, checked
+        // overflow, checked conversion — so moving the increment past it would
+        // reorder the increment relative to that exception. Such nodes only appear
+        // *before* the use when they are an earlier sibling subexpression; a
+        // Binary/Unary/Convert whose subtree contains the use is evaluated after
+        // it and never reaches this check, so simple shapes like `5 + old` still
+        // fold.
         Constant or LoadLocal or LoadStackSlot or LoadArgument => true,
-        Unary or Convert or Binary => true,
         _ => false,
     };
 

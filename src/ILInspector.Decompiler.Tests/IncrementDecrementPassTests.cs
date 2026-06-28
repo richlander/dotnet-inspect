@@ -580,6 +580,42 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserOperatorValueForm_ThrowingExprBeforeUse_IsNotFolded()
+    {
+        // S = SF; SF = op_Increment(S); use ((a / b) + S);  must NOT fold — the
+        // division is evaluated before the use and can throw, so moving the
+        // increment to the use site would reorder it past the exception (#1783).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var div = new Binary(BinaryKind.Divide, isChecked: false, isUnsigned: false,
+            new LoadArgument(0, "a", ValueType), new LoadArgument(1, "b", ValueType));
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                div, new LoadStackSlot(0, ValueType)))));
+
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void UserOperatorValueForm_PureLeafBeforeUse_StillFolds()
+    {
+        // S = SF; SF = op_Increment(S); use (const + S);  the Binary is evaluated
+        // after the use and the only thing before it is a non-throwing constant,
+        // so the value form still folds to const + SF++.
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadField(field, instance: null)),
+            new StoreField(field, instance: null, IncrementCall("op_Increment", ValueType, new LoadStackSlot(0, ValueType))),
+            new StoreLocal(1, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+                new Constant(1, ValueType), new LoadStackSlot(0, ValueType)))));
+
+        var increment = Assert.Single(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
+        Assert.True(increment is { IsIncrement: true, IsUserDefined: true });
+        Assert.IsType<LoadField>(increment.Target);
+    }
+
+    [Fact]
     public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
     {
         // A normal method that happens to be named op_Increment (no operator
