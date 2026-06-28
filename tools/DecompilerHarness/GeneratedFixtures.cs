@@ -265,6 +265,39 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "foreach", "array", "loop"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalSwitchInt = new(
+        "minimal.switch-int",
+        """
+        namespace GeneratedFixtures.MinimalSwitchInt;
+
+        public class Class1
+        {
+            public string Method1(int value)
+            {
+                switch (value)
+                {
+                    case 0:
+                        return "zero";
+                    case 1:
+                        return "one";
+                    case 2:
+                        return "two";
+                    case 3:
+                        return "three";
+                    default:
+                        return "many";
+                }
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalSwitchInt.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalSwitchInt.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "switch", "int", "branch"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
@@ -278,6 +311,7 @@ internal static class GeneratedFixtureCatalog
         MinimalTryFinally,
         MinimalUsingDispose,
         MinimalForeachArray,
+        MinimalSwitchInt,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
