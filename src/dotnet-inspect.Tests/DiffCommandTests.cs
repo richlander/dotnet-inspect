@@ -213,4 +213,54 @@ public class DiffCommandTests
         Assert.Contains("No in-place analysis signal changes detected.", markdown);
         Assert.DoesNotContain("No analysis signal changes detected.", markdown);
     }
+
+    // #1623 rung 6: end-to-end version-pair diff. V1/V2 share AssemblyName and method
+    // signatures (matched in-place); only bodies differ. A seeded in-loop allocation
+    // regression and an allocation improvement must surface, and an unchanged method
+    // must not produce a row.
+    [Fact]
+    public void BuildAnalysisDiff_VersionPair_SurfacesSeededRegressionAndImprovement()
+    {
+        var v1 = DiffFixturePath("DiffFixtures.V1");
+        var v2 = DiffFixturePath("DiffFixtures.V2");
+
+        var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { ChangedOnly = true });
+
+        var regression = Assert.Single(result.Rows, r =>
+            r.Member.Contains("RegressesAllocInLoop") && r.Signal == "allocations");
+        Assert.Equal("1", regression.Old);
+        Assert.Equal("2", regression.New);
+        Assert.Equal("in-loop", regression.Shape);
+
+        var improvement = Assert.Single(result.Rows, r =>
+            r.Member.Contains("ImprovesAlloc") && r.Signal == "allocations");
+        Assert.Equal("3", improvement.Old);
+        Assert.Equal("1", improvement.New);
+
+        Assert.DoesNotContain(result.Rows, r => r.Member.Contains("Stable"));
+    }
+
+    // #1623 rung 6: identity / no spurious deltas. Diffing a build against itself must
+    // produce zero in-place signal changes (guards signal determinism across two opens
+    // and the zero-delta filter).
+    [Fact]
+    public void BuildAnalysisDiff_Identity_SelfDiffHasNoSpuriousDeltas()
+    {
+        var v1 = DiffFixturePath("DiffFixtures.V1");
+
+        var result = DiffCommand.BuildAnalysisDiff([v1], [v1], new DiffOptions { ChangedOnly = true });
+
+        Assert.Empty(result.Rows);
+        Assert.Equal("No in-place analysis signal changes detected.", result.Summary);
+    }
+
+    static string DiffFixturePath(string project)
+    {
+        var outputDirectory = new System.IO.DirectoryInfo(
+            System.AppContext.BaseDirectory.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
+        string path = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
+        Assert.True(System.IO.File.Exists(path), $"Expected diff fixture assembly at {path}");
+        return path;
+    }
 }

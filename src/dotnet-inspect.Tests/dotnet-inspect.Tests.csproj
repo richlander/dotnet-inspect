@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\dotnet-inspect\dotnet-inspect.csproj" />
+    <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
