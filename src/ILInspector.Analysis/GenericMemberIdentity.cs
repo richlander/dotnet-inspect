@@ -79,4 +79,63 @@ internal static class GenericMemberIdentity
             || typeArguments.Length > 0
             || ContainsGenericParameter(returnType)
             || parameterTypes.Any(ContainsGenericParameter);
+
+    /// <summary>
+    /// A cross-assembly-stable parameter shape for an erased generic member. Each
+    /// declaring-type generic argument is mapped to a positional marker
+    /// (<c>!0</c>, <c>!1</c>, …) so the open definition (whose parameters reference the
+    /// type parameters as <c>!i</c>) and a constructed call site (whose parameters carry
+    /// the instantiation) collapse onto the same shape, while same-arity overloads with
+    /// a different parameter structure — <c>Box&lt;T&gt;.Store(T)</c> vs
+    /// <c>Box&lt;T&gt;.Store(List&lt;T&gt;)</c> — stay distinct (#1731). The earlier
+    /// erasure kept only the parameter count, collapsing such overloads.
+    /// </summary>
+    public static string ErasedParameterShape(TypeRef declaringType, ImmutableArray<TypeRef> methodTypeArguments, ImmutableArray<TypeRef> parameterTypes)
+    {
+        var declaringArguments = declaringType.Kind == TypeRefKind.GenericInstance
+            ? declaringType.TypeArguments
+            : [];
+        return string.Join(",", parameterTypes.Select(parameter => NormalizeShape(parameter, declaringArguments, methodTypeArguments)));
+    }
+
+    static string NormalizeShape(TypeRef type, ImmutableArray<TypeRef> declaringArguments, ImmutableArray<TypeRef> methodArguments)
+    {
+        // Open-definition side: a type/method generic parameter is a positional marker.
+        if (type.Kind == TypeRefKind.GenericParameter)
+            return $"!{type.GenericParameterIndex}";
+        if (type.Kind == TypeRefKind.MethodGenericParameter)
+            return $"!!{type.GenericParameterIndex}";
+
+        // Constructed-call-site side: a type equal to a declaring-type argument maps to
+        // the matching type marker (!i), and one equal to a method type argument maps to
+        // the method marker (!!i) — so List<int> under Box<int> reads as List<!0>
+        // (matching open List<T> under Box<T>), and Id<int>(int) reads as !!0 (matching
+        // open Id<T>(T)). Declaring args take precedence so the markers line up with the
+        // open definition's parameter kinds.
+        for (int i = 0; i < declaringArguments.Length; i++)
+        {
+            if (declaringArguments[i].Equals(type))
+                return $"!{i}";
+        }
+        for (int i = 0; i < methodArguments.Length; i++)
+        {
+            if (methodArguments[i].Equals(type))
+                return $"!!{i}";
+        }
+
+        return type.Kind switch
+        {
+            TypeRefKind.GenericInstance when type.ElementType is { } definition
+                => $"{definition.Name}<{string.Join(",", type.TypeArguments.Select(argument => NormalizeShape(argument, declaringArguments, methodArguments)))}>",
+            TypeRefKind.SzArray when type.ElementType is { } element
+                => $"{NormalizeShape(element, declaringArguments, methodArguments)}[]",
+            TypeRefKind.Array when type.ElementType is { } element
+                => $"{NormalizeShape(element, declaringArguments, methodArguments)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
+            TypeRefKind.ByRef when type.ElementType is { } element
+                => $"ref {NormalizeShape(element, declaringArguments, methodArguments)}",
+            TypeRefKind.Pointer when type.ElementType is { } element
+                => $"{NormalizeShape(element, declaringArguments, methodArguments)}*",
+            _ => type.ToQualifiedDisplayString(),
+        };
+    }
 }

@@ -202,12 +202,42 @@ public class LibraryBodyIndexTests
         var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
 
         var store = targetIndex.Methods.First(method =>
-            method.DeclaringType.Name == "Box`1" && method.Name == "Store");
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
         var tree = targetIndex.BuildCallerTree(store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
 
         var callerNames = tree.Children.Select(child => child.Member.Name).ToList();
         Assert.Contains("UseBox", callerNames);
         Assert.Contains("ILInspector.Analysis.CallerGraphCaller", tree.Children.Select(child => child.Perf?.Source));
+    }
+
+    // #1731: Box<T>.Store(T) and Box<T>.Store(List<T>) share name and arity on the same
+    // generic declaring type. Cross-assembly caller graph identity must keep them distinct
+    // — rooting at one overload reports only its own constructed caller, not the other's.
+    // The prior arity-only erasure (open declaring + name + parameter count) collapsed them
+    // and cross-linked the callers, which de-verified #1623 rung 1.
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsSameArityGenericOverloadsDistinct()
+    {
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var storeValue = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
+        var storeList = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store"
+            && method.ParameterTypes[0].Kind == TypeRefKind.GenericInstance);
+
+        var valueCallers = targetIndex.BuildCallerTree(storeValue.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+        var listCallers = targetIndex.BuildCallerTree(storeList.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
+            .Children.Select(child => child.Member.Name).ToList();
+
+        Assert.Contains("UseBox", valueCallers);
+        Assert.DoesNotContain("UseBoxList", valueCallers);
+        Assert.Contains("UseBoxList", listCallers);
+        Assert.DoesNotContain("UseBox", listCallers);
     }
 
     [Fact]

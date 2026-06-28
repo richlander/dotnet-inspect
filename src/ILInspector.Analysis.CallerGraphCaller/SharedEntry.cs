@@ -20,6 +20,10 @@ namespace Shared
         // (a constructed generic method via a MethodSpec).
         public static void UseBox() => new Target.Box<int>().Store(1);
 
+        // #1731: calls the same-arity List<T> overload of Store on the same Box<int>. A
+        // caller graph rooted at Store(List<T>) must report this and not UseBox.
+        public static void UseBoxList() => new Target.Box<int>().Store(new System.Collections.Generic.List<int>());
+
         public static void UseEcho() => Target.GenericApi.Echo(1);
     }
 }

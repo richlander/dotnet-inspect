@@ -31,6 +31,13 @@ namespace Target
         public void Store(T value)
         {
         }
+
+        // #1731: a same-arity overload on the same generic declaring type. The
+        // cross-assembly caller graph must keep Store(T) and Store(List<T>) distinct;
+        // the prior arity-only erasure collapsed them.
+        public void Store(System.Collections.Generic.List<T> values)
+        {
+        }
     }
 
     // Generic method on a non-generic type: a caller invokes Echo<int>, a MethodSpec keyed on
