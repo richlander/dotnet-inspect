@@ -24,7 +24,6 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
-        IReadOnlySet<string> inAssemblyValueTypeNames,
         IReadOnlySet<int> nonHeapNewObjOperandTokens)
     {
         Path = path;
@@ -40,7 +39,6 @@ public sealed class LibraryBodyIndex
         _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
-        _inAssemblyValueTypeNames = inAssemblyValueTypeNames;
         _nonHeapNewObjOperandTokens = nonHeapNewObjOperandTokens;
     }
 
@@ -400,7 +398,6 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
-    readonly IReadOnlySet<string> _inAssemblyValueTypeNames;
     readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
     /// <summary>
@@ -538,7 +535,7 @@ public sealed class LibraryBodyIndex
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
-            index.InAssemblyValueTypeNames, index.NonHeapNewObjOperandTokens);
+            index.NonHeapNewObjOperandTokens);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -974,7 +971,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<string> InAssemblyValueTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -985,7 +982,6 @@ public sealed class LibraryBodyIndex
             var bodySignals = new Dictionary<int, BodySignals>();
             var suppressedOpportunityTokens = new HashSet<int>();
             var exceptionTypeNames = ComputeExceptionTypeNames();
-            var inAssemblyValueTypeNames = ComputeInAssemblyValueTypeNames();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -1048,10 +1044,10 @@ public sealed class LibraryBodyIndex
             }
 
             var directCalls = calls.ToImmutable();
-            var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls, inAssemblyValueTypeNames);
+            var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
             return (methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
-                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, inAssemblyValueTypeNames, nonHeapNewObjOperandTokens);
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
         }
 
         // The metadata operand tokens of `newobj` instructions that construct a VALUE TYPE
@@ -1064,26 +1060,26 @@ public sealed class LibraryBodyIndex
         // user struct is a bare TypeRef whose value-type-ness is unresolvable from this
         // assembly alone, so it is intentionally excluded (an owned false positive at the
         // no-referenced-assembly-loading boundary, like the rung-2 `*Exception` suffix).
-        HashSet<int> ComputeNonHeapNewObjOperandTokens(ImmutableArray<DirectCall> directCalls, IReadOnlySet<string> inAssemblyValueTypeNames)
+        HashSet<int> ComputeNonHeapNewObjOperandTokens(ImmutableArray<DirectCall> directCalls)
         {
             var set = new HashSet<int>();
             foreach (var call in directCalls)
             {
                 if (call.Kind != CallKind.NewObject || set.Contains(call.OperandToken))
                     continue;
-                if (IsNonHeapNewObj(call.OperandToken, call.Callee.DeclaringType, inAssemblyValueTypeNames))
+                if (IsNonHeapNewObj(call.OperandToken, call.Callee.DeclaringType))
                     set.Add(call.OperandToken);
             }
             return set;
         }
 
-        // True when a `newobj` of this operand constructs a value type. Combines the
-        // name-based framework/in-assembly classification with an authoritative metadata
-        // resolution of the constructor's declaring type (TypeDef base chain, or TypeSpec
-        // signature blob for constructed generics).
-        bool IsNonHeapNewObj(int operandToken, TypeRef declaringType, IReadOnlySet<string> inAssemblyValueTypeNames)
+        // True when a `newobj` of this operand constructs a value type. Combines a name-based
+        // FRAMEWORK fast path with an authoritative metadata resolution of the constructor's
+        // declaring type (TypeDef base chain, or TypeSpec signature blob for constructed
+        // generics) — the latter is what classifies in-assembly and cross-assembly structs.
+        bool IsNonHeapNewObj(int operandToken, TypeRef declaringType)
         {
-            if (IsNonHeapConstructionByName(declaringType, inAssemblyValueTypeNames))
+            if (IsNonHeapConstructionByName(declaringType))
                 return true;
             try
             {
@@ -1106,25 +1102,26 @@ public sealed class LibraryBodyIndex
             return false;
         }
 
-        // Name-based value-type recognition shared with the allocation paths: the common
-        // framework value types constructed in hot loops (Span/ReadOnlySpan/Memory/Nullable/
-        // ValueTuple), other well-known framework value types (gated on framework trust), and
-        // in-assembly structs/enums resolved by qualified name.
-        static bool IsNonHeapConstructionByName(TypeRef type, IReadOnlySet<string> inAssemblyValueTypeNames)
+        // Name-based recognition of FRAMEWORK value types whose `newobj` resolves to a bare
+        // TypeRef the token dispatch cannot follow (a non-generic framework struct like DateTime
+        // or Guid lives in an assembly this one does not load). The common generic framework
+        // value types (Span/ReadOnlySpan/Memory/Nullable/ValueTuple`n) are constructed through a
+        // TypeSpec and are resolved authoritatively by the signature blob, so they are listed
+        // here only as a fast path. In-assembly and cross-assembly value types are NOT matched by
+        // name — that is the operand-token metadata path's job — because a display name omits
+        // assembly identity and would misclassify an external reference type that shares a
+        // namespace+name with an in-assembly struct (#1804 review).
+        static bool IsNonHeapConstructionByName(TypeRef type)
         {
             var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-            if (definition.Kind == TypeRefKind.Unsupported)
+            if (definition.Kind != TypeRefKind.Definition || !definition.TrustedFrameworkAssembly)
                 return false;
             if (definition.Namespace == "System" && definition.Name is
                     "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
                     or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
                     or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
                 return true;
-            if (definition.Kind == TypeRefKind.Definition
-                && definition.TrustedFrameworkAssembly
-                && IsWellKnownValueType(definition.Namespace, definition.Name))
-                return true;
-            return inAssemblyValueTypeNames.Contains(definition.ToQualifiedDisplayString());
+            return IsWellKnownValueType(definition.Namespace, definition.Name);
         }
 
         // Classifies in-assembly types by whether they derive from System.Exception,
@@ -1188,26 +1185,6 @@ public sealed class LibraryBodyIndex
                 }
                 return false;
             }
-        }
-
-        // In-assembly value types (struct/enum) by qualified name. A `newobj` of one of these
-        // does NOT allocate on the heap, so it must not be counted toward allocation density.
-        IReadOnlySet<string> ComputeInAssemblyValueTypeNames()
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var typeHandle in _reader.TypeDefinitions)
-            {
-                var baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
-                if (baseHandle.Kind != HandleKind.TypeReference)
-                    continue;
-                var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
-                if (_reader.GetString(baseRef.Namespace) == "System"
-                    && _reader.GetString(baseRef.Name) is "ValueType" or "Enum")
-                {
-                    names.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0).ToQualifiedDisplayString());
-                }
-            }
-            return names;
         }
 
         IReadOnlySet<string> ComputeExceptionTypeNames()
