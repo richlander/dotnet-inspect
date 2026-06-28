@@ -30,7 +30,10 @@ row at a time and drives it to a PR, explicit blocker, or pivot issue.
    and merge or rebase the latest main into the branch.
 5. Rerun row validation after syncing.
 6. Open a PR and update the row to `In review — #PR`.
-7. When merged, the curator or runner updates the row to `Done — #PR`.
+7. When all merge-blocking validation, CI, and required review are complete,
+   post a PR comment that clearly says `Ready to merge`. Label any later tests
+   or review as non-blocking follow-up work.
+8. When merged, the curator or runner updates the row to `Done — #PR`.
 
 ## If blocked
 

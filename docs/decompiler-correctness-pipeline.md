@@ -456,6 +456,9 @@ Review:
 - Resolution commits: <links for addressed guidance, or "none" with rationale>
 - Follow-ups: <issues for remaining buckets>
 
+Merge readiness:
+Ready to merge / Blocked by <concrete blocker>
+
 Why this is enough:
 <one paragraph tying the evidence to the decision>
 ```
@@ -467,6 +470,11 @@ boss prevents a meaningful safety claim (for example, changed-method rows are
 mostly uncheckable for unknown reasons). Choose **Pivot** when the evidence says
 the next useful work is a different boss or a measurement issue rather than more
 raise code.
+
+When the decision is **Go** and all merge-blocking validation, CI, and required
+review are complete, post a PR comment that clearly says `Ready to merge`. If
+extra tests or review continue after that point, mark them as non-blocking
+follow-up work so the PR state remains unambiguous.
 
 ## Naming the harnesses by role
 

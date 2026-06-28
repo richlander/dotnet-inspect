@@ -50,6 +50,11 @@ issue.
 - Unresolved adversarial feedback: take over after `60m`.
 - Maintainer notification: every active sweep reports mergeable PRs.
 
+Runners must post an explicit `Ready to merge` PR comment after all
+merge-blocking validation, CI, and required review are complete. If an agent keeps
+running extra tests or review after that point, the PR comment or follow-up
+status must label that work as non-blocking.
+
 For every open PR mentioned in a report, state either:
 
 - `Ready to merge` with evidence: clean branch, green checks, review

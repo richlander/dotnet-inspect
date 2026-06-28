@@ -177,6 +177,11 @@ Before opening a PR, fetch `origin/main` and update the feature branch with the
 latest main using either merge or rebase. Resolve conflicts locally and rerun
 relevant checks so the PR does not start from a stale base.
 
+When all merge-blocking validation, CI, and required review are complete, post a
+clear PR comment that says the PR is `Ready to merge`. If you continue running
+extra tests or review after that point, label them as non-blocking follow-up work
+so maintainers do not mistake the PR for still being in progress.
+
 After fetching, rebasing, merging `origin/main`, or resolving conflicts from
 main, re-read `AGENTS.md` and any task-relevant docs it points to before
 continuing. If instructions changed, treat the refreshed instructions as
