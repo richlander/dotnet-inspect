@@ -904,7 +904,7 @@ public sealed class LibraryBodyIndex
         var openDeclaring = GenericMemberIdentity.OpenDeclaringType(declaringType);
         return eraseGenericSignature
             ? $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{GenericMemberIdentity.ErasedParameterShape(openParameterTypes)}"
-            : $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
+            : $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(returnType)}";
     }
 
     sealed class IndexBuilder

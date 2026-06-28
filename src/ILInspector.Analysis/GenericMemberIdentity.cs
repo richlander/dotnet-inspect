@@ -93,22 +93,32 @@ public static class GenericMemberIdentity
     /// parameter count.
     /// </summary>
     public static string ErasedParameterShape(ImmutableArray<TypeRef> openParameterTypes)
-        => string.Join(",", openParameterTypes.Select(NormalizeShape));
+        => string.Join(",", openParameterTypes.Select(KeyFragment));
 
-    static string NormalizeShape(TypeRef type) => type.Kind switch
+    /// <summary>
+    /// An assembly-qualified, cross-assembly-stable key fragment for a type. Generic
+    /// parameters render as <c>!i</c>/<c>!!i</c>; generic instances and
+    /// array/byref/pointer wrappers recurse; a named type renders as
+    /// <c>assembly|namespace.name</c>. Including the assembly keeps same-FQN types from
+    /// different assemblies distinct in string keys (<see cref="TypeRef.Equals"/> already
+    /// distinguishes them, but the display strings did not) (#1741), and the namespace
+    /// keeps same-name types from different namespaces distinct (#1731).
+    /// </summary>
+    public static string KeyFragment(TypeRef type) => type.Kind switch
     {
         TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
         TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
         TypeRefKind.GenericInstance when type.ElementType is { } definition
-            => $"{definition.ToQualifiedDisplayString()}<{string.Join(",", type.TypeArguments.Select(NormalizeShape))}>",
+            => $"{KeyFragment(definition)}<{string.Join(",", type.TypeArguments.Select(KeyFragment))}>",
         TypeRefKind.SzArray when type.ElementType is { } element
-            => $"{NormalizeShape(element)}[]",
+            => $"{KeyFragment(element)}[]",
         TypeRefKind.Array when type.ElementType is { } element
-            => $"{NormalizeShape(element)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
+            => $"{KeyFragment(element)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
         TypeRefKind.ByRef when type.ElementType is { } element
-            => $"ref {NormalizeShape(element)}",
+            => $"ref {KeyFragment(element)}",
         TypeRefKind.Pointer when type.ElementType is { } element
-            => $"{NormalizeShape(element)}*",
+            => $"{KeyFragment(element)}*",
+        TypeRefKind.Definition => $"{type.Assembly}|{type.Namespace}.{type.Name}",
         _ => type.ToQualifiedDisplayString(),
     };
 }
