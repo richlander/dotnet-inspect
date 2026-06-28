@@ -784,14 +784,19 @@ public sealed partial class CSharpPrinter
         return expression is Constant { Value: 0 or 0L or 0u or 0UL or (short)0 or (sbyte)0 or (byte)0 or (ushort)0 };
     }
 
-    /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
+    /// <summary>
+    /// Casts a signed-integer operand to its unsigned counterpart; already-unsigned,
+    /// float (.un = unordered), and unknown-typed operands print plain. A signed
+    /// constant outside the unsigned target's range takes the <c>unchecked</c>
+    /// spelling so the out-of-range cast is legal (CS0221).
+    /// </summary>
     string UnsignedOperand(IrExpression operand, bool checkedSafe = true)
     {
         string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
         if (cast is null)
             return Operand(operand);
         string text = $"({cast}){Operand(operand)}";
-        return checkedSafe ? CheckedSafeCast(text) : text;
+        return checkedSafe ? CheckedSafeCast(text, force: IsOutOfRangeUnsignedConstant(operand)) : text;
     }
 
     /// <summary>

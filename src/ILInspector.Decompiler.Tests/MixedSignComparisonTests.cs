@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -13,6 +16,8 @@ namespace ILInspector.Decompiler.Tests;
 // to preserve the signed comparison (#1476).
 public class MixedSignComparisonTests
 {
+    static readonly TypeRef UInt = TypeRef.CoreLib("System", "UInt32");
+    static readonly TypeRef Int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef ULong = TypeRef.CoreLib("System", "UInt64");
     static readonly TypeRef Long = TypeRef.CoreLib("System", "Int64");
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
@@ -32,6 +37,32 @@ public class MixedSignComparisonTests
                 [new Parameter("a", leftType), new Parameter("b", rightType)],
                 HasThis: false, GenericParameterCount: 0),
             [], body);
+        return CSharpPrinter.Print(function).Output!;
+    }
+
+    static string RenderComparison(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new Comparison(kind, isUnsigned, left, right)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M", owner,
+            new MethodSignature(Bool,
+                [new Parameter("i", left.ResultType ?? UInt)],
+                HasThis: false, GenericParameterCount: 0),
+            [], body);
+        return CSharpPrinter.Print(function).Output!;
+    }
+
+    static string RenderImported(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(UnsignedComparisonSpecimens).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(UnsignedComparisonSpecimens).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function!.CheckInvariant();
         return CSharpPrinter.Print(function).Output!;
     }
 
@@ -111,4 +142,121 @@ public class MixedSignComparisonTests
         var output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("(long)((ulong)a + b) < c", output);
     }
+
+    [Fact]
+    public void UnsignedOrdering_UIntOutOfRangeConstant_WrapsCastInUnchecked()
+    {
+        var output = RenderComparison(ComparisonKind.GreaterThanOrEqual, isUnsigned: true,
+            new LoadArgument(0, "i", UInt),
+            new Constant(-294967296, Int));
+
+        Assert.Contains("i >= unchecked((uint)-294967296)", output);
+        AssertBodyCompiles("public static bool M(uint i)", output);
+    }
+
+    [Fact]
+    public void UnsignedOrdering_ULongOutOfRangeConstant_WrapsCastInUnchecked()
+    {
+        var output = RenderComparison(ComparisonKind.GreaterThanOrEqual, isUnsigned: true,
+            new LoadArgument(0, "i", ULong),
+            new Constant(-8446744073709551616L, Long));
+
+        Assert.Contains("i >= unchecked((ulong)-8446744073709551616)", output);
+        AssertBodyCompiles("public static bool M(ulong i)", output);
+    }
+
+    [Fact]
+    public void UnsignedOrdering_ULongNegativeLongConstant_WrapsCastInUnchecked()
+    {
+        var output = RenderComparison(ComparisonKind.LessThan, isUnsigned: true,
+            new LoadArgument(0, "i", ULong),
+            new Constant(-16L, Long));
+
+        Assert.Contains("i < unchecked((ulong)-16)", output);
+        AssertBodyCompiles("public static bool M(ulong i)", output);
+    }
+
+    [Fact]
+    public void UnsignedEquality_OutOfRangeConstant_StillWrapsCastInUnchecked()
+    {
+        var output = RenderComparison(ComparisonKind.Equal, isUnsigned: false,
+            new LoadArgument(0, "i", ULong),
+            new Constant(-1L, Long));
+
+        Assert.Contains("i == unchecked((ulong)-1)", output);
+        AssertBodyCompiles("public static bool M(ulong i)", output);
+    }
+
+    [Fact]
+    public void ImportedUnsignedOrderingOutOfRangeConstants_RenderUncheckedCasts()
+    {
+        AssertContainsAndCompiles("public static bool M(ulong i)",
+            "i >= unchecked((ulong)-8446744073709551616)",
+            RenderImported(nameof(UnsignedComparisonSpecimens.GeUlongHighBit)));
+        AssertContainsAndCompiles("public static bool M(uint i)",
+            "i >= unchecked((uint)-294967296)",
+            RenderImported(nameof(UnsignedComparisonSpecimens.UintGe)));
+        AssertContainsAndCompiles("public static bool M(ulong i)",
+            "i < unchecked((ulong)((long)-16))",
+            RenderImported(nameof(UnsignedComparisonSpecimens.UlongLt)));
+        AssertContainsAndCompiles("public static bool M(ulong i)",
+            "i == unchecked((ulong)((long)-1))",
+            RenderImported(nameof(UnsignedComparisonSpecimens.UlongEq)));
+    }
+
+    static void AssertContainsAndCompiles(string methodHeader, string expected, string body)
+    {
+        Assert.Contains(expected, body);
+        AssertBodyCompiles(methodHeader, body);
+    }
+
+    static void AssertBodyCompiles(string methodHeader, string body)
+    {
+        var errors = Recompile(methodHeader, body)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToArray();
+        Assert.True(errors.Length == 0, "Rendered body must compile, got:\n  " + string.Join("\n  ", errors) + "\n--- body ---\n" + body);
+    }
+
+    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body)
+    {
+        string source = $$"""
+            static class __Gate
+            {
+                {{methodHeader}}
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "__gate",
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        return compilation.GetDiagnostics();
+    }
+
+    static ImmutableArray<MetadataReference> RuntimeReferences()
+    {
+        var references = ImmutableArray.CreateBuilder<MetadataReference>();
+        foreach (string path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                continue;
+            references.Add(MetadataReference.CreateFromFile(path));
+        }
+        return references.ToImmutable();
+    }
+}
+
+public static class UnsignedComparisonSpecimens
+{
+    public static bool GeUlongHighBit(ulong i) => i >= 10000000000000000000UL;
+    public static bool UintGe(uint i) => i >= 4000000000U;
+    public static bool UlongLt(ulong i) => i < 0xFFFFFFFFFFFFFFF0UL;
+    public static bool UlongEq(ulong i) => i == ulong.MaxValue;
 }
