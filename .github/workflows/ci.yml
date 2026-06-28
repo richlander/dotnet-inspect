@@ -72,15 +72,22 @@ jobs:
               src/DotnetInspector.Core/*) ILROUNDTRIP=true ;;
               *.props|*.sln) ILROUNDTRIP=true ;;
             esac
-            # Packaging/pack-smoke validation only needs to run when build or
-            # packaging configuration changes. Most PRs (e.g. decompiler raises)
-            # don't touch these, so gating pack/pack-rid here keeps them off the
+            # Packaging/pack-smoke validation only needs to run when something
+            # that affects the *packaged* tool changes. pack/pack-rid only run
+            # `dotnet pack src/dotnet-inspect`, so the output is determined by
+            # that project's csproj plus shared build infra (root + src build
+            # props/targets, global.json/nuget config) and the pack workflow
+            # itself. Test/harness csproj changes and unrelated workflow edits
+            # don't affect the package, so they must not trip this. Most PRs
+            # (e.g. decompiler raises) touch none of these, keeping pack off the
             # hot PR path. On push to main, pack still runs (see job `if`s) to
             # produce the artifacts release.yml publishes.
             case "$file" in
-              *.csproj|*.props|*.targets|*.sln) PACKAGING=true ;;
+              src/dotnet-inspect/dotnet-inspect.csproj) PACKAGING=true ;;
+              Directory.Build.props|Directory.Build.targets|Directory.Packages.props) PACKAGING=true ;;
+              src/Directory.Build.props) PACKAGING=true ;;
               global.json|nuget.config|NuGet.config) PACKAGING=true ;;
-              .github/workflows/*) PACKAGING=true ;;
+              .github/workflows/ci.yml|.github/workflows/release.yml) PACKAGING=true ;;
             esac
           done <<< "$FILES"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
