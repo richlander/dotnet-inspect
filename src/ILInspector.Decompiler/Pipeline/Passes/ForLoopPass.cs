@@ -28,6 +28,14 @@ public sealed class ForLoopPass : IIrPass
             {
                 continue;
             }
+            // A checked user-defined increment (i = op_CheckedIncrement(i)) has no
+            // for-header spelling that preserves the checked overload: a `checked
+            // { i++; }` block is invalid in a for header, and a bare `checked(i++)`
+            // expression is CS0201 there. Keep such loops as while (in either the
+            // initializer or increment slot) so the checked increment localizes to
+            // a `checked { i++; }` statement. See #1712.
+            if (IsCheckedUserIncrement(increment.Value) || IsCheckedUserIncrement(initializer.Value))
+                continue;
             if (!ConditionReads(loop.Condition, initializer.Index))
                 continue;
             if (ContainsCurrentLoopContinue(loop.Body))
@@ -40,6 +48,10 @@ public sealed class ForLoopPass : IIrPass
             loop.ReplaceWith(new ForLoop(initializer, (IrExpression)parts[0], increment, (Block)parts[1]));
         }
     }
+
+    /// <summary>True when a loop increment store value is a user-defined <c>op_CheckedIncrement</c>/<c>op_CheckedDecrement</c> call — a checked increment that has no for-header spelling.</summary>
+    static bool IsCheckedUserIncrement(IrExpression value)
+        => value is Call { Callee: { HasThis: false, Name: "op_CheckedIncrement" or "op_CheckedDecrement" } };
 
     static bool ConditionReads(IrExpression condition, int localIndex)
     {
