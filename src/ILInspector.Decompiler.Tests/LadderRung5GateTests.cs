@@ -278,6 +278,14 @@ public class LadderRung5GateTests
         Assert.Contains("for (", classLoop);
         Assert.Contains("i++", classLoop);
         Assert.DoesNotContain("op_", classLoop);
+
+        // An unchecked increment inside the checked-wrapped loop body renders an
+        // unchecked { j++; } block (valid statement, correct unchecked overload).
+        var mixedLoop = CSharpPrinter.PrintRaised(
+            LoadRaisedMembers().Single(m => m.Type == typeof(LadderRung5.CheckedStep).FullName && m.Name == "CheckedForLoopMixed").Function)
+            .Output ?? "";
+        Assert.Contains("unchecked { j++; }", mixedLoop);
+        Assert.DoesNotContain("op_", mixedLoop);
     }
 
     // C# 12 primary constructor on a class. The captured parameters lift into

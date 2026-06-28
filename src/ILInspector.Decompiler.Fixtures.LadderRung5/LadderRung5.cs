@@ -205,6 +205,25 @@ public class CheckedStep
         }
         return n;
     }
+
+    // An explicitly unchecked increment inside the checked-wrapped loop body must
+    // render as an unchecked { j++; } block (a bare unchecked(j++) is CS0201 and a
+    // bare j++ would rebind to the checked overload).
+    public static int CheckedForLoopMixed(CheckedStep start, int n)
+    {
+        CheckedStep j = new CheckedStep();
+        checked
+        {
+            for (CheckedStep i = start; i.Value < n; i++)
+            {
+                unchecked
+                {
+                    j++;
+                }
+            }
+        }
+        return j.Value;
+    }
 }
 
 // C# 12 primary constructor on a class. The captured parameters lift into

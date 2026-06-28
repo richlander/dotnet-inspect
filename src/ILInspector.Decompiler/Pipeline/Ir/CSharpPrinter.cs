@@ -1317,9 +1317,12 @@ public sealed partial class CSharpPrinter
         ExpressionStatement e => e.Expression switch
         {
             UnsupportedNode u => $"/* {u.Describe()} */",
-            // A user-defined checked ++/-- as a statement spells checked(x++),
-            // which is CS0201 in statement position; use a checked { ... } block.
-            IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(id),
+            // A ++/-- that the context would wrap as checked(x++)/unchecked(x++) is
+            // CS0201 in statement position; render it as a checked/unchecked { x++; }
+            // block instead. (A checked user-defined increment always wraps; an
+            // unchecked one wraps only inside a checked context — e.g. the body of a
+            // checked-wrapped for-loop.)
+            IncrementDecrement id when IncrementWrapsAsBlock(id) => WrappedIncrementStatement(id),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
             // discarded by an IL `pop`, a comparison, the caught exception, an
@@ -2385,10 +2388,13 @@ public sealed partial class CSharpPrinter
     /// <summary>A <c>for</c> header clause (initializer/increment) without the trailing <c>;</c>. A checked user-defined <c>++</c>/<c>--</c> has no for-header spelling (a <c>checked { }</c> block is invalid there); the enclosing loop is wrapped in <c>checked { }</c> instead, so the bare operator rendered here selects the checked overload from that context.</summary>
     string ForHeaderClause(IrNode node)
     {
-        if (node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } id })
+        // A for-header clause cannot contain a checked/unchecked block, so render
+        // any ++/-- bare. The enclosing loop's checked { } wrapper (added when the
+        // header increment is checked) supplies the overload-selecting context.
+        if (node is ExpressionStatement { Expression: IncrementDecrement id })
         {
             bool saved = _checkedContext;
-            _checkedContext = true;
+            _checkedContext = id.IsChecked;
             try
             {
                 return IncrementDecrementText(id);
@@ -2434,14 +2440,20 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    /// <summary>A user-defined checked ++/-- in statement position: a <c>checked { x++; }</c> block, since the <c>checked(x++)</c> expression is CS0201 as a statement.</summary>
-    string CheckedIncrementStatement(IncrementDecrement id)
+    /// <summary>True when <see cref="IncrementDecrementText"/> would wrap this increment in <c>checked(...)</c>/<c>unchecked(...)</c> — so as a statement it needs a block instead (CS0201).</summary>
+    bool IncrementWrapsAsBlock(IncrementDecrement id)
+        => id.IsChecked
+            || (_checkedContext && (TypeFamilies.IsInteger(id.ResultType) || id.IsUserDefined));
+
+    /// <summary>A ++/-- in statement position that needs an overflow-context block: <c>checked { x++; }</c> for a checked increment, <c>unchecked { x++; }</c> for one the surrounding checked context would otherwise wrap. The block both spells a legal statement and preserves the operator overload.</summary>
+    string WrappedIncrementStatement(IncrementDecrement id)
     {
+        string keyword = id.IsChecked ? "checked" : "unchecked";
         bool saved = _checkedContext;
-        _checkedContext = true;
+        _checkedContext = id.IsChecked;
         try
         {
-            return $"checked {{ {IncrementDecrementText(id)}; }}";
+            return $"{keyword} {{ {IncrementDecrementText(id)}; }}";
         }
         finally
         {
