@@ -4027,6 +4027,22 @@ public static class RectangularArraySamples
     public static int Jagged(int[][] a, int i, int j) => a[i][j];
 }
 
+// Issue #1654: ordinary newarr over an array-typed element must put the new
+// length in the outer rank, e.g. new int[n][] rather than new int[][n].
+public static class JaggedArrayCreationSamples
+{
+    public static int[][] J2() => new int[3][];
+    public static int[][][] J3() => new int[3][][];
+    public static string[][] JStr() => new string[5][];
+    public static int[][] JVar(int n) => new int[n][];
+    public static int[][,] JMdElement() => new int[2][,];
+    public static int[][][,] JSzThenMdElement() => new int[2][][,];
+    public static int[][,][] JMdThenSzElement() => new int[2][,][];
+
+    public static int[] SingleDimNew(int n) => new int[n];
+    public static int[] ArrayLiteral() => new[] { 1, 2, 3 };
+}
+
 // Canary: a user type declaring its own Get/Set must NOT be rewritten as an
 // indexer — only TypeRefKind.Array receivers are the rectangular pseudo-members.
 public sealed class UserGridSample
