@@ -18,6 +18,12 @@ namespace DiffFixtureSample
             sink.Add(new object());
         }
 
+        // V1: one allocation, not in a loop (count 1, allocInLoop=false).
+        public static void SameAllocationCountBecomesHot(int n, List<object> sink)
+        {
+            sink.Add(new object());
+        }
+
         // Identical in both versions -> no diff row.
         public static int Stable() => 42;
     }

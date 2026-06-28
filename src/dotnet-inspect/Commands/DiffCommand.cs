@@ -499,9 +499,33 @@ public class DiffCommand
 
     private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool oldAllocInLoop = false, bool newAllocInLoop = false)
     {
-        if (oldValue == newValue)
-            return;
         var delta = newValue - oldValue;
+        if (delta == 0)
+        {
+            // #1736: hotness-only allocation change. The raw count is unchanged but an
+            // allocation moved into or out of a loop, which a count delta alone misses.
+            // Only the allocations signal carries loop hotness, and only when at least one
+            // allocation remains to be hot. false->true is a regression (became hot);
+            // true->false is an improvement (left the loop).
+            if (newValue > 0 && oldAllocInLoop != newAllocInLoop)
+            {
+                bool becameHot = newAllocInLoop;
+                rows.Add(new RankedAnalysisRow(
+                    new AnalysisDiffRow(
+                        MarkoutInline.Code(display),
+                        signal,
+                        oldValue.ToString(),
+                        newValue.ToString(),
+                        becameHot ? "hot" : "cold",
+                        becameHot ? "in-loop" : null,
+                        evidence),
+                    1,
+                    becameHot ? 1 : -1,
+                    inBoth,
+                    becameHot));
+            }
+            return;
+        }
         // Annotate from the version that bears the cost: the new method for a
         // regression (allocations up), the old method for an improvement. A loop
         // allocation is repeated/hot; one-time or error-path allocations are not.

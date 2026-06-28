@@ -240,6 +240,31 @@ public class DiffCommandTests
         Assert.DoesNotContain(result.Rows, r => r.Member.Contains("Stable"));
     }
 
+    // #1736: a hotness-only allocation regression. The allocation count is unchanged
+    // (1 -> 1) but the allocation moves into a loop (allocInLoop false -> true). The raw
+    // count delta is zero, so this must still surface as an in-place allocations row with
+    // a "hot" delta and "in-loop" shape, and must be kept by allocation-regression focus.
+    [Fact]
+    public void BuildAnalysisDiff_VersionPair_SurfacesHotnessOnlyAllocationRegression()
+    {
+        var v1 = DiffFixturePath("DiffFixtures.V1");
+        var v2 = DiffFixturePath("DiffFixtures.V2");
+
+        var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { ChangedOnly = true });
+
+        var hot = Assert.Single(result.Rows, r =>
+            r.Member.Contains("SameAllocationCountBecomesHot") && r.Signal == "allocations");
+        Assert.Equal("1", hot.Old);
+        Assert.Equal("1", hot.New);
+        Assert.Equal("hot", hot.Delta);
+        Assert.Equal("in-loop", hot.Shape);
+
+        // It is a regression, so allocation-regression focus mode keeps it.
+        var focus = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { AllocRegressionsOnly = true });
+        Assert.Contains(focus.Rows, r =>
+            r.Member.Contains("SameAllocationCountBecomesHot") && r.Signal == "allocations" && r.Shape == "in-loop");
+    }
+
     // #1623 rung 6: identity / no spurious deltas. Diffing a build against itself must
     // produce zero in-place signal changes (guards signal determinism across two opens
     // and the zero-delta filter).

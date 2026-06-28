@@ -19,6 +19,14 @@ namespace DiffFixtureSample
             sink.Add(new object());
         }
 
+        // V2: the same single allocation moved into a loop (count still 1, but
+        // allocInLoop=true) -> a hotness-only allocation regression the count delta misses.
+        public static void SameAllocationCountBecomesHot(int n, List<object> sink)
+        {
+            for (int i = 0; i < n; i++)
+                sink.Add(new object());
+        }
+
         // Identical in both versions -> no diff row.
         public static int Stable() => 42;
     }
