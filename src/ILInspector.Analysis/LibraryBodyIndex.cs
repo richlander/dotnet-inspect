@@ -24,7 +24,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
-        IReadOnlySet<string> inAssemblyValueTypeNames)
+        IReadOnlySet<string> inAssemblyValueTypeNames,
+        IReadOnlySet<int> nonHeapNewObjOperandTokens)
     {
         Path = path;
         Methods = methods;
@@ -40,6 +41,7 @@ public sealed class LibraryBodyIndex
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
         _inAssemblyValueTypeNames = inAssemblyValueTypeNames;
+        _nonHeapNewObjOperandTokens = nonHeapNewObjOperandTokens;
     }
 
     public string Path { get; }
@@ -95,25 +97,6 @@ public sealed class LibraryBodyIndex
         return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
     }
 
-    // True when a `newobj` of this type does NOT allocate on the heap: a value type (struct/
-    // enum). The common framework value types constructed in hot loops (Span/ReadOnlySpan/
-    // Memory/Nullable/ValueTuple) are matched by identity; in-assembly structs/enums are
-    // matched via the value-type name set resolved from metadata. Counting these as heap
-    // allocations would inflate allocation-hotspot density (e.g. generated JSON parse loops
-    // are full of ReadOnlySpan<byte>/Nullable<T> constructors that allocate nothing).
-    bool IsNonHeapConstruction(TypeRef type)
-    {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        if (definition.Kind == TypeRefKind.Unsupported)
-            return false;
-        if (definition.Namespace == "System" && definition.Name is
-                "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
-                or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
-                or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
-            return true;
-        return _inAssemblyValueTypeNames.Contains(definition.ToQualifiedDisplayString());
-    }
-
     // A method that allocates densely is a real perf signal only when the allocations are
     // both REPEATED (in a loop) and not already pinpointed by a specific shape — otherwise
     // the count is dominated by intrinsic, non-reducible construction (e.g. a serializer
@@ -159,10 +142,10 @@ public sealed class LibraryBodyIndex
             if (call.Callee.Kind != MemberKind.Unsupported
                 && IsExceptionConstruction(call.Callee.DeclaringType))
                 continue;
-            // A `newobj` of a value type (Span/Nullable/ValueTuple/in-assembly struct) does not
-            // allocate on the heap, so it must not count toward allocation density.
-            if (call.Callee.Kind != MemberKind.Unsupported
-                && IsNonHeapConstruction(call.Callee.DeclaringType))
+            // A `newobj` of a value type (Span/Nullable/ValueTuple/in-assembly struct, or a
+            // cross-assembly generic struct resolved via the TypeSpec blob during Build) does
+            // not allocate on the heap, so it must not count toward allocation density (#1804).
+            if (_nonHeapNewObjOperandTokens.Contains(call.OperandToken))
                 continue;
             int token = call.Caller.MetadataToken;
             steadyNewobj[token] = steadyNewobj.GetValueOrDefault(token) + 1;
@@ -418,13 +401,14 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
     readonly IReadOnlySet<string> _inAssemblyValueTypeNames;
+    readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _inAssemblyTypeIsException);
+    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -554,7 +538,7 @@ public sealed class LibraryBodyIndex
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
-            index.InAssemblyValueTypeNames);
+            index.InAssemblyValueTypeNames, index.NonHeapNewObjOperandTokens);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -990,7 +974,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<string> InAssemblyValueTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<string> InAssemblyValueTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -1063,9 +1047,84 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
+            var directCalls = calls.ToImmutable();
+            var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls, inAssemblyValueTypeNames);
+            return (methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
-                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, inAssemblyValueTypeNames);
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, inAssemblyValueTypeNames, nonHeapNewObjOperandTokens);
+        }
+
+        // The metadata operand tokens of `newobj` instructions that construct a VALUE TYPE
+        // (struct/enum) and therefore do not allocate on the heap (#1804). Classified here,
+        // during Build, where the metadata reader is available — the lazy signal and
+        // allocation-density paths run after the reader is released, so they consult this set
+        // by operand token. Resolves: framework/in-assembly value types by name, in-assembly
+        // value-type definitions, and cross-assembly GENERIC structs via the TypeSpec
+        // signature blob (the same authority box detection uses). A cross-assembly NON-generic
+        // user struct is a bare TypeRef whose value-type-ness is unresolvable from this
+        // assembly alone, so it is intentionally excluded (an owned false positive at the
+        // no-referenced-assembly-loading boundary, like the rung-2 `*Exception` suffix).
+        HashSet<int> ComputeNonHeapNewObjOperandTokens(ImmutableArray<DirectCall> directCalls, IReadOnlySet<string> inAssemblyValueTypeNames)
+        {
+            var set = new HashSet<int>();
+            foreach (var call in directCalls)
+            {
+                if (call.Kind != CallKind.NewObject || set.Contains(call.OperandToken))
+                    continue;
+                if (IsNonHeapNewObj(call.OperandToken, call.Callee.DeclaringType, inAssemblyValueTypeNames))
+                    set.Add(call.OperandToken);
+            }
+            return set;
+        }
+
+        // True when a `newobj` of this operand constructs a value type. Combines the
+        // name-based framework/in-assembly classification with an authoritative metadata
+        // resolution of the constructor's declaring type (TypeDef base chain, or TypeSpec
+        // signature blob for constructed generics).
+        bool IsNonHeapNewObj(int operandToken, TypeRef declaringType, IReadOnlySet<string> inAssemblyValueTypeNames)
+        {
+            if (IsNonHeapConstructionByName(declaringType, inAssemblyValueTypeNames))
+                return true;
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(operandToken);
+                EntityHandle typeHandle = handle.Kind switch
+                {
+                    HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType(),
+                    HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
+                    _ => default,
+                };
+                if (typeHandle.Kind == HandleKind.TypeDefinition)
+                    return IsValueTypeDefinition((TypeDefinitionHandle)typeHandle);
+                if (typeHandle.Kind == HandleKind.TypeSpecification)
+                    return IsValueTypeSpec((TypeSpecificationHandle)typeHandle);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return false;
+            }
+            return false;
+        }
+
+        // Name-based value-type recognition shared with the allocation paths: the common
+        // framework value types constructed in hot loops (Span/ReadOnlySpan/Memory/Nullable/
+        // ValueTuple), other well-known framework value types (gated on framework trust), and
+        // in-assembly structs/enums resolved by qualified name.
+        static bool IsNonHeapConstructionByName(TypeRef type, IReadOnlySet<string> inAssemblyValueTypeNames)
+        {
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            if (definition.Kind == TypeRefKind.Unsupported)
+                return false;
+            if (definition.Namespace == "System" && definition.Name is
+                    "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
+                    or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
+                    or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
+                return true;
+            if (definition.Kind == TypeRefKind.Definition
+                && definition.TrustedFrameworkAssembly
+                && IsWellKnownValueType(definition.Namespace, definition.Name))
+                return true;
+            return inAssemblyValueTypeNames.Contains(definition.ToQualifiedDisplayString());
         }
 
         // Classifies in-assembly types by whether they derive from System.Exception,

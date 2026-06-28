@@ -76,7 +76,8 @@ public static class MethodSignalAnalysis
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         IReadOnlyDictionary<int, BodySignals>? bodySignals = null,
-        IReadOnlyDictionary<(string Namespace, string Name), bool>? inAssemblyTypeIsException = null)
+        IReadOnlyDictionary<(string Namespace, string Name), bool>? inAssemblyTypeIsException = null,
+        IReadOnlySet<int>? nonHeapNewObjOperandTokens = null)
     {
         var allocations = new Dictionary<int, int>();
         var copies = new Dictionary<int, int>();
@@ -104,6 +105,15 @@ public static class MethodSignalAnalysis
             int caller = call.Caller.MetadataToken;
             if (call.Kind == CallKind.NewObject)
             {
+                // A `newobj` of a value type (struct/enum) constructs in place and does NOT
+                // allocate on the heap, so it must not count toward the allocation signal
+                // (#1804). The non-heap set is classified during Build, where the metadata
+                // reader is available (in-assembly value types, and cross-assembly generic
+                // structs via the TypeSpec signature blob). A cross-assembly non-generic user
+                // struct is unresolvable single-assembly and is intentionally NOT in the set,
+                // so it remains an owned false positive at the no-referenced-assembly boundary.
+                if (nonHeapNewObjOperandTokens is not null && nonHeapNewObjOperandTokens.Contains(call.OperandToken))
+                    continue;
                 allocations[caller] = allocations.GetValueOrDefault(caller) + 1;
                 AddEvidence(caller, call.ILOffset);
                 if (IsExceptionType(call.Callee.DeclaringType, inAssemblyTypeIsException))
