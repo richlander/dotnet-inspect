@@ -1616,8 +1616,43 @@ public sealed partial class CSharpPrinter
         {
             TypeShape.Reference => reference,
             TypeShape.Enum => integer,
-            _ => null,   // a struct cannot be a branch operand; unknown stays raw
+            // A cross-assembly type is unresolved (Unknown shape): an interface like
+            // IDisposable or a framework class is indistinguishable from a framework
+            // enum by its TypeRef alone. Fall back to provenance — a value produced
+            // by `isinst`/`as` is always a reference (or null), so its truthiness is
+            // `is null`/`is not null`, never `!x` (CS0023). Spelling the integer
+            // `!= 0` form for a genuine cross-assembly enum is handled above by the
+            // operand's resolved type, not by this branch-operand provenance.
+            _ => ProducesReference(operand) ? reference : null,
         };
+    }
+
+    /// <summary>True when the branch operand provably holds a reference because its sole definition is an <c>isinst</c>/<c>as</c> (which yields a reference or null). Sees through a single-store stack slot or local the value was spilled to.</summary>
+    bool ProducesReference(IrExpression operand) => SoleDefinition(operand) is IsInstance;
+
+    IrExpression? SoleDefinition(IrExpression operand)
+    {
+        switch (operand)
+        {
+            case IsInstance:
+                return operand;
+            case LoadStackSlot load:
+            {
+                // Scope to the current function body: stack-slot numbers are
+                // per-imported-function, so a nested local function / lambda can
+                // reuse this slot independently and must not count as a second
+                // definition (that would disable the provenance and reprint `!x`).
+                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
+                return stores.Count == 1 ? stores[0].Value : null;
+            }
+            case LoadLocal load:
+            {
+                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
+                return stores.Count == 1 ? stores[0].Value : null;
+            }
+            default:
+                return null;
+        }
     }
 
     // `box T; unbox.any U` is the generic-math `(U)(object)x` idiom: the box is an
