@@ -1028,6 +1028,14 @@ public sealed partial class CSharpPrinter
     string ConditionalArm(IrExpression arm, TypeRef? target)
         => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
             ? charText
+            // An integer-constant arm flowing into an enum-typed conditional
+            // (`ci ? 4 : 5` into StringComparison) is CS0266 — int does not convert
+            // to the enum. A cross-assembly enum is unresolved (TypeShape.Unknown),
+            // so IsEnumLikeInteger catches it; cast each arm. A same-assembly enum
+            // arm renders its member name (its type is the enum, not integer).
+            : target is { } enumTarget && IsEnumLikeInteger(enumTarget)
+                && arm is Constant { Value: int or long } && TypeFamilies.IsInteger(arm.ResultType)
+                ? EnumIntegerCast(arm, enumTarget)
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
                 ? $"({Condition(arm)} ? 1 : 0)"
@@ -1038,10 +1046,16 @@ public sealed partial class CSharpPrinter
             ? ConditionalText(conditional, target)
             : null;
 
-    static bool CanRenderConditionalForTarget(Conditional conditional, TypeRef target)
-        => IsCoreChar(target)
-            && TryCharConstantText(conditional.WhenTrue, out _)
-            && TryCharConstantText(conditional.WhenFalse, out _);
+    bool CanRenderConditionalForTarget(Conditional conditional, TypeRef target)
+        => (IsCoreChar(target)
+                && TryCharConstantText(conditional.WhenTrue, out _)
+                && TryCharConstantText(conditional.WhenFalse, out _))
+            || (IsEnumLikeInteger(target)
+                && IsIntegerConstantArm(conditional.WhenTrue)
+                && IsIntegerConstantArm(conditional.WhenFalse));
+
+    static bool IsIntegerConstantArm(IrExpression arm)
+        => arm is Constant { Value: int or long } && TypeFamilies.IsInteger(arm.ResultType);
 
     static bool IsCoreChar(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };

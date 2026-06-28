@@ -4182,3 +4182,35 @@ public static class UserGridCalls
     public static int UserGet(UserGridSample g, int i, int j) => g.Get(i, j);
     public static void UserSet(UserGridSample g, int i, int j, int v) => g.Set(i, j, v);
 }
+
+// Issues #1766 / #1772: a cross-assembly (framework) enum resolves to
+// TypeShape.Unknown, so an integer constant flowing into it through a
+// conditional arm or a bitwise compound assignment renders as a bare int —
+// invalid `int->enum` (CS0266) / `enum |= int` (CS0019) at Full. The printer
+// must cast structurally.
+public static class EnumCastSamples
+{
+    // #1766: ternary with enum-constant arms stored to a cross-assembly enum
+    // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
+    public static bool EnumConditional(string name, bool ci)
+    {
+        System.StringComparison c = ci ? System.StringComparison.Ordinal : System.StringComparison.OrdinalIgnoreCase;
+        return name.EndsWith("x", c);
+    }
+
+    // #1772: bitwise compound assignment to a cross-assembly [Flags] enum local
+    // (AttributeTargets.Class = 4, AttributeTargets.Struct = 8).
+    public static System.AttributeTargets EnumFlagsCompound(bool a, bool b)
+    {
+        System.AttributeTargets result = (System.AttributeTargets)0;
+        if (a)
+        {
+            result |= System.AttributeTargets.Class;
+        }
+        if (b)
+        {
+            result |= System.AttributeTargets.Struct;
+        }
+        return result;
+    }
+}
