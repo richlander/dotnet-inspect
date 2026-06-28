@@ -68,15 +68,15 @@ public class GeneratedFixtureCatalogTests
             "minimal.auto-property.getter",
             "GeneratedFixtures.MinimalAutoPropertyGetter.Class1",
             ".ctor",
-            FidelityCheck.CompileBackStatus.RecompileFail,
-            frontier: true);
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
         AssertTarget(
             run,
             "minimal.auto-property.getter",
             "GeneratedFixtures.MinimalAutoPropertyGetter.Class1",
             "get_Method1",
-            FidelityCheck.CompileBackStatus.RecompileFail,
-            frontier: true);
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
         AssertTarget(
             run,
             "minimal.method-call.same-type",

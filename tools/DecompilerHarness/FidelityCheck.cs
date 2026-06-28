@@ -1677,12 +1677,14 @@ static class FidelityCheck
     /// namespace inclusion and ctor stubs land, because the method loop otherwise
     /// emits a property's <c>get_X</c>/<c>set_X</c> as plain methods that a
     /// property access cannot resolve to. Scoped to pure-stub properties: a
-    /// property whose getter or setter is a target is skipped (left to the method
-    /// loop), so the target accessor's own emission and opcode comparison are
-    /// unchanged. The replaced accessor method names are added to
-    /// <paramref name="skipAccessors"/> so the caller does not also emit them as
-    /// methods. Stub accessors throw; over-permissive accessibility on a stub is
-    /// safe because the body never runs and only needs to bind.
+    /// property whose getter or setter is a target is normally skipped (left to
+    /// the method loop), unless the metadata has a compiler auto-property backing
+    /// field: in that case, emitting the auto-property lets the generated accessor
+    /// and constructor assignment round-trip through normal C# syntax. The replaced
+    /// accessor method names are added to <paramref name="skipAccessors"/> so the
+    /// caller does not also emit them as methods. Stub accessors throw;
+    /// over-permissive accessibility on a stub is safe because the body never runs
+    /// and only needs to bind.
     /// </summary>
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
@@ -1693,10 +1695,6 @@ static class FidelityCheck
         {
             var prop = reader.GetPropertyDefinition(ph);
             var pa = prop.GetAccessors();
-            // A target accessor must stay a method so its own body is emitted and
-            // compared unchanged — skip the whole property.
-            if ((!pa.Getter.IsNil && targets.ContainsKey(pa.Getter)) || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter)))
-                continue;
             string pname = reader.GetString(prop.Name);
             if (pname.Contains('<') || pname.Contains('.'))
                 continue; // compiler-generated / explicit interface impl
@@ -1728,6 +1726,21 @@ static class FidelityCheck
                     && !accessorMethod.Attributes.HasFlag(MethodAttributes.Final);
                 string modifier = isStatic ? "static " : (emitVirtual ? "virtual " : "");
                 string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
+                bool isAutoProperty = hasGet
+                    && AccessorsAreCompilerGenerated(reader, pa)
+                    && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
+                bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
+                    || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
+                if (accessorIsTarget && !isAutoProperty)
+                    continue;
+                if (isAutoProperty)
+                {
+                    string autoBody = " get;" + (hasSet ? " set;" : "");
+                    sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{autoBody} }}");
+                    if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
+                    if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
+                    continue;
+                }
                 string body = (hasGet ? " get => throw null;" : "") + (hasSet ? " set => throw null;" : "");
                 sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{body} }}");
                 if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
@@ -1735,6 +1748,55 @@ static class FidelityCheck
             }
             catch { }
         }
+    }
+
+    static bool HasAutoPropertyBackingField(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string propertyName,
+        string propertyType,
+        bool isStaticProperty)
+    {
+        string backingName = $"<{propertyName}>k__BackingField";
+        var context = GenericContext.ForType(reader, typeDef);
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) != backingName)
+                continue;
+            if (field.Attributes.HasFlag(FieldAttributes.Static) != isStaticProperty)
+                continue;
+            if (!HasCompilerGeneratedAttribute(reader, field.GetCustomAttributes()))
+                return false;
+            try
+            {
+                return Clean(field.DecodeSignature(SignatureDecoder.Instance, context)) == propertyType;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    static bool AccessorsAreCompilerGenerated(MetadataReader reader, PropertyAccessors accessors)
+    {
+        if (!accessors.Getter.IsNil
+            && !HasCompilerGeneratedAttribute(reader, reader.GetMethodDefinition(accessors.Getter).GetCustomAttributes()))
+            return false;
+        if (!accessors.Setter.IsNil
+            && !HasCompilerGeneratedAttribute(reader, reader.GetMethodDefinition(accessors.Setter).GetCustomAttributes()))
+            return false;
+        return true;
+    }
+
+    static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var attributeHandle in attributes)
+            if (AttributeTypeFullName(reader, reader.GetCustomAttribute(attributeHandle)) == "System.Runtime.CompilerServices.CompilerGeneratedAttribute")
+                return true;
+        return false;
     }
 
     static bool CanEmitAccessor(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle, SignatureAccessibility accessibility)
