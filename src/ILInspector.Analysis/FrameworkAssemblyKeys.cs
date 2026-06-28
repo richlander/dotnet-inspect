@@ -12,7 +12,7 @@ namespace ILInspector.Analysis;
 /// assembly name. This rejects spoofs such as a user assembly named <c>System.Linq</c>
 /// exposing a <c>System.Linq.Enumerable</c> lookalike.
 /// </summary>
-internal static class FrameworkAssemblyKeys
+public static class FrameworkAssemblyKeys
 {
     // Public-key-tokens used by the .NET frameworks (lowercase hex).
     static readonly HashSet<string> s_frameworkTokens = new(StringComparer.OrdinalIgnoreCase)
@@ -41,6 +41,34 @@ internal static class FrameworkAssemblyKeys
         return IsFrameworkKeyOrToken(reader.GetBlobBytes(reader.GetAssemblyDefinition().PublicKey), isFullKey: true);
     }
 
+    // The real Google.Protobuf NuGet package public-key-token. Generated-code suppression
+    // gates on this so a user assembly that merely names itself Google.Protobuf cannot
+    // make ordinary product code look protobuf-generated (#1735).
+    public const string GoogleProtobufToken = "a7d26565bac4d604";
+
+    /// <summary>
+    /// Whether the Google.Protobuf identity visible to the inspected assembly (a
+    /// reference to it, or the inspected assembly itself) carries the real
+    /// Google.Protobuf public-key-token. True when no Google.Protobuf identity is present
+    /// — there is then no spoof to reject, and the protobuf type predicates also gate on
+    /// the assembly name (#1735).
+    /// </summary>
+    public static bool GoogleProtobufIdentityIsAuthentic(MetadataReader reader)
+    {
+        foreach (var handle in reader.AssemblyReferences)
+        {
+            var reference = reader.GetAssemblyReference(handle);
+            if (reader.GetString(reference.Name) != "Google.Protobuf")
+                continue;
+            return TokenHex(
+                reader.GetBlobBytes(reference.PublicKeyOrToken),
+                isFullKey: (reference.Flags & AssemblyFlags.PublicKey) != 0) == GoogleProtobufToken;
+        }
+        if (reader.IsAssembly && reader.GetString(reader.GetAssemblyDefinition().Name) == "Google.Protobuf")
+            return TokenHex(reader.GetBlobBytes(reader.GetAssemblyDefinition().PublicKey), isFullKey: true) == GoogleProtobufToken;
+        return true;
+    }
+
     static bool IsFrameworkKeyOrToken(byte[] keyOrToken, bool isFullKey)
     {
         if (keyOrToken.Length == 0)
@@ -59,5 +87,14 @@ internal static class FrameworkAssemblyKeys
         for (int i = 0; i < token.Length; i++)
             token[i] = hash[hash.Length - 1 - i];
         return token;
+    }
+
+    // Lowercase hex public-key-token, or "" when unsigned / malformed.
+    static string TokenHex(byte[] keyOrToken, bool isFullKey)
+    {
+        if (keyOrToken.Length == 0)
+            return "";
+        byte[] token = isFullKey ? ComputeToken(keyOrToken) : keyOrToken;
+        return token.Length == 8 ? Convert.ToHexString(token).ToLowerInvariant() : "";
     }
 }

@@ -24,7 +24,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
-        IReadOnlySet<string> inAssemblyValueTypeNames)
+        IReadOnlySet<string> inAssemblyValueTypeNames,
+        bool protobufIdentityAuthentic)
     {
         Path = path;
         Methods = methods;
@@ -40,6 +41,7 @@ public sealed class LibraryBodyIndex
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
         _inAssemblyValueTypeNames = inAssemblyValueTypeNames;
+        _protobufIdentityAuthentic = protobufIdentityAuthentic;
     }
 
     public string Path { get; }
@@ -50,6 +52,7 @@ public sealed class LibraryBodyIndex
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
+    readonly bool _protobufIdentityAuthentic;
     ImmutableArray<OptimizationOpportunity> _opportunities;
 
     /// <summary>
@@ -525,10 +528,11 @@ public sealed class LibraryBodyIndex
         => ns is not null
             && (ns == "Grpc.Core" || ns.StartsWith("Grpc.Core.", StringComparison.Ordinal));
 
-    static bool IsProtobufType(TypeRef type, string ns, string name)
+    bool IsProtobufType(TypeRef type, string ns, string name)
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null
+            && _protobufIdentityAuthentic
             && definition.Assembly == "Google.Protobuf"
             && definition.Namespace == ns
             && StripGenericArity(definition.Name) == name;
@@ -553,7 +557,8 @@ public sealed class LibraryBodyIndex
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
-            index.InAssemblyValueTypeNames);
+            index.InAssemblyValueTypeNames,
+            FrameworkAssemblyKeys.GoogleProtobufIdentityIsAuthentic(reader));
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)

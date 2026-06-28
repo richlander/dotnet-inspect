@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -874,16 +875,19 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void GeneratedFrameworkTypeNames_DetectsProtobufAndGrpcGeneratedTypes()
+    public void GeneratedFrameworkTypeNames_DetectsGrpcStub_AndRejectsUnauthenticProtobufSpoof()
     {
         var index = LibraryBodyIndex.Open(typeof(FakeProtobufReflection).Assembly.Location);
         var generated = index.GeneratedFrameworkTypeNames;
 
-        // protobuf reflection holder: its initializer calls FileDescriptor.FromGeneratedCode.
-        Assert.Contains(typeof(FakeProtobufReflection).FullName!, generated);
-        // protobuf message: its initializer constructs MessageParser<T>.
-        Assert.Contains(typeof(FakeProtobufMessage).FullName!, generated);
-        // gRPC service stub: binds via ServerServiceDefinition and declares __Helper_ members.
+        // #1735: the bootstrap types are bound from an unsigned assembly literally named
+        // Google.Protobuf (no real public-key-token), so these must NOT be classified as
+        // protobuf-generated — otherwise a same-name spoof could suppress actionable product
+        // rows. (Authentic Google.Protobuf identity is exercised by the unit test below.)
+        Assert.DoesNotContain(typeof(FakeProtobufReflection).FullName!, generated);
+        Assert.DoesNotContain(typeof(FakeProtobufMessage).FullName!, generated);
+        // gRPC detection is identity-independent (namespace + generated __* members tied to a
+        // Grpc.Core call), so the gRPC service stub is still correctly detected.
         Assert.Contains(typeof(FakeGrpcServiceStub).FullName!, generated);
         // A normal protobuf-using type that doesn't bootstrap generated infrastructure stays out.
         Assert.DoesNotContain(typeof(NormalProtobufConsumer).FullName!, generated);
@@ -898,6 +902,45 @@ public class LibraryBodyIndexTests
         Assert.Contains(index.OptimizationOpportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(GeneratedLookalike)
             && opportunity.Method.Name == nameof(GeneratedLookalike.MakesLocalArrayUnsuppressed));
+    }
+
+    // #1735: generated-code suppression must authenticate Google.Protobuf by public-key-token,
+    // not simple name. The unsigned fixture assembly named Google.Protobuf is NOT authentic; the
+    // real strong-named package assembly IS.
+    [Fact]
+    public void GoogleProtobufIdentity_AuthenticatesByPublicKeyToken()
+    {
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(ProtobufSpoofAssemblyPath())))
+            Assert.False(FrameworkAssemblyKeys.GoogleProtobufIdentityIsAuthentic(pe.GetMetadataReader()),
+                "an unsigned same-name assembly must not be treated as the real Google.Protobuf");
+
+        var realProtobuf = FindRealGoogleProtobufAssembly();
+        if (realProtobuf is null)
+            return; // the Google.Protobuf package is not restored in this environment
+
+        using var realPe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(realProtobuf));
+        Assert.True(FrameworkAssemblyKeys.GoogleProtobufIdentityIsAuthentic(realPe.GetMetadataReader()),
+            "the real strong-named Google.Protobuf must be authentic");
+    }
+
+    static string ProtobufSpoofAssemblyPath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName, "..", "..", "ILInspector.Analysis.ProtobufFixtures", outputDirectory.Name, "Google.Protobuf.dll"));
+        Assert.True(File.Exists(path), $"Expected protobuf spoof fixture at {path}");
+        return path;
+    }
+
+    static string? FindRealGoogleProtobufAssembly()
+    {
+        string root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages", "google.protobuf");
+        if (!Directory.Exists(root))
+            return null;
+        return Directory.EnumerateFiles(root, "Google.Protobuf.dll", SearchOption.AllDirectories)
+            .OrderByDescending(p => p)
+            .FirstOrDefault();
     }
 
     [Fact]
