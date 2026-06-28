@@ -81,4 +81,74 @@ public class FidelityRemarksTests
         Assert.Contains("<>c__DisplayClass0_0", remark.Reason);
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
+
+    [Fact]
+    public void Collect_UnverifiedAccessorLikeCall_ReportsDec0009()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var location = TypeRef.Definition("Synthetic", "Samples", "Location");
+        var accessorLike = new MethodRef(holder, "get_Location", location, [], HasThis: true)
+        {
+            IsSpecialName = true,
+            AccessorKind = AccessorKind.Unknown,
+        };
+        var container = new BlockContainer();
+        var entry = new Block(0x10);
+        container.Add(entry);
+        entry.Add(new Return(new Call(accessorLike, isVirtual: true, [new LoadArgument(0, "self", holder)])));
+
+        var signature = new MethodSignature(location, [new Parameter("self", holder)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("AccessorLike", holder, signature, [], container);
+
+        var remark = Assert.Single(FidelityRemarks.Collect(function),
+            r => r.Code == DiagnosticIds.UnrepresentableMetadataName);
+        Assert.Equal(0x10, remark.Offset);
+        Assert.Contains("accessor metadata was unavailable", remark.Reason);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void Collect_ResolvedNonAccessorGetMethod_RemainsFull()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var nonAccessor = new MethodRef(holder, "get_Count", int32, [], HasThis: true)
+        {
+            IsSpecialName = true,
+            AccessorKind = AccessorKind.None,
+        };
+        var container = new BlockContainer();
+        var entry = new Block(0x10);
+        container.Add(entry);
+        entry.Add(new Return(new Call(nonAccessor, isVirtual: true, [new LoadArgument(0, "self", holder)])));
+
+        var signature = new MethodSignature(int32, [new Parameter("self", holder)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("NonAccessor", holder, signature, [], container);
+
+        Assert.Empty(FidelityRemarks.Collect(function));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void Collect_NameInferredAccessorLikeMemberRef_RemainsFullUntilMetadataResolves()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var ambiguous = new MethodRef(holder, "get_Count", int32, [], HasThis: true)
+        {
+            IsSpecialName = true,
+            IsSpecialNameInferred = true,
+            AccessorKind = AccessorKind.Unknown,
+        };
+        var container = new BlockContainer();
+        var entry = new Block(0x10);
+        container.Add(entry);
+        entry.Add(new Return(new Call(ambiguous, isVirtual: true, [new LoadArgument(0, "self", holder)])));
+
+        var signature = new MethodSignature(int32, [new Parameter("self", holder)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("AmbiguousMemberRef", holder, signature, [], container);
+
+        Assert.Empty(FidelityRemarks.Collect(function));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
 }

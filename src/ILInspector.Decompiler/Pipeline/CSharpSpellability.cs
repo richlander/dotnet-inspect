@@ -85,6 +85,9 @@ internal static class CSharpSpellability
         if (method.Name is ".ctor")
             return null;
 
+        if (IsUnverifiedAccessorLikeMethod(method))
+            return $"method '{method.Name}' looks like a property/event accessor but accessor metadata was unavailable; explicit accessor calls have no C# spelling";
+
         string name = CSharpNaming.MethodName(method.Name);
         return CSharpNaming.IsEscapableIdentifier(name)
             ? null
@@ -103,6 +106,15 @@ internal static class CSharpSpellability
         => CSharpNaming.IsUsableIdentifier(name)
             ? null
             : $"property name '{name}' has no C# spelling";
+
+    static bool IsUnverifiedAccessorLikeMethod(MethodRef method)
+        => method.AccessorKind == AccessorKind.Unknown
+            && method.IsSpecialName
+            && !method.IsSpecialNameInferred
+            && (method.Name.StartsWith("get_", StringComparison.Ordinal)
+                || method.Name.StartsWith("set_", StringComparison.Ordinal)
+                || method.Name.StartsWith("add_", StringComparison.Ordinal)
+                || method.Name.StartsWith("remove_", StringComparison.Ordinal));
 
     // A local function name is emitted through CSharpNaming.EscapeIdentifier, so a
     // reserved keyword (e.g. return -> @return) is spellable; only a name with

@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection;
 
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
@@ -109,6 +111,31 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CrossAssemblyPropertyAccessorMemberRef_RecoversAccessorKind()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseProperty), "get_Count");
+
+        Assert.Equal(AccessorKind.PropertyGet, call.Callee.AccessorKind);
+    }
+
+    [Fact]
+    public void CrossAssemblyPropertyAccessorMemberRef_RendersPropertyAccess()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var function = ImportFunction(source, nameof(CrossAssemblyFixtureMethods.UseProperty));
+        var result = CSharpPrinter.PrintRaised(function, out _);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("library.Count", result.Output);
+        Assert.DoesNotContain("get_Count", result.Output);
+    }
+
+    [Fact]
     public void CrossAssemblyInlineArrayHelper_RecoversInlineArrayTypeArgumentFact()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -142,12 +169,89 @@ public class CrossAssemblyMethodFactsTests
         Assert.Equal(MetadataFactState.Unknown, operatorLike.Callee.IsOperator);
     }
 
+    [Fact]
+    public void MissingCrossAssemblyAccessorMetadata_KeepsAccessorFactUnknown()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath, locator: (_, _) => null);
+
+        var function = ImportFunction(source, nameof(CrossAssemblyFixtureMethods.UseProperty));
+        var call = Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "get_Count");
+
+        Assert.Equal(AccessorKind.Unknown, call.Callee.AccessorKind);
+        Assert.True(call.Callee.IsSpecialNameInferred);
+    }
+
+    [Fact]
+    public void NuGetDependencyProbe_SelectsCurrentTfmDependencyGroup()
+    {
+        string directory = Directory.CreateTempSubdirectory("dotnet-inspect-nuspec-deps-").FullName;
+        try
+        {
+            string packageDir = Path.Combine(directory, "root.package", "1.0.0");
+            Directory.CreateDirectory(packageDir);
+            File.WriteAllText(
+                Path.Combine(packageDir, "root.package.nuspec"),
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+                  <metadata>
+                    <id>Root.Package</id>
+                    <version>1.0.0</version>
+                    <dependencies>
+                      <group targetFramework=".NETStandard2.0">
+                        <dependency id="Shared.Package" version="2.0.0" />
+                      </group>
+                      <group targetFramework="net8.0">
+                        <dependency id="Shared.Package" version="8.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            var dependencies = ReadNuGetDependencyPackageVersions(packageDir, "Root.Package", "1.0.0", "net8.0");
+
+            Assert.Equal("1.0.0", dependencies["Root.Package"]);
+            Assert.Equal("8.0.0", dependencies["Shared.Package"]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NuGetDependencyProbe_HandlesSingleBracketExactRangeAndLowercaseVersionDirectory()
+    {
+        string directory = Directory.CreateTempSubdirectory("dotnet-inspect-nuspec-probe-").FullName;
+        try
+        {
+            string dependencyVersionDir = Path.Combine(directory, "shared.package", "8.0.0-rc1");
+            string dependencyAssetDir = Path.Combine(dependencyVersionDir, "lib", "net8.0");
+            Directory.CreateDirectory(dependencyAssetDir);
+            string dependencyAssembly = Path.Combine(dependencyAssetDir, "Shared.dll");
+            File.WriteAllText(dependencyAssembly, "");
+
+            string? exactVersion = DependencyExactVersion("[8.0.0-RC1]");
+            Assert.Equal("8.0.0-RC1", exactVersion);
+            var versions = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Shared.Package"] = exactVersion,
+            };
+
+            Assert.Equal(dependencyAssembly, ProbeNuGetPackages(directory, "Shared.dll", versions, "net8.0"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static string Print(MetadataSource source, string methodName)
     {
-        var function = IrImporter.Import(source, "ExternalFacts.Consumer", methodName);
-        Assert.NotNull(function);
-        function.CheckInvariant();
-        return CSharpPrinter.Print(function!).Output ?? "";
+        var function = ImportFunction(source, methodName);
+        return CSharpPrinter.Print(function).Output ?? "";
     }
 
     static void AssertCallRefKind(MetadataSource source, string methodName, string calleeName, ArgumentRefKind expected)
@@ -159,18 +263,44 @@ public class CrossAssemblyMethodFactsTests
 
     static Call SingleCall(MetadataSource source, string methodName, string calleeName)
     {
-        var function = IrImporter.Import(source, "ExternalFacts.Consumer", methodName);
-        Assert.NotNull(function);
-        function.CheckInvariant();
-        return Assert.Single(function!.Descendants.OfType<Call>(), c => c.Callee.Name == calleeName);
+        var function = ImportFunction(source, methodName);
+        return Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == calleeName);
     }
 
     static NewObject SingleNewObject(MetadataSource source, string methodName)
     {
+        var function = ImportFunction(source, methodName);
+        return Assert.Single(function.Descendants.OfType<NewObject>());
+    }
+
+    static IrFunction ImportFunction(MetadataSource source, string methodName)
+    {
         var function = IrImporter.Import(source, "ExternalFacts.Consumer", methodName);
         Assert.NotNull(function);
         function.CheckInvariant();
-        return Assert.Single(function!.Descendants.OfType<NewObject>());
+        return function!;
+    }
+
+    static IReadOnlyDictionary<string, string?> ReadNuGetDependencyPackageVersions(string packageVersionDir, string packageId, string packageVersion, string tfm)
+    {
+        var method = typeof(MetadataSource).GetMethod("NuGetDependencyPackageVersions", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        var result = method!.Invoke(null, [packageVersionDir, packageId, packageVersion, tfm]);
+        return Assert.IsAssignableFrom<IReadOnlyDictionary<string, string?>>(result);
+    }
+
+    static string? ProbeNuGetPackages(string root, string fileName, IReadOnlyDictionary<string, string?> packageVersions, string tfm)
+    {
+        var method = typeof(MetadataSource).GetMethod("ProbeNuGetPackages", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        return (string?)method!.Invoke(null, [root, fileName, packageVersions, tfm]);
+    }
+
+    static string? DependencyExactVersion(string version)
+    {
+        var method = typeof(MetadataSource).GetMethod("DependencyExactVersion", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        return (string?)method!.Invoke(null, [version]);
     }
 
     sealed class CrossAssemblyFixture : IDisposable
@@ -216,6 +346,12 @@ public class CrossAssemblyMethodFactsTests
                     {
                         public static int op_Addition(int left, int right) => left - right;
                         public static int op_Implicit(int value) => value + 1;
+                    }
+
+                    public sealed class PropertyLibrary
+                    {
+                        public PropertyLibrary(int count) => Count = count;
+                        public int Count { get; }
                     }
 
                     public readonly struct ExternalNumber
@@ -280,6 +416,9 @@ public class CrossAssemblyMethodFactsTests
 
                         public static ExternalNumber UseRealOperator(ExternalNumber left, ExternalNumber right)
                             => left + right;
+
+                        public static int UseProperty(PropertyLibrary library)
+                            => library.Count;
 
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
@@ -366,6 +505,7 @@ public class CrossAssemblyMethodFactsTests
         public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);
         public const string UseOperatorLikeImplicit = nameof(UseOperatorLikeImplicit);
         public const string UseRealOperator = nameof(UseRealOperator);
+        public const string UseProperty = nameof(UseProperty);
         public const string UseUri = nameof(UseUri);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }
