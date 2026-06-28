@@ -4256,3 +4256,33 @@ public static class FinallyDisposeSamples
         }
     }
 }
+
+// Issue #1759 (review): a nested local function reusing the same stack-slot
+// number must not disable the isinst provenance for the outer finally-dispose
+// slot. Provenance is scoped to the current function body, so this still renders
+// `is null`, not `!S`.
+public static class FinallyDisposeNestedSamples
+{
+    public static int DisposeWithNestedLocalFunction(System.Collections.IDictionary dictionary, int x)
+    {
+        int seed = SquarePlusOne(x);
+        System.Collections.IDictionaryEnumerator enumerator = dictionary.GetEnumerator();
+        try
+        {
+            while (enumerator.MoveNext())
+            {
+            }
+        }
+        finally
+        {
+            (enumerator as System.IDisposable)?.Dispose();
+        }
+        return seed;
+
+        static int SquarePlusOne(int v)
+        {
+            int y = v + 1;
+            return y * y;
+        }
+    }
+}

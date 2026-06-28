@@ -22,6 +22,23 @@ public class FinallyDisposePrinterTests
         AssertCompiles("public static void M(System.Collections.IDictionary dictionary)", body);
     }
 
+    [Fact]
+    public void ReferenceTruthiness_NestedFunctionReusesSlot_StillRendersIsNull()
+    {
+        // A nested local function reuses the same stack-slot number; provenance is
+        // scoped to the current function body, so the outer finally-dispose slot
+        // is still recognized as isinst-produced and renders `is null` (#1759 review).
+        using var source = MetadataSource.Open(typeof(FinallyDisposeNestedSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(FinallyDisposeNestedSamples).FullName!,
+            nameof(FinallyDisposeNestedSamples.DisposeWithNestedLocalFunction));
+        Assert.NotNull(function);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+        var body = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method)).Output!;
+
+        Assert.Contains("is null", body);
+        Assert.DoesNotContain("!S_", body);
+    }
+
     static string RenderFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(FinallyDisposeSamples).Assembly.Location);

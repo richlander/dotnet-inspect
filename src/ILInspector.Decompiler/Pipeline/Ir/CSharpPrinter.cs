@@ -1638,12 +1638,16 @@ public sealed partial class CSharpPrinter
                 return operand;
             case LoadStackSlot load:
             {
-                var stores = _function.Descendants.OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
+                // Scope to the current function body: stack-slot numbers are
+                // per-imported-function, so a nested local function / lambda can
+                // reuse this slot independently and must not count as a second
+                // definition (that would disable the provenance and reprint `!x`).
+                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
                 return stores.Count == 1 ? stores[0].Value : null;
             }
             case LoadLocal load:
             {
-                var stores = _function.Descendants.OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
+                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
                 return stores.Count == 1 ? stores[0].Value : null;
             }
             default:
