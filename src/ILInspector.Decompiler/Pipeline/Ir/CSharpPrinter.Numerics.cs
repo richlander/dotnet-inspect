@@ -179,14 +179,28 @@ public sealed partial class CSharpPrinter
     {
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
-        // A negative constant into an unsigned- or narrow-backed enum is CS0221 as a
-        // plain cast even outside a checked region — `(U)(-1)` for `enum U : uint`,
-        // the int bit-pattern of a high-bit flags member. The underlying type of a
-        // cross-assembly enum is unknown, so force `unchecked` to keep the
-        // reinterpret legal; the parentheses also satisfy CS0075.
+        bool forceUnchecked = negativeLiteral || MayOverflowUnknownEnumBackingType(value, enumType);
+        // A constant can be CS0221 as a plain cast even outside a checked region:
+        // negative into an unsigned-backed enum (`(U)(-1)`) or positive values that
+        // may overflow a signed- or unsigned-byte-backed unknown enum
+        // (`(Tiny)128` for sbyte, `(Tiny)300` for byte).
+        // Force `unchecked` when the target shape cannot prove the backing width;
+        // negative literals also need parentheses after the cast (CS0075).
         return CheckedSafeCast(
             $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
-            force: negativeLiteral);
+            force: forceUnchecked);
+    }
+
+    bool MayOverflowUnknownEnumBackingType(IrExpression value, TypeRef enumType)
+    {
+        if (_function.TypeShapes.GetValueOrDefault(enumType) != TypeShape.Unknown)
+            return false;
+        return value switch
+        {
+            Constant { Value: int iv } => iv > sbyte.MaxValue,
+            Constant { Value: long lv } => lv > sbyte.MaxValue,
+            _ => false,
+        };
     }
 
     string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)
@@ -917,11 +931,7 @@ public sealed partial class CSharpPrinter
             && EffectiveType(value) is { } enumSource && !enumTarget.Equals(enumSource)
             && TypeFamilies.IsIntegerLike(enumSource))
         {
-            // A negative literal must be parenthesized after the cast (CS0075),
-            // as the enum-constant path above (line ~482) already does.
-            bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
-                || value is Constant { Value: long lv } && lv < 0;
-            return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
+            return EnumIntegerCast(value, enumTarget);
         }
         if (value is Binary enumArithmetic
             && target is { } enumArithmeticTarget
@@ -955,9 +965,7 @@ public sealed partial class CSharpPrinter
             && !TypeFamilies.IsNumericPrimitive(unknownEnum)
             && EffectiveType(value) is { } unknownEnumSource && TypeFamilies.IsIntegerLike(unknownEnumSource))
         {
-            bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
-                || value is Constant { Value: long lv } && lv < 0;
-            return $"({TypeText(unknownEnum)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
+            return EnumIntegerCast(value, unknownEnum);
         }
         // A bool-valued expression flowing into an integer target is IL's
         // comparison/test result consumed as a number — `cgt.un; ret` from an int
@@ -973,6 +981,14 @@ public sealed partial class CSharpPrinter
             && target is { } conditionalTarget
             && TryConditionalTextForTarget(conditional, conditionalTarget) is { } targetedConditional)
             return targetedConditional;
+        if (value is SwitchExpression switchExpression
+            && target is { } switchTarget
+            && CanRenderSwitchExpressionForTarget(switchExpression, switchTarget))
+            return SwitchExpressionInline(switchExpression, switchTarget);
+        if (value is Coalesce coalesce
+            && target is { } coalesceTarget
+            && TryCoalesceTextForTarget(coalesce, coalesceTarget) is { } targetedCoalesce)
+            return targetedCoalesce;
         // Cast only off a value whose rendered C# type reliably equals its IR
         // result type. A merge node (ternary/coalesce) reports a merged type the
         // arms may not actually share, and a stack slot's type is the join of
@@ -1066,6 +1082,20 @@ public sealed partial class CSharpPrinter
 
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
+
+    bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
+        => IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value));
+
+    string? TryCoalesceTextForTarget(Coalesce coalesce, TypeRef target)
+    {
+        if (!IsEnumLikeInteger(target))
+            return null;
+        if (NullableValueType(coalesce.Left.ResultType)?.Equals(target) == true && IsIntegerArm(coalesce.Right))
+            return CoalesceText(coalesce, target);
+        return coalesce.ResultType is { } resultType && TypeFamilies.IsIntegerLike(resultType)
+            ? EnumIntegerCast(coalesce, target)
+            : null;
+    }
 
     static bool IsCoreChar(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
