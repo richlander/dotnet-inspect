@@ -625,12 +625,28 @@ public sealed partial class CSharpPrinter
             // (CS0266). The char/enum arm-cast path and the merged-ResultType
             // fallback remain.
             return CanRenderConditionalForTarget(conditional, target)
-                || (IsReferenceLike(target)
+                || (IsProvenReference(target)
                     && CanAssignTo(conditional.WhenTrue, target)
                     && CanAssignTo(conditional.WhenFalse, target))
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
         return value.ResultType is { } source && CanAssignType(source, target);
     }
+
+    /// <summary>
+    /// A type known to be a reference WITHOUT resolution — a stack-O family
+    /// (object/string/array), a signature-declared class, or a same-assembly
+    /// reference shape. Unlike <see cref="IsReferenceLike"/> this excludes the
+    /// optimistic "a bare cross-assembly definition is probably a class" fallback:
+    /// narrowing a slot to an UNPROVEN target would print `MaybeStruct S = a ? null
+    /// : value`, which is CS0037 if the type resolves to a struct. Used to gate the
+    /// conditional arm-assignability unification so it only narrows to a target a
+    /// null arm is provably assignable to.
+    /// </summary>
+    bool IsProvenReference(TypeRef type)
+        => type.Kind is not (TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
+            && (TypeFamilies.Of(type) == StackFamily.O
+                || type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
+                || _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference);
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
