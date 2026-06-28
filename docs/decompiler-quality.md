@@ -519,15 +519,15 @@ The tool emits a block like:
 Corpus: #1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies. 14 assemblies, 87,907 methods
 Correctness coverage: validity sampled 350 / 87,907 (0.40%); fidelity sampled 6 / 87,907 (0.01%)
 
-| Metric | Baseline | PR | Delta |
+| Metric (desired direction) | Baseline | PR | Count delta |
 | --- | ---: | ---: | ---: |
-| Fully raised | 77,376 (88.02%) | 77,376 (88.02%) | 0 |
-| Conditional-branch residual | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
-| Forward-merge stops | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
-| Full malformed | 165 | 165 | 0 |
-| Semantic defects | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
-| Fidelity diffs | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
-| Pass bugs | 0 | 0 | 0 |
+| Fully raised (+) | 77,376 (88.02%) | 77,376 (88.02%) | 0 |
+| Conditional-branch residual (-) | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
+| Forward-merge stops (-) | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
+| Full malformed (-) | 165 | 165 | 0 |
+| Semantic defects (-) | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
+| Fidelity diffs (-) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
+| Pass bugs (-) | 0 | 0 | 0 |
 
 Verdict: corpus sensor matched baseline tolerances.
 ```
