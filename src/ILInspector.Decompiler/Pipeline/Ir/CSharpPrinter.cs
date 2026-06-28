@@ -2391,6 +2391,7 @@ public sealed partial class CSharpPrinter
                 "op_Multiply" => "*", "op_Division" => "/", "op_Modulus" => "%",
                 "op_BitwiseAnd" => "&", "op_BitwiseOr" => "|", "op_ExclusiveOr" => "^",
                 "op_LeftShift" => "<<", "op_RightShift" => ">>",
+                "op_UnsignedRightShift" => ">>>",
                 _ => null,
             };
             return op is null ? null : $"{OperatorOperand(arguments[0])} {op} {OperatorOperand(arguments[1])}";

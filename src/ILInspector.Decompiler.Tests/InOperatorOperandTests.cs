@@ -19,6 +19,16 @@ public class InOperatorOperandTests
         Assert.DoesNotContain("(ref ", body);
     }
 
+    [Fact]
+    public void UserDefinedUnsignedRightShift_RendersOperator_NotExplicitCall()
+    {
+        string body = RenderFixture(typeof(ShiftProbe).FullName!, nameof(ShiftProbe.Shift));
+
+        Assert.Contains("value >>> n", body);
+        Assert.DoesNotContain("op_UnsignedRightShift", body);
+        Assert.DoesNotContain("(ref ", body);
+    }
+
     static string RenderFixture(string typeName, string methodName)
     {
         using var source = MetadataSource.Open(typeof(InOperatorProbe).Assembly.Location);

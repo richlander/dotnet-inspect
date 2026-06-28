@@ -4365,3 +4365,17 @@ public class InOperatorProbe
         return arg != current;
     }
 }
+
+// C# 11 user-defined unsigned right shift with an `in` left operand: must
+// operator-spell `a >>> n`, not the CS0571 explicit op_UnsignedRightShift call.
+public readonly struct ShiftBox
+{
+    public readonly int Bits;
+    public ShiftBox(int bits) { Bits = bits; }
+    public static ShiftBox operator >>>(in ShiftBox a, int n) => new ShiftBox(a.Bits >> n);
+}
+
+public static class ShiftProbe
+{
+    public static ShiftBox Shift(ShiftBox value, int n) => value >>> n;
+}
