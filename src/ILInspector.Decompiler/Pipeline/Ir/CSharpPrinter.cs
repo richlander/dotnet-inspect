@@ -634,6 +634,19 @@ public sealed partial class CSharpPrinter
             && !TypeFamilies.IsNumericPrimitive(type);
     }
 
+    bool IsKnownReferenceLike(TypeRef type)
+    {
+        if (type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
+            return false;
+        if (TypeFamilies.Of(type) == StackFamily.O)
+            return true;
+        if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
+            return true;
+        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference)
+            return true;
+        return type.Kind is TypeRefKind.SzArray or TypeRefKind.Array;
+    }
+
     static bool IsCoreObject(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
 

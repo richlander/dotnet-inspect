@@ -1960,6 +1960,14 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    string? _dateTimeFormat;
+
+    public string? SlotMergedDateTimeFormat
+    {
+        get => _dateTimeFormat;
+        set => _dateTimeFormat = string.IsNullOrEmpty(value) ? null : value;
+    }
+
     public static int GuardReturnAfterLocalPrelude(int value, int whenPositive, int otherwise)
     {
         int positive = whenPositive;

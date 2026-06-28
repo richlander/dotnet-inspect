@@ -1062,7 +1062,10 @@ public sealed partial class CSharpPrinter
                 && TryCharConstantText(conditional.WhenFalse, out _))
             || (IsEnumLikeInteger(target)
                 && IsIntegerArm(conditional.WhenTrue)
-                && IsIntegerArm(conditional.WhenFalse));
+                && IsIntegerArm(conditional.WhenFalse))
+            || (IsKnownReferenceLike(target)
+                && CanAssignTo(conditional.WhenTrue, target)
+                && CanAssignTo(conditional.WhenFalse, target));
 
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
