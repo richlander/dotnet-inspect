@@ -55,6 +55,8 @@
              Link="CorpusSensor.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\GeneratedFixtures.cs"
+             Link="GeneratedFixtures.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ValidityCheck.cs"
              Link="ValidityCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
