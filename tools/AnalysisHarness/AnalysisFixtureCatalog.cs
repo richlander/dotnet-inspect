@@ -348,9 +348,10 @@ public static class AnalysisFixtureCatalog
                     throw new System.ArgumentException(string.Format("bad {0}", value));
             }
 
-            // Owned false negative: the boxed value is formatted and passed to a throwing HELPER
+            // Owned false positive: the boxed value is formatted and passed to a throwing HELPER
             // rather than thrown directly, so the throw-path suppression does not yet reach it and
-            // the box is still flagged. Deferred broadening (#1714).
+            // the box IS still flagged -- a spurious box-value-type row (over-report). Deferred
+            // suppression broadening (#1714) will remove it.
             public static void ThrowsViaHelper(int value)
             {
                 if (value < 0)
@@ -367,7 +368,7 @@ public static class AnalysisFixtureCatalog
                 Note: "Box feeding a throw is suppressed as an error-path allocation (#1747)."),
             new("ThrowsViaHelper", new AnalysisExpectation(OpportunityShapePresent: "box-value-type"),
                 OwnedBoundary.FalsePositive, BlockedOn: "#1714",
-                Note: "Box feeding a throwing helper is not yet recognized as throw-path, so it is still flagged; deferred suppression broadening (#1714)."),
+                Note: "Suppression fails to fire through the helper, so the box is still flagged -- a spurious box-value-type row (over-report = false positive); deferred suppression broadening (#1714)."),
         ],
         ["opportunity", "box", "suppression", "in-assembly", "rung5"]);
 
@@ -388,7 +389,9 @@ public static class AnalysisFixtureCatalog
                         foreach (var x in items) total += x;
                     return total;
                 }
-                // Must-not-flag: foreach over the interface with no enclosing loop (one allocation).
+                // Owned false negative: foreach over the interface with no enclosing loop still
+                // allocates ONE real reference-type enumerator, but the shape is loop-gated as a
+                // noise policy (a single allocation is not pay-dirt), so it is deliberately dropped.
                 public static int ForeachInterfaceOnce(IEnumerable<int> items)
                 {
                     var total = 0;
@@ -439,7 +442,9 @@ public static class AnalysisFixtureCatalog
         ExternalNeedsAlias: false,
         [
             new("ForeachInterfaceInLoop", new AnalysisExpectation(OpportunityShapePresent: "enumerator-allocation")),
-            new("ForeachInterfaceOnce", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation")),
+            new("ForeachInterfaceOnce", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
+                OwnedBoundary.FalseNegative,
+                Note: "A single interface enumerator allocation is real but loop-gated out as a noise policy (deliberately dropped, not pay-dirt)."),
             new("ForeachConcreteListInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
                 Note: "Concrete List<T> uses a struct enumerator -- no heap allocation."),
             new("ForeachLookalikeEnumeratorInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
