@@ -30,8 +30,9 @@ static class PostDomProbe
     {
         SingleMerge,            // one real-block post-dominator join — Target A
         SingleMergeReturnTail,  // that join is a short return tail — Target B
+        MultiMergeNested,       // >1 join, but regions nest/sequence — safe (SingleMerge x N)
+        MultiMergeCrossing,     // >1 join whose regions overlap — the genuine hard climb
         ExitMerge,              // arms flow to the method exit independently
-        MultiMerge,             // residual conditionals join at >1 distinct block
         Unrooted,               // a residual conditional cannot reach the exit
         Loop,                   // a back-edge survives — out of forward-structuring scope
     }
@@ -139,6 +140,11 @@ static class PostDomProbe
 
         var pd = PostDominators.Of(blocks);
 
+        // Each residual conditional's region is the half-open span [decision, join)
+        // from the branch block to its immediate post-dominator. Crossing spans are
+        // the interleaved/irreducible shape; nested or sequential (disjoint, or
+        // sharing only a boundary) spans are the safe SingleMerge-x-N case.
+        var regions = new List<(int Start, int End)>();
         var merges = new HashSet<int>();
         bool anyExit = false;
         for (int i = 0; i < blocks.Count; i++)
@@ -151,23 +157,47 @@ static class PostDomProbe
             if (ipdom == PostDominators.VirtualExit)
                 anyExit = true;
             else
+            {
                 merges.Add(ipdom);
+                regions.Add((i, ipdom));
+            }
         }
 
         if (merges.Count == 0)
             return MergeShape.ExitMerge;
-        if (merges.Count > 1)
-            return MergeShape.MultiMerge;
 
-        // Exactly one real-block join. If a residual conditional also flowed
-        // straight to the exit, the arms are not a clean single diamond.
-        if (anyExit)
-            return MergeShape.MultiMerge;
+        if (merges.Count > 1 || anyExit)
+        {
+            // anyExit alongside a real join means at least one decision escapes
+            // while another rejoins — treat the escape as a degenerate region
+            // [decision, exit) that spans to the container end.
+            if (anyExit)
+                for (int i = 0; i < blocks.Count; i++)
+                    if (blocks[i].Children.Count > 0 && blocks[i].Children[^1] is ConditionalBranch
+                        && pd.ImmediatePostDominator(i) == PostDominators.VirtualExit)
+                        regions.Add((i, blocks.Count));
+            return AnyCrossing(regions) ? MergeShape.MultiMergeCrossing : MergeShape.MultiMergeNested;
+        }
 
         int merge = merges.Single();
         return IsShortReturnTail(blocks[merge])
             ? MergeShape.SingleMergeReturnTail
             : MergeShape.SingleMerge;
+    }
+
+    /// <summary>True when two region spans partially overlap without one nesting the
+    /// other — the interleaved (crossing) shape. Disjoint, shared-boundary, and
+    /// nested spans are all non-crossing.</summary>
+    static bool AnyCrossing(List<(int Start, int End)> regions)
+    {
+        for (int i = 0; i < regions.Count; i++)
+            for (int j = i + 1; j < regions.Count; j++)
+            {
+                var (a, b) = regions[i].Start <= regions[j].Start ? (regions[i], regions[j]) : (regions[j], regions[i]);
+                if (a.Start < b.Start && b.Start < a.End && a.End < b.End)
+                    return true;
+            }
+        return false;
     }
 
     static IEnumerable<int> BranchTargets(Block block)
