@@ -68,9 +68,12 @@ public sealed class LibraryBodyIndex
                 _opportunities =
                 [
                     .. _rawOpportunities.Select(opportunity =>
-                        reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int reach) && reach != opportunity.RootReach
-                            ? opportunity with { RootReach = reach }
-                            : opportunity),
+                    {
+                        int reach = reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach;
+                        var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
+                        var confidence = AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
+                        return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                    }),
                     .. AllocationHotspots(reachByToken),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
@@ -98,6 +101,24 @@ public sealed class LibraryBodyIndex
     // excluded (they only allocate on throw paths, not steady state), and source-/compiler-
     // generated methods are suppressed just as for shaped opportunities.
     const int AllocationHotspotThreshold = 8;
+
+    // A non-loop delegate is allocated once per call, so it is low-value in a cold method —
+    // but on a high-reach (widely-reached, hot) method it is a real per-call heap allocation
+    // worth surfacing. Lift such rows from "low" to "medium" so genuinely hot escaping
+    // delegates are not buried among the cold one-shots. Threshold chosen against real
+    // assemblies (on Aspire.Dashboard this promotes ~19 of 293 non-loop delegate rows).
+    public const int DelegateHotRootReach = 10;
+
+    // Adjust a delegate row's confidence once its method's RootReach is known: a cold-looking
+    // (low) non-loop delegate on a high-reach method becomes medium. Loop delegates (already
+    // high) and non-delegate shapes are unchanged. Pure for testability.
+    public static string AdjustDelegateConfidenceForReach(string shape, bool inLoop, string confidence, int rootReach)
+        => !inLoop
+            && confidence == "low"
+            && rootReach >= DelegateHotRootReach
+            && shape is "capturing-delegate" or "instance-method-group-delegate"
+            ? "medium"
+            : confidence;
 
     IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken)
     {

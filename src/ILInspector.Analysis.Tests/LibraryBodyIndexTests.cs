@@ -1000,6 +1000,21 @@ public class LibraryBodyIndexTests
         Assert.Equal("high", inLoop.Confidence);
     }
 
+    [Theory]
+    // Non-loop delegate on a high-reach method -> lifted from low to medium.
+    [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach, "medium")]
+    [InlineData("instance-method-group-delegate", false, "low", 50, "medium")]
+    // Below the reach threshold -> stays low (cold one-shot).
+    [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach - 1, "low")]
+    // In-loop (already high) and non-delegate shapes are never adjusted.
+    [InlineData("capturing-delegate", true, "high", 99, "high")]
+    [InlineData("box-value-type", false, "low", 99, "low")]
+    public void AdjustDelegateConfidenceForReach_LiftsHotNonLoopDelegatesOnly(
+        string shape, bool inLoop, string confidence, int rootReach, string expected)
+    {
+        Assert.Equal(expected, LibraryBodyIndex.AdjustDelegateConfidenceForReach(shape, inLoop, confidence, rootReach));
+    }
+
     [Fact]
     public void OptimizationOpportunities_SuppressesBlazorRenderMethods()
     {
