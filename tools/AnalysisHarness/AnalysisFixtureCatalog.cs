@@ -371,6 +371,79 @@ public static class AnalysisFixtureCatalog
         ],
         ["opportunity", "box", "suppression", "in-assembly", "rung5"]);
 
+    public static readonly AnalysisFixtureDefinition EnumeratorInterfaceForeachInLoop = new(
+        "alloc.enumerator.interface-foreach-in-loop",
+        """
+        using System.Collections.Generic;
+        namespace Fix
+        {
+            public static class Consumer
+            {
+                // True positive: foreach over an interface-typed sequence inside a loop allocates
+                // the reference-type IEnumerator<T> each outer iteration.
+                public static int ForeachInterfaceInLoop(IEnumerable<int> items, int times)
+                {
+                    var total = 0;
+                    for (int i = 0; i < times; i++)
+                        foreach (var x in items) total += x;
+                    return total;
+                }
+                // Must-not-flag: foreach over the interface with no enclosing loop (one allocation).
+                public static int ForeachInterfaceOnce(IEnumerable<int> items)
+                {
+                    var total = 0;
+                    foreach (var x in items) total += x;
+                    return total;
+                }
+                // Must-not-flag: List<T>.GetEnumerator returns the struct List<T>.Enumerator by
+                // value -- no heap allocation.
+                public static int ForeachConcreteListInLoop(List<int> items, int times)
+                {
+                    var total = 0;
+                    for (int i = 0; i < times; i++)
+                        foreach (var x in items) total += x;
+                    return total;
+                }
+                // Must-not-flag (trust gate): GetEnumerator returns an untrusted lookalike defined
+                // in this (unsigned) assembly, so it is not the real framework IEnumerator.
+                public static int ForeachLookalikeEnumeratorInLoop(LookalikeEnumeratorCollection c, int times)
+                {
+                    var total = 0;
+                    for (int i = 0; i < times; i++)
+                        foreach (var x in c) total += x;
+                    return total;
+                }
+            }
+
+            public sealed class LookalikeEnumeratorCollection
+            {
+                public System.Collections.Generic.IEnumeratorLookalike GetEnumerator() => new();
+            }
+        }
+        namespace System.Collections.Generic
+        {
+            // A type in the framework collections namespace whose name starts with "IEnumerator"
+            // but is defined in this unsigned assembly, so it carries no framework public-key-token
+            // and is trust-gated out of the enumerator-allocation shape (#1814).
+            public sealed class IEnumeratorLookalike
+            {
+                public bool MoveNext() => false;
+                public int Current => 0;
+            }
+        }
+        """,
+        ExternalSource: null,
+        ExternalNeedsAlias: false,
+        [
+            new("ForeachInterfaceInLoop", new AnalysisExpectation(OpportunityShapePresent: "enumerator-allocation")),
+            new("ForeachInterfaceOnce", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation")),
+            new("ForeachConcreteListInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
+                Note: "Concrete List<T> uses a struct enumerator -- no heap allocation."),
+            new("ForeachLookalikeEnumeratorInLoop", new AnalysisExpectation(OpportunityShapeAbsent: "enumerator-allocation"),
+                Note: "Untrusted enumerator lookalike is trust-gated out (#1814)."),
+        ],
+        ["opportunity", "enumerator", "trust-gate", "in-assembly", "rung5"]);
+
     public static IReadOnlyList<AnalysisFixtureDefinition> All { get; } =
     [
         AllocInAssemblyStruct,
@@ -381,6 +454,7 @@ public static class AnalysisFixtureCatalog
         ExceptionUnsuffixedExternal,
         StringBuildAccumulationInLoop,
         BoxThrowPathSuppression,
+        EnumeratorInterfaceForeachInLoop,
     ];
 
     public static IReadOnlyList<AnalysisFixtureDefinition> Select(string? selector)
