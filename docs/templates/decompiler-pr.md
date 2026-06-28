@@ -4,6 +4,9 @@
 Use this for decompiler PRs that affect raising, structuring, validity,
 fidelity, or corpus behavior. Delete sections that do not apply. Keep generated
 tables generated; do not re-key metric rows by hand.
+
+For focused invalid-Full / burndown row fixes, prefer
+`docs/templates/decompiler-burndown-fix-pr.md`.
 -->
 
 - Fixes/advances #{issue}
