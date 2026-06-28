@@ -80,6 +80,13 @@ public sealed record MemberRef(
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
     /// <summary>
+    /// True when the method has a `this` parameter (instance call), so a call site pops one
+    /// extra value (the receiver) beyond <see cref="ParameterTypes"/>. Used by stack-effect
+    /// reasoning over call sites.
+    /// </summary>
+    public bool HasThis { get; init; }
+
+    /// <summary>
     /// The parameter signature with generic markers (VAR/MVAR) preserved — i.e. before
     /// the declaring-type / method-type instantiation that <see cref="ParameterTypes"/>
     /// carries. Cross-assembly caller-graph identity keys on this so a constructed call

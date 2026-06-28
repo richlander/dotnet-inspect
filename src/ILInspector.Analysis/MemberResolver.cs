@@ -24,6 +24,7 @@ internal static class MemberResolver
                 {
                     OpenParameterTypes = signature.ParameterTypes,
                     OpenReturnType = signature.ReturnType,
+                    HasThis = signature.Header.IsInstance,
                 };
             }
             case HandleKind.MemberReference:
@@ -43,6 +44,7 @@ internal static class MemberResolver
                     // Raw signature with VAR/MVAR markers, before instantiation (#1731).
                     OpenParameterTypes = signature.ParameterTypes,
                     OpenReturnType = signature.ReturnType,
+                    HasThis = signature.Header.IsInstance,
                 };
             }
             case HandleKind.MethodSpecification:
