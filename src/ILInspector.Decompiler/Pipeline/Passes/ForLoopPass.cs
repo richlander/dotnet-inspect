@@ -29,11 +29,12 @@ public sealed class ForLoopPass : IIrPass
                 continue;
             }
             // A checked user-defined increment (i = op_CheckedIncrement(i)) has no
-            // for-header spelling that preserves the checked overload — wrapping the
-            // for in checked { } would over-check the rest of the body. Keep such
-            // loops as while so the increment localizes to a body `checked { i++; }`.
-            // See #1712.
-            if (IsCheckedUserIncrement(increment.Value))
+            // for-header spelling that preserves the checked overload — a `checked
+            // { i++; }` block is invalid in a for header and wrapping the whole for
+            // in checked { } would over-check the rest of the body. Keep such loops
+            // as while (in either the initializer or increment slot) so the checked
+            // increment localizes to a `checked { i++; }` statement. See #1712.
+            if (IsCheckedUserIncrement(increment.Value) || IsCheckedUserIncrement(initializer.Value))
                 continue;
             if (!ConditionReads(loop.Condition, initializer.Index))
                 continue;
