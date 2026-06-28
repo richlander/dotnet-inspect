@@ -17,10 +17,14 @@ static class CorpusMetadata
 {
     public static MetadataContext Create(IEnumerable<string> assemblies)
     {
-        var directories = assemblies
-            .Select(p => Path.GetDirectoryName(Path.GetFullPath(p)))
+        var assemblyPaths = assemblies.Select(Path.GetFullPath).ToList();
+        var directories = assemblyPaths
+            .Select(Path.GetDirectoryName)
             .Where(d => !string.IsNullOrEmpty(d))
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var defaultLocators = assemblyPaths
+            .Select(MetadataSource.DefaultAssemblyLocator)
             .ToList();
         var platformAssemblies = TrustedPlatformAssemblies();
 
@@ -44,6 +48,9 @@ static class CorpusMetadata
                 if (File.Exists(candidate))
                     return candidate;
             }
+            foreach (var locator in defaultLocators)
+                if (locator(name, trust) is { } resolved)
+                    return resolved;
             return null;
         };
 
