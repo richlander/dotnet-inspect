@@ -50,9 +50,7 @@ internal static class GeneratedFixtureCatalog
             new(
                 "GeneratedFixtures.MinimalPrimaryCtorFieldInit.Class1",
                 ".ctor",
-                FidelityCheck.CompileBackStatus.OpcodeDiff,
-                IsFrontier: true,
-                Note: "Primary-constructor field initializer stores before base(); reconstructed constructor body stores after base()."),
+                FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalPrimaryCtorFieldInit.Class1", "get_Method1",
                 FidelityCheck.CompileBackStatus.Exact),
         ],
