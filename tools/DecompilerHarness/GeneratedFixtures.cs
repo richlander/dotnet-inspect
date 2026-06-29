@@ -697,7 +697,7 @@ internal static class GeneratedFixtureRunner
         var sb = new StringBuilder();
         int fixtureCount = run.Results.Select(r => r.FixtureId).Distinct(StringComparer.Ordinal).Count();
         sb.AppendLine(
-            $"GENERATED FIXTURE COMPILE-BACK over {fixtureCount} fixture(s), {run.Results.Count} target method(s)");
+            $"GENERATED FIXTURE LADDER over {fixtureCount} fixture(s), {run.Results.Count} target method(s)");
         foreach (var result in run.Results.OrderBy(r => r.FixtureId, StringComparer.Ordinal).ThenBy(r => r.DisplayMember, StringComparer.Ordinal))
         {
             string actual = result.ActualStatus?.ToString() ?? "Missing";
@@ -708,7 +708,7 @@ internal static class GeneratedFixtureRunner
             string status = result.Passed ? "PASS" : "FAIL";
             sb.AppendLine(
                 $"  {status}{frontier}  {result.FixtureId}  {result.DisplayMember}  " +
-                $"decompiler={result.DecompilerFidelity}  compile-back={actual}  expected={result.ExpectedStatus}{shape}");
+                $"decompiler={result.DecompilerFidelity}  compile-back={actual}  expected-compile-back={result.ExpectedStatus}{shape}");
             if (!string.IsNullOrWhiteSpace(result.Detail))
                 sb.AppendLine($"      detail: {result.Detail}");
             if (!string.IsNullOrWhiteSpace(result.ShapeDetail))
@@ -741,8 +741,9 @@ internal static class GeneratedFixtureRunner
             foreach (var target in fixture.Targets)
             {
                 string frontier = target.IsFrontier ? " frontier" : "";
+                string shape = target.ExpectedShape?.ToString() ?? "none";
                 sb.AppendLine(
-                    $"      {target.DisplayMember}  expected={target.ExpectedStatus}{frontier}");
+                    $"      {target.DisplayMember}  compile-back={target.ExpectedStatus}  shape={shape}{frontier}");
             }
         }
         return sb.ToString();

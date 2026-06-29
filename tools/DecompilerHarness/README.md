@@ -30,6 +30,17 @@ for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape
 frontier.
 
+The generated fixture ladder is intentionally staged:
+
+| Stage | Harness responsibility |
+| --- | --- |
+| Specimen | Catalogue row with source, fixture ID, tags, targets, expected shape, and expected compile-back outcome. |
+| Materialization | Build the selected source snippets into one temporary class library; `--keep-generated-fixtures` preserves it. |
+| Projection | Decompile each target through the shipped raised product path and record the decompiler fidelity grade. |
+| Shape verdict | Parse the rendered body with Roslyn and compare the optional expected `SyntaxKind`. |
+| Compile-back verdict | Recompile the rendered body and compare canonical opcode streams with `FidelityCheck`. |
+| Frontier ledger | Keep expected non-exact or compiler-lowering observations explicit and opt-in. |
+
 **Library report** (`--library-report`): a portfolio view. It combines the IR
 residual buckets from `--gaps` with the Roslyn-backed validity oracle from
 `--validity-check`, then prints a global top-pattern section and one section per

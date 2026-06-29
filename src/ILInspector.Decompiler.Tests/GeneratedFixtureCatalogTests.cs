@@ -21,6 +21,7 @@ public class GeneratedFixtureCatalogTests
         string report = GeneratedFixtureRunner.FormatReport(run);
 
         Assert.True(run.Passed, report);
+        Assert.Contains("GENERATED FIXTURE LADDER", report);
 
         AssertTarget(
             run,
@@ -380,6 +381,11 @@ public class GeneratedFixtureCatalogTests
     public void CatalogueListJson_ContainsFixtureIdsAndExpectedStatuses()
     {
         string json = GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.Catalog);
+        string list = GeneratedFixtureRunner.FormatList(GeneratedFixtureCatalog.Catalog);
+
+        Assert.Contains("compile-back=Exact", list);
+        Assert.Contains("shape=ElementAccessExpression", list);
+        Assert.Contains("shape=none", list);
 
         using var document = JsonDocument.Parse(json);
         var fixtures = document.RootElement.EnumerateArray().ToArray();
