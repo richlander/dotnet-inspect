@@ -416,7 +416,10 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Constructors>()
             .Add<ApiMemberSectionDescriptors.Fields>()
             .Add<ApiMemberSectionDescriptors.Properties>()
-            .Add<ApiMemberDetailSectionDescriptors.Signature>()
+            // Signature can be selected from the overload inventory; rendering still
+            // waits until a single overload is chosen.
+            .Add<ApiMemberDetailSectionDescriptors.Signature>(
+                model => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike))
             .Add<Methods>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
             .Add<ApiMemberSectionDescriptors.SourceLocations>()
