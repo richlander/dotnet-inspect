@@ -48,7 +48,7 @@ public static class AnnotationAnchor
     /// anchoring and the mixed source view, which buckets IL instructions onto
     /// the same statements by the same ranges.
     /// </summary>
-    internal static List<StatementSpan> ComputeSpans(IrFunction raised)
+    public static List<StatementSpan> ComputeSpans(IrFunction raised)
     {
         var statements = new List<StatementSpan>();
         foreach (var block in raised.Descendants.OfType<Block>())
@@ -75,7 +75,7 @@ public static class AnnotationAnchor
     /// failing containment, the statement with the greatest start at or before it
     /// (the one the offset falls into or just after); failing that, the earliest.
     /// </summary>
-    internal static IrNode? Best(List<StatementSpan> statements, int offset)
+    public static IrNode? Best(List<StatementSpan> statements, int offset)
     {
         StatementSpan? containing = null;
         StatementSpan? preceding = null;
@@ -101,7 +101,7 @@ public static class AnnotationAnchor
     /// printed ancestor when the owner belongs to an inline expression body (for
     /// example, a raised lambda). Facts stay visible instead of being dropped.
     /// </summary>
-    internal static bool TryGetPrintedLine(
+    public static bool TryGetPrintedLine(
         IrNode owner,
         IReadOnlyDictionary<IrNode, int> statementLines,
         out int line)
@@ -120,5 +120,5 @@ public static class AnnotationAnchor
             yield return descendant;
     }
 
-    internal readonly record struct StatementSpan(IrNode Statement, int Min, int Max);
+    public readonly record struct StatementSpan(IrNode Statement, int Min, int Max);
 }

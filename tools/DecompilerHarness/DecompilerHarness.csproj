@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Research/ILInspector.Research.csproj" />
     <!-- ILReader: the byte-match-validated IL reader the fidelity and annotation checks read the witness IL with. -->
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <!-- Validity check: parse and bind the decompiled C# to measure validity. -->

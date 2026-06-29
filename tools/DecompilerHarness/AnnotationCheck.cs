@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 using ILInspector.Metadata;
 
 namespace ILInspector.DecompilerHarness;
@@ -195,7 +196,7 @@ static class AnnotationCheck
                         continue;
                     }
 
-                    var annotations = AnnotationEngine.Default.ClassifyImported(function);
+                    var annotations = ResearchViews.CollectFacts(source, function);
 
                     // The independent witness: offset -> opcode, read straight from
                     // the IL bytes with the runtime-ported reader.

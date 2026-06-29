@@ -1509,8 +1509,17 @@ public sealed class LibraryBodyIndex
                         {
                             int token = ReadInt32(il, ref position, offset);
                             var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                            if (!IsNonHeapNewObj(token, constructor.DeclaringType)
-                                && ClassifyNewObjectAllocation(il, offset, position, token, constructor, loopRegions) is { } occurrence)
+                            if (IsNonHeapNewObj(token, constructor.DeclaringType))
+                            {
+                                if (ShouldEmitUnresolvedValueTypeAnnotation(token, constructor.DeclaringType))
+                                {
+                                    occurrences.Add(MakeAllocation(
+                                        caller, offset, token, AllocationKind.Object, constructor.DeclaringType, LegacyDetail(constructor.DeclaringType, AllocationKind.Object), countsAsHeapAllocation: false,
+                                        AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
+                                        AllocationEscape.Unknown, AllocationFactSource.Newobj));
+                                }
+                            }
+                            else if (ClassifyNewObjectAllocation(il, offset, position, token, constructor, loopRegions) is { } occurrence)
                             {
                                 occurrences.Add(occurrence);
                             }
@@ -1569,7 +1578,7 @@ public sealed class LibraryBodyIndex
                 if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
                 {
                     return MakeAllocation(
-                        caller, newObjectOffset, operandToken, AllocationKind.Array, type, type.ToDisplayString(), countsAsHeapAllocation: true,
+                        caller, newObjectOffset, operandToken, AllocationKind.Array, type, LegacyDetail(type, AllocationKind.Array), countsAsHeapAllocation: true,
                         AllocationFrequency.Always, IsInLoopRegion(newObjectOffset, loops),
                         AllocationEscape.Unknown, AllocationFactSource.Newobj);
                 }
@@ -1592,7 +1601,7 @@ public sealed class LibraryBodyIndex
                     ? AllocationFrequency.CachedOnce
                     : AllocationFrequency.Always;
                 return MakeAllocation(
-                    caller, newObjectOffset, operandToken, kind, type, type.ToDisplayString(), countsAsHeapAllocation: true,
+                    caller, newObjectOffset, operandToken, kind, type, LegacyDetail(type, kind), countsAsHeapAllocation: true,
                     frequency, IsInLoopRegion(newObjectOffset, loops),
                     NewObjectFeedsThrowSoon(ilBytes, afterNewObjectPosition) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
                     AllocationFactSource.Newobj);
@@ -1611,6 +1620,43 @@ public sealed class LibraryBodyIndex
                 AllocationEscape escape,
                 AllocationFactSource source)
                 => new(method, offset, operandToken, kind, allocatedType, detail, countsAsHeapAllocation, frequency, inLoop, escape, source);
+
+            bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
+            {
+                try
+                {
+                    var handle = MetadataTokens.EntityHandle(operandToken);
+                    var parent = handle.Kind switch
+                    {
+                        HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
+                        _ => default,
+                    };
+                    return parent.Kind == HandleKind.TypeReference
+                        && IsNonHeapConstructionByName(type);
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+                {
+                    return false;
+                }
+            }
+
+            static string LegacyDetail(TypeRef type, AllocationKind kind)
+            {
+                if (kind is AllocationKind.Closure or AllocationKind.StateMachine)
+                    return LeafDisplayName(type);
+                return type.ToDisplayString();
+            }
+
+            static string LeafDisplayName(TypeRef type)
+            {
+                var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+                string name = definition.Name;
+                int nested = name.LastIndexOf('+');
+                if (nested >= 0)
+                    name = name[(nested + 1)..];
+                int arity = name.IndexOf('`');
+                return arity >= 0 ? name[..arity] : name;
+            }
         }
 
         bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)

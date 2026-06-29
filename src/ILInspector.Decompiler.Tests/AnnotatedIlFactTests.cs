@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -7,8 +8,8 @@ public class AnnotatedIlFactTests
     static string Render(string methodName)
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var result = IlProjection.Project(
-            source, typeof(AllocSampleClass).FullName!, methodName, IlProjectionDepth.Annotated);
+        var result = ResearchViews.ProjectAnnotatedIl(
+            source, typeof(AllocSampleClass).FullName!, methodName);
         Assert.NotNull(result.Output);
         return result.Output!;
     }

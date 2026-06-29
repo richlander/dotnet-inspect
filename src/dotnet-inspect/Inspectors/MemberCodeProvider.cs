@@ -120,8 +120,8 @@ internal static class MemberCodeProvider
             string? annotatedBody = null, annotatedDiagnostic = null;
             if (request.AnnotatedSource && pipelineSource is not null)
             {
-                var result = Decompiler.Annotations.MixedSourceRenderer.Render(
-                    pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
+                var result = ILInspector.Research.ResearchViews.RenderMixed(
+                    pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
                 decompileTrace = result.Trace;
                 if (result.Output is { } annotated)
                     annotatedBody = annotated.TrimEnd();
@@ -150,10 +150,8 @@ internal static class MemberCodeProvider
             IReadOnlyList<Decompiler.Annotations.Annotation>? facts = null;
             if (request.Facts && pipelineSource is not null)
             {
-                var function = Decompiler.Pipeline.IrImporter.Import(
+                facts = ILInspector.Research.ResearchViews.CollectFacts(
                     pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
-                if (function is not null)
-                    facts = Decompiler.Annotations.AnnotationStructuredView.Collect(function);
             }
 
             results.Add((method, new Item(

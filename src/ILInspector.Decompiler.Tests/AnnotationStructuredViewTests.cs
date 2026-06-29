@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -12,10 +13,16 @@ public class AnnotationStructuredViewTests
         return IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName)!;
     }
 
+    static IReadOnlyList<Annotation> Collect(string methodName)
+    {
+        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
+        return ResearchViews.CollectFacts(source, typeof(AllocSampleClass).FullName!, methodName);
+    }
+
     [Fact]
     public void Json_CarriesTheFactWithItsOffsetForCrossReference()
     {
-        var json = AnnotationStructuredView.Json(Import(nameof(AllocSampleClass.BoxInt)));
+        var json = AnnotationStructuredView.Json(Collect(nameof(AllocSampleClass.BoxInt)));
         using var doc = JsonDocument.Parse(json);
 
         var fact = Assert.Single(doc.RootElement.EnumerateArray());
@@ -31,7 +38,7 @@ public class AnnotationStructuredViewTests
     {
         // Func<int, int> has characters a naive serializer might mangle; the
         // Utf8JsonWriter path keeps it valid.
-        var json = AnnotationStructuredView.Json(Import(nameof(AllocSampleClass.Capture)));
+        var json = AnnotationStructuredView.Json(Collect(nameof(AllocSampleClass.Capture)));
         using var doc = JsonDocument.Parse(json);
         Assert.Contains(doc.RootElement.EnumerateArray(),
             f => f.GetProperty("detail").GetString() == "Func<int, int>");
@@ -40,7 +47,7 @@ public class AnnotationStructuredViewTests
     [Fact]
     public void Tsv_HasAHeaderAndOneLinePerFact()
     {
-        var tsv = AnnotationStructuredView.Tsv(Import(nameof(AllocSampleClass.Capture)));
+        var tsv = AnnotationStructuredView.Tsv(Collect(nameof(AllocSampleClass.Capture)));
         var lines = tsv.TrimEnd('\n').Split('\n');
 
         Assert.Equal("id\tcategory\tconditionality\toffset\tdetail", lines[0]);
@@ -52,7 +59,7 @@ public class AnnotationStructuredViewTests
     public void Tsv_FieldsNeverContainRawTabsOrNewlines()
     {
         // Every data row must stay a single line with exactly five columns.
-        var tsv = AnnotationStructuredView.Tsv(Import(nameof(AllocSampleClass.Cached)));
+        var tsv = AnnotationStructuredView.Tsv(Collect(nameof(AllocSampleClass.Cached)));
         foreach (var line in tsv.TrimEnd('\n').Split('\n').Skip(1))
             Assert.Equal(4, line.Count(c => c == '\t'));
     }
@@ -60,7 +67,7 @@ public class AnnotationStructuredViewTests
     [Fact]
     public void Collect_OrdersByOffset()
     {
-        var facts = AnnotationStructuredView.Collect(Import(nameof(AllocSampleClass.Capture)));
+        var facts = Collect(nameof(AllocSampleClass.Capture));
         var offsets = facts.Select(f => f.SourceOffset).ToList();
         Assert.Equal(offsets.OrderBy(o => o), offsets);
     }

@@ -7,7 +7,7 @@ public class ExtensionMethodCallTests
     // Extension-ness is a cross-assembly fact (System.Linq lives in the shared
     // framework, not beside the test assembly), so the default sibling locator
     // cannot resolve it. Reach the running runtime directory, the same pattern
-    // AllocationClassifierTests uses for its corelib base-chain checks.
+    // AllocationOccurrenceFactTests uses for its corelib base-chain checks.
     static readonly ILInspector.Metadata.AssemblyLocator RuntimeLocator = (name, trust) =>
     {
         string dir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
