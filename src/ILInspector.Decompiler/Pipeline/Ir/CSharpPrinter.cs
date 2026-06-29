@@ -789,6 +789,15 @@ public sealed partial class CSharpPrinter
                     seenLocals.Add(store.Index);
                     if (entryStatements.Contains(store))
                         _declaringStores.Add(store);
+                    else if (store.Type.Kind == TypeRefKind.ByRef
+                        && LocalReferencesStayInBlockAfterStore(function, store))
+                    {
+                        // A ref local cannot be declared bare up front (CS8174), and
+                        // synthesizing Unsafe.NullRef<T>() changes IL. If the first
+                        // definition dominates every reference inside one block, declare
+                        // at that ref assignment instead.
+                        _declaringStores.Add(store);
+                    }
                     else if (store is { Parent: ForLoop forLoop, ChildIndex: 0 }
                         && LastReferenceIsInside(function, store.Index, forLoop))
                     {
@@ -871,6 +880,24 @@ public sealed partial class CSharpPrinter
                 for (int i = start; i <= end; i++)
                     insideRun |= IsDescendantOrSelf(node, container.Children[i]);
                 if (!insideRun)
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    static bool LocalReferencesStayInBlockAfterStore(IrFunction function, StoreLocal store)
+    {
+        if (store.Parent is not Block block || store.ChildIndex < 0)
+            return false;
+        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        {
+            if (node is StoreLocal s && s.Index == store.Index
+                || node is LoadLocal l && l.Index == store.Index
+                || node is LoadLocalAddress a && a.Index == store.Index)
+            {
+                if (!allowed.Any(statement => IsDescendantOrSelf(node, statement)))
                     return false;
             }
         }

@@ -2468,11 +2468,12 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void RefLocal_DeclaredBeforeStore_InitializesToNullRef()
+    public void RefLocal_AssignedBeforeUse_DeclaresAtRefAssignment()
     {
-        // A ref local whose defining store is not the entry-block first
-        // reference declares up front. A bare `ref int V_0;` is CS8174, so it
-        // spells IL's null-reference zero-init via Unsafe.NullRef<T>().
+        // A ref local whose defining store is not the entry-block first reference
+        // can still declare at that store when every reference stays in the same
+        // block after it. This avoids a synthetic Unsafe.NullRef<T>() initializer
+        // whose call/stloc was not present in the original IL (#1899).
         var intType = TypeRef.CoreLib("System", "Int32");
         var refInt = TypeRef.ByRef(intType);
         var container = new BlockContainer();
@@ -2489,8 +2490,35 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
         string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int V_0 = ref T.A();", output);
+        Assert.DoesNotContain("Unsafe.NullRef", output);
+    }
+
+    [Fact]
+    public void RefLocal_ReadBeforeStore_InitializesToNullRef()
+    {
+        // If a ref local is referenced before its first store, C# has no bare
+        // declaration spelling. Preserve IL's zero-initialized managed pointer with
+        // Unsafe.NullRef<T>().
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var use = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "Use", TypeRef.CoreLib("System", "Void"), [refInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        var getRef = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [], HasThis: false);
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, refInt)])));
+        block.Add(new StoreLocal(0, refInt, new Call(getRef, isVirtual: false, [])));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
-        Assert.DoesNotContain("ref int V_0;", output);
     }
 
     [Fact]
