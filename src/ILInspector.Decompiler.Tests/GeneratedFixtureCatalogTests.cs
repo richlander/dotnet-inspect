@@ -203,7 +203,6 @@ public class GeneratedFixtureCatalogTests
             "Method1",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
-
         Assert.Contains("minimal.property.literal", report);
         Assert.Contains("minimal.primary-ctor.field-init", report);
         Assert.Contains("minimal.ctor-field.getter", report);
@@ -216,6 +215,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.using-dispose", report);
         Assert.Contains("minimal.foreach-array", report);
         Assert.Contains("minimal.switch-int", report);
+        Assert.DoesNotContain("minimal.switch-two-case-lowers-if", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
     }
@@ -239,6 +239,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.property.literal",
                 "minimal.static-method-call",
                 "minimal.switch-int",
+                "minimal.switch-two-case-lowers-if",
                 "minimal.try-finally",
                 "minimal.using-dispose",
             ],
@@ -250,7 +251,7 @@ public class GeneratedFixtureCatalogTests
     [Fact]
     public void CatalogueListJson_ContainsFixtureIdsAndExpectedStatuses()
     {
-        string json = GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.All);
+        string json = GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.Catalog);
 
         using var document = JsonDocument.Parse(json);
         var fixtures = document.RootElement.EnumerateArray().ToArray();
@@ -265,6 +266,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.using-dispose");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.foreach-array");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-int");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-two-case-lowers-if");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
@@ -272,6 +274,30 @@ public class GeneratedFixtureCatalogTests
             target => target.GetProperty("Method").GetString() == ".ctor");
         Assert.Equal("Exact", ctor.GetProperty("ExpectedStatus").GetString());
         Assert.False(ctor.GetProperty("IsFrontier").GetBoolean());
+    }
+
+    [Fact]
+    public void CompilerLoweringFrontier_IsSelectableButNotInDefaultRun()
+    {
+        var run = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));
+        string report = GeneratedFixtureRunner.FormatReport(run);
+
+        Assert.True(run.Passed, report);
+        AssertTarget(
+            run,
+            "minimal.switch-two-case-lowers-if",
+            "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.switch-two-case-lowers-if",
+            "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            frontier: true);
+        Assert.Contains("compiler-lowering", GeneratedFixtureCatalog.Frontiers.Single().Tags);
     }
 
     [Fact]
