@@ -10,8 +10,9 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 **Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
 generated-fixture catalogue entries into a temporary class library, runs the
-compile-back oracle, and prints results by stable fixture ID plus target method.
-This is the first step toward an addressable progressive fixture ladder:
+Roslyn shape oracle and compile-back oracle, and prints results by stable fixture
+ID plus target method. This is the first step toward an addressable progressive
+fixture ladder:
 `minimal.property.literal`, `minimal.ctor-field.getter`,
 `minimal.auto-property.getter`, `minimal.method-call.same-type`, and
 `minimal.primary-ctor.field-init` are expected `Exact`; the static-call, if/else,
@@ -24,6 +25,10 @@ source-switch lowering observation (lowered as if/else, not the dense switch
 shape) and is opt-in by ID. With no selector, stable generated fixtures run; use
 `list` to list fixture IDs, `--json` for machine-readable list/results, and
 `--keep-generated-fixtures` to preserve the generated project for drill-down.
+Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
+for the intended C# idiom, and a compile-back opcode verdict for semantic
+fidelity. A row can therefore be opcode-exact while still exposing a shape
+frontier.
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
 residual buckets from `--gaps` with the Roslyn-backed validity oracle from
