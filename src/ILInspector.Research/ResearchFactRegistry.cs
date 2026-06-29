@@ -24,6 +24,8 @@ public sealed class ResearchFactRegistry
     public ResearchFactRegistry(params IResearchFactProducer[] producers)
         => _producers = Order(producers);
 
+    public IReadOnlyList<string> ProducerNames => [.. _producers.Select(producer => producer.Name)];
+
     public static ResearchFactRegistry Default { get; } = new(
         new AllocationOccurrenceFactProducer(),
         new DecompilerHiddenFactProducer());
