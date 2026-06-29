@@ -1332,7 +1332,7 @@ public class SectionPipelineTests
         var apiType = new ApiType
         {
             Name = "Sample",
-            Kind = "class",
+            Kind = "enum",
             BaseType = "Base",
             Interfaces = ["IDisposable"],
             SourceUrl = "https://example.com/Sample.cs",
@@ -1363,7 +1363,13 @@ public class SectionPipelineTests
         var overloadPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
         yield return DiscoverableCase("member-overload", overloadPipeline, apiType);
         var detailPipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
-        yield return DiscoverableCase("member-detail", detailPipeline, apiType);
+        var detailType = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Method", Kind = "method" }]
+        };
+        yield return DiscoverableCase("member-detail", detailPipeline, detailType);
 
         var diffPipeline = DiffSections.CreatePipeline();
         yield return DiscoverableCase("diff", diffPipeline, new DiffDiscoveryModel());
@@ -1373,7 +1379,7 @@ public class SectionPipelineTests
         string command,
         SectionPipeline<TModel> pipeline,
         TModel model) =>
-        [command, pipeline.AllSectionNames, pipeline.GetDiscoverableSections(model)];
+        [command, pipeline.SelectableSectionNames, pipeline.GetDiscoverableSections(model)];
 
     // ===== API type-list pipeline tests =====
 

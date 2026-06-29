@@ -3717,7 +3717,7 @@ public class CommandExecutionTests
 
             foreach (var command in commands)
             {
-                var discoveryArgs = command.Concat(["-D", "--table", "--tips", "q"]).ToArray();
+                var discoveryArgs = command.Concat(["-D", "--tips", "q"]).ToArray();
                 var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(discoveryArgs);
                 Assert.Equal(0, discoverExit);
 

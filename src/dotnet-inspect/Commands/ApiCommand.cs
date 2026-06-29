@@ -65,7 +65,7 @@ public class ApiCommand
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
         bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
-        var knownSections = singleTypeMode ? memberPipeline.AllSectionNames : typePipeline.AllSectionNames;
+        var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
 
         // Discovery mode: -D/--discover lists effective sections (resolves source) by
         // default; --schema opts out to the cheap, offline static schema listing.
@@ -361,7 +361,7 @@ public class ApiCommand
         if (options.Discover is { Length: > 0 } discover)
         {
             var resolved = SelectResolver.ResolveSelectAsSections(
-                discover, pipeline.AllSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+                discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
             if (!resolved.HasError && resolved.Sections is { Count: > 0 })
                 sections.UnionWith(resolved.Sections);
         }
@@ -894,11 +894,27 @@ public class ApiCommand
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
-        var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
         var displayAnnotations = memberPipeline.GetCostAnnotations();
-        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
+        var queryEffective = effective;
+        var specificSectionDiscover = options.Discover is { Length: > 0 }
+            && options.Discover.Any(name => !name.StartsWith("@", StringComparison.Ordinal));
+        if (specificSectionDiscover)
+        {
+            var renderedKept = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
+            var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
+            foreach (var section in effective)
+            {
+                if (unprobed.Contains(section)
+                    || displayAnnotations.TryGetValue(section, out var annotation)
+                       && annotation.Equals(SectionAnnotations.OptIn, StringComparison.OrdinalIgnoreCase))
+                    keep.Add(section);
+            }
+            queryEffective = effective.Where(keep.Contains).ToList();
+        }
+        var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(queryEffective, fullSchema, rendered);
+        return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
@@ -938,7 +954,7 @@ public class ApiCommand
         {
             var pipeline = ApiMemberSectionPipelines.Create(options);
             var resolved = SelectResolver.ResolveSelectAsSections(
-                discover, pipeline.AllSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+                discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
             if (!resolved.HasError && resolved.Sections is { Count: > 0 })
             {
                 var include = renderOptions.IncludeSections is null
