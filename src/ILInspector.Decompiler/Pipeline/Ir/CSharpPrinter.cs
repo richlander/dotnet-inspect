@@ -1008,7 +1008,6 @@ public sealed partial class CSharpPrinter
             }
         }
         return stores == 1 && addressLoads == 1 && ReferenceEquals(call.Arguments[0], receiver);
-        return stores == 1 && addressLoads == 1 && ReferenceEquals(call.Arguments[0], receiver);
     }
 
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
