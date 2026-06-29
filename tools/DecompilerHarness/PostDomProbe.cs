@@ -1,3 +1,4 @@
+using ILInspector.ControlFlow;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
@@ -191,7 +192,7 @@ static class PostDomProbe
                 if (offsetToIndex.TryGetValue(target, out int ti) && ti <= i)
                     return MergeShape.Loop;
 
-        var pd = PostDominators.Of(blocks);
+        var pd = PostDominators.Of(Cfg.Build(blocks));
 
         // Each residual conditional's region is the half-open span [decision, join)
         // from the branch block to its immediate post-dominator. Crossing spans are
@@ -277,7 +278,7 @@ static class PostDomProbe
         var offsetToIndex = new Dictionary<int, int>();
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
-        var pd = PostDominators.Of(blocks);
+        var pd = PostDominators.Of(Cfg.Build(blocks));
 
         var lines = new List<string>
         {

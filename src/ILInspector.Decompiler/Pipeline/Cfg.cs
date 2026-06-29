@@ -1,3 +1,5 @@
+using ILInspector.ControlFlow;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -13,16 +15,6 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class Cfg
 {
-    /// <summary>
-    /// One block's outgoing edges. <paramref name="Successors"/> are indices
-    /// into the same container; <paramref name="ExternalTargets"/> are branch
-    /// target offsets that do not name a block in this container.
-    /// </summary>
-    public sealed record BlockEdges(
-        IReadOnlyList<int> Successors,
-        IReadOnlyList<int> ExternalTargets,
-        bool ExitsMethod,
-        bool LeavesRegion);
 
     public static IReadOnlyList<BlockEdges> Build(IReadOnlyList<Block> blocks)
     {

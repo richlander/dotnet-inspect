@@ -1,3 +1,4 @@
+using ILInspector.ControlFlow;
 using System.Text;
 
 namespace ILInspector.Decompiler.Pipeline;

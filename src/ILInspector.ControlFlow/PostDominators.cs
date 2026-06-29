@@ -1,27 +1,10 @@
-namespace ILInspector.Decompiler.Pipeline;
+namespace ILInspector.ControlFlow;
 
 /// <summary>
-/// Immediate post-dominators over one container's block CFG — the dual of a
-/// dominator tree, and the graph property the structuring redesign needs to name
-/// a common-exit merge the index-range model cannot
-/// (docs/design/control-flow-structuring.md, step 1). Block <c>m</c>
-/// post-dominates block <c>n</c> when every path from <c>n</c> to the method exit
-/// passes through <c>m</c>; the <em>immediate</em> post-dominator is the closest
-/// such block.
-///
-/// <para>It reuses <see cref="Cfg.BlockEdges"/> — the same successor model the
-/// printer's definite-assignment dataflow and <c>--dump --cfg</c> consume — so a
-/// post-dominator computed here can never disagree with them about edges. Every
-/// method-exit terminator (<c>return</c>/<c>throw</c>), every external branch
-/// target, and every EH-survivor (<c>leave</c>/<c>endfinally</c>/<c>endfilter</c>)
-/// is treated as flowing to a single virtual exit, so the analysis is rooted even
-/// when a container has several real exits. Immediate post-dominators come from
-/// the Cooper–Harvey–Kennedy iterative fixpoint ("A Simple, Fast Dominance
-/// Algorithm") run on the reverse CFG.</para>
-///
-/// <para>This is pure analysis: nothing consumes it yet. A block that cannot
-/// reach the exit (an endless loop with no way out) has <see cref="None"/> as its
-/// immediate post-dominator rather than throwing.</para>
+/// Immediate post-dominators over one container's block CFG (dual of a dominator tree),
+/// from the Cooper-Harvey-Kennedy iterative fixpoint on the reverse CFG with a single virtual
+/// exit. Pure analysis over <see cref="BlockEdges"/>; produce dominators by passing reversed
+/// edges. Shared kernel: no dependency on any IL representation.
 /// </summary>
 public sealed class PostDominators
 {
@@ -80,9 +63,7 @@ public sealed class PostDominators
         return false;
     }
 
-    public static PostDominators Of(IReadOnlyList<Block> blocks) => Of(Cfg.Build(blocks));
-
-    public static PostDominators Of(IReadOnlyList<Cfg.BlockEdges> edges)
+    public static PostDominators Of(IReadOnlyList<BlockEdges> edges)
     {
         int n = edges.Count;
         int exit = n;             // the virtual exit shares the index space after the blocks
