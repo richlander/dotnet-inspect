@@ -819,7 +819,6 @@ static class FidelityCheck
     static bool IsGeneratedMethod(MetadataReader reader, MethodDefinition method, string name)
         => name.Contains('<')
            || name.StartsWith("__", StringComparison.Ordinal)
-           || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), KnownAttributeNames.CompilerGeneratedAttribute)
            || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute");
 
     static PrimaryConstructorShape? PrimaryConstructorFromPrologue(
