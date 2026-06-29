@@ -11,14 +11,16 @@ public class AllocationAnnotationParityTests
             """
             [
               { "id": "alloc.box", "category": "Allocation", "conditionality": "Always", "offset": 12, "detail": "int" },
-              { "id": "unsafe.deref", "category": "Unsafety", "conditionality": "Always", "offset": 12, "detail": "int*" }
+              { "id": "unsafe.deref", "category": "Unsafety", "conditionality": "Always", "offset": 12, "detail": "int*" },
+              { "id": "bad.category", "category": 42, "conditionality": "Always", "offset": 99, "detail": "ignored" }
             ]
             """;
         var actual =
             """
             [
               { "id": "alloc.box", "category": "Allocation", "conditionality": "Always", "offset": 12, "detail": "int" },
-              { "id": "lifetime.stack-bound", "category": "Lifetime", "conditionality": "Always", "offset": 1, "detail": "span" }
+              { "id": "lifetime.stack-bound", "category": "Lifetime", "conditionality": "Always", "offset": 1, "detail": "span" },
+              { "id": "bad.category", "category": { "kind": "not-string" }, "conditionality": "Always", "offset": 99, "detail": "ignored" }
             ]
             """;
 
@@ -27,6 +29,19 @@ public class AllocationAnnotationParityTests
         Assert.True(result.Passed, AllocationAnnotationParity.Format(result));
         Assert.Empty(result.Missing);
         Assert.Empty(result.Unexpected);
+    }
+
+    [Fact]
+    public void Parse_NonStringDetail_IsTreatedAsNull()
+    {
+        var rows = AllocationAnnotationParity.Parse(
+            """
+            [
+              { "id": "alloc.box", "category": "Allocation", "conditionality": "Always", "offset": 12, "detail": 123 }
+            ]
+            """);
+
+        Assert.Null(Assert.Single(rows).Detail);
     }
 
     [Fact]

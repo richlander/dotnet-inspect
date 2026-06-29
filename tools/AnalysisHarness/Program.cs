@@ -80,8 +80,8 @@ for (int i = 0; i < args.Length; i++)
             precisionAssembly = NextValue(args, ref i);
             break;
         case "--allocation-parity":
-            allocationParityExpected = NextValue(args, ref i);
-            allocationParityActual = NextValue(args, ref i);
+            allocationParityExpected = NextPathValue(args, ref i);
+            allocationParityActual = NextPathValue(args, ref i);
             break;
         case "--reference":
             referenceFile = NextValue(args, ref i);
@@ -243,3 +243,8 @@ static int RunCorpus(string corpusList, string? diffBaseline, string? emitSnapsh
 
 static string? NextValue(string[] args, ref int i)
     => i + 1 < args.Length ? args[++i] : null;
+
+static string? NextPathValue(string[] args, ref int i)
+    => i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
+        ? args[++i]
+        : null;

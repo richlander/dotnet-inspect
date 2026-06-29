@@ -65,7 +65,8 @@ public static class AllocationAnnotationParity
         foreach (var element in doc.RootElement.EnumerateArray())
         {
             if (!element.TryGetProperty("category", out var category)
-                || !string.Equals(category.GetString(), "Allocation", StringComparison.Ordinal))
+                || category.ValueKind != JsonValueKind.String
+                || !category.ValueEquals("Allocation"))
             {
                 continue;
             }
@@ -76,7 +77,7 @@ public static class AllocationAnnotationParity
                 ? offsetElement.GetInt32()
                 : -1;
             string? detail = element.TryGetProperty("detail", out var detailElement)
-                && detailElement.ValueKind != JsonValueKind.Null
+                && detailElement.ValueKind == JsonValueKind.String
                 ? detailElement.GetString()
                 : null;
 
