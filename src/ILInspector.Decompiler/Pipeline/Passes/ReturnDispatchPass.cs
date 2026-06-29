@@ -29,7 +29,7 @@ public sealed class ReturnDispatchPass : IIrPass
     }
 
     sealed record Arm(IReadOnlyList<IrNode> Prefix, IrExpression Condition, IrExpression Value, int TargetIndex);
-    sealed record Plan(List<Arm> Arms, IrExpression DefaultValue);
+    sealed record Plan(List<Arm> Arms, IrExpression DefaultValue, int DefaultIndex);
     sealed record TreePlan(Block Body, int LeafCount);
 
     static bool TryFold(IrFunction function, BlockContainer container, Stepper stepper)
@@ -46,6 +46,13 @@ public sealed class ReturnDispatchPass : IIrPass
         {
             if (HasExternalEntry(function, container, blocks))
                 return false;
+
+            if (TryBuildPositiveFallthrough(blocks, plan) is { } positiveBlock)
+            {
+                ReplaceContainer(container, positiveBlock);
+                stepper.StepOver("fold flat return dispatch to positive fallthrough guard", container);
+                return true;
+            }
 
             var block = new Block(blocks[0].StartOffset);
             foreach (var arm in plan.Arms)
@@ -119,9 +126,36 @@ public sealed class ReturnDispatchPass : IIrPass
             consumed.Add(i);
             if (arms.Count < MinArms || consumed.Count != blocks.Count)
                 return null;
-            return new Plan(arms, defaultValue);
+            return new Plan(arms, defaultValue, i);
         }
         return null;
+    }
+
+    static Block? TryBuildPositiveFallthrough(IReadOnlyList<Block> blocks, Plan plan)
+    {
+        if (plan.Arms.Count < MinArms || plan.Arms.Skip(1).Any(arm => arm.Prefix.Count != 0))
+            return null;
+        var commonValue = plan.Arms[0].Value;
+        if (plan.Arms.Any(arm => !PlaceIdentity.SameOperand(arm.Value, commonValue)))
+            return null;
+
+        var block = new Block(blocks[0].StartOffset);
+        foreach (var prefix in plan.Arms[0].Prefix)
+            block.Add(prefix.Clone());
+
+        var then = new Block(blocks[plan.DefaultIndex].StartOffset);
+        then.Add(new Return((IrExpression)plan.DefaultValue.Clone()));
+        block.Add(new IfStatement(PositiveCondition(plan.Arms), then, null));
+        block.Add(new Return((IrExpression)commonValue.Clone()));
+        return block;
+    }
+
+    static IrExpression PositiveCondition(IReadOnlyList<Arm> arms)
+    {
+        IrExpression condition = Conditions.Negate((IrExpression)arms[0].Condition.Clone());
+        for (int i = 1; i < arms.Count; i++)
+            condition = new LogicalBinary(LogicalKind.And, condition, Conditions.Negate((IrExpression)arms[i].Condition.Clone()));
+        return condition;
     }
 
     static IrExpression? ReturnValue(Block block) => block.Children switch
