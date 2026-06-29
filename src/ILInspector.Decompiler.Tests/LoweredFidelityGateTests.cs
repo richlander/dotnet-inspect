@@ -108,6 +108,9 @@ public class LoweredFidelityGateTests
     static readonly string[] PinnedExact =
     {
         "CheckedAdd",
+        // MixedOrAndArms (#1175): mixed ||/&& fold stays opcode-exact in the
+        // lowered view too — pinned so a regression trips the always-run gate.
+        "MixedOrAndArms",
         "UnsignedShift",
         "Shadowed",
         ".ctor",

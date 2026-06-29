@@ -168,6 +168,10 @@ public class FidelityGateTests
         "SharedCaptureLambdas",
         "DoubleViaLocalFunction",
         "CapturingLocalFunction",
+        // MixedOrAndArms (#1175): the mixed ||/&& fold raises and recompiles
+        // opcode-exact; pinned so a regression to flat/RecompileFail is caught
+        // on every fidelity-gate run, not left to the sampled corpus.
+        "MixedOrAndArms",
         "CheckedAdd",
         "UnsignedShift",
         "Shadowed",
