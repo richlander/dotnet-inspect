@@ -28,31 +28,33 @@ public sealed record ReachingDefinitionsResult(
 public static class ReachingDefinitions
 {
     public static ReachingDefinitionsResult Analyze(byte[] il, int argumentSlotCount)
-        => Analyze(il, argumentSlotCount, hasExceptionRegions: false);
+        => Analyze(il, argumentSlotCount, []);
 
     public static ReachingDefinitionsResult Analyze(byte[] il, int argumentSlotCount, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         ArgumentNullException.ThrowIfNull(exceptionRegions);
-        return Analyze(il, argumentSlotCount, exceptionRegions.Count > 0);
+        return AnalyzeCore(il, argumentSlotCount, exceptionRegions);
     }
 
     public static ReachingDefinitionsResult Analyze(MethodBodyBlock body, int argumentSlotCount)
     {
         ArgumentNullException.ThrowIfNull(body);
-        return Analyze(body.GetILBytes() ?? [], argumentSlotCount, body.ExceptionRegions.Length > 0);
+        return AnalyzeCore(body.GetILBytes() ?? [], argumentSlotCount, body.ExceptionRegions);
     }
 
-    static ReachingDefinitionsResult Analyze(byte[] il, int argumentSlotCount, bool hasExceptionRegions)
+    static ReachingDefinitionsResult AnalyzeCore(byte[] il, int argumentSlotCount, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         ArgumentNullException.ThrowIfNull(il);
         if (argumentSlotCount < 0)
             throw new ArgumentOutOfRangeException(nameof(argumentSlotCount));
         if (il.Length == 0)
-            return new ReachingDefinitionsResult([], [], !hasExceptionRegions, hasExceptionRegions ? "Exception-handler edges are not modeled." : null);
+            return new ReachingDefinitionsResult([], [], exceptionRegions.Count == 0,
+                exceptionRegions.Count == 0 ? null : "Exception-handler regions reference empty IL.");
 
         var instructions = DecodeInstructions(il);
-        var blocks = BuildBlocks(il.Length, instructions);
-        var incompleteReason = IncompleteReason(blocks, hasExceptionRegions);
+        var regionModels = BuildRegionModels(il.Length, instructions, exceptionRegions, out var regionIncompleteReasons);
+        var blocks = BuildBlocks(il.Length, instructions, regionModels);
+        var incompleteReason = IncompleteReason(blocks, instructions, regionModels, regionIncompleteReasons);
         var definitions = ImmutableArray.CreateBuilder<LocalDefinition>();
         var definitionsBySlot = new Dictionary<SlotKey, List<int>>();
         var definitionByOffset = new Dictionary<int, int>();
@@ -125,14 +127,27 @@ public static class ReachingDefinitions
         }
     }
 
-    static string? IncompleteReason(IReadOnlyList<Block> blocks, bool hasExceptionRegions)
+    static string? IncompleteReason(
+        IReadOnlyList<Block> blocks,
+        IReadOnlyList<Instruction> instructions,
+        IReadOnlyList<ExceptionRegionModel> regions,
+        IReadOnlyList<string> regionIncompleteReasons)
     {
-        if (hasExceptionRegions)
-            return "Exception-handler edges are not modeled.";
         if (blocks.Any(block => block.Edges.LeavesRegion))
-            return "Region-leaving control-flow edges are not modeled.";
+        {
+            foreach (var instruction in instructions)
+            {
+                if (!instruction.LeavesRegion)
+                    continue;
+                if (regions.Any(region => region.ContainsAny(instruction.Offset)))
+                    continue;
+                return "Region-leaving control-flow edges are not modeled.";
+            }
+        }
         if (blocks.Any(block => block.Edges.ExternalTargets.Count > 0))
             return "External control-flow targets are not modeled.";
+        if (regionIncompleteReasons.Count > 0)
+            return string.Join("; ", regionIncompleteReasons);
         return null;
     }
 
@@ -169,7 +184,10 @@ public static class ReachingDefinitions
             current.ExceptWith(ids);
     }
 
-    static ImmutableArray<Block> BuildBlocks(int ilLength, IReadOnlyList<Instruction> instructions)
+    static ImmutableArray<Block> BuildBlocks(
+        int ilLength,
+        IReadOnlyList<Instruction> instructions,
+        IReadOnlyList<ExceptionRegionModel> regions)
     {
         var instructionOffsets = instructions.Select(instruction => instruction.Offset).ToHashSet();
         var leaders = new SortedSet<int> { 0 };
@@ -187,13 +205,35 @@ public static class ReachingDefinitions
             if ((instruction.Branches || instruction.Exits) && instruction.NextOffset < ilLength)
                 leaders.Add(instruction.NextOffset);
         }
+        foreach (var region in regions)
+        {
+            AddLeader(region.TryStart);
+            AddLeader(region.TryEnd);
+            AddLeader(region.HandlerStart);
+            AddLeader(region.HandlerEnd);
+            if (region.Kind == ExceptionRegionKind.Filter)
+            {
+                AddLeader(region.FilterStart);
+                AddLeader(region.FilterEnd);
+            }
+        }
+        foreach (var instruction in instructions)
+        {
+            if (regions.Any(region => region.ContainsAny(instruction.Offset)))
+                AddLeader(instruction.Offset);
+        }
 
         var starts = leaders.ToImmutableArray();
         var offsetToBlock = new Dictionary<int, int>(starts.Length);
         for (int i = 0; i < starts.Length; i++)
             offsetToBlock[starts[i]] = i;
 
-        var blocks = ImmutableArray.CreateBuilder<Block>(starts.Length);
+        var successorsByBlock = new List<int>[starts.Length];
+        var externalByBlock = new List<int>[starts.Length];
+        var exitsByBlock = new bool[starts.Length];
+        var leavesByBlock = new bool[starts.Length];
+        var lastByBlock = new Instruction?[starts.Length];
+
         for (int i = 0; i < starts.Length; i++)
         {
             int start = starts[i];
@@ -202,6 +242,7 @@ public static class ReachingDefinitions
             var successors = new List<int>();
             var external = new List<int>();
             bool exits = last.Exits;
+            bool leaves = last.LeavesRegion;
             if (last.Offset >= 0)
             {
                 foreach (int target in last.Targets)
@@ -216,10 +257,171 @@ public static class ReachingDefinitions
                     successors.Add(i + 1);
             }
 
-            blocks.Add(new Block(start, end, new BlockEdges(successors, external, exits, last.LeavesRegion)));
+            successorsByBlock[i] = successors;
+            externalByBlock[i] = external;
+            exitsByBlock[i] = exits;
+            leavesByBlock[i] = leaves;
+            lastByBlock[i] = last.Offset >= 0 ? last : null;
         }
 
+        AddExceptionEdges(regions, instructions, starts, offsetToBlock, successorsByBlock, externalByBlock, lastByBlock);
+
+        var blocks = ImmutableArray.CreateBuilder<Block>(starts.Length);
+        for (int i = 0; i < starts.Length; i++)
+        {
+            blocks.Add(new Block(
+                starts[i],
+                i + 1 < starts.Length ? starts[i + 1] : ilLength,
+                new BlockEdges(
+                    successorsByBlock[i].Distinct().Order().ToArray(),
+                    externalByBlock[i].Distinct().Order().ToArray(),
+                    exitsByBlock[i],
+                    leavesByBlock[i])));
+        }
         return blocks.ToImmutable();
+
+        void AddLeader(int offset)
+        {
+            if (offset < ilLength)
+                leaders.Add(offset);
+        }
+    }
+
+    static ImmutableArray<ExceptionRegionModel> BuildRegionModels(
+        int ilLength,
+        IReadOnlyList<Instruction> instructions,
+        IReadOnlyCollection<ExceptionRegion> regions,
+        out ImmutableArray<string> incompleteReasons)
+    {
+        var instructionOffsets = instructions.Select(instruction => instruction.Offset).ToHashSet();
+        var models = ImmutableArray.CreateBuilder<ExceptionRegionModel>();
+        var reasons = ImmutableArray.CreateBuilder<string>();
+        foreach (var region in regions)
+        {
+            if (!TryRange("try", region.TryOffset, region.TryLength, out int tryEnd)
+                || !TryRange("handler", region.HandlerOffset, region.HandlerLength, out int handlerEnd))
+                continue;
+
+            int filterStart = -1;
+            int filterEnd = -1;
+            switch (region.Kind)
+            {
+                case ExceptionRegionKind.Catch:
+                case ExceptionRegionKind.Finally:
+                case ExceptionRegionKind.Fault:
+                    break;
+                case ExceptionRegionKind.Filter:
+                    filterStart = region.FilterOffset;
+                    filterEnd = region.HandlerOffset;
+                    if (!IsBoundary(filterStart) || filterStart >= filterEnd)
+                    {
+                        reasons.Add("Filter exception-handler region has unsupported boundaries.");
+                        continue;
+                    }
+                    break;
+                default:
+                    reasons.Add($"Unsupported exception-handler kind {region.Kind}.");
+                    continue;
+            }
+
+            models.Add(new ExceptionRegionModel(
+                region.Kind,
+                region.TryOffset,
+                tryEnd,
+                region.HandlerOffset,
+                handlerEnd,
+                filterStart,
+                filterEnd));
+        }
+
+        incompleteReasons = reasons.ToImmutable();
+        return models.ToImmutable();
+
+        bool TryRange(string name, int start, int length, out int end)
+        {
+            end = 0;
+            long computedEnd = (long)start + length;
+            if (start < 0 || length <= 0 || computedEnd > ilLength)
+            {
+                reasons.Add($"Exception {name} region has unsupported boundaries.");
+                return false;
+            }
+            end = (int)computedEnd;
+            if (!IsBoundary(start) || !IsBoundary(end))
+            {
+                reasons.Add($"Exception {name} region does not align with instruction boundaries.");
+                return false;
+            }
+            return true;
+        }
+
+        bool IsBoundary(int offset)
+            => offset == ilLength || instructionOffsets.Contains(offset);
+    }
+
+    static void AddExceptionEdges(
+        IReadOnlyList<ExceptionRegionModel> regions,
+        IReadOnlyList<Instruction> instructions,
+        IReadOnlyList<int> blockStarts,
+        IReadOnlyDictionary<int, int> offsetToBlock,
+        IReadOnlyList<List<int>> successorsByBlock,
+        IReadOnlyList<List<int>> externalByBlock,
+        IReadOnlyList<Instruction?> lastByBlock)
+    {
+        foreach (var region in regions)
+        {
+            int handlerBlock = offsetToBlock[region.HandlerStart];
+            int exceptionEntryBlock = region.Kind == ExceptionRegionKind.Filter
+                ? offsetToBlock[region.FilterStart]
+                : handlerBlock;
+
+            foreach (int block in BlocksInRange(region.TryStart, region.TryEnd))
+                successorsByBlock[block].Add(exceptionEntryBlock);
+
+            if (region.Kind == ExceptionRegionKind.Filter)
+            {
+                foreach (int block in BlocksInRange(region.FilterStart, region.FilterEnd))
+                    successorsByBlock[block].Add(handlerBlock);
+            }
+
+            if (region.Kind == ExceptionRegionKind.Finally)
+            {
+                var leaveTargets = LeaveTargetsLeaving(region, instructions).ToArray();
+                if (leaveTargets.Length == 0)
+                    continue;
+                foreach (int block in BlocksInRange(region.HandlerStart, region.HandlerEnd))
+                {
+                    if (lastByBlock[block] is not { OpCode: ILOpCode.Endfinally })
+                        continue;
+                    foreach (int target in leaveTargets)
+                    {
+                        if (offsetToBlock.TryGetValue(target, out int targetBlock))
+                            successorsByBlock[block].Add(targetBlock);
+                        else
+                            externalByBlock[block].Add(target);
+                    }
+                }
+            }
+        }
+
+        IEnumerable<int> BlocksInRange(int start, int end)
+        {
+            for (int i = 0; i < blockStarts.Count; i++)
+                if (blockStarts[i] >= start && blockStarts[i] < end)
+                    yield return i;
+        }
+    }
+
+    static IEnumerable<int> LeaveTargetsLeaving(ExceptionRegionModel region, IReadOnlyList<Instruction> instructions)
+    {
+        foreach (var instruction in instructions)
+        {
+            if (!instruction.LeavesRegion || !region.ContainsTry(instruction.Offset))
+                continue;
+            foreach (int target in instruction.Targets)
+                if (!region.ContainsTry(target))
+                    yield return target;
+        }
     }
 
     static ImmutableArray<Instruction> DecodeInstructions(byte[] il)
@@ -245,7 +447,8 @@ public static class ReachingDefinitions
             }
             else
             {
-                exits = opcode is ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow or ILOpCode.Jmp;
+                exits = opcode is ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow or ILOpCode.Jmp
+                    or ILOpCode.Endfinally or ILOpCode.Endfilter;
                 fallsThrough = !exits;
                 SkipOperand(il, opcode, ref position, offset);
             }
@@ -458,4 +661,24 @@ public static class ReachingDefinitions
         bool LeavesRegion);
 
     readonly record struct Block(int Start, int End, BlockEdges Edges);
+
+    readonly record struct ExceptionRegionModel(
+        ExceptionRegionKind Kind,
+        int TryStart,
+        int TryEnd,
+        int HandlerStart,
+        int HandlerEnd,
+        int FilterStart,
+        int FilterEnd)
+    {
+        public bool ContainsTry(int offset) => offset >= TryStart && offset < TryEnd;
+
+        public bool ContainsHandler(int offset) => offset >= HandlerStart && offset < HandlerEnd;
+
+        public bool ContainsFilter(int offset)
+            => Kind == ExceptionRegionKind.Filter && offset >= FilterStart && offset < FilterEnd;
+
+        public bool ContainsAny(int offset)
+            => ContainsTry(offset) || ContainsHandler(offset) || ContainsFilter(offset);
+    }
 }
