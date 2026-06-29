@@ -497,6 +497,30 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "switch", "int", "branch", "frontier", "compiler-lowering"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalConditionalExpressionShapeFrontier = new(
+        "minimal.conditional-expression-shape-frontier",
+        """
+        namespace GeneratedFixtures.MinimalConditionalExpressionShapeFrontier;
+
+        public class Class1
+        {
+            public int Method1(bool flag) => flag ? 1 : 2;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalConditionalExpressionShapeFrontier.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "GeneratedFixtures.MinimalConditionalExpressionShapeFrontier.Class1",
+                "Method1",
+                FidelityCheck.CompileBackStatus.Exact,
+                IsFrontier: true,
+                Note: "Current output is compile-back exact but does not preserve the conditional-expression source shape.",
+                ExpectedShape: SyntaxKind.ReturnStatement,
+                FrontierShape: SyntaxKind.ConditionalExpression),
+        ],
+        ["minimal", "conditional-expression", "branch", "frontier", "shape"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
@@ -523,6 +547,7 @@ internal static class GeneratedFixtureCatalog
     public static IReadOnlyList<GeneratedFixtureDefinition> Frontiers { get; } =
     [
         MinimalSwitchTwoCaseLowersIf,
+        MinimalConditionalExpressionShapeFrontier,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Catalog { get; } =
@@ -558,7 +583,8 @@ internal sealed record GeneratedFixtureTarget(
     int Overload = 0,
     bool IsFrontier = false,
     string? Note = null,
-    SyntaxKind? ExpectedShape = null)
+    SyntaxKind? ExpectedShape = null,
+    SyntaxKind? FrontierShape = null)
 {
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
@@ -588,6 +614,7 @@ internal sealed record GeneratedFixtureResult(
     FidelityCheck.CompileBackStatus ExpectedStatus,
     SyntaxKind? ActualShape,
     SyntaxKind? ExpectedShape,
+    SyntaxKind? FrontierShape,
     string? ShapeDetail,
     bool IsFrontier,
     string? Detail,
@@ -676,6 +703,7 @@ internal static class GeneratedFixtureRunner
                         target.ExpectedStatus,
                         shape.ActualShape,
                         target.ExpectedShape,
+                        target.FrontierShape,
                         shape.Detail,
                         target.IsFrontier,
                         actual?.Detail ?? (actual is null ? "target-method-not-found" : null),
@@ -704,11 +732,14 @@ internal static class GeneratedFixtureRunner
             string shape = result.ExpectedShape is null
                 ? ""
                 : $"  shape={result.ActualShape?.ToString() ?? "Missing"}  expected-shape={result.ExpectedShape}";
+            string frontierShape = result.FrontierShape is null
+                ? ""
+                : $"  frontier-shape={result.FrontierShape}";
             string frontier = result.IsFrontier ? " frontier" : "";
             string status = result.Passed ? "PASS" : "FAIL";
             sb.AppendLine(
                 $"  {status}{frontier}  {result.FixtureId}  {result.DisplayMember}  " +
-                $"decompiler={result.DecompilerFidelity}  compile-back={actual}  expected-compile-back={result.ExpectedStatus}{shape}");
+                $"decompiler={result.DecompilerFidelity}  compile-back={actual}  expected-compile-back={result.ExpectedStatus}{shape}{frontierShape}");
             if (!string.IsNullOrWhiteSpace(result.Detail))
                 sb.AppendLine($"      detail: {result.Detail}");
             if (!string.IsNullOrWhiteSpace(result.ShapeDetail))
@@ -742,8 +773,9 @@ internal static class GeneratedFixtureRunner
             {
                 string frontier = target.IsFrontier ? " frontier" : "";
                 string shape = target.ExpectedShape?.ToString() ?? "none";
+                string frontierShape = target.FrontierShape is null ? "" : $"  frontier-shape={target.FrontierShape}";
                 sb.AppendLine(
-                    $"      {target.DisplayMember}  compile-back={target.ExpectedStatus}  shape={shape}{frontier}");
+                    $"      {target.DisplayMember}  compile-back={target.ExpectedStatus}  shape={shape}{frontierShape}{frontier}");
             }
         }
         return sb.ToString();
@@ -764,6 +796,7 @@ internal static class GeneratedFixtureRunner
                     target.Overload,
                     ExpectedStatus = target.ExpectedStatus.ToString(),
                     ExpectedShape = target.ExpectedShape?.ToString(),
+                    FrontierShape = target.FrontierShape?.ToString(),
                     target.IsFrontier,
                     target.Note,
                 }),

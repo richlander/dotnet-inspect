@@ -324,6 +324,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.do-while", report);
         Assert.Contains("minimal.switch-int", report);
         Assert.DoesNotContain("minimal.switch-two-case-lowers-if", report);
+        Assert.DoesNotContain("minimal.conditional-expression-shape-frontier", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
         Assert.Contains("shape=ForStatement", report);
@@ -354,6 +355,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.array-index",
                 "minimal.array-length",
                 "minimal.auto-property.getter",
+                "minimal.conditional-expression-shape-frontier",
                 "minimal.ctor-field.getter",
                 "minimal.do-while",
                 "minimal.for-loop",
@@ -392,6 +394,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.property.literal");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.ctor-field.getter");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.auto-property.getter");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.conditional-expression-shape-frontier");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.method-call.same-type");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-method-call");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
@@ -422,30 +425,70 @@ public class GeneratedFixtureCatalogTests
         var arrayIndexMethod = Assert.Single(arrayIndex.GetProperty("Targets").EnumerateArray(),
             target => target.GetProperty("Method").GetString() == "Method1");
         Assert.Equal("ElementAccessExpression", arrayIndexMethod.GetProperty("ExpectedShape").GetString());
+
+        var conditionalFrontier = Assert.Single(fixtures,
+            fixture => fixture.GetProperty("Id").GetString() == "minimal.conditional-expression-shape-frontier");
+        var conditionalTarget = Assert.Single(conditionalFrontier.GetProperty("Targets").EnumerateArray(),
+            target => target.GetProperty("Method").GetString() == "Method1");
+        Assert.Equal("ReturnStatement", conditionalTarget.GetProperty("ExpectedShape").GetString());
+        Assert.Equal("ConditionalExpression", conditionalTarget.GetProperty("FrontierShape").GetString());
+        Assert.True(conditionalTarget.GetProperty("IsFrontier").GetBoolean());
     }
 
     [Fact]
-    public void CompilerLoweringFrontier_IsSelectableButNotInDefaultRun()
+    public void CompilerLoweringFrontiers_AreSelectableButNotInDefaultRun()
     {
-        var run = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));
-        string report = GeneratedFixtureRunner.FormatReport(run);
+        var switchRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));
+        string switchReport = GeneratedFixtureRunner.FormatReport(switchRun);
 
-        Assert.True(run.Passed, report);
+        Assert.True(switchRun.Passed, switchReport);
         AssertTarget(
-            run,
+            switchRun,
             "minimal.switch-two-case-lowers-if",
             "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
             ".ctor",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
         AssertTarget(
-            run,
+            switchRun,
             "minimal.switch-two-case-lowers-if",
             "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
             "Method1",
             FidelityCheck.CompileBackStatus.OpcodeDiff,
             frontier: true);
-        Assert.Contains("compiler-lowering", GeneratedFixtureCatalog.Frontiers.Single().Tags);
+
+        var shapeRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.conditional-expression-shape-frontier"));
+        string shapeReport = GeneratedFixtureRunner.FormatReport(shapeRun);
+
+        Assert.True(shapeRun.Passed, shapeReport);
+        AssertTarget(
+            shapeRun,
+            "minimal.conditional-expression-shape-frontier",
+            "GeneratedFixtures.MinimalConditionalExpressionShapeFrontier.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            shapeRun,
+            "minimal.conditional-expression-shape-frontier",
+            "GeneratedFixtures.MinimalConditionalExpressionShapeFrontier.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: true);
+        var shapeResult = Assert.Single(shapeRun.Results, result =>
+            result.FixtureId == "minimal.conditional-expression-shape-frontier" &&
+            result.Method == "Method1");
+        Assert.Equal(SyntaxKind.ReturnStatement, shapeResult.ExpectedShape);
+        Assert.Equal(SyntaxKind.ReturnStatement, shapeResult.ActualShape);
+        Assert.Equal(SyntaxKind.ConditionalExpression, shapeResult.FrontierShape);
+        Assert.Contains("frontier-shape=ConditionalExpression", shapeReport);
+
+        Assert.Contains(GeneratedFixtureCatalog.Frontiers, fixture =>
+            fixture.Id == "minimal.switch-two-case-lowers-if" &&
+            fixture.Tags.Contains("compiler-lowering"));
+        Assert.Contains(GeneratedFixtureCatalog.Frontiers, fixture =>
+            fixture.Id == "minimal.conditional-expression-shape-frontier" &&
+            fixture.Tags.Contains("shape"));
     }
 
     [Fact]
@@ -464,6 +507,24 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal("Exact", method.GetProperty("ActualStatus").GetString());
         Assert.Equal("ElementAccessExpression", method.GetProperty("ActualShape").GetString());
         Assert.Equal("ElementAccessExpression", method.GetProperty("ExpectedShape").GetString());
+        Assert.True(method.GetProperty("ShapePassed").GetBoolean());
+    }
+
+    [Fact]
+    public void ShapeFrontierRunJson_ReportsAcceptedAndFrontierShapes()
+    {
+        var selected = GeneratedFixtureCatalog.Select("minimal.conditional-expression-shape-frontier");
+        var run = GeneratedFixtureRunner.Run(selected);
+        string json = GeneratedFixtureRunner.FormatJson(run);
+
+        using var document = JsonDocument.Parse(json);
+        var results = document.RootElement.GetProperty("Results").EnumerateArray().ToArray();
+        var method = Assert.Single(results, result => result.GetProperty("Method").GetString() == "Method1");
+
+        Assert.Equal("Exact", method.GetProperty("ActualStatus").GetString());
+        Assert.Equal("ReturnStatement", method.GetProperty("ActualShape").GetString());
+        Assert.Equal("ReturnStatement", method.GetProperty("ExpectedShape").GetString());
+        Assert.Equal("ConditionalExpression", method.GetProperty("FrontierShape").GetString());
         Assert.True(method.GetProperty("ShapePassed").GetBoolean());
     }
 

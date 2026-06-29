@@ -22,13 +22,18 @@ rungs extend that minimal exact set;
 `minimal.switch-int` adds the first switch statement rung.
 `minimal.switch-two-case-lowers-if` records the current SDK's two-case
 source-switch lowering observation (lowered as if/else, not the dense switch
-shape) and is opt-in by ID. With no selector, stable generated fixtures run; use
-`list` to list fixture IDs, `--json` for machine-readable list/results, and
-`--keep-generated-fixtures` to preserve the generated project for drill-down.
+shape) and is opt-in by ID. `minimal.conditional-expression-shape-frontier`
+records a source-shape frontier: the conditional-expression source is
+compile-back exact, but the accepted current output is return-statement shaped
+rather than `ConditionalExpression` shaped. With no selector, stable generated
+fixtures run; use `list` to list fixture IDs, `--json` for machine-readable
+list/results, and `--keep-generated-fixtures` to preserve the generated project
+for drill-down.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape
-frontier.
+frontier. Shape frontiers record both the accepted current shape and the desired
+frontier shape.
 
 The generated fixture ladder is intentionally staged:
 
