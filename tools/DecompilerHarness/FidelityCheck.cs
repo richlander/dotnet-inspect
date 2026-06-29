@@ -5,6 +5,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -2914,6 +2915,9 @@ static class FidelityCheck
             catch (ArgumentException) { }
         }
 
+        foreach (var path in PackageDependencyReferencePaths(targetPath))
+            Add(path);
+
         foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
             Add(path);
@@ -2937,6 +2941,259 @@ static class FidelityCheck
                 Add(path);
 
         return new ReferenceSet(builder.ToImmutable(), new SignatureAccessibility(referencePaths));
+    }
+
+    internal static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
+    {
+        if (NuGetPackageContext(targetPath) is not { } context)
+            return [];
+
+        var nuspec = Directory.EnumerateFiles(context.PackageDirectory, "*.nuspec").FirstOrDefault();
+        if (nuspec is null)
+            return [];
+
+        var references = new List<string>();
+        try
+        {
+            var document = XDocument.Load(nuspec);
+            foreach (var dependency in SelectNuGetDependencies(document, context.TargetFramework))
+            {
+                string? id = dependency.Attribute("id")?.Value;
+                string? version = DependencyExactVersion(dependency.Attribute("version")?.Value);
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version))
+                    continue;
+
+                foreach (var root in NuGetPackageRoots())
+                {
+                    var packageDir = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant());
+                    foreach (var path in ProbeNuGetPackageVersionDlls(packageDir, context.TargetFramework))
+                        references.Add(path);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return [];
+        }
+
+        return references;
+    }
+
+    sealed record NuGetReferenceContext(
+        string PackageDirectory,
+        string TargetFramework);
+
+    static NuGetReferenceContext? NuGetPackageContext(string targetPath)
+    {
+        string fullPath = Path.GetFullPath(targetPath);
+        foreach (var root in NuGetPackageRoots())
+        {
+            string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string prefix = fullRoot + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var parts = fullPath[prefix.Length..].Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (parts.Length < 5 || !parts[2].Equals("lib", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return new(
+                Path.Combine(fullRoot, parts[0], parts[1]),
+                parts[3]);
+        }
+
+        return null;
+    }
+
+    static IEnumerable<string> NuGetPackageRoots()
+    {
+        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
+            yield return envRoot;
+
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home))
+            yield return Path.Combine(home, ".nuget", "packages");
+    }
+
+    static IEnumerable<XElement> SelectNuGetDependencies(XDocument document, string? tfm)
+    {
+        var dependencies = document.Descendants().FirstOrDefault(e => e.Name.LocalName == "dependencies");
+        if (dependencies is null)
+            yield break;
+
+        var directDependencies = dependencies.Elements().Where(e => e.Name.LocalName == "dependency").ToArray();
+        var groups = dependencies.Elements().Where(e => e.Name.LocalName == "group").ToArray();
+        string? normalizedTfm = NormalizeNuGetFramework(tfm);
+        var selectedGroup = normalizedTfm is null
+            ? null
+            : groups
+                .Select(group => new
+                {
+                    Group = group,
+                    Score = NuGetFrameworkCompatibilityScore(normalizedTfm, NormalizeNuGetFramework(group.Attribute("targetFramework")?.Value)),
+                })
+                .Where(candidate => candidate.Score is not null)
+                .OrderByDescending(candidate => candidate.Score)
+                .Select(candidate => candidate.Group)
+                .FirstOrDefault();
+
+        if (selectedGroup is not null)
+        {
+            foreach (var dependency in selectedGroup.Elements().Where(e => e.Name.LocalName == "dependency"))
+                yield return dependency;
+            yield break;
+        }
+
+        foreach (var dependency in directDependencies)
+            yield return dependency;
+    }
+
+    static string? NormalizeNuGetFramework(string? tfm)
+    {
+        if (string.IsNullOrWhiteSpace(tfm))
+            return null;
+
+        tfm = tfm.Trim().ToLowerInvariant();
+        if (tfm.StartsWith(".netstandard", StringComparison.Ordinal))
+            return "netstandard" + tfm[".netstandard".Length..];
+        if (tfm.StartsWith(".netcoreapp", StringComparison.Ordinal))
+            return "netcoreapp" + tfm[".netcoreapp".Length..];
+        if (tfm.StartsWith(".netframework", StringComparison.Ordinal))
+            return "net" + tfm[".netframework".Length..].Replace(".", "", StringComparison.Ordinal);
+        return tfm;
+    }
+
+    static int? NuGetFrameworkCompatibilityScore(string target, string? candidate)
+    {
+        if (candidate is null)
+            return null;
+        if (string.Equals(target, candidate, StringComparison.OrdinalIgnoreCase))
+            return 100_000;
+        if (!TryParseNuGetFramework(target, out var targetFramework) ||
+            !TryParseNuGetFramework(candidate, out var candidateFramework))
+            return null;
+
+        int versionScore = candidateFramework.Major * 100 + candidateFramework.Minor;
+        return targetFramework.Family switch
+        {
+            "net" when candidateFramework.Family == "net" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 90_000 + versionScore,
+            "net" when candidateFramework.Family == "netcoreapp" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 80_000 + versionScore,
+            "net" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= 201
+                => 70_000 + versionScore,
+            "netcoreapp" when candidateFramework.Family == "netcoreapp" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 90_000 + versionScore,
+            "netcoreapp" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= 201
+                => 80_000 + versionScore,
+            "netstandard" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 90_000 + versionScore,
+            _ => null,
+        };
+    }
+
+    readonly record struct NuGetFramework(string Family, int Major, int Minor)
+    {
+        public int VersionScore => Major * 100 + Minor;
+    }
+
+    static bool TryParseNuGetFramework(string tfm, out NuGetFramework framework)
+    {
+        framework = default;
+        if (tfm.StartsWith("netstandard", StringComparison.Ordinal))
+            return TryParseVersionedFramework("netstandard", tfm["netstandard".Length..], out framework);
+        if (tfm.StartsWith("netcoreapp", StringComparison.Ordinal))
+            return TryParseVersionedFramework("netcoreapp", tfm["netcoreapp".Length..], out framework);
+        if (tfm.StartsWith("net", StringComparison.Ordinal) && tfm[3..].Contains('.', StringComparison.Ordinal))
+            return TryParseVersionedFramework("net", tfm["net".Length..], out framework);
+        return false;
+    }
+
+    static bool TryParseVersionedFramework(string family, string version, out NuGetFramework framework)
+    {
+        framework = default;
+        var parts = version.Split('.', 3);
+        if (parts.Length == 0 || !int.TryParse(parts[0], out int major))
+            return false;
+        int minor = 0;
+        if (parts.Length >= 2 && !int.TryParse(parts[1], out minor))
+            return false;
+        framework = new(family, major, minor);
+        return true;
+    }
+
+    static string? DependencyExactVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return null;
+
+        version = version.Trim();
+        if (version.Length >= 5 && version[0] == '[' && version[^1] == ']')
+        {
+            string inner = version[1..^1].Trim();
+            var range = inner.Split(',', 2);
+            if (range.Length == 1)
+                return inner;
+            if (range.Length == 2
+                && string.Equals(range[0].Trim(), range[1].Trim(), StringComparison.OrdinalIgnoreCase))
+                return range[0].Trim();
+        }
+
+        return version.IndexOfAny(['[', ']', '(', ')', ',']) < 0 ? version : null;
+    }
+
+    static IEnumerable<string> ProbeNuGetPackageVersionDlls(string packageDir, string? tfm)
+    {
+        if (!Directory.Exists(packageDir))
+            yield break;
+
+        foreach (string assetKind in (string[])["ref", "lib"])
+        {
+            if (tfm is not null && AssetDirectory(packageDir, assetKind, tfm) is { } exactAssetDir)
+            {
+                foreach (var path in Directory.EnumerateFiles(exactAssetDir, "*.dll"))
+                    yield return path;
+                yield break;
+            }
+        }
+
+        foreach (string assetKind in (string[])["ref", "lib"])
+        {
+            if (tfm is not null && CompatibleAssetDirectory(packageDir, assetKind, tfm) is { } compatibleAssetDir)
+            {
+                foreach (var path in Directory.EnumerateFiles(compatibleAssetDir, "*.dll"))
+                    yield return path;
+                yield break;
+            }
+        }
+    }
+
+    static string? AssetDirectory(string packageDir, string assetKind, string tfm)
+    {
+        string assetDir = Path.Combine(packageDir, assetKind, tfm);
+        return Directory.Exists(assetDir) ? assetDir : null;
+    }
+
+    static string? CompatibleAssetDirectory(string packageDir, string assetKind, string targetTfm)
+    {
+        string assetRoot = Path.Combine(packageDir, assetKind);
+        if (!Directory.Exists(assetRoot))
+            return null;
+
+        string? normalizedTarget = NormalizeNuGetFramework(targetTfm);
+        if (normalizedTarget is null)
+            return null;
+
+        return Directory.EnumerateDirectories(assetRoot)
+            .Select(dir => new
+            {
+                Directory = dir,
+                Score = NuGetFrameworkCompatibilityScore(normalizedTarget, NormalizeNuGetFramework(Path.GetFileName(dir))),
+            })
+            .Where(candidate => candidate.Score is not null)
+            .OrderByDescending(candidate => candidate.Score)
+            .Select(candidate => candidate.Directory)
+            .FirstOrDefault();
     }
 
     static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
