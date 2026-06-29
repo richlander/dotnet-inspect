@@ -5,6 +5,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -2914,6 +2915,9 @@ static class FidelityCheck
             catch (ArgumentException) { }
         }
 
+        foreach (var path in PackageDependencyReferencePaths(targetPath))
+            Add(path);
+
         foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
             Add(path);
@@ -2937,6 +2941,168 @@ static class FidelityCheck
                 Add(path);
 
         return new ReferenceSet(builder.ToImmutable(), new SignatureAccessibility(referencePaths));
+    }
+
+    internal static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
+    {
+        if (NuGetPackageContext(targetPath) is not { } context)
+            return [];
+
+        var nuspec = Directory.EnumerateFiles(context.PackageDirectory, "*.nuspec").FirstOrDefault();
+        if (nuspec is null)
+            return [];
+
+        var references = new List<string>();
+        try
+        {
+            var document = XDocument.Load(nuspec);
+            foreach (var dependency in SelectNuGetDependencies(document, context.TargetFramework))
+            {
+                string? id = dependency.Attribute("id")?.Value;
+                string? version = DependencyExactVersion(dependency.Attribute("version")?.Value);
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version))
+                    continue;
+
+                foreach (var root in NuGetPackageRoots())
+                {
+                    var packageDir = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant());
+                    foreach (var path in ProbeNuGetPackageVersionDlls(packageDir, context.TargetFramework))
+                        references.Add(path);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return [];
+        }
+
+        return references;
+    }
+
+    sealed record NuGetReferenceContext(
+        string PackageDirectory,
+        string TargetFramework);
+
+    static NuGetReferenceContext? NuGetPackageContext(string targetPath)
+    {
+        string fullPath = Path.GetFullPath(targetPath);
+        foreach (var root in NuGetPackageRoots())
+        {
+            string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string prefix = fullRoot + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var parts = fullPath[prefix.Length..].Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (parts.Length < 5 || !parts[2].Equals("lib", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return new(
+                Path.Combine(fullRoot, parts[0], parts[1]),
+                parts[3]);
+        }
+
+        return null;
+    }
+
+    static IEnumerable<string> NuGetPackageRoots()
+    {
+        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
+            yield return envRoot;
+
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home))
+            yield return Path.Combine(home, ".nuget", "packages");
+    }
+
+    static IEnumerable<XElement> SelectNuGetDependencies(XDocument document, string? tfm)
+    {
+        var dependencies = document.Descendants().FirstOrDefault(e => e.Name.LocalName == "dependencies");
+        if (dependencies is null)
+            yield break;
+
+        var directDependencies = dependencies.Elements().Where(e => e.Name.LocalName == "dependency").ToArray();
+        var groups = dependencies.Elements().Where(e => e.Name.LocalName == "group").ToArray();
+        string? normalizedTfm = NormalizeNuGetFramework(tfm);
+        var selectedGroup = normalizedTfm is null
+            ? null
+            : groups.FirstOrDefault(g => NormalizeNuGetFramework(g.Attribute("targetFramework")?.Value) == normalizedTfm);
+
+        if (selectedGroup is not null)
+        {
+            foreach (var dependency in selectedGroup.Elements().Where(e => e.Name.LocalName == "dependency"))
+                yield return dependency;
+            yield break;
+        }
+
+        foreach (var dependency in directDependencies)
+            yield return dependency;
+    }
+
+    static string? NormalizeNuGetFramework(string? tfm)
+    {
+        if (string.IsNullOrWhiteSpace(tfm))
+            return null;
+
+        tfm = tfm.Trim().ToLowerInvariant();
+        if (tfm.StartsWith(".netstandard", StringComparison.Ordinal))
+            return "netstandard" + tfm[".netstandard".Length..];
+        if (tfm.StartsWith(".netcoreapp", StringComparison.Ordinal))
+            return "netcoreapp" + tfm[".netcoreapp".Length..];
+        if (tfm.StartsWith(".netframework", StringComparison.Ordinal))
+            return "net" + tfm[".netframework".Length..].Replace(".", "", StringComparison.Ordinal);
+        return tfm;
+    }
+
+    static string? DependencyExactVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return null;
+
+        version = version.Trim();
+        if (version.Length >= 5 && version[0] == '[' && version[^1] == ']')
+        {
+            string inner = version[1..^1].Trim();
+            var range = inner.Split(',', 2);
+            if (range.Length == 1)
+                return inner;
+            if (range.Length == 2
+                && string.Equals(range[0].Trim(), range[1].Trim(), StringComparison.OrdinalIgnoreCase))
+                return range[0].Trim();
+        }
+
+        return version.IndexOfAny(['[', ']', '(', ')', ',']) < 0 ? version : null;
+    }
+
+    static IEnumerable<string> ProbeNuGetPackageVersionDlls(string packageDir, string? tfm)
+    {
+        if (!Directory.Exists(packageDir))
+            yield break;
+
+        foreach (string assetKind in (string[])["lib", "ref"])
+        {
+            if (tfm is not null)
+            {
+                string assetDir = Path.Combine(packageDir, assetKind, tfm);
+                if (Directory.Exists(assetDir))
+                {
+                    foreach (var path in Directory.EnumerateFiles(assetDir, "*.dll"))
+                        yield return path;
+                    yield break;
+                }
+            }
+
+            string assetRoot = Path.Combine(packageDir, assetKind);
+            if (!Directory.Exists(assetRoot))
+                continue;
+
+            foreach (string tfmDir in Directory.EnumerateDirectories(assetRoot).OrderDescending(StringComparer.OrdinalIgnoreCase))
+            {
+                foreach (var path in Directory.EnumerateFiles(tfmDir, "*.dll"))
+                    yield return path;
+                yield break;
+            }
+        }
     }
 
     static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
