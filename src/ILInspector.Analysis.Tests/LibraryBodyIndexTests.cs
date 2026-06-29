@@ -1024,6 +1024,15 @@ public class LibraryBodyIndexTests
         Assert.Equal("stackalloc-candidate", local);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_DoesNotTrustIncompleteReachingDefinitionsForArrayEscape()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var local = Assert.Single(ArrayShapes(index, nameof(OptimizationOpportunityFixtures.LocalArrayInTryCatch)));
+        Assert.Equal("small-array", local);
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField))]
@@ -2511,6 +2520,20 @@ public class OptimizationOpportunityFixtures
         a[0] = 1;
         a[3] = 2;
         return a[0] + a[3];
+    }
+
+    public static int LocalArrayInTryCatch(int value)
+    {
+        try
+        {
+            var a = new int[4];
+            a[0] = value;
+            return a[0];
+        }
+        catch (InvalidOperationException)
+        {
+            return -1;
+        }
     }
 
     // Non-escaping but a managed (reference) element type -> not stackalloc-eligible.
