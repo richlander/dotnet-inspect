@@ -20,6 +20,14 @@ public class DiffCommand
     public const string Name = "diff";
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
+        var pipeline = DiffSections.CreatePipeline();
+        var selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+        if (SelectOutput.WriteUnresolved(selectResult))
+            return 1;
+        if (selectResult.Sections != null)
+            options = options with { IncludeSections = selectResult.Sections };
+
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
         var hasLibrary = !string.IsNullOrEmpty(options.LibraryVersionRange);
@@ -27,11 +35,12 @@ public class DiffCommand
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)
         {
-            var schemaMap = new DocumentSchema()
-                .Add("Changes", "column", "Change", "Type", "Detail")
-                .Add("Analysis Diff", "section", "Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence");
-            return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine);
+            var schemaMap = DiffSections.CreateSchema();
+            var discoverable = pipeline.GetDiscoverableSections(new DiffDiscoveryModel(), options.IncludeSections);
+            return DiscoverOutput.ExecuteEffective(options.Discover, discoverable, schemaMap,
+                tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine,
+                sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                sectionCategories: pipeline.GetCategoryMap());
         }
 
         if (!hasPlatform && !hasPackage && !hasLibrary)
@@ -346,7 +355,7 @@ public class DiffCommand
 
     private static bool SelectsAnalysisDiff(DiffOptions options)
         => options.AllocRegressionsOnly
-            || options.Select?.Any(value => string.Equals(value, "Analysis Diff", StringComparison.OrdinalIgnoreCase)) == true;
+            || options.IncludeSections?.Contains("Analysis Diff") == true;
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
 
@@ -776,6 +785,7 @@ public record DiffOptions
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }
+    public HashSet<string>? IncludeSections { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public int? Rows { get; init; }

@@ -84,15 +84,26 @@ public sealed class SectionPipeline<TModel>
     /// <summary>All registered section names, in registration order.</summary>
     public string[] AllSectionNames => _entries.Select(e => e.Name).ToArray();
 
+    /// <summary>
+    /// Section names that are independently selectable with <c>-S</c>. Headless context
+    /// sections such as "Summary" are registered so renderers can include compact preambles,
+    /// but they are not standalone output sections and must not be advertised by discovery
+    /// or accepted as direct selectors.
+    /// </summary>
+    public string[] SelectableSectionNames => _entries
+        .Where(IsSelectable)
+        .Select(e => e.Name)
+        .ToArray();
+
     /// <summary>Sections in the curated @Default preset, in registration order.</summary>
-    public string[] InfoSectionNames => _entries.Where(e => e.Info).Select(e => e.Name).ToArray();
+    public string[] InfoSectionNames => _entries.Where(e => e.Info && IsSelectable(e)).Select(e => e.Name).ToArray();
 
     public IReadOnlyDictionary<string, string[]> GetCategoryMap()
     {
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
         {
             [DefaultCategory] = InfoSectionNames,
-            [AllCategory] = AllSectionNames
+            [AllCategory] = SelectableSectionNames
         };
 
         foreach (var category in _categories)
@@ -191,6 +202,28 @@ public sealed class SectionPipeline<TModel>
         List<string> result = [];
         foreach (var entry in _entries)
         {
+            if (include is { Count: > 0 } && !include.Contains(entry.Name))
+                continue;
+            if (entry.IsApplicable(model))
+                result.Add(entry.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The canonical discovery superset for <c>-D</c>, uniform across every command: a section is
+    /// discoverable when it is structurally applicable (<see cref="SectionEntry{TModel}.IsApplicable"/>).
+    /// Unprobed sections (<see cref="SectionEntry{TModel}.ProbeEffectiveness"/> false) still require
+    /// structural applicability; they merely skip render probing so discovery never opens a
+    /// whole-assembly index. Registration order is preserved.
+    /// </summary>
+    public List<string> GetDiscoverableSections(TModel model, HashSet<string>? include = null)
+    {
+        List<string> result = [];
+        foreach (var entry in _entries)
+        {
+            if (!IsSelectable(entry))
+                continue;
             if (include is { Count: > 0 } && !include.Contains(entry.Name))
                 continue;
             if (entry.IsApplicable(model))
@@ -403,6 +436,9 @@ public sealed class SectionPipeline<TModel>
             _ => true, // Detailed: all non-ExplicitOnly sections
         };
     }
+
+    private static bool IsSelectable(SectionEntry<TModel> entry)
+        => !string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Returns the names of requested sections (selection only — independent of <c>CanRender</c>)

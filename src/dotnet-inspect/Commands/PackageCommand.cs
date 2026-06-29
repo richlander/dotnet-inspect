@@ -29,7 +29,7 @@ public class PackageCommand
         var packageArgs = options.PackageArgs;
         var explicitVersion = options.ExplicitVersion;
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        var sectionNames = pipeline.AllSectionNames;
+        var sectionNames = pipeline.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
 
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
@@ -417,7 +417,7 @@ public class PackageCommand
             // Output results
             if (effectiveDiscovery)
             {
-                var effective = pipeline.GetApplicableSections(result, options.IncludeSections);
+                var effective = pipeline.GetDiscoverableSections(result, options.IncludeSections);
                 var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                 var fullSchemaMap = schemaMap;
 
@@ -1560,7 +1560,7 @@ public class PackageCommand
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.AllSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };

@@ -45,6 +45,16 @@ public class SectionPipelineTests
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
 
+    private sealed class UnprobedSection : ISectionDescriptor<TestModel>
+    {
+        public static string Name => "Unprobed";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(TestModel model) => model.Count > 0;
+    }
+
     private static SectionPipeline<TestModel> CreateTestPipeline() =>
         new SectionPipeline<TestModel>()
             .Add<AlwaysSection>()
@@ -120,6 +130,16 @@ public class SectionPipelineTests
         Assert.Equal(["Structural"], applicable);
         Assert.Empty(available);
         Assert.Equal(["Structural"], explicitlyApplicable);
+    }
+
+    [Fact]
+    public void GetDiscoverableSections_UnprobedStillRequiresApplicability()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add<UnprobedSection>();
+
+        Assert.Empty(pipeline.GetDiscoverableSections(new TestModel("target", 0)));
+        Assert.Equal(["Unprobed"], pipeline.GetDiscoverableSections(new TestModel("target", 1)));
     }
 
     [Fact]
@@ -255,6 +275,81 @@ public class SectionPipelineTests
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Performance Triage", pipeline.AllSectionNames);
     }
+
+    [Theory]
+    [MemberData(nameof(DiscoverablePipelineCases))]
+    public void DiscoverableSections_ContainEverySelectableSection(
+        string command,
+        string[] registered,
+        IReadOnlyCollection<string> discoverable)
+    {
+        var missing = registered
+            .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.True(missing.Length == 0,
+            $"{command} -D missed selectable section(s): {string.Join(", ", missing)}");
+    }
+
+    [Fact]
+    public void MemberOverloadPipeline_MultiOverload_DoesNotDiscoverSingleOverloadSections()
+    {
+        var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "T",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "method", Name = "M" },
+                new ApiMember { Kind = "method", Name = "M" }
+            ]
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(type);
+
+        foreach (var section in SingleOverloadSections)
+            Assert.DoesNotContain(section, discoverable);
+    }
+
+    [Fact]
+    public void MemberPipeline_NoMemberType_DoesNotDiscoverMethodBodySections()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Empty",
+            Kind = "interface"
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(type);
+
+        Assert.DoesNotContain(SectionNames.TopLeverage, discoverable);
+        Assert.DoesNotContain(SectionNames.PerformanceTriage, discoverable);
+        Assert.DoesNotContain(SectionNames.Facts, discoverable);
+        Assert.DoesNotContain(SectionNames.IL, discoverable);
+        Assert.DoesNotContain(SectionNames.SourceFiles, discoverable);
+    }
+
+    private static readonly string[] SingleOverloadSections =
+    [
+        SectionNames.Signature,
+        SectionNames.CustomAttributes,
+        SectionNames.DecompiledSource,
+        SectionNames.AnnotatedSource,
+        SectionNames.OriginalSource,
+        SectionNames.Calls,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+        SectionNames.CallerGraph,
+        SectionNames.UnsafeOperations,
+        SectionNames.TopLeverage,
+        SectionNames.PerformanceTriage,
+        SectionNames.Facts,
+        SectionNames.IL
+    ];
 
     [Fact]
     public void MemberDetailPipeline_OptimizationOpportunities_IsStructurallyDiscoverable()
@@ -1189,6 +1284,187 @@ public class SectionPipelineTests
         var pipeline = PackageSectionDescriptors.CreatePipeline();
 
         Assert.Equal(["Package Info", "Library Files"], pipeline.InfoSectionNames);
+    }
+
+    public static IEnumerable<object[]> DiscoverablePipelineCases()
+    {
+        var libraryPipeline = LibrarySections.CreatePipeline();
+        var library = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo
+            {
+                References = [new AssemblyReference("System.Runtime", "1.0.0.0", null, null)],
+                TransitiveReferences = [new AssemblyReferenceNode { Name = "System.Runtime", Version = "1.0.0.0" }]
+            },
+            PdbPath = "test.pdb",
+            HasSourceLink = true,
+            HasEmbeddedPdb = true,
+            HasSwitches = true,
+            HasExtensionTypes = true,
+            HasUnsafeCode = true,
+            HasMethodBodies = true,
+            HasPInvokeImports = true,
+            HasRuntimeAsync = true,
+            HasStateMachineAsync = true,
+            HasManifestResources = true,
+            HasAssemblyAttributes = true,
+            HasExportedTypeForwarders = true,
+            HasAspNetCoreSupport = true,
+            HasAspireSupport = true,
+            HasOpenTelemetrySupport = true,
+            HasAISupport = true,
+            HasAuthenticationSupport = true,
+            HasConfigurationSupport = true,
+            HasDependencyInjectionSupport = true,
+            HasLoggingSupport = true,
+            HasOptionsSupport = true,
+            HasHostingSupport = true,
+            HasHealthChecksSupport = true,
+            HasHttpClientSupport = true,
+            HasOpenApiSupport = true,
+            IntegrationCount = 1,
+            SourceFiles = [new SourceFileInfo("T", "https://example.com/T.cs")],
+            AllSourcesAccessible = true,
+            TotalSourceFiles = 1,
+            MissingSourceFiles = ["missing.cs"],
+            SourceIntegrityChecked = true,
+            AuditSignals = [new AuditSignal("Provenance", "SourceLink", "Present", "test")],
+            Switches = [new SwitchInfo("Feature Switch", "Switch", "Api")],
+            ExtensionMethods = [new ExtensionMethodSummary { MethodName = "Ext", ExtendedType = "Target", ExtensionClass = "Extensions" }],
+            UnsafeMembers = [new UnsafeMemberSummary { Member = "T.M()", Reason = "Unsafe signature", Detail = "int*", Kind = "signature" }],
+            TopLeverage = [new MethodLeverageSummary { Member = "T.M()", Callers = 1 }],
+            OptimizationOpportunities =
+            [
+                new OptimizationOpportunitySummary
+                {
+                    Member = "T.M()",
+                    Shape = "capturing-delegate",
+                    Evidence = "delegate over a captured receiver or closure",
+                    Fix = "Use a static local function.",
+                    Confidence = "high"
+                }
+            ],
+            PInvokeMethods = [new ClassifiedMethodSummary { MethodName = "P", DeclaringType = "T", Signature = "void P()" }],
+            AsyncMethods = [new AsyncMethodSummary { MethodName = "A", DeclaringType = "T", Signature = "void A()" }],
+            Resources = [new ResourceSummary { Name = "res", Size = 1, Visibility = "public" }],
+            CustomAttributes = [new CustomAttributeSummary { Name = "Attr", Target = "Assembly" }],
+            TypeForwarders = [new TypeForwarderSummary { TypeName = "T", TargetAssembly = "Other" }],
+            NonNormalizedPaths = ["C:\\src\\T.cs"],
+            Integrations = [new IntegrationSummary("Integration", 1)],
+            IntegrationOpportunities = [new IntegrationOpportunityInfo("Aspire", "T", "Builder", "Add*")],
+            AI = [new IntegrationSignal("T", "M", "Evidence")],
+            AspNetCore = [new IntegrationSignal("T", "M", "Evidence")],
+            Authentication = [new IntegrationSignal("T", "M", "Evidence")],
+            Aspire = [new IntegrationSignal("T", "M", "Evidence")],
+            Configuration = [new IntegrationSignal("T", "M", "Evidence")],
+            DependencyInjection = [new IntegrationSignal("T", "M", "Evidence")],
+            Logging = [new IntegrationSignal("T", "M", "Evidence")],
+            OpenTelemetry = [new IntegrationSignal("T", "M", "Evidence")],
+            OpenApi = [new IntegrationSignal("T", "M", "Evidence")],
+            Options = [new IntegrationSignal("T", "M", "Evidence")],
+            Hosting = [new IntegrationSignal("T", "M", "Evidence")],
+            HealthChecks = [new IntegrationSignal("T", "M", "Evidence")],
+            HttpClient = [new IntegrationSignal("T", "M", "Evidence")]
+        };
+        yield return DiscoverableCase("library", libraryPipeline, library);
+
+        var packagePipeline = PackageSectionDescriptors.CreatePipeline();
+        var package = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            PackageReadmeFile = "README.md",
+            PackageFiles =
+            [
+                new PackageFile("README.md", 1, IsReadme: true),
+                new PackageFile("docs/guide.md", 1),
+                new PackageFile("lib/net8.0/Test.dll", 1)
+            ],
+            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")],
+            TotalDownloads = 1,
+            TargetFrameworks = ["net8.0"],
+            LibraryFiles = ["lib/net8.0/Test.dll"],
+            SourceFiles = [new PackageSourceFileInfo("lib/net8.0/Test.dll", "T", "https://example.com/T.cs")],
+            SignatureResult = new SignatureVerificationResult { AuthorVerified = true, Publisher = "test" },
+            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }],
+            Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }],
+            RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
+            RuntimeDependencies = [new PackageDependency { Id = "Runtime.Dep", Version = "1.0" }],
+            Files = [new PackageFile("lib/net8.0/Test.dll", 1)],
+            AssemblyCount = 1
+        };
+        yield return DiscoverableCase("package", packagePipeline, package);
+
+        var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Name = "C", Kind = "class" },
+                new ApiType { Name = "S", Kind = "struct" },
+                new ApiType { Name = "I", Kind = "interface" },
+                new ApiType { Name = "E", Kind = "enum" },
+                new ApiType { Name = "D", Kind = "delegate" },
+            ]
+        };
+        yield return DiscoverableCase("type", typePipeline, surface);
+
+        var apiType = new ApiType
+        {
+            Name = "Sample",
+            Kind = "enum",
+            BaseType = "Base",
+            Interfaces = ["IDisposable"],
+            SourceUrl = "https://example.com/Sample.cs",
+            AdditionalSourceFiles =
+            [
+                new PartialSourceFileInfo
+                {
+                    FilePath = "Sample.Other.cs",
+                    SourceUrl = "https://example.com/Sample.Other.cs"
+                }
+            ],
+            TypeParameters = [new TypeParameter { Name = "T" }],
+            Members =
+            [
+                new ApiMember { Name = "Value", Kind = "field", EnumValue = 1 },
+                new ApiMember { Name = ".ctor", Kind = "constructor" },
+                new ApiMember { Name = "Field", Kind = "field" },
+                new ApiMember { Name = "Property", Kind = "property" },
+                new ApiMember { Name = "Method", Kind = "method" },
+                new ApiMember { Name = "op_Equality", Kind = "operator" },
+                new ApiMember { Name = "IFoo.Bar", Kind = "explicit-interface-implementation" },
+                new ApiMember { Name = "Ext", Kind = "extension-method" },
+                new ApiMember { Name = "Changed", Kind = "event" }
+            ]
+        };
+        var detailPipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var detailType = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Method", Kind = "method" }]
+        };
+        var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        yield return DiscoverableCase("member", memberPipeline, apiType, detailType);
+        var overloadPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        yield return DiscoverableCase("member-overload", overloadPipeline, apiType, detailType);
+        yield return DiscoverableCase("member-detail", detailPipeline, detailType);
+
+        var diffPipeline = DiffSections.CreatePipeline();
+        yield return DiscoverableCase("diff", diffPipeline, new DiffDiscoveryModel());
+    }
+
+    private static object[] DiscoverableCase<TModel>(
+        string command,
+        SectionPipeline<TModel> pipeline,
+        params TModel[] models)
+    {
+        var discoverable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var model in models)
+            discoverable.UnionWith(pipeline.GetDiscoverableSections(model));
+
+        return [command, pipeline.SelectableSectionNames, discoverable.ToArray()];
     }
 
     // ===== API type-list pipeline tests =====

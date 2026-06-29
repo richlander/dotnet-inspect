@@ -95,7 +95,7 @@ public static class TypeCommand
                 {
                     ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-                    var effective = typePipeline.GetApplicableSections(api, options.IncludeSections);
+                    var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
                     return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
                         tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
@@ -472,7 +472,7 @@ public static class TypeCommand
         if (browseOptions.EffectiveDiscovery)
         {
             var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-            var effective = typePipeline.GetApplicableSections(api, browseOptions.IncludeSections);
+            var effective = typePipeline.GetDiscoverableSections(api, browseOptions.IncludeSections);
             return DiscoverOutput.ExecuteEffective(browseOptions.Discover, effective, schema,
                 tree: browseOptions.Tree, json: browseOptions.JsonOutput, tsv: browseOptions.Tsv, jsonl: browseOptions.Jsonl, markdown: !browseOptions.OneLine && !browseOptions.JsonOutput,
                 verbosity: (int)browseOptions.Verbosity,

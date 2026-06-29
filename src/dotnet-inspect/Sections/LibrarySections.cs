@@ -54,8 +54,8 @@ public static class LibrarySections
             .Add<Hosting>()
             .Add<HealthChecks>()
             .Add<HttpClient>()
-            .Add<References>()
-            .Add<Dependencies>()
+            .Add<References>(HasReferenceData)
+            .Add<Dependencies>(HasReferenceData)
             .Add<ExtensionMethods>()
             .Add<UnsafeMembers>()
             .Add<TopLeverage>()
@@ -305,6 +305,10 @@ public static class LibrarySections
            && (model.HasSourceLink
                || model.HasEmbeddedPdb
                || !string.IsNullOrWhiteSpace(model.PdbPath));
+
+    private static bool HasReferenceData(LibraryInspection model)
+        => model.AssemblyInfo?.References is { Count: > 0 }
+           || model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {
