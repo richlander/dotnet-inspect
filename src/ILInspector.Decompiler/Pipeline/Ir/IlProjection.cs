@@ -442,8 +442,7 @@ public static class IlProjection
     /// view does — so the two views never diverge on what an instruction says.
     /// </summary>
     public static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
-        MetadataSource source, string type, string method, int overloadIndex, bool publicOnly,
-        IReadOnlyList<Annotations.Annotation>? annotations = null)
+        MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
     {
         var (typeDef, methodDef, methodHandle) = Locate(source.Reader, type, method, overloadIndex, publicOnly);
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
@@ -457,48 +456,7 @@ public static class IlProjection
             stackByOffset[point.Offset] = point.StackTypes;
 
         var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
-        foreach (var fact in annotations ?? [])
-        {
-            if (fact.SourceOffset < 0)
-                continue;
-            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
-                factsByOffset[fact.SourceOffset] = list = [];
-            list.Add(fact);
-        }
-
         return AnnotatedInstrLines(imported, instructions, factsByOffset, stackByOffset);
-    }
-
-    public static string RenderAnnotatedWithFacts(
-        MetadataSource source, string type, string method, int overloadIndex, bool publicOnly,
-        IReadOnlyList<Annotations.Annotation> annotations)
-    {
-        var (typeDef, methodDef, methodHandle) = Locate(source.Reader, type, method, overloadIndex, publicOnly);
-        var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
-        var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
-        var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
-
-        var trace = new List<IlTracePoint>();
-        IrImporter.Build(source, imported, scope, trace);
-        var stackByOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
-        foreach (var point in trace)
-            stackByOffset[point.Offset] = point.StackTypes;
-
-        var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
-        foreach (var fact in annotations)
-        {
-            if (fact.SourceOffset < 0)
-                continue;
-            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
-                factsByOffset[fact.SourceOffset] = list = [];
-            list.Add(fact);
-        }
-
-        var sb = new StringBuilder();
-        AnnotatedHeader(sb, imported);
-        foreach (var line in AnnotatedInstrLines(imported, instructions, factsByOffset, stackByOffset))
-            sb.AppendLine(line.Text);
-        return sb.ToString();
     }
 
     static void AnnotatedHeader(StringBuilder sb, ImportedMethod imported)

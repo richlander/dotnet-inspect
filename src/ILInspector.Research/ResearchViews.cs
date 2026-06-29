@@ -57,7 +57,10 @@ public static class ResearchViews
         return Run(() =>
         {
             var annotations = CollectFacts(source, type, method, overloadIndex, publicOnly, registry);
-            return IlProjection.RenderAnnotatedWithFacts(source, type, method, overloadIndex, publicOnly, annotations);
+            var result = IlProjection.Project(source, type, method, IlProjectionDepth.Annotated, overloadIndex, publicOnly);
+            if (result.Output is null)
+                return "";
+            return AddFactsToAnnotatedIl(result.Output, annotations);
         }, emptyOutputIsFailure: true);
     }
 
@@ -91,7 +94,8 @@ public static class ResearchViews
         }
 
         var ilByLine = new Dictionary<int, List<string>>();
-        foreach (var instr in IlProjection.AnnotatedInstrLines(source, type, method, overloadIndex, publicOnly, annotations))
+        var factsByOffset = FactsByOffset(annotations);
+        foreach (var instr in IlProjection.AnnotatedInstrLines(source, type, method, overloadIndex, publicOnly))
         {
             if (AnnotationAnchor.Best(spans, instr.Offset) is not { } owner)
                 continue;
@@ -99,7 +103,7 @@ public static class ResearchViews
                 continue;
             if (!ilByLine.TryGetValue(line, out var list))
                 ilByLine[line] = list = [];
-            list.Add(instr.Text);
+            list.Add(AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset)));
         }
 
         var lines = csText.Replace("\r\n", "\n").Split('\n');
@@ -149,6 +153,48 @@ public static class ResearchViews
             if (commentByLine.TryGetValue(i, out var comment))
                 lines[i] = $"{lines[i].TrimEnd()}  // {comment}";
         return string.Join(Environment.NewLine, lines);
+    }
+
+    static string AddFactsToAnnotatedIl(string output, IReadOnlyList<Annotation> annotations)
+    {
+        var factsByOffset = FactsByOffset(annotations);
+        var lines = output.Replace("\r\n", "\n").Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (TryReadOffset(lines[i], out int offset))
+                lines[i] = AddFactsToAnnotatedLine(lines[i], factsByOffset.GetValueOrDefault(offset));
+        }
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    static Dictionary<int, IReadOnlyList<Annotation>> FactsByOffset(IReadOnlyList<Annotation> annotations)
+        => annotations
+            .Where(annotation => annotation.SourceOffset >= 0)
+            .GroupBy(annotation => annotation.SourceOffset)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<Annotation>)[.. group.OrderBy(annotation => annotation.Descriptor.Id, StringComparer.Ordinal)]);
+
+    static string AddFactsToAnnotatedLine(string line, IReadOnlyList<Annotation>? facts)
+    {
+        if (facts is not { Count: > 0 })
+            return line;
+        string factText = AnnotationText.Format(facts);
+        int comment = line.IndexOf("//", StringComparison.Ordinal);
+        if (comment < 0)
+            return $"{line}  // {factText}";
+        string prefix = line[..comment].TrimEnd();
+        string suffix = line[(comment + 2)..].Trim();
+        return $"{prefix}  // {factText}; {suffix}";
+    }
+
+    static bool TryReadOffset(string line, out int offset)
+    {
+        offset = -1;
+        int marker = line.IndexOf("IL_", StringComparison.Ordinal);
+        if (marker < 0 || marker + 7 > line.Length)
+            return false;
+        return int.TryParse(line.AsSpan(marker + 3, 4), System.Globalization.NumberStyles.HexNumber, null, out offset);
     }
 
     static string LeadingWhitespace(string line)
