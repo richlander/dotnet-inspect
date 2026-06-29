@@ -281,6 +281,8 @@ public sealed partial class CSharpPrinter
     readonly Dictionary<StoreStackSlot, TypeRef?> _stackSlotStoreTypes = [];
     readonly Dictionary<int, TypeRef> _stackSlotUnifiedTypes = [];
     readonly SortedDictionary<(int Slot, int Ordinal), (string Name, TypeRef? Type)> _stackSlotDeclarations = [];
+    readonly Dictionary<StoreElement, StoreLocal> _inlineReceiverTempStores = [];
+    readonly HashSet<int> _inlineReceiverTempLocals = [];
 
     string PrintBody(IrFunction function)
     {
@@ -301,6 +303,7 @@ public sealed partial class CSharpPrinter
                 if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
                     _deconstructionLocals.Add(target.LocalIndex);
         CollectDeclaringStores(function);
+        CollectInlineReceiverTempStores(function);
         CollectStackSlotNames(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -458,7 +461,8 @@ public sealed partial class CSharpPrinter
             // Fixed/using headers and `is T t` patterns declare their owned
             // locals, not the up-front declaration block.
             if (_fixedLocals.Contains(index) || _usingLocals.Contains(index) || _foreachLocals.Contains(index)
-                || _isPatternLocals.Contains(index) || _deconstructionLocals.Contains(index))
+                || _isPatternLocals.Contains(index) || _deconstructionLocals.Contains(index)
+                || _inlineReceiverTempLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
@@ -952,6 +956,61 @@ public sealed partial class CSharpPrinter
             yield return descendant;
     }
 
+    void CollectInlineReceiverTempStores(IrFunction function)
+    {
+        foreach (var block in DescendantsOutsideNestedFunctions(function).OfType<Block>())
+        {
+            for (int i = 0; i + 1 < block.Children.Count; i++)
+            {
+                if (block.Children[i] is not StoreLocal store
+                    || block.Children[i + 1] is not StoreElement storeElement
+                    || !CanInlineReceiverTempStore(function, store, storeElement))
+                {
+                    continue;
+                }
+
+                _inlineReceiverTempStores[storeElement] = store;
+                _inlineReceiverTempLocals.Add(store.Index);
+            }
+        }
+    }
+
+    bool CanInlineReceiverTempStore(IrFunction function, StoreLocal store, StoreElement storeElement)
+    {
+        if (store.Type.Kind == TypeRefKind.ByRef)
+            return false;
+        if (store.SourceOffset >= 0 && _labelTargets.Contains(store.SourceOffset))
+            return false;
+        if (storeElement.Value is not Call { Callee: { HasThis: true, Name: "ToString" } callee, Arguments: [LoadLocalAddress receiver] } call
+            || receiver.Index != store.Index
+            || (storeElement.ElementType is not null && !Equals(callee.ReturnType, storeElement.ElementType)))
+        {
+            return false;
+        }
+
+        int stores = 0, addressLoads = 0;
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        {
+            switch (node)
+            {
+                case StoreLocal s when s.Index == store.Index:
+                    stores++;
+                    if (!ReferenceEquals(s, store))
+                        return false;
+                    break;
+                case LoadLocalAddress a when a.Index == store.Index:
+                    addressLoads++;
+                    if (!ReferenceEquals(a, receiver))
+                        return false;
+                    break;
+                case LoadLocal l when l.Index == store.Index:
+                    return false;
+            }
+        }
+        return stores == 1 && addressLoads == 1 && ReferenceEquals(call.Arguments[0], receiver);
+        return stores == 1 && addressLoads == 1 && ReferenceEquals(call.Arguments[0], receiver);
+    }
+
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
     {
@@ -1264,6 +1323,12 @@ public sealed partial class CSharpPrinter
         int i = 0;
         while (i < statements.Count)
         {
+            if (statements[i] is StoreLocal inlineStore && _inlineReceiverTempStores.ContainsValue(inlineStore))
+            {
+                i++;
+                continue;
+            }
+
             if (_newMemorySafetyRules && _unsafeDepth == 0 && NeedsUnsafeContext(statements[i]))
             {
                 int j = i + 1;
@@ -1275,6 +1340,8 @@ public sealed partial class CSharpPrinter
                 _unsafeDepth++;
                 for (int k = i; k < j; k++)
                 {
+                    if (statements[k] is StoreLocal unsafeInlineStore && _inlineReceiverTempStores.ContainsValue(unsafeInlineStore))
+                        continue;
                     AppendStatementLabel(sb, statements[k], indent + 1);
                     AppendStatement(sb, statements[k], indent + 1);
                 }
@@ -1510,6 +1577,7 @@ public sealed partial class CSharpPrinter
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CastValue(e.Value, e.Accessor.ParameterTypes[0])};",
+        StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{Expression(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
@@ -1541,6 +1609,22 @@ public sealed partial class CSharpPrinter
         EndFilter f => $"// endfilter({Expression(f.Value)})",
         _ => $"/* {node.Describe()} */",
     };
+
+    string? InlineReceiverTempStoreValue(StoreElement storeElement)
+    {
+        if (!_inlineReceiverTempStores.TryGetValue(storeElement, out var store)
+            || storeElement.Value is not Call call)
+        {
+            return null;
+        }
+
+        string receiver = ReceiverText(store.Value);
+        string typeArguments = call.Callee.TypeArguments.IsEmpty
+            ? ""
+            : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
+        string rest = Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
+        return $"{receiver}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
+    }
 
     string ForLoopIncrementText(IrNode node)
         => node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }

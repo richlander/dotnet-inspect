@@ -1673,6 +1673,86 @@ public class CSharpPrinterTests
         string candidate = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
         Assert.Equal("return _size;", candidate);
     }
+
+    [Fact]
+    public void StoreElement_InlinesSingleUseAddressReceiverTemp()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var stringArray = TypeRef.SzArray(stringType);
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var charType = TypeRef.CoreLib("System", "Char");
+        var spanType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [charType]);
+        var memoryExtensions = TypeRef.CoreLib("System", "MemoryExtensions");
+        var trim = new MethodRef(memoryExtensions, "Trim", spanType, [spanType], HasThis: false);
+        var toString = new MethodRef(spanType, "ToString", stringType, [], HasThis: true);
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, spanType, new Call(trim, isVirtual: false, [new LoadArgument(2, "item", spanType)])));
+        block.Add(new StoreElement(
+            elementType: null,
+            new LoadArgument(0, "items", stringArray),
+            new LoadArgument(1, "i", intType),
+            new Call(toString, isVirtual: true, [new LoadLocalAddress(0, spanType)])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [
+                new Parameter("items", stringArray),
+                new Parameter("i", intType),
+                new Parameter("item", spanType),
+            ], HasThis: false, GenericParameterCount: 0),
+            [spanType],
+            body);
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal("items[i] = MemoryExtensions.Trim(item).ToString();", output);
+    }
+
+    [Fact]
+    public void StoreElement_KeepsAddressReceiverTempWithAdditionalUse()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var stringArray = TypeRef.SzArray(stringType);
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var charType = TypeRef.CoreLib("System", "Char");
+        var spanType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [charType]);
+        var memoryExtensions = TypeRef.CoreLib("System", "MemoryExtensions");
+        var trim = new MethodRef(memoryExtensions, "Trim", spanType, [spanType], HasThis: false);
+        var toString = new MethodRef(spanType, "ToString", stringType, [], HasThis: true);
+        var consume = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "Consume", TypeRef.CoreLib("System", "Void"), [spanType], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.In],
+        };
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, spanType, new Call(trim, isVirtual: false, [new LoadArgument(2, "item", spanType)])));
+        block.Add(new StoreElement(
+            elementType: null,
+            new LoadArgument(0, "items", stringArray),
+            new LoadArgument(1, "i", intType),
+            new Call(toString, isVirtual: true, [new LoadLocalAddress(0, spanType)])));
+        block.Add(new ExpressionStatement(new Call(consume, isVirtual: false, [new LoadLocalAddress(0, spanType)])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [
+                new Parameter("items", stringArray),
+                new Parameter("i", intType),
+                new Parameter("item", spanType),
+            ], HasThis: false, GenericParameterCount: 0),
+            [spanType],
+            body);
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Contains("ReadOnlySpan<char> V_0 = MemoryExtensions.Trim(item);", output);
+        Assert.Contains("items[i] = V_0.ToString();", output);
+    }
 }
 
 public class RaisingPassTests
