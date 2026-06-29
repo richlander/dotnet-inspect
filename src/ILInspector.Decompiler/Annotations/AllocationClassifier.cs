@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Annotations;
@@ -16,7 +15,9 @@ namespace ILInspector.Decompiler.Annotations;
 /// </summary>
 public sealed class AllocationClassifier : IHiddenFactClassifier
 {
-    static readonly ConcurrentDictionary<string, Lazy<ILInspector.Analysis.LibraryBodyIndex>> s_indexes = new(StringComparer.Ordinal);
+    const int MaxCachedIndexes = 8;
+    static readonly object s_indexLock = new();
+    static readonly Dictionary<string, ILInspector.Analysis.LibraryBodyIndex> s_indexes = new(PathComparer());
 
     public static readonly AnnotationDescriptor Box = new("alloc.box", AnnotationCategory.Allocation, "boxes a value type");
     public static readonly AnnotationDescriptor Array = new("alloc.array", AnnotationCategory.Allocation, "allocates an array");
@@ -35,14 +36,32 @@ public sealed class AllocationClassifier : IHiddenFactClassifier
         if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)
             return [];
 
-        var index = s_indexes.GetOrAdd(path, static p => new Lazy<ILInspector.Analysis.LibraryBodyIndex>(
-            () => ILInspector.Analysis.LibraryBodyIndex.Open(p),
-            LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        var index = IndexFor(path);
         if (!index.GetAllocationOccurrences().TryGetValue(function.MetadataToken, out var occurrences))
             return [];
 
         return [.. occurrences.OrderBy(occurrence => occurrence.ILOffset).Select(ToAnnotation)];
     }
+
+    static ILInspector.Analysis.LibraryBodyIndex IndexFor(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        lock (s_indexLock)
+        {
+            if (s_indexes.TryGetValue(fullPath, out var index))
+                return index;
+            if (s_indexes.Count >= MaxCachedIndexes)
+                s_indexes.Clear();
+            index = ILInspector.Analysis.LibraryBodyIndex.Open(fullPath);
+            s_indexes[fullPath] = index;
+            return index;
+        }
+    }
+
+    static StringComparer PathComparer()
+        => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
 
     static Annotation ToAnnotation(ILInspector.Analysis.AllocationOccurrence occurrence)
     {

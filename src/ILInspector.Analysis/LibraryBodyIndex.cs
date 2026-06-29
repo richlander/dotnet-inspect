@@ -1524,7 +1524,7 @@ public sealed class LibraryBodyIndex
                             if (IsInterfaceEnumeratorAllocation(callee))
                             {
                                 occurrences.Add(MakeAllocation(
-                                    caller, offset, token, AllocationKind.Enumerator, callee.ReturnType, callee.ReturnType.ToDisplayString(), countsAsHeapAllocation: true,
+                                    caller, offset, token, AllocationKind.Enumerator, callee.ReturnType, callee.ReturnType.ToDisplayString(), countsAsHeapAllocation: false,
                                     AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
                                     AllocationEscape.Unknown, AllocationFactSource.GetEnumeratorCall));
                             }
@@ -1577,7 +1577,7 @@ public sealed class LibraryBodyIndex
                 AllocationKind kind = AllocationKind.Object;
                 var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
                 string name = definition.Name;
-                if (IsDelegateConstructor(constructor))
+                if (IsDelegateConstructorToken(operandToken, constructor))
                     kind = AllocationKind.Delegate;
                 else if (name.Contains("c__DisplayClass", StringComparison.Ordinal))
                     kind = AllocationKind.Closure;
@@ -1598,13 +1598,6 @@ public sealed class LibraryBodyIndex
                     AllocationFactSource.Newobj);
             }
 
-            static bool IsDelegateConstructor(MemberRef constructor)
-                => constructor.Kind == MemberKind.Constructor
-                   && constructor.DeclaringType.Kind != TypeRefKind.Unsupported
-                   && constructor.ParameterTypes.Length == 2
-                   && constructor.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
-                   && constructor.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr"));
-
             static AllocationOccurrence MakeAllocation(
                 MethodIdentity method,
                 int offset,
@@ -1618,6 +1611,70 @@ public sealed class LibraryBodyIndex
                 AllocationEscape escape,
                 AllocationFactSource source)
                 => new(method, offset, operandToken, kind, allocatedType, detail, countsAsHeapAllocation, frequency, inLoop, escape, source);
+        }
+
+        bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)
+        {
+            if (constructor.Kind != MemberKind.Constructor
+                || constructor.ParameterTypes.Length != 2
+                || !constructor.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
+                || !constructor.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr")))
+            {
+                return false;
+            }
+
+            var definition = constructor.DeclaringType.Kind == TypeRefKind.GenericInstance
+                ? constructor.DeclaringType.ElementType ?? constructor.DeclaringType
+                : constructor.DeclaringType;
+            if (definition.TrustedFrameworkAssembly
+                && definition.Assembly == TypeRef.CoreLibrary
+                && definition.Namespace == "System"
+                && (definition.Name.StartsWith("Func`", StringComparison.Ordinal)
+                    || definition.Name.StartsWith("Action`", StringComparison.Ordinal)
+                    || definition.Name == "Action"))
+            {
+                return true;
+            }
+
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(operandToken);
+                EntityHandle parent = handle.Kind switch
+                {
+                    HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType(),
+                    HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
+                    _ => default,
+                };
+                return parent.Kind == HandleKind.TypeDefinition
+                    && TypeDerivesFromMulticastDelegate((TypeDefinitionHandle)parent);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return false;
+            }
+        }
+
+        bool TypeDerivesFromMulticastDelegate(TypeDefinitionHandle handle)
+        {
+            var visited = new HashSet<TypeDefinitionHandle>();
+            var current = handle;
+            while (visited.Add(current))
+            {
+                var baseHandle = _reader.GetTypeDefinition(current).BaseType;
+                switch (baseHandle.Kind)
+                {
+                    case HandleKind.TypeReference:
+                        var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
+                        return _reader.GetString(baseRef.Namespace) == "System"
+                            && _reader.GetString(baseRef.Name) == "MulticastDelegate";
+                    case HandleKind.TypeDefinition:
+                        current = (TypeDefinitionHandle)baseHandle;
+                        continue;
+                    default:
+                        return false;
+                }
+            }
+            return false;
         }
 
         ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
