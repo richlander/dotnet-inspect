@@ -73,7 +73,9 @@ public sealed class LibraryBodyIndex
                     {
                         int reach = reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach;
                         var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
-                        var confidence = AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
+                        var confidence = IsColdOpportunity(adjusted)
+                            ? "low"
+                            : AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
                         return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
                     }),
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities.Select(o => o.Method.MetadataToken))),
@@ -122,6 +124,9 @@ public sealed class LibraryBodyIndex
             && shape is "capturing-delegate" or "instance-method-group-delegate"
             ? "medium"
             : confidence;
+
+    static bool IsColdOpportunity(OptimizationOpportunity opportunity)
+        => opportunity.ColdPath;
 
     IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
     {
@@ -1521,8 +1526,12 @@ public sealed class LibraryBodyIndex
                             // allocation. Two cases allocate a delegate per call and are worth
                             // reporting: a closure (captures locals/receiver) and an instance
                             // method group (binds the receiver). Non-capturing lambdas and static
-                            // method groups are compiler-cached, so they are not reported.
-                            if (pendingDelegateCapturing)
+                            // method groups are compiler-cached, so they are not reported. Also
+                            // suppress the IL cache pattern directly (`ldsfld; dup; brtrue; ...;
+                            // newobj; dup; stsfld`) so cached delegates are not misreported when
+                            // the target method's compiler-generated identity is unavailable.
+                            bool cachedOnce = DelegateNewObjectIsCachedOnce(il, offset, position);
+                            if (!cachedOnce && pendingDelegateCapturing)
                             {
                                 // Confidence tracks loop membership: an in-loop delegate is a
                                 // repeated allocation (high); a one-shot delegate in a cold
@@ -1540,19 +1549,25 @@ public sealed class LibraryBodyIndex
                                     offset,
                                     "On .NET 10+ the JIT can partially stack-allocate a non-escaping closure (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when the closure escapes the method — stored, returned, or passed to a callee that lets it escape."));
                             }
-                            else if (pendingDelegateInstanceGroup)
+                            else if (!cachedOnce && pendingDelegateInstanceGroup)
                             {
                                 var inLoop = IsInLoopRegion(offset, loopRegions);
+                                bool stackGuardFallback = IsStackGuardFallbackAllocation(il, offset, callerScope);
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "instance-method-group-delegate",
                                     "delegate over an instance method group (binds the receiver)",
-                                    "Each call allocates a delegate that binds the receiver; cache it in a field when the receiver is stable, or use a static method with explicit state.",
-                                    inLoop ? "high" : "low",
+                                    stackGuardFallback
+                                        ? "This delegate allocation is on a StackGuard fallback path, not the common path; if profiles show it matters, cache it in a field when the receiver is stable or use a static method with explicit state."
+                                        : "Each call allocates a delegate that binds the receiver; cache it in a field when the receiver is stable, or use a static method with explicit state.",
+                                    stackGuardFallback ? "low" : inLoop ? "high" : "low",
                                     inLoop,
                                     offset,
-                                    "On .NET 10+ the JIT can partially stack-allocate a non-escaping delegate (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when it escapes the method — stored, returned, or passed to a callee that lets it escape."));
+                                    stackGuardFallback
+                                        ? "Cold StackGuard fallback; not a steady-state per-call allocation."
+                                        : "On .NET 10+ the JIT can partially stack-allocate a non-escaping delegate (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when it escapes the method — stored, returned, or passed to a callee that lets it escape.",
+                                    ColdPath: stackGuardFallback));
                             }
                             pendingDelegateOffset = null;
                         }
@@ -1792,6 +1807,194 @@ public sealed class LibraryBodyIndex
             string name = type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
             int nested = name.LastIndexOf('+');
             return nested < 0 ? name : name[(nested + 1)..];
+        }
+
+        bool DelegateNewObjectIsCachedOnce(byte[] il, int newObjectOffset, int afterNewObjectPosition)
+        {
+            try
+            {
+                if (!TryFindDelegateCacheProbe(il, newObjectOffset, out int probeFieldToken, out int branchTarget))
+                    return false;
+                return TryReadDelegateCacheStore(il, afterNewObjectPosition, out int storeFieldToken, out int storeOffset)
+                    && storeFieldToken == probeFieldToken
+                    && branchTarget > storeOffset;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
+        bool TryFindDelegateCacheProbe(byte[] il, int newObjectOffset, out int fieldToken, out int branchTarget)
+        {
+            fieldToken = 0;
+            branchTarget = -1;
+            int position = 0;
+            while (position < newObjectOffset)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                if (opcode == ILOpCode.Ldsfld)
+                {
+                    int candidateToken = ReadInt32(il, ref position, offset);
+                    if (TryReadLdsfldDupBranchOverOffset(il, position, newObjectOffset, out int candidateBranchTarget))
+                    {
+                        fieldToken = candidateToken;
+                        branchTarget = candidateBranchTarget;
+                    }
+                    continue;
+                }
+                SkipOperand(il, opcode, ref position, offset);
+            }
+            return fieldToken != 0;
+        }
+
+        bool TryReadLdsfldDupBranchOverOffset(byte[] il, int position, int targetOffset, out int branchTarget)
+        {
+            branchTarget = -1;
+            SkipNops(il, ref position);
+            if (position >= il.Length)
+                return false;
+            var dup = ReadOpcode(il, ref position);
+            if (dup != ILOpCode.Dup)
+                return false;
+            SkipNops(il, ref position);
+            if (position >= il.Length)
+                return false;
+            int branchOffset = position;
+            var branch = ReadOpcode(il, ref position);
+            return branch is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                && TryReadBranchTarget(branch, il, ref position, branchOffset, out branchTarget)
+                && branchTarget > targetOffset;
+        }
+
+        bool TryReadDelegateCacheStore(byte[] il, int position, out int fieldToken, out int storeOffset)
+        {
+            fieldToken = 0;
+            storeOffset = -1;
+            SkipNops(il, ref position);
+            if (position >= il.Length)
+                return false;
+            storeOffset = position;
+            var opcode = ReadOpcode(il, ref position);
+            if (opcode == ILOpCode.Dup)
+            {
+                SkipNops(il, ref position);
+                if (position >= il.Length)
+                    return false;
+                storeOffset = position;
+                opcode = ReadOpcode(il, ref position);
+            }
+            if (opcode != ILOpCode.Stsfld)
+                return false;
+            fieldToken = ReadInt32(il, ref position, storeOffset);
+            return true;
+        }
+
+        static void SkipNops(byte[] il, ref int position)
+        {
+            while (position < il.Length && il[position] == (byte)ILOpCode.Nop)
+                position++;
+        }
+
+        bool IsStackGuardFallbackAllocation(byte[] il, int allocationOffset, GenericScope callerScope)
+        {
+            const int NoStackGuardCondition = 0;
+            const int DirectResult = 1;
+            const int DirectStored = 2;
+            const int DirectLoaded = 3;
+            const int ZeroAfterDirect = 4;
+            const int InvertedResult = 5;
+            const int InvertedStored = 6;
+            const int InvertedLoaded = 7;
+
+            try
+            {
+                int conditionState = NoStackGuardCondition;
+                int conditionSlot = -1;
+                int position = 0;
+                while (position < allocationOffset)
+                {
+                    int offset = position;
+                    var opcode = ReadOpcode(il, ref position);
+                    if (opcode is ILOpCode.Call or ILOpCode.Callvirt)
+                    {
+                        int token = ReadInt32(il, ref position, offset);
+                        var call = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                        conditionState = call.Name == "TryEnterOnCurrentStack"
+                            ? DirectResult
+                            : NoStackGuardCondition;
+                        conditionSlot = -1;
+                        continue;
+                    }
+                    if (opcode == ILOpCode.Ldc_i4_0 && conditionState == DirectResult)
+                    {
+                        conditionState = ZeroAfterDirect;
+                        continue;
+                    }
+                    if (opcode == ILOpCode.Ceq && conditionState == ZeroAfterDirect)
+                    {
+                        conditionState = InvertedResult;
+                        continue;
+                    }
+                    if (TryReadLocalSlot(il, opcode, ref position, offset, out bool isStore, out bool isArg, out int slot))
+                    {
+                        if (!isArg && isStore && conditionState is DirectResult or DirectLoaded or InvertedResult or InvertedLoaded)
+                        {
+                            conditionSlot = slot;
+                            conditionState = conditionState is DirectResult or DirectLoaded ? DirectStored : InvertedStored;
+                            continue;
+                        }
+                        if (!isArg && !isStore && slot == conditionSlot)
+                        {
+                            if (conditionState == DirectStored)
+                            {
+                                conditionState = DirectLoaded;
+                                continue;
+                            }
+                            if (conditionState == InvertedStored)
+                            {
+                                conditionState = InvertedLoaded;
+                                continue;
+                            }
+                        }
+                        conditionState = NoStackGuardCondition;
+                        conditionSlot = -1;
+                        continue;
+                    }
+                    if (opcode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                    {
+                        if (TryReadBranchTarget(opcode, il, ref position, offset, out int branchTarget)
+                            && branchTarget > allocationOffset
+                            && BranchSkipsStackGuardFallback(opcode, conditionState))
+                        {
+                            return true;
+                        }
+                        conditionState = NoStackGuardCondition;
+                        conditionSlot = -1;
+                        continue;
+                    }
+                    if (opcode == ILOpCode.Nop)
+                        continue;
+
+                    SkipOperand(il, opcode, ref position, offset);
+                    conditionState = NoStackGuardCondition;
+                    conditionSlot = -1;
+                }
+                return false;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+            {
+                return false;
+            }
+
+            static bool BranchSkipsStackGuardFallback(ILOpCode opcode, int conditionState)
+                => opcode switch
+                {
+                    ILOpCode.Brtrue or ILOpCode.Brtrue_s => conditionState is DirectResult or DirectLoaded,
+                    ILOpCode.Brfalse or ILOpCode.Brfalse_s => conditionState is InvertedResult or InvertedLoaded,
+                    _ => false,
+                };
         }
 
         // Opcodes that consume a boxed value in a way that makes it escape (so the box is a

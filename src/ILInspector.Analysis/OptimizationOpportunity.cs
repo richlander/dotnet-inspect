@@ -9,4 +9,5 @@ public sealed record OptimizationOpportunity(
     bool InLoop,
     int? ILOffset,
     string? Caveat,
-    int RootReach = 0);
+    int RootReach = 0,
+    bool ColdPath = false);

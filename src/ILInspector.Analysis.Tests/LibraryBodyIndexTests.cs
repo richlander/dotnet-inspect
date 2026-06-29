@@ -1373,6 +1373,37 @@ public class LibraryBodyIndexTests
         Assert.Empty(DelegateShapes(index, methodName));
     }
 
+    [Fact]
+    public void OptimizationOpportunities_CachedInstanceMethodGroup_NotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A cached stable-receiver method group still uses ldftn/newobj on cache miss, but the
+        // surrounding ldsfld/dup/brtrue/stsfld pattern means it is not a per-call allocation.
+        Assert.Empty(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.CachedInstanceMethodGroup)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StackGuardFallbackDelegate_IsCold()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        foreach (var methodName in new[]
+        {
+            nameof(OptimizationOpportunityFixtures.StackGuardFallback),
+            nameof(OptimizationOpportunityFixtures.StackGuardFallbackStoredInvertedCondition),
+        })
+        {
+            var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+                o.Method.Name == methodName
+                && o.Shape == "instance-method-group-delegate"));
+            Assert.Equal("low", op.Confidence);
+            Assert.True(op.ColdPath);
+            Assert.Contains("StackGuard fallback", op.SafeFixDirection, StringComparison.Ordinal);
+            Assert.Contains("Cold StackGuard fallback", op.Caveat, StringComparison.Ordinal);
+        }
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.InstanceMethodGroup))]
     [InlineData(nameof(OptimizationOpportunityFixtures.VirtualInstanceMethodGroup))]
@@ -2791,6 +2822,39 @@ public class OptimizationOpportunityFixtures
         return () => 42;
     }
 
+    private static readonly OptimizationOpportunityFixtures CachedReceiver = new();
+    private static Func<string, int>? s_cachedInstanceMethodGroup;
+
+    public static Func<string, int> CachedInstanceMethodGroup()
+    {
+        return s_cachedInstanceMethodGroup ??= CachedReceiver.InstanceParseLength;
+    }
+
+    private readonly ColdStackGuard _stackGuard = new();
+
+    public int StackGuardFallback(int value)
+    {
+        if (!_stackGuard.TryEnterOnCurrentStack())
+        {
+            return _stackGuard.RunOnEmptyStack(InstanceTransform, value);
+        }
+
+        return value;
+    }
+
+    public int StackGuardFallbackStoredInvertedCondition(int value)
+    {
+        bool fallback = _stackGuard.TryEnterOnCurrentStack() == false;
+        if (fallback)
+        {
+            return _stackGuard.RunOnEmptyStack(InstanceTransform, value);
+        }
+
+        return value;
+    }
+
+    private int InstanceTransform(int value) => value + _field;
+
     // Static method group -> non-capturing delegate (one row).
     public static Func<string, int> StaticMethodGroup()
     {
@@ -2875,6 +2939,14 @@ public class OptimizationOpportunityFixtures
     public sealed class UserDisplayClassTarget
     {
         public int GetValue() => 42;
+    }
+
+    private sealed class ColdStackGuard
+    {
+        public bool TryEnterOnCurrentStack() => true;
+
+        public TResult RunOnEmptyStack<TArg, TResult>(Func<TArg, TResult> action, TArg argument)
+            => action(argument);
     }
 
     // Boxes a value into an exception message on a throw path inside a loop -> the box only
