@@ -2048,6 +2048,23 @@ public class LibraryBodyIndexTests
         Assert.True(s.Allocations >= 1, $"expected boxing to count as an allocation, got {s.Allocations}");
     }
 
+    [Fact]
+    public void MethodSignals_Allocations_AreDerivedFromAllocationOccurrences()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+        var occurrences = index.GetAllocationOccurrences();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+        var methodOccurrences = Assert.Contains(method.MetadataToken, occurrences);
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var signal));
+
+        Assert.Equal(methodOccurrences.Length, signal.Allocations);
+        Assert.Contains(methodOccurrences, occurrence => occurrence.Kind == AllocationKind.Box);
+        Assert.Contains(methodOccurrences.Select(occurrence => occurrence.ILOffset), offset => signal.Evidence.Contains(offset));
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.UserJoinLookalike))]
     [InlineData(nameof(OptimizationOpportunityFixtures.UserConcatLookalike))]

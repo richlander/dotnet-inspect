@@ -311,14 +311,6 @@ public static class IlProjection
             stackByOffset[point.Offset] = point.StackTypes;
 
         var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
-        foreach (var fact in Annotations.AnnotationEngine.Default.ClassifyImported(function))
-        {
-            if (fact.SourceOffset < 0)
-                continue;
-            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
-                factsByOffset[fact.SourceOffset] = list = [];
-            list.Add(fact);
-        }
 
         // Block leaders → ordinal index, plus the byte range of each block (to
         // the next leader, or to end of IL) for the `Block_N: (range)` label.
@@ -440,7 +432,7 @@ public static class IlProjection
     readonly record struct AnnotatedInstrPart(int Offset, string Instruction, string Annotation);
 
     /// <summary>One instruction's IL offset and its annotated text, for the mixed view.</summary>
-    internal readonly record struct AnnotatedInstrLine(int Offset, string Text);
+    public readonly record struct AnnotatedInstrLine(int Offset, string Text);
 
     /// <summary>
     /// Builds the per-instruction annotated IL lines (offset + text, no block or
@@ -449,7 +441,7 @@ public static class IlProjection
     /// types and the hidden-fact classification, exactly as the flat annotated
     /// view does — so the two views never diverge on what an instruction says.
     /// </summary>
-    internal static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+    public static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
         MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
     {
         var (typeDef, methodDef, methodHandle) = Locate(source.Reader, type, method, overloadIndex, publicOnly);
@@ -464,15 +456,6 @@ public static class IlProjection
             stackByOffset[point.Offset] = point.StackTypes;
 
         var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
-        foreach (var fact in Annotations.AnnotationEngine.Default.ClassifyImported(function))
-        {
-            if (fact.SourceOffset < 0)
-                continue;
-            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
-                factsByOffset[fact.SourceOffset] = list = [];
-            list.Add(fact);
-        }
-
         return AnnotatedInstrLines(imported, instructions, factsByOffset, stackByOffset);
     }
 

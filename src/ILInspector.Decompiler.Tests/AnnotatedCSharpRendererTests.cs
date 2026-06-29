@@ -1,5 +1,6 @@
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -8,8 +9,7 @@ public class AnnotatedCSharpRendererTests
     static string Render(string methodName)
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName)!;
-        var result = AnnotatedCSharpRenderer.Render(function);
+        var result = ResearchViews.RenderAnnotatedSource(source, typeof(AllocSampleClass).FullName!, methodName);
         Assert.NotNull(result.Output);
         return result.Output!;
     }
@@ -62,10 +62,9 @@ public class AnnotatedCSharpRendererTests
         // SumList over a List<T> uses the struct enumerator (no heap alloc), so
         // the annotated view equals the plain view — no comments, positive-only.
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList))!;
         var plainFunction = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList))!;
 
-        var annotated = AnnotatedCSharpRenderer.Render(function).Output;
+        var annotated = ResearchViews.RenderAnnotatedSource(source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList)).Output;
         var plain = CSharpPrinter.PrintRaised(plainFunction).Output;
 
         Assert.DoesNotContain("//", annotated);

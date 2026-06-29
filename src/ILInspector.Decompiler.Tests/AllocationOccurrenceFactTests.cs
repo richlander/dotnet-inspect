@@ -1,10 +1,11 @@
 using System.Collections.Generic;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
-public class AllocationClassifierTests
+public class AllocationOccurrenceFactTests
 {
     static IReadOnlyList<Annotation> Classify(string methodName)
         => Classify(methodName, locator: null);
@@ -12,9 +13,9 @@ public class AllocationClassifierTests
     static IReadOnlyList<Annotation> Classify(string methodName, ILInspector.Metadata.AssemblyLocator? locator)
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location, null, locator);
-        var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);
-        Assert.NotNull(function);
-        return new AllocationClassifier().Classify(function!);
+        return ResearchViews.CollectFacts(source, typeof(AllocSampleClass).FullName!, methodName)
+            .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Allocation)
+            .ToList();
     }
 
     // Resolves referenced assemblies from the running runtime directory, where
@@ -75,23 +76,18 @@ public class AllocationClassifierTests
     }
 
     [Fact]
-    public void CrossAssemblyValueTypeNewObject_IsSuppressed_WhenResolved()
+    public void CrossAssemblyValueTypeNewObject_PreservesLegacyAnnotationParity_WithLocator()
     {
-        // new DateTime(...) is a non-generic corelib struct: the token carries no
-        // VALUETYPE byte, so suppression depends on cross-assembly resolution.
-        // With a locator that reaches corelib, the base chain confirms
-        // System.ValueType and the false allocation is suppressed.
-        Assert.DoesNotContain("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), RuntimeLocator)));
+        // Track A preserves the legacy visible allocation annotation shape for
+        // bare cross-assembly framework value-type constructors. The occurrence
+        // is non-counting for Analysis performance signals, but still projects
+        // to alloc.new for annotation parity.
+        Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), RuntimeLocator)));
     }
 
     [Fact]
-    public void CrossAssemblyValueTypeNewObject_IsNotSuppressed_WithoutResolution()
+    public void CrossAssemblyValueTypeNewObject_PreservesLegacyAnnotationParity_WithoutLocator()
     {
-        // The defensive witness: without a locator that can reach corelib, the
-        // value-type-ness is genuinely unknown, so the classifier stays honest
-        // and reports alloc.new rather than guessing. This proves resolution is
-        // doing real work — it is not a vacuous always-confirm — and that the
-        // suppression above is earned, not assumed.
         Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), locator: (name, trust) => null)));
     }
 
@@ -149,11 +145,9 @@ public class AllocationClassifierTests
     }
 
     [Fact]
-    public void Classifier_ObservesTheImportedStage()
+    public void ResearchRegistry_ProducesAllocationFacts()
     {
-        var classifier = new AllocationClassifier();
-        Assert.Equal(AnnotationCategory.Allocation, classifier.Category);
-        Assert.Equal(AnnotationStage.Imported, classifier.Stage);
+        Assert.Contains("alloc.box", Ids(Classify(nameof(AllocSampleClass.BoxInt))));
     }
 }
 

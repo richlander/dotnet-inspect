@@ -88,7 +88,7 @@ maintainer-owned upkeep: they are documented conventions, not automatic CI gates
 
 The Rung 4 allocation-convergence build must prove that a candidate
 occurrence-derived projection produces the same decompiler allocation annotations
-as the legacy `AllocationClassifier`. Use the parity gate with two
+as the legacy decompiler allocation annotation producer. Use the parity gate with two
 `AnnotationStructuredView.Json(...)` outputs: the legacy allocation annotations
 and the candidate projection serialized in the same structured shape.
 

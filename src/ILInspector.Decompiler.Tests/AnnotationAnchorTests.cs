@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -14,7 +15,7 @@ public class AnnotationAnchorTests
         var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);
         Assert.NotNull(function);
 
-        var annotations = AnnotationEngine.Default.ClassifyImported(function!);
+        var annotations = ResearchViews.CollectFacts(source, function!);
         CSharpPrinter.PrintRaised(function!);   // raises in place
         return (function!, AnnotationAnchor.Anchor(function!, annotations));
     }
@@ -45,7 +46,7 @@ public class AnnotationAnchorTests
         {
             var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
             var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, method)!;
-            var annotations = AnnotationEngine.Default.ClassifyImported(function);
+            var annotations = ResearchViews.CollectFacts(source, function);
             CSharpPrinter.PrintRaised(function);
 
             var map = AnnotationAnchor.Anchor(function, annotations);
@@ -69,12 +70,12 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
-    public void Engine_Default_RunsTheAllocationClassifier()
+    public void ResearchRegistry_RunsAllocationProducer()
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.BoxInt))!;
 
-        var annotations = AnnotationEngine.Default.ClassifyImported(function);
+        var annotations = ResearchViews.CollectFacts(source, function);
 
         Assert.Contains(annotations, a => a.Descriptor.Id == "alloc.box");
     }
