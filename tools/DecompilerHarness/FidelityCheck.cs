@@ -11,6 +11,7 @@ using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -33,6 +34,8 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class FidelityCheck
 {
+    const int MaxTransientEmptyEmitAttempts = 3;
+
     // The render path for one source: the lowered view, or the shipped raised
     // view with the cross-method import seam bound (so lambda raising can reach
     // a synthesized body in the same module). The lowered view carries no seam
@@ -1053,7 +1056,7 @@ static class FidelityCheck
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
         var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
         using var ms = new MemoryStream();
-        if (!comp.Emit(ms).Success)
+        if (!EmitWithTransientEmptyOutputRetry(comp, ms).Success)
             return false;
 
         ms.Position = 0;
@@ -1083,7 +1086,7 @@ static class FidelityCheck
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
         var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
         using var ms = new MemoryStream();
-        var emit = comp.Emit(ms);
+        var emit = EmitWithTransientEmptyOutputRetry(comp, ms);
         if (!emit.Success)
         {
             var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
@@ -1192,7 +1195,7 @@ static class FidelityCheck
             var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
             var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
             using var ms = new MemoryStream();
-            var emit = comp.Emit(ms);
+            var emit = EmitWithTransientEmptyOutputRetry(comp, ms);
             if (emit.Success)
             {
                 ms.Position = 0;
@@ -1248,6 +1251,39 @@ static class FidelityCheck
         }
         return null; // fall back to the whole-module build
     }
+
+    internal readonly record struct EmitAttempt(bool Success, long OutputLength, ImmutableArray<Diagnostic> Diagnostics);
+
+    internal static int TransientEmptyEmitAttemptCount(Func<int, EmitAttempt> emitAttempt)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            var result = emitAttempt(attempt);
+            if (result.Success || !IsTransientEmptyEmitFailure(result) || attempt >= MaxTransientEmptyEmitAttempts)
+                return attempt;
+        }
+    }
+
+    static EmitResult EmitWithTransientEmptyOutputRetry(CSharpCompilation compilation, MemoryStream output)
+    {
+        EmitResult? result = null;
+        TransientEmptyEmitAttemptCount(_ =>
+        {
+            output.SetLength(0);
+            output.Position = 0;
+            result = compilation.Emit(output);
+            return new EmitAttempt(result.Success, output.Length, result.Diagnostics);
+        });
+        return result ?? throw new InvalidOperationException("Compilation emit did not run.");
+    }
+
+    // Retry only the observed host/resource flake signature: Roslyn reports failure before
+    // writing any PE bytes and without a compiler error. Real source/skeleton regressions
+    // carry CS diagnostics and must fail on the first attempt.
+    static bool IsTransientEmptyEmitFailure(EmitAttempt result)
+        => !result.Success
+           && result.OutputLength == 0
+           && !result.Diagnostics.Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
 
     /// <summary>The top-level type a (possibly nested) type definition belongs to.</summary>
     static TypeDefinitionHandle TopLevelRootOf(MetadataReader reader, TypeDefinitionHandle handle)
