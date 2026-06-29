@@ -817,9 +817,22 @@ static class FidelityCheck
            || BaseTypeName(reader, typeDef.BaseType) == "System.Text.Json.Serialization.JsonSerializerContext";
 
     static bool IsGeneratedMethod(MetadataReader reader, MethodDefinition method, string name)
-        => name.Contains('<')
-           || name.StartsWith("__", StringComparison.Ordinal)
-           || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute");
+    {
+        if (name.Contains('<')
+            || name.StartsWith("__", StringComparison.Ordinal)
+            || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute"))
+            return true;
+
+        if (!AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), KnownAttributeNames.CompilerGeneratedAttribute))
+            return false;
+
+        return !IsCompilerGeneratedAccessor(method, name);
+    }
+
+    static bool IsCompilerGeneratedAccessor(MethodDefinition method, string name)
+        => (method.Attributes & MethodAttributes.SpecialName) != 0
+           && (name.StartsWith("get_", StringComparison.Ordinal)
+               || name.StartsWith("set_", StringComparison.Ordinal));
 
     static PrimaryConstructorShape? PrimaryConstructorFromPrologue(
         MetadataReader reader,

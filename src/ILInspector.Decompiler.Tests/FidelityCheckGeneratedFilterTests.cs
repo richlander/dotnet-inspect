@@ -74,6 +74,27 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_SkipsCompilerGeneratedRecordMethodsButKeepsAccessors()
+    {
+        var assemblyPath = CompileFixture("""
+            public record GeneratedRecord(int Value);
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+
+            Assert.Contains(results, result => result.Type == "GeneratedRecord" && result.Method == "get_Value");
+            Assert.DoesNotContain(results, result =>
+                result.Type == "GeneratedRecord" &&
+                result.Method is "ToString" or "PrintMembers" or "GetHashCode");
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var path = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}.dll");
