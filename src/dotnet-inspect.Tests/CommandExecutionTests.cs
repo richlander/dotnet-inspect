@@ -1406,7 +1406,7 @@ public class CommandExecutionTests
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
-        Assert.Contains("| Facts | section (opt-in) |", output);
+        Assert.DoesNotContain("| Facts | section", output);
     }
 
     [Fact]
@@ -3710,7 +3710,9 @@ public class CommandExecutionTests
             [
                 ["library", TestAssemblyPath],
                 ["type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath],
+                ["type", typeof(EmptyDiscoveryFixture).FullName!, "--library", TestAssemblyPath],
                 ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.CallsInterfaceItem), "--library", TestAssemblyPath],
+                ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.Overloaded), "--library", TestAssemblyPath],
                 ["package", packagePath],
                 ["diff", "--library", $"{diffV1}..{diffV2}"]
             ];
@@ -3725,14 +3727,22 @@ public class CommandExecutionTests
                     .Where(row => row.Kind.StartsWith("section", StringComparison.OrdinalIgnoreCase))
                     .Select(row => row.Name)
                     .ToArray();
-                Assert.NotEmpty(sections);
+                if (!IsNoMemberTypeDiscoveryCommand(command))
+                    Assert.NotEmpty(sections);
 
                 foreach (var section in sections)
                 {
                     var selectArgs = command.Concat(["-S", section, "--table", "--tips", "q", "-n", "40"]).ToArray();
-                    var (selectExit, _, selectError) = await RunAppAsync(selectArgs);
+                    var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
                     Assert.True(selectExit == 0,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
+                    if (RequiresRealDataDiscoveryGuard(command))
+                    {
+                        Assert.False(string.IsNullOrWhiteSpace(selectOutput),
+                            $"{command[0]} -S '{section}' produced no data after being listed by -D.");
+                        Assert.DoesNotContain("has no data", selectOutput, StringComparison.OrdinalIgnoreCase);
+                        Assert.DoesNotContain("has no data", selectError, StringComparison.OrdinalIgnoreCase);
+                    }
                 }
             }
         }
@@ -3741,6 +3751,73 @@ public class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    private static bool RequiresRealDataDiscoveryGuard(string[] command)
+        => IsNoMemberTypeDiscoveryCommand(command)
+           || command is ["member", _, var memberName, ..]
+                && memberName == nameof(MemberCallsFixture.Overloaded);
+
+    private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
+        => command is ["type", var typeName, ..]
+           && typeName == typeof(EmptyDiscoveryFixture).FullName;
+
+    [Fact]
+    public async Task MemberDiscovery_MultiOverload_DoesNotListSingleOverloadSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.Overloaded),
+            "--library", TestAssemblyPath, "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Tip:", error);
+
+        var sections = ExtractDiscoveryRows(output)
+            .Where(row => row.Kind.StartsWith("section", StringComparison.OrdinalIgnoreCase))
+            .Select(row => row.Name)
+            .ToArray();
+
+        foreach (var section in SingleOverloadDiscoverySections)
+            Assert.DoesNotContain(section, sections);
+    }
+
+    [Fact]
+    public async Task TypeDiscovery_NoMemberType_DoesNotListMethodBodySections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(EmptyDiscoveryFixture).FullName!, "--library", TestAssemblyPath, "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Tip:", error);
+
+        var sections = ExtractDiscoveryRows(output)
+            .Where(row => row.Kind.StartsWith("section", StringComparison.OrdinalIgnoreCase))
+            .Select(row => row.Name)
+            .ToArray();
+
+        Assert.DoesNotContain("Top Leverage", sections);
+        Assert.DoesNotContain("Performance Triage", sections);
+        Assert.DoesNotContain("Facts", sections);
+        Assert.DoesNotContain("IL", sections);
+        Assert.DoesNotContain("Source Files", sections);
+    }
+
+    private static readonly string[] SingleOverloadDiscoverySections =
+    [
+        "Signature",
+        "Custom Attributes",
+        "Decompiled Source",
+        "Annotated Source",
+        "Original Source",
+        "Calls",
+        "Callers",
+        "Call Graph",
+        "Caller Graph",
+        "Unsafe Operations",
+        "Top Leverage",
+        "Performance Triage",
+        "Facts",
+        "IL"
+    ];
 
     [Fact]
     public async Task LibraryCommand_DiscoverEffective_ListsSourceLinkAuditSections()
@@ -6610,4 +6687,8 @@ public class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
+}
+
+public interface EmptyDiscoveryFixture
+{
 }

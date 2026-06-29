@@ -312,7 +312,9 @@ public static class ApiMemberSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => !string.IsNullOrWhiteSpace(model.FullName);
+            => model.Members.Any(IsMethodLike)
+               || !string.IsNullOrWhiteSpace(model.SourceUrl)
+               || model.AdditionalSourceFiles.Count > 0;
     }
 
     // ===== Expensive sections (decompiler output) =====
@@ -416,10 +418,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Constructors>()
             .Add<ApiMemberSectionDescriptors.Fields>()
             .Add<ApiMemberSectionDescriptors.Properties>()
-            // Signature can be selected from the overload inventory; rendering still
-            // waits until a single overload is chosen.
-            .Add<ApiMemberDetailSectionDescriptors.Signature>(
-                model => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike))
+            .Add<ApiMemberDetailSectionDescriptors.Signature>()
             .Add<Methods>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
             .Add<ApiMemberSectionDescriptors.SourceLocations>()
@@ -427,20 +426,23 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
             .Add<ApiMemberSectionDescriptors.Events>()
-            .Add<ApiMemberSectionDescriptors.MethodAttributes>()
-            .Add<ApiMemberSectionDescriptors.DecompiledSource>()
-            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>()
-            .Add<ApiMemberSectionDescriptors.OriginalSource>()
+            .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleMethodLikeMember)
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
-            .Add<ApiMemberSectionDescriptors.TopLeverage>()
-            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
-            .Add<ApiMemberSectionDescriptors.ILBody>()
+            .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.Facts>();
     }
+
+    private static bool HasSingleMethodLikeMember(ApiType model)
+        => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {

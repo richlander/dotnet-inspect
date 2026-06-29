@@ -45,6 +45,16 @@ public class SectionPipelineTests
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
 
+    private sealed class UnprobedSection : ISectionDescriptor<TestModel>
+    {
+        public static string Name => "Unprobed";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(TestModel model) => model.Count > 0;
+    }
+
     private static SectionPipeline<TestModel> CreateTestPipeline() =>
         new SectionPipeline<TestModel>()
             .Add<AlwaysSection>()
@@ -120,6 +130,16 @@ public class SectionPipelineTests
         Assert.Equal(["Structural"], applicable);
         Assert.Empty(available);
         Assert.Equal(["Structural"], explicitlyApplicable);
+    }
+
+    [Fact]
+    public void GetDiscoverableSections_UnprobedStillRequiresApplicability()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add<UnprobedSection>();
+
+        Assert.Empty(pipeline.GetDiscoverableSections(new TestModel("target", 0)));
+        Assert.Equal(["Unprobed"], pipeline.GetDiscoverableSections(new TestModel("target", 1)));
     }
 
     [Fact]
@@ -270,6 +290,66 @@ public class SectionPipelineTests
         Assert.True(missing.Length == 0,
             $"{command} -D missed selectable section(s): {string.Join(", ", missing)}");
     }
+
+    [Fact]
+    public void MemberOverloadPipeline_MultiOverload_DoesNotDiscoverSingleOverloadSections()
+    {
+        var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "T",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "method", Name = "M" },
+                new ApiMember { Kind = "method", Name = "M" }
+            ]
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(type);
+
+        foreach (var section in SingleOverloadSections)
+            Assert.DoesNotContain(section, discoverable);
+    }
+
+    [Fact]
+    public void MemberPipeline_NoMemberType_DoesNotDiscoverMethodBodySections()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Empty",
+            Kind = "interface"
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(type);
+
+        Assert.DoesNotContain(SectionNames.TopLeverage, discoverable);
+        Assert.DoesNotContain(SectionNames.PerformanceTriage, discoverable);
+        Assert.DoesNotContain(SectionNames.Facts, discoverable);
+        Assert.DoesNotContain(SectionNames.IL, discoverable);
+        Assert.DoesNotContain(SectionNames.SourceFiles, discoverable);
+    }
+
+    private static readonly string[] SingleOverloadSections =
+    [
+        SectionNames.Signature,
+        SectionNames.CustomAttributes,
+        SectionNames.DecompiledSource,
+        SectionNames.AnnotatedSource,
+        SectionNames.OriginalSource,
+        SectionNames.Calls,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+        SectionNames.CallerGraph,
+        SectionNames.UnsafeOperations,
+        SectionNames.TopLeverage,
+        SectionNames.PerformanceTriage,
+        SectionNames.Facts,
+        SectionNames.IL
+    ];
 
     [Fact]
     public void MemberDetailPipeline_OptimizationOpportunities_IsStructurallyDiscoverable()
@@ -1358,10 +1438,6 @@ public class SectionPipelineTests
                 new ApiMember { Name = "Changed", Kind = "event" }
             ]
         };
-        var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        yield return DiscoverableCase("member", memberPipeline, apiType);
-        var overloadPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
-        yield return DiscoverableCase("member-overload", overloadPipeline, apiType);
         var detailPipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
         var detailType = new ApiType
         {
@@ -1369,6 +1445,10 @@ public class SectionPipelineTests
             Kind = "class",
             Members = [new ApiMember { Name = "Method", Kind = "method" }]
         };
+        var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        yield return DiscoverableCase("member", memberPipeline, apiType, detailType);
+        var overloadPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        yield return DiscoverableCase("member-overload", overloadPipeline, apiType, detailType);
         yield return DiscoverableCase("member-detail", detailPipeline, detailType);
 
         var diffPipeline = DiffSections.CreatePipeline();
@@ -1378,8 +1458,14 @@ public class SectionPipelineTests
     private static object[] DiscoverableCase<TModel>(
         string command,
         SectionPipeline<TModel> pipeline,
-        TModel model) =>
-        [command, pipeline.SelectableSectionNames, pipeline.GetDiscoverableSections(model)];
+        params TModel[] models)
+    {
+        var discoverable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var model in models)
+            discoverable.UnionWith(pipeline.GetDiscoverableSections(model));
+
+        return [command, pipeline.SelectableSectionNames, discoverable.ToArray()];
+    }
 
     // ===== API type-list pipeline tests =====
 
