@@ -200,6 +200,27 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// The canonical discovery superset for <c>-D</c>, uniform across every command: a section is
+    /// discoverable if it is structurally applicable (<see cref="SectionEntry{TModel}.IsApplicable"/>)
+    /// or if it is unprobed (<see cref="SectionEntry{TModel}.ProbeEffectiveness"/> false) — the latter
+    /// listed without rendering so discovery never opens a whole-assembly index. Over-reports rather
+    /// than under-reports (#1201): anything selectable with <c>-S</c> must appear here. Registration
+    /// order is preserved.
+    /// </summary>
+    public List<string> GetDiscoverableSections(TModel model, HashSet<string>? include = null)
+    {
+        List<string> result = [];
+        foreach (var entry in _entries)
+        {
+            if (include is { Count: > 0 } && !include.Contains(entry.Name))
+                continue;
+            if (entry.IsApplicable(model) || !entry.ProbeEffectiveness)
+                result.Add(entry.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Returns structurally applicable sections that were registered with an explicit
     /// applicability gate. Effective discovery preserves these across render probes
     /// because their renderability may depend on section selection, verbosity, or work
