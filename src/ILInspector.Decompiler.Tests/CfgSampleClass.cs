@@ -2926,6 +2926,14 @@ public class CfgSampleClass
         return holder.CacheProp;
     }
 
+    public static string ManualPropertyNullAssignment(CacheHolder holder, string fallback)
+    {
+        if (holder.CacheProp == null)
+            holder.CacheProp = fallback;
+
+        return holder.CacheProp;
+    }
+
     // Indexer ??= — the property form plus index arguments. csc spills the receiver
     // and index to locals read identically by the get and set, so the two accesses
     // fold into one re-evaluable d[k] place.
@@ -2945,6 +2953,14 @@ public class CfgSampleClass
     public static string NullCoalescingAssignDictionaryIndexer(System.Collections.Generic.Dictionary<string, string> map, string key, string fallback)
     {
         map[key] ??= fallback;
+        return map[key];
+    }
+
+    public static string ManualIndexerNullAssignment(System.Collections.Generic.Dictionary<string, string> map, string key, string fallback)
+    {
+        if (map[key] == null)
+            map[key] = fallback;
+
         return map[key];
     }
 

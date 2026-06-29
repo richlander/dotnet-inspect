@@ -236,6 +236,21 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    public void ManualPropertyNullAssignmentWithoutValueSpill_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualPropertyNullAssignment));
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("??=", output);
+        Assert.Contains("if (holder.CacheProp is null)", output);
+        Assert.Contains("holder.CacheProp = fallback;", output);
+    }
+
+    [Fact]
     public void PropertyNullAssignmentWithIncompatibleAccessors_IsNotRaised()
     {
         var function = FunctionWithPropertyNullAssignment(
@@ -376,6 +391,21 @@ public class NullCoalescingAssignmentPassTests
 
         Assert.NotNull(output);
         Assert.Contains("map[key] ??= fallback;", output);
+    }
+
+    [Fact]
+    public void ManualDictionaryIndexerNullAssignmentWithoutValueSpill_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualIndexerNullAssignment));
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("??=", output);
+        Assert.Contains("if (map[key] is null)", output);
+        Assert.Contains("map[key] = fallback;", output);
     }
 
     [Fact]

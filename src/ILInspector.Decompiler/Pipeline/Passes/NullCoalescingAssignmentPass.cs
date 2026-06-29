@@ -10,11 +10,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// scoped to a re-evaluable receiver (a local/argument/this, or none for a static
 /// field), so collapsing the two member loads into one <c>??=</c> reorders
 /// nothing. The property form (<c>obj.Prop ??= fallback</c>) pairs the getter and
-/// setter as one property and folds csc's value-spill (the setter takes the value
-/// through a temp so the assignment can also be the expression's result; in
-/// statement position that result is dead). The indexer form (<c>d[k] ??= fallback</c>)
-/// is the property form plus index arguments, accepted when the receiver and every
-/// index argument are pairwise re-evaluable (<see cref="PlaceIdentity.SameOperands"/>).
+/// setter as one property when csc's instance/indexer value-spill is present (the
+/// setter takes the value through a temp so the assignment can also be the
+/// expression's result; in statement position that result is dead). The indexer
+/// form (<c>d[k] ??= fallback</c>) is the property form plus index arguments,
+/// accepted when the receiver and every index argument are pairwise re-evaluable
+/// (<see cref="PlaceIdentity.SameOperands"/>). Static properties have no receiver
+/// to re-evaluate and may lower to a direct setter.
 /// </summary>
 public sealed class NullCoalescingAssignmentPass : IIrPass
 {
@@ -106,13 +108,11 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
 
     sealed record PropertyMatch(StoreProperty Store, IrExpression Value);
 
-    // obj.Prop ??= fallback lowers to a get/set diamond:
-    //   if (obj.get_Prop() is null) obj.set_Prop(fallback);
-    // The setter is a call, so csc routes the value through a temp — the slot the
-    // setter reads is also stored to a (dead, in statement position) local so the
-    // assignment can double as the ??= expression's result. We pair the getter and
-    // setter as one property, require a re-evaluable receiver, and recover the
-    // original value from behind that spill.
+    // obj.Prop ??= fallback lowers to a get/set diamond where the setter value is
+    // routed through a compiler temp; hand-written `if (obj.Prop is null) obj.Prop
+    // = fallback` feeds the setter directly. For receiver/indexer properties, the
+    // spill is the discriminator that lets this pass pair the getter and setter
+    // without changing compile-back IL.
     static PropertyMatch? TryMatchProperty(IrFunction function, IfStatement statement)
     {
         if (statement.HasElse
@@ -156,18 +156,23 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
 
     static bool IsVoid(TypeRef type) => type is { Namespace: "System", Name: "Void" };
 
-    // The clean form is `Then = [store]` with the value inline (a static property,
-    // or any setter csc fed directly). The spilled form is
+    // The spilled form is
     //   [StoreStackSlot S = fallback, (StoreLocal dead = S)*, store(value: load S)]
     // where the setter and the dead ??= result both read slot S. We return the real
     // value (fallback) only when slot S and the dead local are confined to this
     // block — i.e. nothing else in the function reads them, so dropping the spill is
-    // sound.
+    // sound. A direct setter value is deliberately declined when a receiver or
+    // index argument would be collapsed: that is the manual property/indexer
+    // assignment shape, not csc's `??=` lowering.
     static IrExpression? RecoverSpilledValue(IrFunction function, Block then, StoreProperty store)
     {
         var children = then.Children;
         if (store.Value is not LoadStackSlot slot)
-            return children.Count == 1 ? store.Value : null;
+        {
+            return !store.HasInstance && store.IndexArguments.Count == 0 && children.Count == 1
+                ? store.Value
+                : null;
+        }
 
         if (children.Count < 2 || children[0] is not StoreStackSlot spill || spill.Slot != slot.Slot)
             return null;
