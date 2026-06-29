@@ -17,7 +17,9 @@ public sealed record LocalUse(
 
 public sealed record ReachingDefinitionsResult(
     ImmutableArray<LocalDefinition> Definitions,
-    ImmutableArray<LocalUse> Uses)
+    ImmutableArray<LocalUse> Uses,
+    bool IsComplete = true,
+    string? IncompleteReason = null)
 {
     public ImmutableArray<LocalUse> UsesOf(LocalDefinition definition)
         => [.. Uses.Where(use => use.ReachingDefinitions.Any(d => d.Id == definition.Id))];
@@ -26,15 +28,31 @@ public sealed record ReachingDefinitionsResult(
 public static class ReachingDefinitions
 {
     public static ReachingDefinitionsResult Analyze(byte[] il, int argumentSlotCount)
+        => Analyze(il, argumentSlotCount, hasExceptionRegions: false);
+
+    public static ReachingDefinitionsResult Analyze(byte[] il, int argumentSlotCount, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+    {
+        ArgumentNullException.ThrowIfNull(exceptionRegions);
+        return Analyze(il, argumentSlotCount, exceptionRegions.Count > 0);
+    }
+
+    public static ReachingDefinitionsResult Analyze(MethodBodyBlock body, int argumentSlotCount)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return Analyze(body.GetILBytes() ?? [], argumentSlotCount, body.ExceptionRegions.Length > 0);
+    }
+
+    static ReachingDefinitionsResult Analyze(byte[] il, int argumentSlotCount, bool hasExceptionRegions)
     {
         ArgumentNullException.ThrowIfNull(il);
         if (argumentSlotCount < 0)
             throw new ArgumentOutOfRangeException(nameof(argumentSlotCount));
         if (il.Length == 0)
-            return new ReachingDefinitionsResult([], []);
+            return new ReachingDefinitionsResult([], [], !hasExceptionRegions, hasExceptionRegions ? "Exception-handler edges are not modeled." : null);
 
         var instructions = DecodeInstructions(il);
         var blocks = BuildBlocks(il.Length, instructions);
+        var incompleteReason = IncompleteReason(blocks, hasExceptionRegions);
         var definitions = ImmutableArray.CreateBuilder<LocalDefinition>();
         var definitionsBySlot = new Dictionary<SlotKey, List<int>>();
         var definitionByOffset = new Dictionary<int, int>();
@@ -91,7 +109,11 @@ public static class ReachingDefinitions
             }
         }
 
-        return new ReachingDefinitionsResult(definitions.ToImmutable(), uses.ToImmutable());
+        return new ReachingDefinitionsResult(
+            definitions.ToImmutable(),
+            uses.ToImmutable(),
+            incompleteReason is null,
+            incompleteReason);
 
         void AddDefinition(SlotKey key, int Offset)
         {
@@ -101,6 +123,17 @@ public static class ReachingDefinitions
                 definitionsBySlot[key] = ids = [];
             ids.Add(id);
         }
+    }
+
+    static string? IncompleteReason(IReadOnlyList<Block> blocks, bool hasExceptionRegions)
+    {
+        if (hasExceptionRegions)
+            return "Exception-handler edges are not modeled.";
+        if (blocks.Any(block => block.Edges.LeavesRegion))
+            return "Region-leaving control-flow edges are not modeled.";
+        if (blocks.Any(block => block.Edges.ExternalTargets.Count > 0))
+            return "External control-flow targets are not modeled.";
+        return null;
     }
 
     static GenKillSet BuildTransfer(

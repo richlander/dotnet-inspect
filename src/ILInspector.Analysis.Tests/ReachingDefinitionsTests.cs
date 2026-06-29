@@ -88,5 +88,28 @@ public class ReachingDefinitionsTests
         ], argumentSlotCount: 0));
     }
 
+    [Fact]
+    public void Analyze_ExceptionRegions_MarksResultIncomplete()
+    {
+        var result = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0, [default(ExceptionRegion)]);
+
+        Assert.False(result.IsComplete);
+        Assert.Contains("Exception-handler", result.IncompleteReason);
+    }
+
+    [Fact]
+    public void Analyze_LeaveRegion_MarksResultIncomplete()
+    {
+        var result = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Leave_s), 0x00,
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0);
+
+        Assert.False(result.IsComplete);
+        Assert.Contains("Region-leaving", result.IncompleteReason);
+    }
+
     static byte Op(ILOpCode opcode) => checked((byte)opcode);
 }
