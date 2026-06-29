@@ -60,6 +60,17 @@ public static class ForwardDataflow
         if (edges.Count != transfers.Count)
             throw new ArgumentException("Edge and transfer counts must match.", nameof(transfers));
 
+        // Intersection (must) analyses join the entry block with its back-edge
+        // predecessors under MergePredecessors, which can silently drop a fact
+        // that holds on entry but is killed around a loop. That is sound but
+        // imprecise (it floods toward "no fact"), and no consumer needs it:
+        // must-entry facts are external axioms, so must-analyses use Fixed.
+        // Reject the pair so a future consumer cannot adopt it unknowingly.
+        if (merge == DataflowMerge.Intersection && entryBehavior == DataflowEntry.MergePredecessors)
+            throw new ArgumentException(
+                "Intersection (must) analyses must use DataflowEntry.Fixed; MergePredecessors can drop entry facts across back-edges.",
+                nameof(entryBehavior));
+
         int n = edges.Count;
         if (n == 0)
             return new ForwardDataflowResult([]);

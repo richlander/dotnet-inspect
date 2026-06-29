@@ -119,6 +119,29 @@ public class ForwardDataflowTests
     }
 
     [Fact]
+    public void Solve_Intersection_WithMergePredecessors_Throws()
+    {
+        var edges = new[]
+        {
+            Edge(1),
+            Edge(0),
+        };
+        var transfers = new[]
+        {
+            Gen(),
+            Gen(),
+        };
+
+        Assert.Throws<ArgumentException>(() => ForwardDataflow.Solve(
+            edges,
+            transfers,
+            entry: new HashSet<int> { 0 },
+            universe: new HashSet<int> { 0 },
+            DataflowMerge.Intersection,
+            DataflowEntry.MergePredecessors));
+    }
+
+    [Fact]
     public void Solve_FixedEntry_IgnoresEntryBackEdges()
     {
         var edges = new[]
