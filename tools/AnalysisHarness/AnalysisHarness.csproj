@@ -17,4 +17,8 @@
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="corpus/paydirt-reference.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/paydirt-reference.json" />
+  </ItemGroup>
+
 </Project>

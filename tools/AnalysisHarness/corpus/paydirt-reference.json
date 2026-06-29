@@ -1,0 +1,20 @@
+[
+  {
+    "Assembly": "ILInspector.Decompiler.dll",
+    "Type": "TypeRef",
+    "Method": "RenderNestedDefinition",
+    "Shape": "string-build-in-loop"
+  },
+  {
+    "Assembly": "ILInspector.Decompiler.dll",
+    "Type": "TypeRef",
+    "Method": "RenderNestedGenericInstance",
+    "Shape": "capturing-delegate"
+  },
+  {
+    "Assembly": "ILInspector.Decompiler.dll",
+    "Type": "CSharpPrinter",
+    "Method": "TryChooseUnifiedStackSlotType",
+    "Shape": "capturing-delegate"
+  }
+]

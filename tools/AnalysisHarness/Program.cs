@@ -17,6 +17,15 @@ const string Usage =
           increase); signal-count DRIFT is reported but not a failure. --emit-corpus-snapshot
           writes the snapshot JSON (use it to (re)generate a baseline).
 
+      --paydirt-recall <assembly> [--reference <file>]
+          Layer 3 recall: check that every committed reference paydirt site for the assembly still
+          surfaces as a loop+high triage candidate. Exit nonzero on a missing site (recall
+          regression). Defaults to corpus/paydirt-reference.json.
+
+      --precision-sample <assembly> [--top N] [--json]
+          Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
+          true/false-positive judgement. No automatic oracle.
+
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
 
@@ -34,6 +43,10 @@ string? emitSnapshot = null;
 bool json = false;
 bool keep = false;
 bool list = false;
+string? recallAssembly = null;
+string? referenceFile = null;
+string? precisionAssembly = null;
+int top = 20;
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -52,6 +65,18 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--emit-corpus-snapshot":
             emitSnapshot = NextValue(args, ref i);
+            break;
+        case "--paydirt-recall":
+            recallAssembly = NextValue(args, ref i);
+            break;
+        case "--precision-sample":
+            precisionAssembly = NextValue(args, ref i);
+            break;
+        case "--reference":
+            referenceFile = NextValue(args, ref i);
+            break;
+        case "--top":
+            if (NextValue(args, ref i) is { } t && int.TryParse(t, out int n)) top = n;
             break;
         case "list":
             list = true;
@@ -72,6 +97,12 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
+if (recallAssembly is not null)
+    return RunRecall(recallAssembly, referenceFile);
+
+if (precisionAssembly is not null)
+    return RunPrecision(precisionAssembly, top);
+
 if (corpusList is not null)
     return RunCorpus(corpusList, diffBaseline, emitSnapshot, json);
 
@@ -80,6 +111,26 @@ if (fixturesMode || list)
 
 Console.Error.WriteLine(Usage);
 return 2;
+
+static int RunRecall(string assembly, string? referenceFile)
+{
+    if (!File.Exists(assembly)) { Console.Error.WriteLine($"Assembly not found: {assembly}"); return 2; }
+    string refPath = referenceFile ?? Path.Combine(AppContext.BaseDirectory, "corpus", "paydirt-reference.json");
+    if (!File.Exists(refPath)) { Console.Error.WriteLine($"Reference not found: {refPath}"); return 2; }
+    string name = Path.GetFileName(assembly);
+    var all = PrecisionRecall.ReferencesFromJson(File.ReadAllText(refPath));
+    var forAssembly = all.Where(r => r.Assembly == name).ToList();
+    var result = PrecisionRecall.CheckRecall(assembly, forAssembly);
+    Console.Write(PrecisionRecall.FormatRecall(name, result));
+    return result.Passed ? 0 : 1;
+}
+
+static int RunPrecision(string assembly, int top)
+{
+    if (!File.Exists(assembly)) { Console.Error.WriteLine($"Assembly not found: {assembly}"); return 2; }
+    Console.WriteLine(PrecisionRecall.ToJson(PrecisionRecall.Sample(assembly, top)));
+    return 0;
+}
 
 static int RunFixtures(string? selector, bool list, bool json, bool keep)
 {
