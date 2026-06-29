@@ -238,9 +238,9 @@ static class Program
         if (selector == "list")
         {
             if (json)
-                Console.WriteLine(GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.All));
+                Console.WriteLine(GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.Catalog));
             else
-                Console.Write(GeneratedFixtureRunner.FormatList(GeneratedFixtureCatalog.All));
+                Console.Write(GeneratedFixtureRunner.FormatList(GeneratedFixtureCatalog.Catalog));
             return 0;
         }
 

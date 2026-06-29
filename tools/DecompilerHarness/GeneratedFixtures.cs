@@ -298,6 +298,39 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "switch", "int", "branch"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalSwitchTwoCaseLowersIf = new(
+        "minimal.switch-two-case-lowers-if",
+        """
+        namespace GeneratedFixtures.MinimalSwitchTwoCaseLowersIf;
+
+        public class Class1
+        {
+            public string Method1(int value)
+            {
+                switch (value)
+                {
+                    case 0:
+                        return "zero";
+                    case 1:
+                        return "one";
+                    default:
+                        return "many";
+                }
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
+                "Method1",
+                FidelityCheck.CompileBackStatus.OpcodeDiff,
+                IsFrontier: true,
+                Note: "Current SDK lowers this two-case source switch to if/else; dense minimal.switch-int is the stable switch-statement rung."),
+        ],
+        ["minimal", "switch", "int", "branch", "frontier", "compiler-lowering"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
@@ -314,6 +347,17 @@ internal static class GeneratedFixtureCatalog
         MinimalSwitchInt,
     ];
 
+    public static IReadOnlyList<GeneratedFixtureDefinition> Frontiers { get; } =
+    [
+        MinimalSwitchTwoCaseLowersIf,
+    ];
+
+    public static IReadOnlyList<GeneratedFixtureDefinition> Catalog { get; } =
+    [
+        .. All,
+        .. Frontiers,
+    ];
+
     public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Select(string? selector)
@@ -321,7 +365,7 @@ internal static class GeneratedFixtureCatalog
         if (string.IsNullOrWhiteSpace(selector))
             return All;
 
-        return All
+        return Catalog
             .Where(fixture => fixture.Id.Equals(selector, StringComparison.Ordinal)
                 || fixture.Id.StartsWith(selector, StringComparison.Ordinal))
             .ToArray();
