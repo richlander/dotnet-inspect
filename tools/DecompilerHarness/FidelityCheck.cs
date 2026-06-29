@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -45,8 +46,9 @@ static class FidelityCheck
             ? CSharpPrinter.PrintLowered
             : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool lowered = false)
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool lowered = false, bool timings = false)
     {
+        var phaseTimings = timings ? new FidelityPhaseTimings() : null;
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         // Release codegen so the recompiled stream is compared against the
         // optimization shape the BCL ships; the fixture assembly is built the
@@ -86,7 +88,7 @@ static class FidelityCheck
                             break;
                         RunType(reader, pe, source, typeHandle, references, parseOptions, compileOptions,
                             cap, maxExamples, render, ref total, ref full, ref exact, ref contextFail,
-                            ref recompileFail, ref diffCount, diffExamples, recompileFailCodes);
+                            ref recompileFail, ref diffCount, diffExamples, recompileFailCodes, phaseTimings);
                     }
                 }
             }
@@ -94,6 +96,7 @@ static class FidelityCheck
 
         Report(total, full, exact, contextFail, recompileFail, diffCount,
             recompileFailCodes, diffExamples);
+        phaseTimings?.Report();
         return 0;
     }
 
@@ -368,6 +371,44 @@ static class FidelityCheck
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
 
     sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureAccessibility Accessibility);
+
+    sealed class FidelityPhaseTimings
+    {
+        long _collectRenderTicks;
+        long _skeletonEmitTicks;
+        long _parseTicks;
+        long _compilationCreateTicks;
+        long _emitTicks;
+        long _opcodeCompareTicks;
+
+        public T MeasureCollectRender<T>(Func<T> action) => Measure(ref _collectRenderTicks, action);
+        public T MeasureSkeletonEmit<T>(Func<T> action) => Measure(ref _skeletonEmitTicks, action);
+        public T MeasureParse<T>(Func<T> action) => Measure(ref _parseTicks, action);
+        public T MeasureCompilationCreate<T>(Func<T> action) => Measure(ref _compilationCreateTicks, action);
+        public T MeasureEmit<T>(Func<T> action) => Measure(ref _emitTicks, action);
+        public T MeasureOpcodeCompare<T>(Func<T> action) => Measure(ref _opcodeCompareTicks, action);
+
+        static T Measure<T>(ref long ticks, Func<T> action)
+        {
+            long start = Stopwatch.GetTimestamp();
+            try { return action(); }
+            finally { ticks += Stopwatch.GetTimestamp() - start; }
+        }
+
+        public void Report()
+        {
+            static string Ms(long ticks) => $"{ticks * 1000.0 / Stopwatch.Frequency:F1} ms";
+
+            Console.WriteLine();
+            Console.WriteLine("Fidelity phase timings:");
+            Console.WriteLine($"  collect/render/original IL : {Ms(_collectRenderTicks)}");
+            Console.WriteLine($"  skeleton emit              : {Ms(_skeletonEmitTicks)}");
+            Console.WriteLine($"  parse                      : {Ms(_parseTicks)}");
+            Console.WriteLine($"  compilation create         : {Ms(_compilationCreateTicks)}");
+            Console.WriteLine($"  emit                       : {Ms(_emitTicks)}");
+            Console.WriteLine($"  opcode compare             : {Ms(_opcodeCompareTicks)}");
+        }
+    }
 
     /// <summary>
     /// Some metadata-valid public members expose internal types from referenced
@@ -1005,7 +1046,8 @@ static class FidelityCheck
     static List<CompileBackResult> EvaluateGrouped(
         MetadataReader reader, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
-        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries, ClusterMode clusterMode = ClusterMode.Off)
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
+        ClusterMode clusterMode = ClusterMode.Off, FidelityPhaseTimings? timings = null)
     {
         // CB_CLUSTER selects the operational escalation path for the console runs.
         if (clusterMode == ClusterMode.Off && Environment.GetEnvironmentVariable("CB_CLUSTER") is not null)
@@ -1022,10 +1064,10 @@ static class FidelityCheck
             var forced = new List<CompileBackResult>(entries.Count);
             foreach (var e in entries)
             {
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex, timings);
                 forced.Add(captured is not null
                     ? captured with { Capture = CaptureMode.Cluster }
-                    : CompileOne(reader, references, parseOptions, compileOptions, fullType, e) with { Capture = CaptureMode.ClusterBailed });
+                    : CompileOne(reader, references, parseOptions, compileOptions, fullType, e, timings) with { Capture = CaptureMode.ClusterBailed });
             }
             return forced;
         }
@@ -1034,11 +1076,11 @@ static class FidelityCheck
         // forces the per-method path (the A/B baseline for the speedup).
         var results = new List<CompileBackResult>();
         bool grouped = entries.Count > 1 && Environment.GetEnvironmentVariable("CB_NOGROUP") is null;
-        if (!(grouped && TryCompileGroup(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, results)))
+        if (!(grouped && TryCompileGroup(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, results, timings)))
         {
             results.Clear();
             foreach (var e in entries)
-                results.Add(CompileOne(reader, references, parseOptions, compileOptions, fullType, e));
+                results.Add(CompileOne(reader, references, parseOptions, compileOptions, fullType, e, timings));
         }
 
         // Escalation: reconstruct only the rows whole-module could not check —
@@ -1054,7 +1096,7 @@ static class FidelityCheck
             {
                 if (results[i].Status is not (CompileBackStatus.RecompileFail or CompileBackStatus.ContextFail))
                     continue;
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex, timings);
                 results[i] = captured is not null
                     ? captured with { Capture = CaptureMode.Cluster }
                     : results[i] with { Capture = CaptureMode.ClusterBailed };
@@ -1067,7 +1109,8 @@ static class FidelityCheck
     static bool TryCompileGroup(
         MetadataReader reader, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
-        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries, List<CompileBackResult> results)
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
+        List<CompileBackResult> results, FidelityPhaseTimings? timings)
     {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody>();
         foreach (var e in entries)
@@ -1077,43 +1120,71 @@ static class FidelityCheck
         var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
 
         string unit;
-        try { unit = BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility); }
+        try { unit = timings is null
+            ? BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)
+            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)); }
         catch { return false; }
 
-        var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-        var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
+        var tree = timings is null
+            ? CSharpSyntaxTree.ParseText(unit, parseOptions)
+            : timings.MeasureParse(() => CSharpSyntaxTree.ParseText(unit, parseOptions));
+        var comp = timings is null
+            ? CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions)
+            : timings.MeasureCompilationCreate(() => CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions));
         using var ms = new MemoryStream();
-        if (!EmitWithTransientEmptyOutputRetry(comp, ms).Success)
+        var emit = timings is null
+            ? EmitWithTransientEmptyOutputRetry(comp, ms)
+            : timings.MeasureEmit(() => EmitWithTransientEmptyOutputRetry(comp, ms));
+        if (!emit.Success)
             return false;
 
         ms.Position = 0;
         using var rpe = new PEReader(ms);
+        var disassembled = timings is null
+            ? DisassembleAndClassifyGroup(rpe, fullType, entries)
+            : timings.MeasureOpcodeCompare(() => DisassembleAndClassifyGroup(rpe, fullType, entries));
+        if (disassembled is null)
+            return false;   // a method that compiled but cannot be found — fall to isolation
+        results.AddRange(disassembled);
+        return true;
+    }
+
+    static List<CompileBackResult>? DisassembleAndClassifyGroup(PEReader rpe, string fullType, IReadOnlyList<Entry> entries)
+    {
         var disassembled = new List<CompileBackResult>(entries.Count);
         foreach (var e in entries)
         {
             var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)
                 ?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             if (rOps is null)
-                return false;   // a method that compiled but cannot be found — fall to isolation
+                return null;
             disassembled.Add(Classify(fullType, e, rOps));
         }
-        results.AddRange(disassembled);
-        return true;
+        return disassembled;
     }
 
     /// <summary>The per-method fallback: build a single-target unit and classify it. Authoritative when the grouped build fails.</summary>
     static CompileBackResult CompileOne(
         MetadataReader reader, ReferenceSet references,
-        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions, string fullType, Entry e)
+        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
+        string fullType, Entry e, FidelityPhaseTimings? timings)
     {
         string unit;
-        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility); }
+        try { unit = timings is null
+            ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility)
+            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility)); }
         catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
-        var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-        var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
+        var tree = timings is null
+            ? CSharpSyntaxTree.ParseText(unit, parseOptions)
+            : timings.MeasureParse(() => CSharpSyntaxTree.ParseText(unit, parseOptions));
+        var comp = timings is null
+            ? CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions)
+            : timings.MeasureCompilationCreate(() => CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions));
         using var ms = new MemoryStream();
-        var emit = EmitWithTransientEmptyOutputRetry(comp, ms);
+        var emit = timings is null
+            ? EmitWithTransientEmptyOutputRetry(comp, ms)
+            : timings.MeasureEmit(() => EmitWithTransientEmptyOutputRetry(comp, ms));
         if (!emit.Success)
         {
             var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
@@ -1128,7 +1199,9 @@ static class FidelityCheck
         }
         ms.Position = 0;
         using var rpe = new PEReader(ms);
-        var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
+        var rOps = timings is null
+            ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
+            : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
         return rOps is null
             ? new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
             : Classify(fullType, e, rOps);
@@ -1204,7 +1277,8 @@ static class FidelityCheck
         string fullType, Entry e,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> nameIndex,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> methodIndex,
-        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> namespaceIndex)
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> namespaceIndex,
+        FidelityPhaseTimings? timings)
     {
         const int maxRoots = 200;
         const int maxIterations = 80;
@@ -1216,18 +1290,28 @@ static class FidelityCheck
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
             string unit;
-            try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include); }
+            try { unit = timings is null
+                ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include)
+                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include)); }
             catch { return null; } // fall back to the whole-module build
 
-            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-            var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
+            var tree = timings is null
+                ? CSharpSyntaxTree.ParseText(unit, parseOptions)
+                : timings.MeasureParse(() => CSharpSyntaxTree.ParseText(unit, parseOptions));
+            var comp = timings is null
+                ? CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions)
+                : timings.MeasureCompilationCreate(() => CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions));
             using var ms = new MemoryStream();
-            var emit = EmitWithTransientEmptyOutputRetry(comp, ms);
+            var emit = timings is null
+                ? EmitWithTransientEmptyOutputRetry(comp, ms)
+                : timings.MeasureEmit(() => EmitWithTransientEmptyOutputRetry(comp, ms));
             if (emit.Success)
             {
                 ms.Position = 0;
                 using var rpe = new PEReader(ms);
-                var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
+                var rOps = timings is null
+                    ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
+                    : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
                 return rOps is null ? null : Classify(fullType, e, rOps);
             }
 
@@ -1402,17 +1486,21 @@ static class FidelityCheck
         Func<IrFunction, DecompilerResult> render,
         ref int total, ref int full, ref int exact, ref int contextFail,
         ref int recompileFail, ref int diffCount,
-        List<string> diffExamples, SortedDictionary<string, int> recompileFailCodes)
+        List<string> diffExamples, SortedDictionary<string, int> recompileFailCodes,
+        FidelityPhaseTimings? timings)
     {
         int remaining = cap - total;
         if (remaining <= 0)
             return;
-        if (CollectType(reader, pe, source, typeHandle, render, remaining) is not var (fullType, entries) || entries.Count == 0)
+        var collected = timings is null
+            ? CollectType(reader, pe, source, typeHandle, render, remaining)
+            : timings.MeasureCollectRender(() => CollectType(reader, pe, source, typeHandle, render, remaining));
+        if (collected is not var (fullType, entries) || entries.Count == 0)
             return;
         if (Environment.GetEnvironmentVariable("CB_TYPE") is { } filter && !fullType.Contains(filter, StringComparison.Ordinal))
             return;
 
-        var results = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries);
+        var results = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, timings: timings);
         for (int i = 0; i < results.Count; i++)
         {
             if (total >= cap)

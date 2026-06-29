@@ -34,6 +34,7 @@ static class Program
         string? emitValidityDefects = null;
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
+        bool fidelityTimings = false;
         bool gaps = false;
         bool annotationCheck = false;
         bool steps = false;
@@ -99,6 +100,7 @@ static class Program
                 case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
                 case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
                 case "--fidelity-check": fidelityCheck = true; break;
+                case "--fidelity-timings": fidelityTimings = true; break;
                 case "--gaps": gaps = true; break;
                 case "--annotation-check": annotationCheck = true; break;
                 case "--pass-impact":
@@ -175,7 +177,7 @@ static class Program
         }
 
         if (fidelityCheck)
-            return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered);
+            return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1156,6 +1158,8 @@ static class Program
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
+                                skeleton emit, parse, compilation create, emit, and opcode compare
           --type-check          whole-type source oracle — compose each public type
                                 and compare its namespace, kind, modifiers, and member
                                 surface against metadata (syntactic, never binds, so
