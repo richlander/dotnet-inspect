@@ -27,7 +27,18 @@ dotnet "$DLL" --generated-fixtures exception.unsuffixed.external --keep  # keep 
 Each fixture builds in isolation: a consumer assembly (the inspected one) plus, when the
 fixture is cross-assembly, a referenced external assembly (with an extern alias for the
 name-collision case). Isolation keeps same-fully-qualified-name and alias fixtures from clashing
-across catalogue entries.
+across catalogue entries. Fixtures may opt into framework references when the signal depends on a
+trusted platform identity, such as the real ASP.NET Core `RenderTreeBuilder`.
+
+## Deferred catalogue seeds
+
+The catalogue should pin only shapes with a clear discriminator. Deferred #1871 seeds stay out of
+the generated ledger until their analyzer shape exists:
+
+| Seed | Blocker |
+| --- | --- |
+| State-machine allocation | The useful form is cross-method: an iterator/async state machine allocated and consumed in an outer loop. The naive per-method constructor shape floods every iterator and is intentionally not pinned (#1805). |
+| LINQ materialize/dataflow shapes | Need the #1807 dataflow/escape discriminator so transient, streamable object graphs can be separated from necessary model construction. |
 
 ## Test
 
