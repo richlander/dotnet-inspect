@@ -120,6 +120,11 @@ static int RunRecall(string assembly, string? referenceFile)
     string name = Path.GetFileName(assembly);
     var all = PrecisionRecall.ReferencesFromJson(File.ReadAllText(refPath));
     var forAssembly = all.Where(r => r.Assembly == name).ToList();
+    if (forAssembly.Count == 0)
+    {
+        Console.Error.WriteLine($"No reference paydirt sites for '{name}' in {refPath} — nothing to recall-check.");
+        return 2;
+    }
     var result = PrecisionRecall.CheckRecall(assembly, forAssembly);
     Console.Write(PrecisionRecall.FormatRecall(name, result));
     return result.Passed ? 0 : 1;

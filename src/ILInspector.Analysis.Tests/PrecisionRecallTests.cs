@@ -26,16 +26,15 @@ public class PrecisionRecallTests
     {
         // Build a reference from the assembly's own top loop+high site, so it must be present.
         var top = PrecisionRecall.Candidates(SelfAssembly).FirstOrDefault(c => c.InLoop && c.Confidence == "high");
-        if (top is null)
-            return; // no loop+high site in this assembly; nothing to anchor
-        var reference = new[] { new PaydirtReference("X", top.Type, top.Method, top.Shape) };
+        Assert.NotNull(top); // the anchor must exist, or the test is vacuous
+        var reference = new[] { new PaydirtReference("X", top.Type, top.Method, top.Signature, top.Shape) };
         Assert.True(PrecisionRecall.CheckRecall(SelfAssembly, reference).Passed);
     }
 
     [Fact]
     public void CheckRecall_AbsentReference_IsRegression()
     {
-        var reference = new[] { new PaydirtReference("X", "NoSuchType", "NoSuchMethod", "box-value-type") };
+        var reference = new[] { new PaydirtReference("X", "NoSuchType", "NoSuchMethod", "", "box-value-type") };
         var result = PrecisionRecall.CheckRecall(SelfAssembly, reference);
         Assert.False(result.Passed);
         Assert.Single(result.Missing);
