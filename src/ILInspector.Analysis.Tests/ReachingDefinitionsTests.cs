@@ -1,0 +1,92 @@
+using System.Reflection.Metadata;
+
+using ILInspector.Analysis;
+
+namespace ILInspector.Analysis.Tests;
+
+public class ReachingDefinitionsTests
+{
+    [Fact]
+    public void Analyze_EntryArgumentUse_ReachesSyntheticArgumentDefinition()
+    {
+        var result = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldarg_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 1);
+
+        var argUse = Assert.Single(result.Uses.Where(use => use.IsArgument && use.Slot == 0));
+        var definition = Assert.Single(argUse.ReachingDefinitions);
+        Assert.True(definition.IsArgument);
+        Assert.Equal(0, definition.Slot);
+        Assert.Equal(-1, definition.Offset);
+    }
+
+    [Fact]
+    public void Analyze_BranchMerge_UseSeesDefinitionsFromBothPredecessors()
+    {
+        var result = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldarg_0),
+            Op(ILOpCode.Brfalse_s), 0x04,
+            Op(ILOpCode.Ldc_i4_1),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Br_s), 0x02,
+            Op(ILOpCode.Ldc_i4_2),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 1);
+
+        var mergedUse = Assert.Single(result.Uses.Where(use => !use.IsArgument && use.Slot == 0));
+        Assert.Equal([4, 8], mergedUse.ReachingDefinitions.Select(def => def.Offset).ToArray());
+    }
+
+    [Fact]
+    public void Analyze_LoopBackEdge_UseSeesEntryAndLoopCarriedDefinitions()
+    {
+        var result = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldc_i4_0),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldc_i4_0),
+            Op(ILOpCode.Stloc_1),
+            Op(ILOpCode.Br_s), 0x08,
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Ldloc_1),
+            Op(ILOpCode.Add),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloc_1),
+            Op(ILOpCode.Ldc_i4_1),
+            Op(ILOpCode.Add),
+            Op(ILOpCode.Stloc_1),
+            Op(ILOpCode.Ldloc_1),
+            Op(ILOpCode.Ldarg_0),
+            Op(ILOpCode.Blt_s), unchecked((byte)-12),
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 1);
+
+        var loopUse = Assert.Single(result.Uses.Where(use => !use.IsArgument && use.Slot == 0 && use.Offset == 6));
+        Assert.Equal([1, 9], loopUse.ReachingDefinitions.Select(def => def.Offset).ToArray());
+    }
+
+    [Fact]
+    public void Analyze_MalformedHugeSwitch_ThrowsBeforeAllocatingTargetTable()
+    {
+        Assert.Throws<BadImageFormatException>(() => ReachingDefinitions.Analyze([
+            Op(ILOpCode.Switch),
+            0x01, 0x00, 0x00, 0x40,
+            0x00, 0x00, 0x00, 0x00,
+        ], argumentSlotCount: 0));
+    }
+
+    [Fact]
+    public void Analyze_MalformedBranchIntoInstruction_Throws()
+    {
+        Assert.Throws<BadImageFormatException>(() => ReachingDefinitions.Analyze([
+            Op(ILOpCode.Br_s), 0x01,
+            Op(ILOpCode.Ldc_i4), 0x00, 0x00, 0x00, 0x00,
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0));
+    }
+
+    static byte Op(ILOpCode opcode) => checked((byte)opcode);
+}
