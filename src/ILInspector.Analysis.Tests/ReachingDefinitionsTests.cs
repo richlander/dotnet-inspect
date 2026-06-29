@@ -69,6 +69,26 @@ public class ReachingDefinitionsTests
     }
 
     [Fact]
+    public void Analyze_SlotReuse_SeparatesUsesByReachingDefinition()
+    {
+        var result = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldc_i4_0),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Pop),
+            Op(ILOpCode.Ldc_i4_1),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0);
+
+        var firstUse = Assert.Single(result.Uses.Where(use => !use.IsArgument && use.Slot == 0 && use.Offset == 2));
+        Assert.Equal([1], firstUse.ReachingDefinitions.Select(def => def.Offset).ToArray());
+        var secondUse = Assert.Single(result.Uses.Where(use => !use.IsArgument && use.Slot == 0 && use.Offset == 6));
+        Assert.Equal([5], secondUse.ReachingDefinitions.Select(def => def.Offset).ToArray());
+    }
+
+    [Fact]
     public void Analyze_MalformedHugeSwitch_ThrowsBeforeAllocatingTargetTable()
     {
         Assert.Throws<BadImageFormatException>(() => ReachingDefinitions.Analyze([

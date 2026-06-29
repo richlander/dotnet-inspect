@@ -1074,7 +1074,7 @@ public sealed class LibraryBodyIndex
                             && !HasGeneratedCodeAttribute(methodAttributes)
                             && !HasCompilerGeneratedAttribute(methodAttributes)
                             && !IsBlazorRenderMethod(caller))
-                            optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
+                            optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, body.ExceptionRegions, caller, scope, loopRegions));
                         else
                             suppressedOpportunityTokens.Add(caller.MetadataToken);
                         var signals = CollectBodySignals(il, body, scope, loopRegions);
@@ -1451,9 +1451,13 @@ public sealed class LibraryBodyIndex
             return found;
         }
 
-        ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
+        ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
+            ReachingDefinitionsResult? reachingDefinitions = null;
+            ReachingDefinitionsResult GetReachingDefinitions()
+                => reachingDefinitions ??= ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
+
             int? pendingConstant = null;
             // Delegate creation is `<push target>; ldftn/ldvirtftn M; newobj DelegateCtor`.
             // Track the pending function-pointer load so a single row is emitted at the
@@ -1520,7 +1524,7 @@ public sealed class LibraryBodyIndex
                             // array provably stays local AND its element type is stackalloc-
                             // eligible (an unmanaged primitive); otherwise keep the
                             // non-committal shape.
-                            bool local = ArrayProvablyStaysLocal(il, position, caller)
+                            bool local = ArrayProvablyStaysLocal(il, GetReachingDefinitions(), position)
                                 && IsStackallocEligibleElement(ResolveTypeToken(elementToken, callerScope));
                             opportunities.Add(local
                                 ? new OptimizationOpportunity(
@@ -2185,14 +2189,31 @@ public sealed class LibraryBodyIndex
         // load is an in-place element access / length read — never returned, stored to a
         // field, address-taken, or passed to a call. Any shape we cannot prove local returns
         // false (keep the non-committal `small-array`), so a false positive is impossible.
-        bool ArrayProvablyStaysLocal(byte[] il, int positionAfterNewarr, MethodIdentity caller)
+        bool ArrayProvablyStaysLocal(byte[] il, ReachingDefinitionsResult reachingDefinitions, int positionAfterNewarr)
         {
             try
             {
-                int slot = ReadStoreLocalSlot(il, positionAfterNewarr);
-                if (slot < 0)
+                if (!TryReadStoreLocalDefinition(il, positionAfterNewarr, out int slot, out int storeOffset))
                     return false;
-                return !LocalArrayEscapes(il, slot);
+                if (!reachingDefinitions.IsComplete)
+                    return false;
+                var definition = reachingDefinitions.Definitions.FirstOrDefault(d =>
+                    !d.IsArgument && d.Slot == slot && d.Offset == storeOffset);
+                if (definition is null)
+                    return false;
+
+                foreach (var use in reachingDefinitions.UsesOf(definition))
+                {
+                    if (use.Address)
+                        return false;
+                    if (!TryPositionAfterLoadLocal(il, use.Offset, slot, out int positionAfterLoad)
+                        || ArrayLoadEscapes(il, positionAfterLoad))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
             {
@@ -2200,14 +2221,19 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        // If the next instruction stores to a local, returns its slot; otherwise -1.
-        static int ReadStoreLocalSlot(byte[] il, int position)
+        static int ArgumentSlotCount(MethodIdentity method)
+            => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
+
+        // If the next instruction stores to a local, returns its slot and IL offset.
+        static bool TryReadStoreLocalDefinition(byte[] il, int position, out int slot, out int storeOffset)
         {
+            slot = -1;
+            storeOffset = position;
             if (position >= il.Length)
-                return -1;
+                return false;
             int probe = position;
             var opcode = ReadOpcode(il, ref probe);
-            return opcode switch
+            slot = opcode switch
             {
                 ILOpCode.Stloc_0 => 0,
                 ILOpCode.Stloc_1 => 1,
@@ -2217,51 +2243,15 @@ public sealed class LibraryBodyIndex
                 ILOpCode.Stloc => BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(probe)),
                 _ => -1,
             };
+            return slot >= 0;
         }
 
-        // Scans the whole body for uses of the array local. The array escapes if its address
-        // is taken (`ldloca`) or any load is not consumed in place by an element access /
-        // length read. Conservative: any unrecognized use counts as an escape.
-        bool LocalArrayEscapes(byte[] il, int slot)
+        static bool TryPositionAfterLoadLocal(byte[] il, int offset, int slot, out int positionAfterLoad)
         {
-            int position = 0;
-            while (position < il.Length)
-            {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
-                if (IsLoadLocalAddress(il, opcode, ref position, slot, out bool addressOfSlot))
-                {
-                    if (addressOfSlot)
-                        return true; // address taken -> may escape
-                    continue;
-                }
-                if (IsLoadLocal(il, opcode, ref position, slot, out bool loadsSlot))
-                {
-                    if (loadsSlot && ArrayLoadEscapes(il, position))
-                        return true;
-                    continue;
-                }
-                SkipOperand(il, opcode, ref position, offset);
-            }
-            return false;
-        }
-
-        static bool IsLoadLocalAddress(byte[] il, ILOpCode opcode, ref int position, int slot, out bool matchesSlot)
-        {
-            matchesSlot = false;
-            switch (opcode)
-            {
-                case ILOpCode.Ldloca_s:
-                    matchesSlot = il[position] == slot;
-                    position += 1;
-                    return true;
-                case ILOpCode.Ldloca:
-                    matchesSlot = BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(position)) == slot;
-                    position += 2;
-                    return true;
-                default:
-                    return false;
-            }
+            positionAfterLoad = offset;
+            var opcode = ReadOpcode(il, ref positionAfterLoad);
+            return IsLoadLocal(il, opcode, ref positionAfterLoad, slot, out bool loadsSlot)
+                && loadsSlot;
         }
 
         static bool IsLoadLocal(byte[] il, ILOpCode opcode, ref int position, int slot, out bool matchesSlot)
