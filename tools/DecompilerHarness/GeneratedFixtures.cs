@@ -316,6 +316,34 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "while", "loop"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalDoWhileLoop = new(
+        "minimal.do-while",
+        """
+        namespace GeneratedFixtures.MinimalDoWhileLoop;
+
+        public class Class1
+        {
+            public int Method1(int count)
+            {
+                var sum = 0;
+                do
+                {
+                    sum += count;
+                    count--;
+                }
+                while (count > 0);
+                return sum;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalDoWhileLoop.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDoWhileLoop.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "do-while", "loop"]);
+
     public static readonly GeneratedFixtureDefinition MinimalSwitchInt = new(
         "minimal.switch-int",
         """
@@ -397,6 +425,7 @@ internal static class GeneratedFixtureCatalog
         MinimalForeachArray,
         MinimalForLoop,
         MinimalWhileLoop,
+        MinimalDoWhileLoop,
         MinimalSwitchInt,
     ];
 
