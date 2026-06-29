@@ -1,3 +1,4 @@
+using ILInspector.ControlFlow;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -31,7 +32,7 @@ public class PostDominatorsTests
             Term(3, new Return(null)),
         };
 
-        var pdom = PostDominators.Of(blocks);
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
 
         Assert.Equal(3, pdom.ImmediatePostDominator(0));  // the merge post-dominates the split
         Assert.Equal(3, pdom.ImmediatePostDominator(1));
@@ -62,7 +63,7 @@ public class PostDominatorsTests
             Term(5, new Return(null)),
         };
 
-        var pdom = PostDominators.Of(blocks);
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
 
         Assert.Equal(5, pdom.ImmediatePostDominator(0));  // the acceptance bar
         Assert.Equal(5, pdom.ImmediatePostDominator(1));
@@ -86,7 +87,7 @@ public class PostDominatorsTests
             Term(2, new Return(null)),
         };
 
-        var pdom = PostDominators.Of(blocks);
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
 
         Assert.Equal(PostDominators.VirtualExit, pdom.ImmediatePostDominator(0));
         Assert.Equal(PostDominators.VirtualExit, pdom.ImmediatePostDominator(1));
@@ -107,7 +108,7 @@ public class PostDominatorsTests
             Term(2, new Return(null)),
         };
 
-        var pdom = PostDominators.Of(blocks);
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
 
         Assert.Equal(PostDominators.None, pdom.ImmediatePostDominator(1));
         Assert.Equal(2, pdom.ImmediatePostDominator(0));   // the only exit path is through B2
@@ -131,7 +132,7 @@ public class PostDominatorsTests
             Term(2, new Return(null)),
         };
 
-        var pdom = PostDominators.Of(blocks);
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
 
         // The body's only path to the exit is back through the header, then B2.
         Assert.Equal(0, pdom.ImmediatePostDominator(1));
@@ -153,7 +154,7 @@ public class PostDominatorsTests
             Term(2, new Return(null)),
         };
 
-        var pdom = PostDominators.Of(blocks);
+        var pdom = PostDominators.Of(Cfg.Build(blocks));
 
         Assert.True(pdom.PostDominates(postDominator: 0, block: 0));
         Assert.True(pdom.PostDominates(postDominator: 2, block: 1));

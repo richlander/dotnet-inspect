@@ -1,3 +1,4 @@
+using ILInspector.ControlFlow;
 using System.Collections.Concurrent;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -1028,7 +1029,7 @@ static class Program
             ? MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata)
             : MetadataSource.Open(assemblyPath, context: metadata);
 
-    static string Succs(IReadOnlyList<Block> blocks, Cfg.BlockEdges edges)
+    static string Succs(IReadOnlyList<Block> blocks, BlockEdges edges)
     {
         var parts = new List<string>();
         foreach (int s in edges.Successors)
