@@ -15,7 +15,7 @@ This is the first step toward an addressable progressive fixture ladder:
 `minimal.property.literal`, `minimal.ctor-field.getter`,
 `minimal.auto-property.getter`, `minimal.method-call.same-type`, and
 `minimal.primary-ctor.field-init` are expected `Exact`; the static-call, if/else,
-array-index, null-coalescing, try/finally, using/dispose, foreach-array,
+array-index, array-length, null-coalescing, try/finally, using/dispose, foreach-array,
 for-loop, while-loop, and do-while rungs extend that minimal exact set;
 `minimal.switch-int` adds the first switch statement rung.
 `minimal.switch-two-case-lowers-if` records the current SDK's two-case

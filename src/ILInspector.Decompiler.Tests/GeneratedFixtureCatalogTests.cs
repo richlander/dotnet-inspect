@@ -149,6 +149,20 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.array-length",
+            "GeneratedFixtures.MinimalArrayLength.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.array-length",
+            "GeneratedFixtures.MinimalArrayLength.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.null-coalesce",
             "GeneratedFixtures.MinimalNullCoalesce.Class1",
             ".ctor",
@@ -267,6 +281,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.static-method-call", report);
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.array-index", report);
+        Assert.Contains("minimal.array-length", report);
         Assert.Contains("minimal.null-coalesce", report);
         Assert.Contains("minimal.try-finally", report);
         Assert.Contains("minimal.using-dispose", report);
@@ -290,6 +305,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(
             [
                 "minimal.array-index",
+                "minimal.array-length",
                 "minimal.auto-property.getter",
                 "minimal.ctor-field.getter",
                 "minimal.do-while",
@@ -326,6 +342,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-method-call");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-index");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-length");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.null-coalesce");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.try-finally");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.using-dispose");
