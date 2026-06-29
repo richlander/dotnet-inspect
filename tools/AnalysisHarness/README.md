@@ -73,3 +73,49 @@ The daily workflow runs the generated-fixture catalogue, corpus stability sensor
 recall gate. The remaining non-mechanical #1818 work is the precision-labeling convention: who
 labels `--precision-sample` worksheets, where labels live, and what false-positive-rate bar turns
 the worksheet into a maintained quality signal.
+
+## Precision labeling convention
+
+`--precision-sample` is an agent/human worksheet, not a gate. The analyzer has no automatic
+precision oracle, so labels must be reviewable evidence rather than an implied pass/fail.
+
+Use this convention for precision pilots and recurring reviews:
+
+- **Owner:** one agent prepares labels from the worksheet; a maintainer or second reviewer resolves
+  disputed rows before the result is treated as a quality signal.
+- **Storage:** post the labeled worksheet as an issue or PR comment on the tracker that requested
+  the sample. Do not commit labels unless they are promoted into curated recall references.
+- **Cadence:** run on demand for behavior changes, ranking changes, new shape families, or a
+  suspected false-positive cluster. Do not add it to PR CI or daily automation.
+- **Sample size:** start with `--top 20` for a normal review. Use a smaller sample only for a pilot
+  that validates the convention itself; state the sample size in the comment.
+- **Bar:** a sample is healthy when at least 80% of labeled rows are true positives and no
+  high-confidence false-positive cluster dominates the top rows. Below that bar, open or link a
+  follow-up issue for each cluster before treating the signal as healthy.
+- **Stale labels:** labels are tied to the assembly, command, commit, and tool version. Re-label
+  after ranking, confidence, or shape changes; do not compare old labels to new output without
+  re-running the worksheet.
+
+Required fields per row:
+
+| Field | Meaning |
+| --- | --- |
+| `Candidate` | Copy the worksheet row identity: type, method, signature, shape, confidence, loop, root reach. |
+| `Label` | `TP`, `FP`, or `Unknown`. `Unknown` is allowed when the row needs runtime/profile evidence. |
+| `Reason` | One sentence explaining why the row is real paydirt, a false positive, or undecidable. |
+| `Evidence` | The command/output inspected, usually `dotnet-inspect member ... -S "Annotated Source,IL"` or equivalent. |
+| `Action` | `none`, `open issue`, `promote to recall reference`, or `needs maintainer decision`. |
+
+Comment template:
+
+```text
+### Analysis precision sample — <assembly>
+
+Command: dotnet run --project tools/AnalysisHarness -c Release -- --precision-sample <assembly> --top <N>
+Commit/tool: <git sha>
+Summary: <TP>/<labeled> TP, <FP>/<labeled> FP, <Unknown> unknown. Healthy: yes/no.
+
+| Candidate | Label | Reason | Evidence | Action |
+| --- | --- | --- | --- | --- |
+| <type>::<method>(<signature>) [shape, confidence, loop, root reach] | TP/FP/Unknown | <why> | <command/output> | <next> |
+```
