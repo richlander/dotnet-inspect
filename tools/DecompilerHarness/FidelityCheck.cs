@@ -3026,7 +3026,16 @@ static class FidelityCheck
         string? normalizedTfm = NormalizeNuGetFramework(tfm);
         var selectedGroup = normalizedTfm is null
             ? null
-            : groups.FirstOrDefault(g => NormalizeNuGetFramework(g.Attribute("targetFramework")?.Value) == normalizedTfm);
+            : groups
+                .Select(group => new
+                {
+                    Group = group,
+                    Score = NuGetFrameworkCompatibilityScore(normalizedTfm, NormalizeNuGetFramework(group.Attribute("targetFramework")?.Value)),
+                })
+                .Where(candidate => candidate.Score is not null)
+                .OrderByDescending(candidate => candidate.Score)
+                .Select(candidate => candidate.Group)
+                .FirstOrDefault();
 
         if (selectedGroup is not null)
         {
@@ -3054,6 +3063,65 @@ static class FidelityCheck
         return tfm;
     }
 
+    static int? NuGetFrameworkCompatibilityScore(string target, string? candidate)
+    {
+        if (candidate is null)
+            return null;
+        if (string.Equals(target, candidate, StringComparison.OrdinalIgnoreCase))
+            return 100_000;
+        if (!TryParseNuGetFramework(target, out var targetFramework) ||
+            !TryParseNuGetFramework(candidate, out var candidateFramework))
+            return null;
+
+        int versionScore = candidateFramework.Major * 100 + candidateFramework.Minor;
+        return targetFramework.Family switch
+        {
+            "net" when candidateFramework.Family == "net" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 90_000 + versionScore,
+            "net" when candidateFramework.Family == "netcoreapp" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 80_000 + versionScore,
+            "net" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= 201
+                => 70_000 + versionScore,
+            "netcoreapp" when candidateFramework.Family == "netcoreapp" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 90_000 + versionScore,
+            "netcoreapp" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= 201
+                => 80_000 + versionScore,
+            "netstandard" when candidateFramework.Family == "netstandard" && candidateFramework.VersionScore <= targetFramework.VersionScore
+                => 90_000 + versionScore,
+            _ => null,
+        };
+    }
+
+    readonly record struct NuGetFramework(string Family, int Major, int Minor)
+    {
+        public int VersionScore => Major * 100 + Minor;
+    }
+
+    static bool TryParseNuGetFramework(string tfm, out NuGetFramework framework)
+    {
+        framework = default;
+        if (tfm.StartsWith("netstandard", StringComparison.Ordinal))
+            return TryParseVersionedFramework("netstandard", tfm["netstandard".Length..], out framework);
+        if (tfm.StartsWith("netcoreapp", StringComparison.Ordinal))
+            return TryParseVersionedFramework("netcoreapp", tfm["netcoreapp".Length..], out framework);
+        if (tfm.StartsWith("net", StringComparison.Ordinal) && tfm[3..].Contains('.', StringComparison.Ordinal))
+            return TryParseVersionedFramework("net", tfm["net".Length..], out framework);
+        return false;
+    }
+
+    static bool TryParseVersionedFramework(string family, string version, out NuGetFramework framework)
+    {
+        framework = default;
+        var parts = version.Split('.', 3);
+        if (parts.Length == 0 || !int.TryParse(parts[0], out int major))
+            return false;
+        int minor = 0;
+        if (parts.Length >= 2 && !int.TryParse(parts[1], out minor))
+            return false;
+        framework = new(family, major, minor);
+        return true;
+    }
+
     static string? DependencyExactVersion(string? version)
     {
         if (string.IsNullOrWhiteSpace(version))
@@ -3079,30 +3147,53 @@ static class FidelityCheck
         if (!Directory.Exists(packageDir))
             yield break;
 
-        foreach (string assetKind in (string[])["lib", "ref"])
+        foreach (string assetKind in (string[])["ref", "lib"])
         {
-            if (tfm is not null)
+            if (tfm is not null && AssetDirectory(packageDir, assetKind, tfm) is { } exactAssetDir)
             {
-                string assetDir = Path.Combine(packageDir, assetKind, tfm);
-                if (Directory.Exists(assetDir))
-                {
-                    foreach (var path in Directory.EnumerateFiles(assetDir, "*.dll"))
-                        yield return path;
-                    yield break;
-                }
-            }
-
-            string assetRoot = Path.Combine(packageDir, assetKind);
-            if (!Directory.Exists(assetRoot))
-                continue;
-
-            foreach (string tfmDir in Directory.EnumerateDirectories(assetRoot).OrderDescending(StringComparer.OrdinalIgnoreCase))
-            {
-                foreach (var path in Directory.EnumerateFiles(tfmDir, "*.dll"))
+                foreach (var path in Directory.EnumerateFiles(exactAssetDir, "*.dll"))
                     yield return path;
                 yield break;
             }
         }
+
+        foreach (string assetKind in (string[])["ref", "lib"])
+        {
+            if (tfm is not null && CompatibleAssetDirectory(packageDir, assetKind, tfm) is { } compatibleAssetDir)
+            {
+                foreach (var path in Directory.EnumerateFiles(compatibleAssetDir, "*.dll"))
+                    yield return path;
+                yield break;
+            }
+        }
+    }
+
+    static string? AssetDirectory(string packageDir, string assetKind, string tfm)
+    {
+        string assetDir = Path.Combine(packageDir, assetKind, tfm);
+        return Directory.Exists(assetDir) ? assetDir : null;
+    }
+
+    static string? CompatibleAssetDirectory(string packageDir, string assetKind, string targetTfm)
+    {
+        string assetRoot = Path.Combine(packageDir, assetKind);
+        if (!Directory.Exists(assetRoot))
+            return null;
+
+        string? normalizedTarget = NormalizeNuGetFramework(targetTfm);
+        if (normalizedTarget is null)
+            return null;
+
+        return Directory.EnumerateDirectories(assetRoot)
+            .Select(dir => new
+            {
+                Directory = dir,
+                Score = NuGetFrameworkCompatibilityScore(normalizedTarget, NormalizeNuGetFramework(Path.GetFileName(dir))),
+            })
+            .Where(candidate => candidate.Score is not null)
+            .OrderByDescending(candidate => candidate.Score)
+            .Select(candidate => candidate.Directory)
+            .FirstOrDefault();
     }
 
     static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
