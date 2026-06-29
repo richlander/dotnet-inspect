@@ -35,6 +35,7 @@ static class Program
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
         bool fidelityTimings = false;
+        int fidelityZeroSignalGuard = 0;
         bool gaps = false;
         bool annotationCheck = false;
         bool steps = false;
@@ -101,6 +102,7 @@ static class Program
                 case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--fidelity-timings": fidelityTimings = true; break;
+                case "--fidelity-zero-signal-guard": fidelityZeroSignalGuard = int.Parse(args[++i]); break;
                 case "--gaps": gaps = true; break;
                 case "--annotation-check": annotationCheck = true; break;
                 case "--pass-impact":
@@ -177,7 +179,7 @@ static class Program
         }
 
         if (fidelityCheck)
-            return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings);
+            return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1160,6 +1162,10 @@ static class Program
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
+          --fidelity-zero-signal-guard <n>
+                                with --fidelity-check: probe the first N methods and stop early
+                                when they contain no Exact/OpcodeDiff rows and one failure bucket
+                                dominates, reporting the population as zero-signal/uncheckable.
           --type-check          whole-type source oracle — compose each public type
                                 and compare its namespace, kind, modifiers, and member
                                 surface against metadata (syntactic, never binds, so
