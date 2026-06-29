@@ -77,6 +77,21 @@ public class LoweredFidelityGateTests
         // `(uint)` mixed-sign reinterpret. The And* siblings stay opcode-exact.
         "OrBoolIntMix",
         "OrBoolUintMix",
+        // SwitchStoreThenUse (#1743) is a known opcode-diff in the sibling sugared
+        // FidelityGateTests docket — the ConditionalStoreChainPass ternary
+        // (sel == 0 ? 11 : ...) re-lowers differently than the per-arm stores. It
+        // diffs identically in the lowered view; this entry was missing because the
+        // lowered gate is Speed=Slow and only runs in the daily, not PR CI. Verified
+        // pre-existing (fails with MixedShortCircuitChainPass off as well).
+        "SwitchStoreThenUse",
+        // CharConditionalElementStore (#1784) and WhileNestedContinueKeepsArmExclusive:
+        // pre-existing slow-docket gaps from recent main merges (a char ternary
+        // element store that spills to temps; a nested-continue loop structuring),
+        // both honest valid re-lowerings. Surfaced by running the Speed=Slow gate
+        // locally; verified independent of MixedShortCircuitChainPass (it folds
+        // neither). See the sibling FidelityGateTests docket.
+        "CharConditionalElementStore",
+        "WhileNestedContinueKeepsArmExclusive",
     };
 
     /// <summary>
@@ -93,6 +108,9 @@ public class LoweredFidelityGateTests
     static readonly string[] PinnedExact =
     {
         "CheckedAdd",
+        // MixedOrAndArms (#1175): mixed ||/&& fold stays opcode-exact in the
+        // lowered view too — pinned so a regression trips the always-run gate.
+        "MixedOrAndArms",
         "UnsignedShift",
         "Shadowed",
         ".ctor",

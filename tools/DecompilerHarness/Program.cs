@@ -50,6 +50,8 @@ static class Program
         string? passImpactPass = null;
         bool showDiff = false;
         bool structuringStops = false;
+        bool postdomProbe = false;
+        int postdomSample = 0;
         bool libraryReport = false;
         bool unsupportedNodes = false;
         bool typeCheck = false;
@@ -109,6 +111,8 @@ static class Program
                     break;
                 case "--show-diff": showDiff = true; break;
                 case "--structuring-stops": structuringStops = true; break;
+                case "--postdom-probe": postdomProbe = true; break;
+                case "--postdom-sample": postdomProbe = true; postdomSample = int.Parse(args[++i]); break;
                 case "--library-report": libraryReport = true; break;
                 case "--unsupported-nodes": unsupportedNodes = true; break;
                 case "--type-check": typeCheck = true; break;
@@ -227,6 +231,9 @@ static class Program
 
         if (structuringStops)
             return StructuringStops(assemblies, cap);
+
+        if (postdomProbe)
+            return PostDomProbe.Run(assemblies, cap, postdomSample);
 
         // Default: the pipeline's fidelity/stop-reason inventory.
         return Inventory(assemblies);
@@ -1239,6 +1246,13 @@ static class Program
           --structuring-stops   tally why StructuringPass leaves containers flat:
                                 a per-container histogram of stop reasons (the
                                 common-exit merge docket). Honors --cap.
+          --postdom-probe       step-4 prototype (#1175): classify each residual
+                                conditional-branch method by its post-dominator
+                                merge shape (single-merge / return-tail / multi-
+                                merge / exit / loop). Read-only sizing of the
+                                retained-label slice. Honors --cap.
+          --postdom-sample <n>  with --postdom-probe: also print readability
+                                sketches for the first n single-merge methods.
           --cap <n>             with --pass-impact/--structuring-stops: stop after
                                 n methods (default: unlimited). Bounds a full-CoreLib
                                 stage sweep.

@@ -3936,6 +3936,24 @@ public class CfgSampleClass
             acc += data[i] * weight;
         return acc;
     }
+
+    // #1175 / MixedShortCircuitChainPass: a mixed || / && condition with
+    // effectful arms. csc lowers the guard chain so the guards branch to BOTH
+    // diamond arms, which the pure-OR fold (or-chain-diamond) cannot name; the
+    // mixed pass reverses it to `if (Guard(a) || (Guard(b) && Guard(c)))`. The
+    // method-call guards keep it residual without the pass. Pinned opcode-exact
+    // so a regression to RecompileFail or a worse shape is caught by the always-run
+    // fidelity gate, not left to the sampled corpus.
+    static bool Guard(int x) => x > 0;
+
+    public static int MixedOrAndArms(int a, int b, int c, System.Text.StringBuilder sb)
+    {
+        if (Guard(a) || (Guard(b) && Guard(c)))
+            sb.Append('x');
+        else
+            sb.Append('y');
+        return sb.Length;
+    }
 }
 
 internal static class AwaitOrderingHelpers
