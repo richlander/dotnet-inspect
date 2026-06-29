@@ -1,5 +1,8 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -1674,6 +1677,40 @@ public class CSharpPrinterTests
 
 public class RaisingPassTests
 {
+    static void AssertRefLocalBodyCompiles(string body)
+    {
+        string source = $$"""
+            using System;
+
+            public static class T
+            {
+                static int s_value;
+                public static ref int A() => ref s_value;
+                public static ref int A(ref int value) => ref s_value;
+                public static void Use(ref int value) { }
+                public static void M()
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.Ordinal)
+            .Select(path => MetadataReference.CreateFromFile(path));
+        var compilation = CSharpCompilation.Create(
+            "RefLocalCanary",
+            [tree],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+
+        EmitResult result = compilation.Emit(Stream.Null);
+        Assert.True(result.Success,
+            string.Join(Environment.NewLine, result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+            + Environment.NewLine + source);
+    }
+
     static string PrintWithPasses(string typeName, string methodName, MetadataSource source)
     {
         var function = IrImporter.Import(source, typeName, methodName);
@@ -2483,7 +2520,12 @@ public class RaisingPassTests
         var body = new Block(1);
         container.Add(body);
         var getRef = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [], HasThis: false);
+        var use = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "Use", TypeRef.CoreLib("System", "Void"), [refInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
         body.Add(new StoreLocal(0, refInt, new Call(getRef, isVirtual: false, [])));
+        body.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, refInt)])));
         body.Add(new Return(null));
         var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
             [], HasThis: false, GenericParameterCount: 0);
@@ -2492,6 +2534,99 @@ public class RaisingPassTests
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref T.A();", output);
         Assert.DoesNotContain("Unsafe.NullRef", output);
+        AssertRefLocalBodyCompiles(output);
+    }
+
+    [Fact]
+    public void RefLocal_AssignedBeforeUseInLaterBlock_InitializesToNullRef()
+    {
+        // A declaration at the store would strand the later block's use outside
+        // scope. Keep the up-front null ref when references leave the store block.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var entry = new Block(0);
+        container.Add(entry);
+        entry.Add(new Branch(1));
+        var assign = new Block(1);
+        container.Add(assign);
+        var getRef = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [], HasThis: false);
+        assign.Add(new StoreLocal(0, refInt, new Call(getRef, isVirtual: false, [])));
+        assign.Add(new Branch(2));
+        var useBlock = new Block(2);
+        container.Add(useBlock);
+        var use = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "Use", TypeRef.CoreLib("System", "Void"), [refInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        useBlock.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, refInt)])));
+        useBlock.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
+        Assert.Contains("V_0 = ref T.A();", output);
+        AssertRefLocalBodyCompiles(output);
+    }
+
+    [Fact]
+    public void RefLocal_LaterLabelTarget_InitializesToNullRef()
+    {
+        // A branch can target a later statement in the same flat block. Declaring
+        // at the store would let the goto bypass the declaration and hit CS0165.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ConditionalBranch(new Constant(true, boolType), 0x10));
+        var getRef = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [], HasThis: false);
+        block.Add(new StoreLocal(0, refInt, new Call(getRef, isVirtual: false, [])));
+        var use = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "Use", TypeRef.CoreLib("System", "Void"), [refInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        var useStatement = new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, refInt)]));
+        useStatement.SetSourceOffset(0x10);
+        block.Add(useStatement);
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
+        Assert.Contains("V_0 = ref T.A();", output);
+        AssertRefLocalBodyCompiles(output);
+    }
+
+    [Fact]
+    public void RefLocal_SelfReferentialStore_InitializesToNullRef()
+    {
+        // IL can read the zero-initialized ref local while computing its first
+        // store. C# cannot reference a variable in its own declaration initializer.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var getRef = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [refInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        block.Add(new StoreLocal(0, refInt, new Call(getRef, isVirtual: false, [new LoadLocal(0, refInt)])));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
+        Assert.Contains("V_0 = ref T.A(ref V_0);", output);
+        AssertRefLocalBodyCompiles(output);
     }
 
     [Fact]
@@ -2519,6 +2654,7 @@ public class RaisingPassTests
 
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
+        AssertRefLocalBodyCompiles(output);
     }
 
     [Fact]
