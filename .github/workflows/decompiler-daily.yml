@@ -90,6 +90,14 @@ jobs:
             --emit-corpus-snapshot artifacts/analysis-daily/analysis-corpus-snapshot.json \
             --diff-corpus-baseline tools/AnalysisHarness/corpus/analysis-baseline.json
 
+      # Analysis recall gate (#1818, Layer 3): curated paydirt sites are a
+      # mechanical oracle once selected. Keep this daily/manual, not PR CI.
+      - name: Run analysis paydirt recall
+        run: |
+          dotnet run --project tools/AnalysisHarness -c Release -- \
+            --paydirt-recall artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll \
+            --reference tools/AnalysisHarness/corpus/paydirt-reference.json
+
       - name: Upload corpus snapshot
         if: always()
         uses: actions/upload-artifact@v7
