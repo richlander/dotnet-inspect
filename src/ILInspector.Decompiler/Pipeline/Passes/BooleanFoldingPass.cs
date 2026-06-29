@@ -691,12 +691,6 @@ public sealed class BooleanFoldingPass : IIrPass
         condition.Detach();
         var whenTrue = (IrExpression)thenStore.DetachChildren()[0];
         var whenFalse = (IrExpression)elseStore.DetachChildren()[0];
-        if (condition is LogicalNot doubleNegative)
-        {
-            // !c ? b : a reads backwards; unwrap and swap the arms.
-            condition = (IrExpression)doubleNegative.DetachChildren()[0];
-            (whenTrue, whenFalse) = (whenFalse, whenTrue);
-        }
         stepper.StepOver("fold store diamond into ternary", diamond);
         diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType }));
         return true;

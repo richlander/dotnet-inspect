@@ -169,16 +169,11 @@ public sealed class SlotDiamondPass : IIrPass
             return null;
 
         // `if (c) goto trueArm` takes the true arm when c holds, so the true arm's
-        // value is the when-true result. A LogicalNot condition reads backwards;
-        // unwrap and swap, mirroring BooleanFoldingPass.FoldSlotDiamond.
+        // value is the when-true result. Keep a LogicalNot condition intact so the
+        // rendered conditional preserves the original branch polarity.
         var condition = branch.Condition;
         var whenTrue = trueStore.Value;
         var whenFalse = falseStore.Value;
-        if (condition is LogicalNot negated)
-        {
-            condition = negated.Operand;
-            (whenTrue, whenFalse) = (whenFalse, whenTrue);
-        }
         if (HasNullArmForNonNullableValue(whenTrue, whenFalse, load.Type, function))
             return null;
 
