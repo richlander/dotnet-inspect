@@ -84,6 +84,23 @@ The daily workflow runs the generated-fixture catalogue, corpus stability sensor
 recall gate. Precision labeling, baseline refreshes, and recall-reference edits remain
 maintainer-owned upkeep: they are documented conventions, not automatic CI gates.
 
+## Allocation convergence parity
+
+The Rung 4 allocation-convergence build must prove that a candidate
+occurrence-derived projection produces the same decompiler allocation annotations
+as the legacy `AllocationClassifier`. Use the parity gate with two
+`AnnotationStructuredView.Json(...)` outputs: the legacy allocation annotations
+and the candidate projection serialized in the same structured shape.
+
+```bash
+dotnet "$DLL" --allocation-parity legacy-annotations.json candidate-annotations.json
+```
+
+The comparison ignores non-allocation annotations and is exact for allocation
+annotation `id`, IL `offset`, `conditionality`, and `detail`. Duplicate rows are
+counted, so Track A can use this as a mechanical exit gate for identical
+projection rather than manually inspecting mixed-source output.
+
 ## Precision labeling convention
 
 `--precision-sample` is an agent/human worksheet, not a gate. The analyzer has no automatic
