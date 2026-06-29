@@ -39,8 +39,7 @@
         "enumerator-allocation": 1,
         "linq-scan-in-loop": 3,
         "scan-method-in-loop-call": 2,
-        "small-array": 7,
-        "span-to-array-copy": 1
+        "small-array": 7
       }
     },
     {
@@ -76,7 +75,6 @@
         "linq-scan-in-loop": 53,
         "scan-method-in-loop-call": 45,
         "small-array": 97,
-        "span-to-array-copy": 4,
         "string-build-in-loop": 3
       }
     },
@@ -165,7 +163,6 @@
         "linq-scan-in-loop": 3,
         "scan-method-in-loop-call": 1,
         "small-array": 300,
-        "span-to-array-copy": 2,
         "string-build-in-loop": 3,
         "temporary-byte-array-copy": 1
       }
@@ -232,11 +229,10 @@
         "box-value-type": 14,
         "capturing-delegate": 234,
         "enumerator-allocation": 15,
-        "instance-method-group-delegate": 75,
+        "instance-method-group-delegate": 73,
         "linq-scan-in-loop": 13,
         "scan-method-in-loop-call": 9,
         "small-array": 771,
-        "span-to-array-copy": 1,
         "string-build-in-loop": 6
       }
     }

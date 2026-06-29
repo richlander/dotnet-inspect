@@ -26,6 +26,11 @@ const string Usage =
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
 
+      --allocation-parity <expected-annotations.json> <actual-annotations.json> [--json]
+          Compare allocation annotations from the legacy decompiler classifier and a candidate
+          occurrence-derived projection. The gate is exact on id, IL offset, detail, and
+          conditionality; non-allocation annotations are ignored.
+
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
 
@@ -46,6 +51,8 @@ bool list = false;
 string? recallAssembly = null;
 string? referenceFile = null;
 string? precisionAssembly = null;
+string? allocationParityExpected = null;
+string? allocationParityActual = null;
 int top = 20;
 
 for (int i = 0; i < args.Length; i++)
@@ -71,6 +78,10 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--precision-sample":
             precisionAssembly = NextValue(args, ref i);
+            break;
+        case "--allocation-parity":
+            allocationParityExpected = NextPathValue(args, ref i);
+            allocationParityActual = NextPathValue(args, ref i);
             break;
         case "--reference":
             referenceFile = NextValue(args, ref i);
@@ -102,6 +113,9 @@ if (recallAssembly is not null)
 
 if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);
+
+if (allocationParityExpected is not null)
+    return RunAllocationParity(allocationParityExpected, allocationParityActual, json);
 
 if (corpusList is not null)
     return RunCorpus(corpusList, diffBaseline, emitSnapshot, json);
@@ -135,6 +149,26 @@ static int RunPrecision(string assembly, int top)
     if (!File.Exists(assembly)) { Console.Error.WriteLine($"Assembly not found: {assembly}"); return 2; }
     Console.WriteLine(PrecisionRecall.ToJson(PrecisionRecall.Sample(assembly, top)));
     return 0;
+}
+
+static int RunAllocationParity(string expectedPath, string? actualPath, bool json)
+{
+    if (actualPath is null)
+    {
+        Console.Error.WriteLine("--allocation-parity requires expected and actual annotation JSON files.");
+        return 2;
+    }
+    if (!File.Exists(expectedPath)) { Console.Error.WriteLine($"Expected annotation JSON not found: {expectedPath}"); return 2; }
+    if (!File.Exists(actualPath)) { Console.Error.WriteLine($"Actual annotation JSON not found: {actualPath}"); return 2; }
+
+    var result = AllocationAnnotationParity.CompareJson(
+        File.ReadAllText(expectedPath),
+        File.ReadAllText(actualPath));
+    Console.Write(json
+        ? AllocationAnnotationParity.ToJson(result)
+        : AllocationAnnotationParity.Format(result));
+    if (json) Console.WriteLine();
+    return result.Passed ? 0 : 1;
 }
 
 static int RunFixtures(string? selector, bool list, bool json, bool keep)
@@ -209,3 +243,8 @@ static int RunCorpus(string corpusList, string? diffBaseline, string? emitSnapsh
 
 static string? NextValue(string[] args, ref int i)
     => i + 1 < args.Length ? args[++i] : null;
+
+static string? NextPathValue(string[] args, ref int i)
+    => i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
+        ? args[++i]
+        : null;
