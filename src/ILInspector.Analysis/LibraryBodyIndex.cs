@@ -73,7 +73,8 @@ public sealed class LibraryBodyIndex
                     {
                         int reach = reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach;
                         var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
-                        var confidence = IsColdOpportunity(adjusted)
+                        adjusted = MarkAmortizedSetup(adjusted);
+                        var confidence = IsLowFrequencyOpportunity(adjusted)
                             ? "low"
                             : AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
                         return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
@@ -125,8 +126,36 @@ public sealed class LibraryBodyIndex
             ? "medium"
             : confidence;
 
-    static bool IsColdOpportunity(OptimizationOpportunity opportunity)
-        => opportunity.ColdPath;
+    static bool IsLowFrequencyOpportunity(OptimizationOpportunity opportunity)
+        => opportunity.ColdPath || opportunity.Amortized;
+
+    OptimizationOpportunity MarkAmortizedSetup(OptimizationOpportunity opportunity)
+    {
+        if (opportunity.Amortized)
+            return opportunity;
+        if (opportunity.Method.Name is not (".ctor" or ".cctor"))
+            return opportunity;
+        // Type initializers are exact amortized setup: one execution per type.
+        // Instance constructors are less certain, so demote only when this assembly
+        // does not itself instantiate the constructor from a loop. That preserves a
+        // known-hot transient-constructor signal while still lowering setup-only rows
+        // such as DI/SignalR constructors that are not loop-invoked in their assembly.
+        if (opportunity.Method.Name == ".ctor" && ConstructorIsInvokedInLoop(opportunity.Method))
+            return opportunity;
+
+        return opportunity with
+        {
+            Amortized = true,
+            SafeFixDirection = "This allocation is in constructor/type-initializer setup, not a steady-state per-call path. Optimize only if profiles show this setup is hot or repeated unexpectedly.",
+            Caveat = "Amortized setup path: constructor/type-initializer allocations are usually once per instance/type, not per steady-state operation.",
+        };
+    }
+
+    bool ConstructorIsInvokedInLoop(MethodIdentity constructor)
+        => DirectCalls.Any(call =>
+            call.Kind == CallKind.NewObject
+            && call.InLoop
+            && call.CalleeDefinitionToken == constructor.MetadataToken);
 
     IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
     {
