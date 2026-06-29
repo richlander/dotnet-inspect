@@ -1079,6 +1079,7 @@ public sealed class LibraryBodyIndex
                         if (allocations.Length > 0)
                             allocationOccurrences[caller.MetadataToken] = allocations;
                         var methodAttributes = methodDef.GetCustomAttributes();
+                        if (caller.Name == "BoxesGenericStruct") System.IO.File.AppendAllText("box_debug.txt", $"typeGen: {typeSourceGenerated} metGen1: {HasGeneratedCodeAttribute(methodAttributes)} metGen2: {HasCompilerGeneratedAttribute(methodAttributes)} blazor: {IsBlazorRenderMethod(caller)}\n");
                         if (!typeSourceGenerated
                             && !HasGeneratedCodeAttribute(methodAttributes)
                             && !HasCompilerGeneratedAttribute(methodAttributes)
@@ -1640,23 +1641,24 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            static string LegacyDetail(TypeRef type, AllocationKind kind)
-            {
-                if (kind is AllocationKind.Closure or AllocationKind.StateMachine)
-                    return LeafDisplayName(type);
-                return type.ToDisplayString();
-            }
+        }
 
-            static string LeafDisplayName(TypeRef type)
-            {
-                var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-                string name = definition.Name;
-                int nested = name.LastIndexOf('+');
-                if (nested >= 0)
-                    name = name[(nested + 1)..];
-                int arity = name.IndexOf('`');
-                return arity >= 0 ? name[..arity] : name;
-            }
+        static string LegacyDetail(TypeRef type, AllocationKind kind)
+        {
+            if (kind is AllocationKind.Closure or AllocationKind.StateMachine)
+                return LeafDisplayName(type);
+            return type.ToDisplayString();
+        }
+
+        static string LeafDisplayName(TypeRef type)
+        {
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            string name = definition.Name;
+            int nested = name.LastIndexOf('+');
+            if (nested >= 0)
+                name = name[(nested + 1)..];
+            int arity = name.IndexOf('`');
+            return arity >= 0 ? name[..arity] : name;
         }
 
         bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)

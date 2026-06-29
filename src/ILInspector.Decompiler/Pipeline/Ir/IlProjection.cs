@@ -311,14 +311,6 @@ public static class IlProjection
             stackByOffset[point.Offset] = point.StackTypes;
 
         var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
-        foreach (var fact in Annotations.AnnotationEngine.Default.ClassifyImported(function))
-        {
-            if (fact.SourceOffset < 0)
-                continue;
-            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
-                factsByOffset[fact.SourceOffset] = list = [];
-            list.Add(fact);
-        }
 
         // Block leaders → ordinal index, plus the byte range of each block (to
         // the next leader, or to end of IL) for the `Block_N: (range)` label.
@@ -465,7 +457,7 @@ public static class IlProjection
             stackByOffset[point.Offset] = point.StackTypes;
 
         var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
-        foreach (var fact in annotations ?? Annotations.AnnotationEngine.Default.ClassifyImported(function))
+        foreach (var fact in annotations ?? [])
         {
             if (fact.SourceOffset < 0)
                 continue;

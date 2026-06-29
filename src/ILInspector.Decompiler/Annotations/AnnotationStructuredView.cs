@@ -1,8 +1,6 @@
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using ILInspector.Decompiler.Pipeline;
-
 namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
@@ -19,16 +17,6 @@ namespace ILInspector.Decompiler.Annotations;
 /// </summary>
 public static class AnnotationStructuredView
 {
-    /// <summary>Classifies the imported function and returns the facts in IL order — the stable shape both serializers project.</summary>
-    public static IReadOnlyList<Annotation> Collect(IrFunction imported, AnnotationEngine? engine = null)
-        => [.. (engine ?? AnnotationEngine.Default).ClassifyImported(imported).OrderBy(a => a.SourceOffset)];
-
-    public static string Json(IrFunction imported, AnnotationEngine? engine = null)
-        => Json(Collect(imported, engine));
-
-    public static string Tsv(IrFunction imported, AnnotationEngine? engine = null)
-        => Tsv(Collect(imported, engine));
-
     public static string Json(IReadOnlyList<Annotation> annotations)
     {
         using var stream = new MemoryStream();
