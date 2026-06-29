@@ -131,13 +131,23 @@
     },
     {
       "Name": "Microsoft.CodeAnalysis.CSharp.dll",
-      "Opened": false,
-      "TimedOut": true,
-      "Methods": 0,
+      "Opened": true,
+      "TimedOut": false,
+      "Methods": 42120,
       "Diagnostics": 0,
-      "Allocations": 0,
-      "ExceptionConstructions": 0,
-      "Shapes": {}
+      "Allocations": 15310,
+      "ExceptionConstructions": 889,
+      "Shapes": {
+        "allocation-hotspot": 2,
+        "box-value-type": 651,
+        "capturing-delegate": 106,
+        "enumerator-allocation": 20,
+        "instance-method-group-delegate": 118,
+        "linq-scan-in-loop": 4,
+        "scan-method-in-loop-call": 6,
+        "small-array": 2364,
+        "string-build-in-loop": 2
+      }
     },
     {
       "Name": "Microsoft.CodeAnalysis.dll",
