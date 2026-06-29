@@ -10,4 +10,7 @@ public sealed record OptimizationOpportunity(
     int? ILOffset,
     string? Caveat,
     int RootReach = 0,
-    bool ColdPath = false);
+    bool ColdPath = false)
+{
+    public bool Amortized { get; init; }
+}

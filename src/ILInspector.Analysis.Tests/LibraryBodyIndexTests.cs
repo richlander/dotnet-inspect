@@ -1404,6 +1404,52 @@ public class LibraryBodyIndexTests
         }
     }
 
+    [Fact]
+    public void OptimizationOpportunities_ConstructorDelegate_IsAmortizedSetup()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.DeclaringType.Name.EndsWith("+AmortizedConstructorFixture", StringComparison.Ordinal)
+            && o.Method.Name == ".ctor"
+            && o.Shape == "capturing-delegate"));
+
+        Assert.True(op.InLoop);
+        Assert.Equal("low", op.Confidence);
+        Assert.True(op.Amortized);
+        Assert.Contains("constructor/type-initializer setup", op.SafeFixDirection, StringComparison.Ordinal);
+        Assert.Contains("Amortized setup", op.Caveat, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ConstructorCalledInLoop_RemainsHigh()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.DeclaringType.Name.EndsWith("+HotConstructorFixture", StringComparison.Ordinal)
+            && o.Method.Name == ".ctor"
+            && o.Shape == "capturing-delegate"));
+
+        Assert.True(op.InLoop);
+        Assert.Equal("high", op.Confidence);
+        Assert.False(op.Amortized);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_OrdinaryLoopDelegate_RemainsHigh()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingDelegateInLoop)
+            && o.Shape == "capturing-delegate"));
+
+        Assert.True(op.InLoop);
+        Assert.Equal("high", op.Confidence);
+        Assert.False(op.Amortized);
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.InstanceMethodGroup))]
     [InlineData(nameof(OptimizationOpportunityFixtures.VirtualInstanceMethodGroup))]
@@ -2947,6 +2993,45 @@ public class OptimizationOpportunityFixtures
 
         public TResult RunOnEmptyStack<TArg, TResult>(Func<TArg, TResult> action, TArg argument)
             => action(argument);
+    }
+
+    public sealed class AmortizedConstructorFixture
+    {
+        public int Total;
+
+        public AmortizedConstructorFixture(int[] values, int seed)
+        {
+            foreach (var value in values)
+            {
+                Func<int> projector = () => value + seed;
+                Total += projector();
+            }
+        }
+    }
+
+    public sealed class HotConstructorFixture
+    {
+        public int Total;
+
+        public HotConstructorFixture(int[] values, int seed)
+        {
+            foreach (var value in values)
+            {
+                Func<int> projector = () => value + seed;
+                Total += projector();
+            }
+        }
+    }
+
+    public static int CreateHotConstructorsInLoop(int[][] inputs, int seed)
+    {
+        var total = 0;
+        foreach (var values in inputs)
+        {
+            total += new HotConstructorFixture(values, seed).Total;
+        }
+
+        return total;
     }
 
     // Boxes a value into an exception message on a throw path inside a loop -> the box only
