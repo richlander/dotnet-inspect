@@ -235,11 +235,12 @@ public class ApiCommand
             ApiViewContext.Default.GetSchemaInfo<ExplicitInterfaceImplementationsView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<ExtensionMethodsView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<EventsView>()!.ToDocumentSchema());
-        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
-            return schema;
-
+        // MemberCodeView owns source/IL/fact/call-graph sections. Type discovery also needs
+        // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
+        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
+            return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "Callee", "Kind", "IL", "Token");
         if (detailSchema.GetSection(SectionNames.Callers) == null)
@@ -883,32 +884,16 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var applicable = memberPipeline.GetApplicableSections(filteredType, options.IncludeSections);
-        applicable = DiscoverOutput.RestrictToSchemaSections(applicable, fullSchema);
-        var explicitlyApplicable = memberPipeline.GetExplicitlyApplicableSections(filteredType, options.IncludeSections);
-        // Index-backed sections (Calls, Callers, Unsafe Operations) declare ProbeEffectiveness=false:
-        // they are listed structurally via IsApplicable and never rendered during discovery, so -D does
-        // not open the whole-assembly IL index just to test them.
+        var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
+        effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
             ? options is MemberOptions { OverloadIndex: not null }
-                ? [.. applicable.Where(s => !unprobed.Contains(s))]
-                : [.. applicable.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
+                ? [.. effective.Where(s => !unprobed.Contains(s))]
+                : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
-        var renderedKept = DiscoverOutput.RestrictToRenderedSections(applicable, fullSchema, rendered);
-        // Keep rendered sections plus sections that intentionally opted into structural discovery,
-        // preserving registration order. Explicit applicability covers sections whose default
-        // render pass may choose a compact alternate representation (for example Method Groups
-        // instead of Methods) even though the full section is selectable and content-producing.
-        var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
-        foreach (var s in applicable)
-        {
-            if (unprobed.Contains(s) || explicitlyApplicable.Contains(s))
-                keep.Add(s);
-        }
-        var effective = applicable.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.

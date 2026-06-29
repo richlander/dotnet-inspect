@@ -70,6 +70,8 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(legendOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
+        diffCommand.Options.Add(opts.Discover);
+        diffCommand.Options.Add(opts.Tree);
         diffCommand.Options.Add(opts.Select);
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(

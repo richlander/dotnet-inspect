@@ -1327,7 +1327,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_Discover_DefaultsToEffective_DropsEmptySections()
+    public async Task Type_SingleType_Discover_DefaultsToDiscoverableSections()
     {
         // -D with no --schema now defaults to effective discovery: it resolves the source
         // and lists only sections that actually have data (the empty-section footgun fix).
@@ -1343,8 +1343,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        // JsonSerializer has no custom attributes, so effective-by-default must drop it.
-        Assert.DoesNotContain("| Custom Attributes | section |", output);
+        Assert.Contains("| Custom Attributes | section |", output);
     }
 
     [Fact]
@@ -1389,7 +1388,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverEffective_ExcludesMemberDetailCodeSections()
+    public async Task Type_SingleType_DiscoverEffective_IncludesSelectableCodeSections()
     {
         var options = new TypeOptions
         {
@@ -1404,12 +1403,10 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
-        // Code sections (Decompiled Source, Original Source, IL) are member-detail
-        // sections not present in the type schema. They must not appear in effective
-        // discovery, since they are not queryable via -D <Section>.
-        Assert.DoesNotContain("| Decompiled Source | section |", output);
-        Assert.DoesNotContain("| Original Source | section |", output);
-        Assert.DoesNotContain("| IL | section |", output);
+        Assert.Contains("| Decompiled Source | section |", output);
+        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| IL | section |", output);
+        Assert.Contains("| Facts | section (opt-in) |", output);
     }
 
     [Fact]
@@ -1426,7 +1423,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverEffective_ExcludesEmptyCustomAttributesSection()
+    public async Task Type_SingleType_DiscoverEffective_IncludesSelectableCustomAttributesSection()
     {
         var options = new TypeOptions
         {
@@ -1440,10 +1437,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        // Custom Attributes is in the type schema, but its CanRender probe is a coarse
-        // "type has methods" proxy; the section only has data when a specific member's
-        // attributes are read. JsonSerializer has none, so effective discovery must not list it.
-        Assert.DoesNotContain("| Custom Attributes | section |", output);
+        Assert.Contains("| Custom Attributes | section |", output);
     }
 
     [Fact]
@@ -3697,6 +3691,55 @@ public class CommandExecutionTests
         Assert.Contains("| Library Info | section |", output);
         Assert.Contains("| Async Methods | section (opt-in) |", output);
         Assert.Contains("| Custom Attributes | section (opt-in) |", output);
+    }
+
+    [Fact]
+    public async Task CliDiscoverySections_AreSelectable()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var diffV1 = Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(TestAssemblyPath)!, "..", "..",
+                "DiffFixtures.V1", "release", "DiffFixtureSample.dll"));
+            var diffV2 = Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(TestAssemblyPath)!, "..", "..",
+                "DiffFixtures.V2", "release", "DiffFixtureSample.dll"));
+
+            List<string[]> commands =
+            [
+                ["library", TestAssemblyPath],
+                ["type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath],
+                ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.CallsInterfaceItem), "--library", TestAssemblyPath],
+                ["package", packagePath],
+                ["diff", "--library", $"{diffV1}..{diffV2}"]
+            ];
+
+            foreach (var command in commands)
+            {
+                var discoveryArgs = command.Concat(["-D", "--table", "--tips", "q"]).ToArray();
+                var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(discoveryArgs);
+                Assert.Equal(0, discoverExit);
+
+                var sections = ExtractDiscoveryRows(discoverOutput)
+                    .Where(row => row.Kind.StartsWith("section", StringComparison.OrdinalIgnoreCase))
+                    .Select(row => row.Name)
+                    .ToArray();
+                Assert.NotEmpty(sections);
+
+                foreach (var section in sections)
+                {
+                    var selectArgs = command.Concat(["-S", section, "--table", "--tips", "q", "-n", "40"]).ToArray();
+                    var (selectExit, _, selectError) = await RunAppAsync(selectArgs);
+                    Assert.True(selectExit == 0,
+                        $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
