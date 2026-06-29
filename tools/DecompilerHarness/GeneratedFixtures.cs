@@ -6,13 +6,17 @@ using System.Text.Json.Serialization;
 
 using ILInspector.Decompiler.Pipeline;
 
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
-/// Addressable generated C# fixtures for progressive compile-back checks. The
-/// catalogue names the source shape, expected target methods, and expected
-/// compile-back outcome; the runner materializes those entries as a temporary
-/// class library and grades them with <see cref="FidelityCheck.Evaluate(string)"/>.
+/// Addressable generated C# fixtures for progressive shape and compile-back
+/// checks. The catalogue names the source shape, expected target methods, and
+/// expected outcomes; the runner materializes those entries as a temporary class
+/// library and grades them with a Roslyn shape check plus
+/// <see cref="FidelityCheck.Evaluate(string)"/>.
 /// </summary>
 internal static class GeneratedFixtureCatalog
 {
@@ -203,7 +207,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalArrayIndex.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalArrayIndex.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.ElementAccessExpression),
         ],
         ["minimal", "array", "index"]);
 
@@ -221,7 +226,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalArrayLength.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalArrayLength.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.SimpleMemberAccessExpression),
         ],
         ["minimal", "array", "length"]);
 
@@ -239,7 +245,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalStringLength.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalStringLength.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.SimpleMemberAccessExpression),
         ],
         ["minimal", "string", "length"]);
 
@@ -257,7 +264,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalNullCoalesce.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalNullCoalesce.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.CoalesceExpression),
         ],
         ["minimal", "null-coalesce"]);
 
@@ -287,7 +295,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalTryFinally.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalTryFinally.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.TryStatement),
         ],
         ["minimal", "try-finally", "lifetime"]);
 
@@ -333,7 +342,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalForeachArray.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalForeachArray.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.ForEachStatement),
         ],
         ["minimal", "foreach", "array", "loop"]);
 
@@ -357,7 +367,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalForLoop.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalForLoop.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.ForStatement),
         ],
         ["minimal", "for", "loop"]);
 
@@ -384,7 +395,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalWhileLoop.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalWhileLoop.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.WhileStatement),
         ],
         ["minimal", "while", "loop"]);
 
@@ -412,7 +424,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalDoWhileLoop.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalDoWhileLoop.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.DoStatement),
         ],
         ["minimal", "do-while", "loop"]);
 
@@ -445,7 +458,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalSwitchInt.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalSwitchInt.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.SwitchStatement),
         ],
         ["minimal", "switch", "int", "branch"]);
 
@@ -542,7 +556,8 @@ internal sealed record GeneratedFixtureTarget(
     FidelityCheck.CompileBackStatus ExpectedStatus,
     int Overload = 0,
     bool IsFrontier = false,
-    string? Note = null)
+    string? Note = null,
+    SyntaxKind? ExpectedShape = null)
 {
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
@@ -570,16 +585,42 @@ internal sealed record GeneratedFixtureResult(
     string DecompilerFidelity,
     FidelityCheck.CompileBackStatus? ActualStatus,
     FidelityCheck.CompileBackStatus ExpectedStatus,
+    SyntaxKind? ActualShape,
+    SyntaxKind? ExpectedShape,
+    string? ShapeDetail,
     bool IsFrontier,
     string? Detail,
     string? Note)
 {
-    public bool Passed => ActualStatus == ExpectedStatus;
+    public bool CompileBackPassed => ActualStatus == ExpectedStatus;
+    public bool ShapePassed => ExpectedShape is null || ActualShape == ExpectedShape;
+    public bool Passed => CompileBackPassed && ShapePassed;
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
 
+internal sealed record GeneratedFixtureRender(string DecompilerFidelity, string? Body);
+
 internal static class GeneratedFixtureRunner
 {
+    static readonly SyntaxKind[] s_interestingShapes =
+    [
+        SyntaxKind.IfStatement,
+        SyntaxKind.ForStatement,
+        SyntaxKind.ForEachStatement,
+        SyntaxKind.WhileStatement,
+        SyntaxKind.DoStatement,
+        SyntaxKind.SwitchStatement,
+        SyntaxKind.TryStatement,
+        SyntaxKind.UsingStatement,
+        SyntaxKind.ConditionalExpression,
+        SyntaxKind.CoalesceExpression,
+        SyntaxKind.ElementAccessExpression,
+        SyntaxKind.SimpleMemberAccessExpression,
+        SyntaxKind.AddExpression,
+        SyntaxKind.InvocationExpression,
+        SyntaxKind.ReturnStatement,
+    ];
+
     static readonly JsonSerializerOptions s_jsonOptions = new()
     {
         WriteIndented = true,
@@ -615,21 +656,26 @@ internal static class GeneratedFixtureRunner
 
             var compileBack = FidelityCheck.Evaluate(assemblyPath)
                 .ToDictionary(result => Key(result.Type, result.Method, result.Overload), StringComparer.Ordinal);
-            var decompilerFidelity = DecompilerFidelity(assemblyPath, fixtures);
+            var renders = DecompilerRenders(assemblyPath, fixtures);
             var results = new List<GeneratedFixtureResult>();
             foreach (var fixture in fixtures)
             {
                 foreach (var target in fixture.Targets)
                 {
                     compileBack.TryGetValue(Key(target.Type, target.Method, target.Overload), out var actual);
+                    renders.TryGetValue(Key(target.Type, target.Method, target.Overload), out var render);
+                    var shape = ShapeVerdict(render?.Body, target.ExpectedShape);
                     results.Add(new GeneratedFixtureResult(
                         fixture.Id,
                         target.Type,
                         target.Method,
                         target.Overload,
-                        decompilerFidelity.GetValueOrDefault(Key(target.Type, target.Method, target.Overload), "Unknown"),
+                        render?.DecompilerFidelity ?? "Unknown",
                         actual?.Status,
                         target.ExpectedStatus,
+                        shape.ActualShape,
+                        target.ExpectedShape,
+                        shape.Detail,
                         target.IsFrontier,
                         actual?.Detail ?? (actual is null ? "target-method-not-found" : null),
                         target.Note));
@@ -654,13 +700,18 @@ internal static class GeneratedFixtureRunner
         foreach (var result in run.Results.OrderBy(r => r.FixtureId, StringComparer.Ordinal).ThenBy(r => r.DisplayMember, StringComparer.Ordinal))
         {
             string actual = result.ActualStatus?.ToString() ?? "Missing";
+            string shape = result.ExpectedShape is null
+                ? ""
+                : $"  shape={result.ActualShape?.ToString() ?? "Missing"}  expected-shape={result.ExpectedShape}";
             string frontier = result.IsFrontier ? " frontier" : "";
             string status = result.Passed ? "PASS" : "FAIL";
             sb.AppendLine(
                 $"  {status}{frontier}  {result.FixtureId}  {result.DisplayMember}  " +
-                $"decompiler={result.DecompilerFidelity}  compile-back={actual}  expected={result.ExpectedStatus}");
+                $"decompiler={result.DecompilerFidelity}  compile-back={actual}  expected={result.ExpectedStatus}{shape}");
             if (!string.IsNullOrWhiteSpace(result.Detail))
                 sb.AppendLine($"      detail: {result.Detail}");
+            if (!string.IsNullOrWhiteSpace(result.ShapeDetail))
+                sb.AppendLine($"      shape-detail: {result.ShapeDetail}");
             if (!string.IsNullOrWhiteSpace(result.Note))
                 sb.AppendLine($"      note: {result.Note}");
         }
@@ -710,6 +761,7 @@ internal static class GeneratedFixtureRunner
                     target.Method,
                     target.Overload,
                     ExpectedStatus = target.ExpectedStatus.ToString(),
+                    ExpectedShape = target.ExpectedShape?.ToString(),
                     target.IsFrontier,
                     target.Note,
                 }),
@@ -756,11 +808,11 @@ internal static class GeneratedFixtureRunner
         return new string(chars);
     }
 
-    static Dictionary<string, string> DecompilerFidelity(
+    static Dictionary<string, GeneratedFixtureRender> DecompilerRenders(
         string assemblyPath,
         IReadOnlyList<GeneratedFixtureDefinition> fixtures)
     {
-        var fidelities = new Dictionary<string, string>(StringComparer.Ordinal);
+        var renders = new Dictionary<string, GeneratedFixtureRender>(StringComparer.Ordinal);
         using var source = MetadataSource.Open(assemblyPath);
         foreach (var target in fixtures.SelectMany(fixture => fixture.Targets))
         {
@@ -768,11 +820,48 @@ internal static class GeneratedFixtureRunner
             if (function is null)
                 continue;
 
-            _ = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
-            fidelities[Key(target.Type, target.Method, target.Overload)] = function.Fidelity.ToString();
+            var rendered = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+            renders[Key(target.Type, target.Method, target.Overload)] = new(function.Fidelity.ToString(), rendered.Output);
         }
 
-        return fidelities;
+        return renders;
+    }
+
+    static (SyntaxKind? ActualShape, string? Detail) ShapeVerdict(string? body, SyntaxKind? expected)
+    {
+        if (expected is null)
+            return (null, null);
+        if (string.IsNullOrWhiteSpace(body))
+            return (null, "shape-body-missing");
+
+        var tree = CSharpSyntaxTree.ParseText(
+            $$"""
+            class __GeneratedFixtureShapeShell
+            {
+                void __M()
+                {
+            {{Indent(body)}}
+                }
+            }
+            """,
+            new CSharpParseOptions(LanguageVersion.Preview));
+        var root = tree.GetRoot();
+        if (root.DescendantNodes().Any(node => node.IsKind(expected.Value)))
+            return (expected.Value, null);
+
+        var observed = root
+            .DescendantNodes()
+            .Select(node => (SyntaxKind)node.RawKind)
+            .FirstOrDefault(kind => s_interestingShapes.Contains(kind));
+        return observed == SyntaxKind.None
+            ? (null, "shape-not-found")
+            : (observed, "shape-not-found");
+    }
+
+    static string Indent(string body)
+    {
+        var lines = body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        return string.Join(Environment.NewLine, lines.Select(line => "        " + line));
     }
 
     static void Build(string workingDirectory)

@@ -2,6 +2,8 @@ using System.Text.Json;
 
 using ILInspector.DecompilerHarness;
 
+using Microsoft.CodeAnalysis.CSharp;
+
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
@@ -323,6 +325,19 @@ public class GeneratedFixtureCatalogTests
         Assert.DoesNotContain("minimal.switch-two-case-lowers-if", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
+        Assert.Contains("shape=ForStatement", report);
+        Assert.Contains("shape=ElementAccessExpression", report);
+
+        AssertShape(run, "minimal.array-index", "Method1", SyntaxKind.ElementAccessExpression);
+        AssertShape(run, "minimal.array-length", "Method1", SyntaxKind.SimpleMemberAccessExpression);
+        AssertShape(run, "minimal.string-length", "Method1", SyntaxKind.SimpleMemberAccessExpression);
+        AssertShape(run, "minimal.null-coalesce", "Method1", SyntaxKind.CoalesceExpression);
+        AssertShape(run, "minimal.try-finally", "Method1", SyntaxKind.TryStatement);
+        AssertShape(run, "minimal.foreach-array", "Method1", SyntaxKind.ForEachStatement);
+        AssertShape(run, "minimal.for-loop", "Method1", SyntaxKind.ForStatement);
+        AssertShape(run, "minimal.while-loop", "Method1", SyntaxKind.WhileStatement);
+        AssertShape(run, "minimal.do-while", "Method1", SyntaxKind.DoStatement);
+        AssertShape(run, "minimal.switch-int", "Method1", SyntaxKind.SwitchStatement);
     }
 
     [Fact]
@@ -392,7 +407,14 @@ public class GeneratedFixtureCatalogTests
         var ctor = Assert.Single(primaryCtor.GetProperty("Targets").EnumerateArray(),
             target => target.GetProperty("Method").GetString() == ".ctor");
         Assert.Equal("Exact", ctor.GetProperty("ExpectedStatus").GetString());
+        Assert.Equal(JsonValueKind.Null, ctor.GetProperty("ExpectedShape").ValueKind);
         Assert.False(ctor.GetProperty("IsFrontier").GetBoolean());
+
+        var arrayIndex = Assert.Single(fixtures,
+            fixture => fixture.GetProperty("Id").GetString() == "minimal.array-index");
+        var arrayIndexMethod = Assert.Single(arrayIndex.GetProperty("Targets").EnumerateArray(),
+            target => target.GetProperty("Method").GetString() == "Method1");
+        Assert.Equal("ElementAccessExpression", arrayIndexMethod.GetProperty("ExpectedShape").GetString());
     }
 
     [Fact]
@@ -422,7 +444,7 @@ public class GeneratedFixtureCatalogTests
     [Fact]
     public void SelectedFixtureRunJson_ContainsOnlySelectedFixtureResults()
     {
-        var selected = GeneratedFixtureCatalog.Select("minimal.property.literal");
+        var selected = GeneratedFixtureCatalog.Select("minimal.array-index");
         var run = GeneratedFixtureRunner.Run(selected);
         string json = GeneratedFixtureRunner.FormatJson(run);
 
@@ -430,11 +452,12 @@ public class GeneratedFixtureCatalogTests
         var results = document.RootElement.GetProperty("Results").EnumerateArray().ToArray();
 
         Assert.Equal(2, results.Length);
-        Assert.All(results, result =>
-        {
-            Assert.Equal("minimal.property.literal", result.GetProperty("FixtureId").GetString());
-            Assert.Equal("Exact", result.GetProperty("ActualStatus").GetString());
-        });
+        Assert.All(results, result => Assert.Equal("minimal.array-index", result.GetProperty("FixtureId").GetString()));
+        var method = Assert.Single(results, result => result.GetProperty("Method").GetString() == "Method1");
+        Assert.Equal("Exact", method.GetProperty("ActualStatus").GetString());
+        Assert.Equal("ElementAccessExpression", method.GetProperty("ActualShape").GetString());
+        Assert.Equal("ElementAccessExpression", method.GetProperty("ExpectedShape").GetString());
+        Assert.True(method.GetProperty("ShapePassed").GetBoolean());
     }
 
     static void AssertTarget(
@@ -452,8 +475,21 @@ public class GeneratedFixtureCatalogTests
 
         Assert.Equal(expectedStatus, result.ExpectedStatus);
         Assert.Equal(expectedStatus, result.ActualStatus);
+        Assert.True(result.CompileBackPassed);
+        Assert.True(result.ShapePassed);
         Assert.Equal(frontier, result.IsFrontier);
         Assert.Equal("Full", result.DecompilerFidelity);
         Assert.True(result.Passed);
+    }
+
+    static void AssertShape(GeneratedFixtureRunResult run, string fixtureId, string method, SyntaxKind expected)
+    {
+        var result = Assert.Single(run.Results, r =>
+            r.FixtureId == fixtureId &&
+            r.Method == method);
+
+        Assert.Equal(expected, result.ExpectedShape);
+        Assert.Equal(expected, result.ActualShape);
+        Assert.True(result.ShapePassed);
     }
 }
