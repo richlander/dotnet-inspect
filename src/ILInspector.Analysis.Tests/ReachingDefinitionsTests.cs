@@ -127,7 +127,7 @@ public class ReachingDefinitionsTests
         var result = AnalyzeFixture(nameof(TryCatchReadsLocal));
 
         Assert.True(result.IsComplete, result.IncompleteReason);
-        Assert.Contains(result.Uses, use => !use.IsArgument && use.ReachingDefinitions.Length >= 2);
+        AssertSomeUseSeesFirstAndLastSlotDefinitions(result);
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public class ReachingDefinitionsTests
         var result = AnalyzeFixture(nameof(TryFinallyReadsLocal));
 
         Assert.True(result.IsComplete, result.IncompleteReason);
-        Assert.Contains(result.Uses, use => !use.IsArgument && use.ReachingDefinitions.Length >= 2);
+        AssertSomeUseSeesFirstAndLastSlotDefinitions(result);
     }
 
     [Fact]
@@ -145,22 +145,33 @@ public class ReachingDefinitionsTests
         var result = AnalyzeFixture(nameof(TryFilterReadsLocal));
 
         Assert.True(result.IsComplete, result.IncompleteReason);
-        Assert.Contains(result.Uses, use => !use.IsArgument && use.ReachingDefinitions.Length >= 2);
+        AssertSomeUseSeesFirstAndLastSlotDefinitions(result);
     }
 
     [Fact]
     public void Analyze_NestedFinallyToCatch_UseSeesFinallyDefinition()
     {
         var result = AnalyzeFixture(nameof(NestedFinallyToCatchReadsLocal));
-        var finalizerDefinition = result.Definitions
-            .Where(definition => !definition.IsArgument && definition.Slot == 0)
-            .MaxBy(definition => definition.Offset);
 
         Assert.True(result.IsComplete, result.IncompleteReason);
+        AssertSomeUseSeesFirstAndLastSlotDefinitions(result);
+    }
+
+    static void AssertSomeUseSeesFirstAndLastSlotDefinitions(ReachingDefinitionsResult result)
+    {
+        var slotDefinitions = result.Definitions
+            .Where(definition => !definition.IsArgument && definition.Slot == 0)
+            .OrderBy(definition => definition.Offset)
+            .ToArray();
+        Assert.True(slotDefinitions.Length >= 2);
+        var firstDefinition = slotDefinitions[0];
+        var lastDefinition = slotDefinitions[^1];
+
         Assert.Contains(result.Uses, use =>
             !use.IsArgument
             && use.Slot == 0
-            && use.ReachingDefinitions.Any(definition => definition.Id == finalizerDefinition?.Id));
+            && use.ReachingDefinitions.Any(definition => definition.Id == firstDefinition.Id)
+            && use.ReachingDefinitions.Any(definition => definition.Id == lastDefinition.Id));
     }
 
     [Fact]
