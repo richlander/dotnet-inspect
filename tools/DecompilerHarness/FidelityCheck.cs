@@ -46,9 +46,16 @@ static class FidelityCheck
             ? CSharpPrinter.PrintLowered
             : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool lowered = false, bool timings = false)
+    public static int Run(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool lowered = false,
+        bool timings = false,
+        int zeroSignalGuard = 0)
     {
         var phaseTimings = timings ? new FidelityPhaseTimings() : null;
+        var zeroSignal = zeroSignalGuard > 0 ? new ZeroSignalGuard(zeroSignalGuard, cap) : null;
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         // Release codegen so the recompiled stream is compared against the
         // optimization shape the BCL ships; the fixture assembly is built the
@@ -84,18 +91,20 @@ static class FidelityCheck
                     var render = Renderer(source, lowered);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
-                        if (total >= cap)
+                        if (total >= cap || zeroSignal?.Stopped == true)
                             break;
+                        int effectiveCap = zeroSignal?.EffectiveCap(total) ?? cap;
                         RunType(reader, pe, source, typeHandle, references, parseOptions, compileOptions,
-                            cap, maxExamples, render, ref total, ref full, ref exact, ref contextFail,
+                            effectiveCap, maxExamples, render, ref total, ref full, ref exact, ref contextFail,
                             ref recompileFail, ref diffCount, diffExamples, recompileFailCodes, phaseTimings);
+                        zeroSignal?.Observe(total, exact, diffCount, recompileFail, contextFail, recompileFailCodes);
                     }
                 }
             }
         }
 
         Report(total, full, exact, contextFail, recompileFail, diffCount,
-            recompileFailCodes, diffExamples);
+            recompileFailCodes, diffExamples, zeroSignal);
         phaseTimings?.Report();
         return 0;
     }
@@ -371,6 +380,74 @@ static class FidelityCheck
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
 
     sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureAccessibility Accessibility);
+
+    internal sealed class ZeroSignalGuard
+    {
+        readonly int _probeCount;
+        readonly int _requestedCap;
+
+        public ZeroSignalGuard(int probeCount, int requestedCap)
+        {
+            _probeCount = Math.Max(1, probeCount);
+            _requestedCap = requestedCap;
+        }
+
+        public bool Stopped { get; private set; }
+        public bool ProbeCompleted { get; private set; }
+        public int StopCount { get; private set; }
+        public string? DominantBucket { get; private set; }
+        public int DominantCount { get; private set; }
+
+        public int EffectiveCap(int total)
+            => ProbeCompleted || Stopped ? _requestedCap : Math.Min(_requestedCap, Math.Max(total, _probeCount));
+
+        public void Observe(
+            int total,
+            int exact,
+            int diffCount,
+            int recompileFail,
+            int contextFail,
+            IReadOnlyDictionary<string, int> recompileFailCodes)
+        {
+            if (ProbeCompleted || Stopped || total < _probeCount)
+                return;
+
+            ProbeCompleted = true;
+            if (exact + diffCount != 0 || recompileFail + contextFail != total)
+                return;
+
+            var dominant = recompileFailCodes
+                .OrderByDescending(kv => kv.Value)
+                .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+                .FirstOrDefault();
+            string bucket = dominant.Key ?? (contextFail > 0 ? "context-fail" : "<unknown>");
+            int count = dominant.Value != 0 ? dominant.Value : contextFail;
+            if (count * 10 < total * 9)
+                return;
+
+            Stopped = true;
+            StopCount = total;
+            DominantBucket = bucket;
+            DominantCount = count;
+        }
+
+        public void Report()
+        {
+            if (Stopped)
+            {
+                string pct = StopCount == 0 ? "0" : $"{100.0 * DominantCount / StopCount:F2}%";
+                Console.WriteLine($"  zero-signal guard : stopped after {StopCount} of requested {_requestedCap}; no Exact/OpcodeDiff rows; dominant {DominantBucket}: {DominantCount} ({pct})");
+            }
+            else if (ProbeCompleted)
+            {
+                Console.WriteLine($"  zero-signal guard : probe {_probeCount} found useful or mixed signal; continued to requested cap");
+            }
+            else
+            {
+                Console.WriteLine($"  zero-signal guard : probe {_probeCount} was not reached");
+            }
+        }
+    }
 
     sealed class FidelityPhaseTimings
     {
@@ -1533,7 +1610,7 @@ static class FidelityCheck
 
     static void Report(
         int total, int full, int exact, int contextFail, int recompileFail, int diffCount,
-        SortedDictionary<string, int> recompileFailCodes, List<string> diffExamples)
+        SortedDictionary<string, int> recompileFailCodes, List<string> diffExamples, ZeroSignalGuard? zeroSignal)
     {
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
         Console.WriteLine($"COMPILE-BACK over {total} rendered methods ({full} Full)");
@@ -1548,6 +1625,7 @@ static class FidelityCheck
             foreach (var (code, n) in recompileFailCodes.OrderByDescending(kv => kv.Value))
                 Console.WriteLine($"    {code}: {n}");
         }
+        zeroSignal?.Report();
         if (diffExamples.Count > 0)
         {
             Console.WriteLine();
