@@ -74,6 +74,14 @@ public static class SharedParsers
 
     public static (string TypeName, string? MemberName) SplitTrailingMember(string typeName)
     {
+        var (digestHead, _) = ParseDigestShorthand(typeName);
+        var (overloadHead, _) = ParseOverloadShorthand(digestHead);
+        var suffixLength = typeName.Length - overloadHead.Length;
+        if (overloadHead.EndsWith("..ctor", StringComparison.Ordinal))
+            return (overloadHead[..^6], ".ctor" + typeName[^suffixLength..]);
+        if (overloadHead.EndsWith("..cctor", StringComparison.Ordinal))
+            return (overloadHead[..^7], ".cctor" + typeName[^suffixLength..]);
+
         var lastDot = FqnParser.LastTopLevelDot(typeName);
         if (lastDot <= 0)
             return (typeName, null);

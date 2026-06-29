@@ -19,6 +19,13 @@ public class CommandExecutionTests
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
+    private sealed class NestedDrillTarget
+    {
+        public NestedDrillTarget(int value) => Value = value;
+
+        public int Value { get; }
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalRefPackage(params string[] assemblyNames)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -277,6 +284,95 @@ public class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("Unknown Performance Triage shape 'typo-shape'", error);
         Assert.Contains("capturing-delegate", error);
+    }
+
+    [Theory]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests.NestedDrillTarget")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests+NestedDrillTarget")]
+    public async Task TypeCommand_AllowsDrillingNonPublicNestedTypes(string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeName,
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", "Member Index",
+            "-n", "80");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("NestedDrillTarget", output);
+        Assert.Contains(".ctor", output);
+    }
+
+    [Theory]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests.NestedDrillTarget")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests+NestedDrillTarget")]
+    public async Task MemberCommand_AllowsDrillingNonPublicNestedConstructors(string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeName, ".ctor:1",
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", "Decompiled Source",
+            "-n", "80");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("NestedDrillTarget", output);
+        Assert.Contains("Value = value", output);
+    }
+
+    [Theory]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests.NestedDrillTarget..ctor")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests.NestedDrillTarget..ctor:1")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests+NestedDrillTarget..ctor")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests+NestedDrillTarget..ctor:1")]
+    public async Task MemberCommand_AllowsCopiedNestedConstructorSelector(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", selector,
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", "Decompiled Source",
+            "-n", "80");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("NestedDrillTarget", output);
+        Assert.Contains("Value = value", output);
+    }
+
+    [Theory]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests.NestedDrillTarget")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests+NestedDrillTarget")]
+    public async Task MemberCommand_AllowsCopiedNestedConstructorDigestSelector(string typeName)
+    {
+        var index = await RunAppAsync(
+            "type", typeName,
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", "Member Index",
+            "-n", "80");
+        Assert.Equal(0, index.Exit);
+        var stable = index.Output
+            .Split('\n')
+            .Select(line => line.Split('|', StringSplitOptions.TrimEntries))
+            .Where(parts => parts.Length >= 3 && parts[1] == "`.ctor`")
+            .Select(parts => parts[2].Trim('`'))
+            .Single();
+
+        var selector = $"{typeName}.{stable}";
+        var (exit, output, error) = await RunAppAsync(
+            "member", selector,
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", "Decompiled Source",
+            "-n", "80");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("NestedDrillTarget", output);
+        Assert.Contains("Value = value", output);
     }
 
     // ── bare router ───────────────────────────────────────────────────

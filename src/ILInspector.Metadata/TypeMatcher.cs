@@ -33,9 +33,11 @@ public static class TypeMatcher
         if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(target))
             return false;
 
-        // Normalize both for comparison
-        var normalizedCandidate = Normalize(candidate);
-        var normalizedTarget = Normalize(target);
+        // Normalize both for comparison. Metadata APIs and analysis rows render nested types
+        // with '.', while users often paste CLR-style '+'. Treat those separators as
+        // equivalent for lookup, without changing Normalize's public formatting contract.
+        var normalizedCandidate = NormalizeForLookup(candidate);
+        var normalizedTarget = NormalizeForLookup(target);
 
         // Exact match
         if (normalizedCandidate.Equals(normalizedTarget, StringComparison.OrdinalIgnoreCase))
@@ -99,6 +101,9 @@ public static class TypeMatcher
         var suffix = closeIdx + 1 < typeName.Length ? typeName[(closeIdx + 1)..] : "";
         return $"{baseName}`{arity}{suffix}";
     }
+
+    private static string NormalizeForLookup(string typeName)
+        => Normalize(typeName).Replace('+', '.');
 
     /// <summary>
     /// Normalizes a member selector to metadata member names.

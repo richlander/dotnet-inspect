@@ -283,16 +283,18 @@ public static class MemberOptionsParser
     }
 
     /// <summary>
-    /// True when the trailing segment of a dotted name (after the last top-level dot) carries an
-    /// overload (":N") or digest ("~hash") selector. Such a suffix is unambiguously a member,
-    /// since a type name can contain neither character.
+    /// True when the trailing segment of a dotted name is unambiguously a member:
+    /// it carries an overload (":N") / digest ("~hash") selector, or it is a
+    /// metadata constructor token ("..ctor"/"..cctor").
     /// </summary>
     private static bool HasMemberSelectorSuffix(string typeName)
     {
         var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
         return splitTypeName != null
             && splitMemberName != null
-            && (splitMemberName.Contains(':') || splitMemberName.Contains('~'));
+            && (splitMemberName.Contains(':')
+                || splitMemberName.Contains('~')
+                || splitMemberName is ".ctor" or ".cctor");
     }
 
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)
