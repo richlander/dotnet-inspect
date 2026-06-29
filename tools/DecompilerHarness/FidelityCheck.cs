@@ -745,12 +745,12 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render)
+        Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (!typeDef.GetDeclaringType().IsNil)
             return null; // nested types are emitted by their enclosing type
-        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render);
+        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, maxEntries);
     }
 
     /// <summary>
@@ -763,13 +763,15 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectTypeEntries(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render)
+        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue)
     {
+        if (maxEntries <= 0)
+            return null;
         if (ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct))
             return null;
 
         string fullType = reader.GetFullTypeName(typeDef);
-        if (fullType.Contains('<'))
+        if (IsGeneratedType(reader, typeDef, fullType))
             return null;
 
         var entries = new List<Entry>();
@@ -781,7 +783,7 @@ static class FidelityCheck
             string key = $"{fullType}::{name}";
             int overload = overloads.GetValueOrDefault(key);
             overloads[key] = overload + 1;
-            if (method.RelativeVirtualAddress == 0 || name.Contains('<'))
+            if (method.RelativeVirtualAddress == 0 || IsGeneratedMethod(reader, method, name))
                 continue;
 
             var function = IrImporter.Import(source, fullType, name, overload);
@@ -801,9 +803,24 @@ static class FidelityCheck
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier, primaryConstructor), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
+            if (entries.Count >= maxEntries)
+                break;
         }
         return (fullType, entries);
     }
+
+    static bool IsGeneratedType(MetadataReader reader, TypeDefinition typeDef, string fullType)
+        => fullType.Contains('<')
+           || TypeFilters.IsCompilerGeneratedNested(reader.GetString(typeDef.Name))
+           || AttributeReader.HasAttribute(reader, typeDef.GetCustomAttributes(), KnownAttributeNames.CompilerGeneratedAttribute)
+           || AttributeReader.HasAttribute(reader, typeDef.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute")
+           || BaseTypeName(reader, typeDef.BaseType) == "System.Text.Json.Serialization.JsonSerializerContext";
+
+    static bool IsGeneratedMethod(MetadataReader reader, MethodDefinition method, string name)
+        => name.Contains('<')
+           || name.StartsWith("__", StringComparison.Ordinal)
+           || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), KnownAttributeNames.CompilerGeneratedAttribute)
+           || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute");
 
     static PrimaryConstructorShape? PrimaryConstructorFromPrologue(
         MetadataReader reader,
@@ -959,10 +976,8 @@ static class FidelityCheck
     {
         if (maxEntries <= 0)
             return;
-        if (CollectType(reader, pe, source, typeHandle, render) is not var (fullType, entries) || entries.Count == 0)
+        if (CollectType(reader, pe, source, typeHandle, render, maxEntries) is not var (fullType, entries) || entries.Count == 0)
             return;
-        if (entries.Count > maxEntries)
-            entries = entries.Take(maxEntries).ToList();
         results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
     }
 
@@ -1377,7 +1392,10 @@ static class FidelityCheck
         ref int recompileFail, ref int diffCount,
         List<string> diffExamples, SortedDictionary<string, int> recompileFailCodes)
     {
-        if (CollectType(reader, pe, source, typeHandle, render) is not var (fullType, entries) || entries.Count == 0)
+        int remaining = cap - total;
+        if (remaining <= 0)
+            return;
+        if (CollectType(reader, pe, source, typeHandle, render, remaining) is not var (fullType, entries) || entries.Count == 0)
             return;
         if (Environment.GetEnvironmentVariable("CB_TYPE") is { } filter && !fullType.Contains(filter, StringComparison.Ordinal))
             return;
