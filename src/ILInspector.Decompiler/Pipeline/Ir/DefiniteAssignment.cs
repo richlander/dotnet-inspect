@@ -149,67 +149,32 @@ static class DefiniteAssignment
                 BailAll();
                 return DefiniteFlow.Bail;
             }
-            var successors = new List<int>[n];
-            for (int i = 0; i < n; i++)
-                successors[i] = [.. edges[i].Successors];
-
             // gen[i]: locals block i assigns on every path through it (order
             // within the block does not matter for what holds at its exit).
-            var gen = new HashSet<int>[n];
+            var transfers = new GenKillSet[n];
             for (int i = 0; i < n; i++)
             {
-                gen[i] = [];
+                var gen = new HashSet<int>();
                 foreach (var child in blocks[i].Children)
                 {
                     if (child is StoreLocal store)
-                        gen[i].Add(store.Index);
+                        gen.Add(store.Index);
                     else if (child is InitObject { Address: LoadLocalAddress address })
-                        gen[i].Add(address.Index);
+                        gen.Add(address.Index);
                 }
+                transfers[i] = new GenKillSet(gen, new HashSet<int>());
             }
 
-            var preds = new List<int>[n];
-            for (int i = 0; i < n; i++)
-                preds[i] = [];
-            for (int i = 0; i < n; i++)
-                foreach (var s in successors[i])
-                    preds[s].Add(i);
-
-            // in[0] is the entry assignments: the external edge always supplies
-            // them, and a local assigned before the container stays assigned
-            // across any back edge. Other blocks start at the universe so the
-            // first intersection narrows down; intersection only shrinks, so the
-            // fixpoint terminates.
-            var inSets = new HashSet<int>[n];
-            inSets[0] = new HashSet<int>(entryAssigned);
-            for (int i = 1; i < n; i++)
-                inSets[i] = new HashSet<int>(Enumerable.Range(0, function.Locals.Length));
-
-            bool changed = true;
-            while (changed)
-            {
-                changed = false;
-                for (int k = 1; k < n; k++)
-                {
-                    if (preds[k].Count == 0)
-                        continue;  // unreachable: leaving it at the universe never narrows a reachable join
-                    HashSet<int>? merged = null;
-                    foreach (var p in preds[k])
-                    {
-                        var outP = new HashSet<int>(inSets[p]);
-                        outP.UnionWith(gen[p]);
-                        if (merged is null)
-                            merged = outP;
-                        else
-                            merged.IntersectWith(outP);
-                    }
-                    if (merged is not null && !merged.SetEquals(inSets[k]))
-                    {
-                        inSets[k] = merged;
-                        changed = true;
-                    }
-                }
-            }
+            // in[0] is the fixed entry assignment set: the external edge always
+            // supplies it, and a local assigned before the container stays
+            // assigned across any back edge. Other blocks start at the universe
+            // for the must/intersection fixpoint and narrow down.
+            var flow = ForwardDataflow.Solve(
+                edges,
+                transfers,
+                entryAssigned,
+                new HashSet<int>(Enumerable.Range(0, function.Locals.Length)),
+                DataflowMerge.Intersection);
 
             // With the assignment-on-entry known per block, check reads in
             // program order within each block.
@@ -218,24 +183,23 @@ static class DefiniteAssignment
                 var blockFacts = new List<DataflowFacts.BlockFacts>(n);
                 for (int i = 0; i < n; i++)
                 {
-                    bool reachable = i == 0 || preds[i].Count > 0;
-                    var outI = new HashSet<int>(inSets[i]);
-                    outI.UnionWith(gen[i]);
+                    var state = flow.Blocks[i];
+                    bool legacyReachable = i == 0 || state.Predecessors.Count > 0;
                     blockFacts.Add(new DataflowFacts.BlockFacts(
                         blocks[i].StartOffset,
-                        [.. preds[i].Select(p => blocks[p].StartOffset).Order()],
-                        [.. successors[i].Select(s => blocks[s].StartOffset).Order()],
-                        [.. gen[i].Order()],
-                        reachable ? [.. inSets[i].Order()] : [],
-                        reachable ? [.. outI.Order()] : [],
-                        reachable));
+                        [.. state.Predecessors.Select(p => blocks[p].StartOffset).Order()],
+                        [.. edges[i].Successors.Select(s => blocks[s].StartOffset).Order()],
+                        [.. transfers[i].Gen.Order()],
+                        legacyReachable ? [.. state.In.Order()] : [],
+                        legacyReachable ? [.. state.Out.Order()] : [],
+                        legacyReachable));
                 }
                 facts.AddContainer(new DataflowFacts.ContainerFacts(blockFacts));
             }
 
             for (int k = 0; k < n; k++)
             {
-                var running = new HashSet<int>(inSets[k]);
+                var running = new HashSet<int>(flow.Blocks[k].In);
                 foreach (var child in blocks[k].Children)
                 {
                     switch (child)
