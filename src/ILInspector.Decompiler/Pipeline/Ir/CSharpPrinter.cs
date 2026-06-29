@@ -987,9 +987,14 @@ public sealed partial class CSharpPrinter
         {
             return false;
         }
+        if (!CanEvaluateBeforeInlineValue(storeElement.Array, store.Value)
+            || !CanEvaluateBeforeInlineValue(storeElement.Index, store.Value))
+        {
+            return false;
+        }
 
         int stores = 0, addressLoads = 0;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.Descendants)
         {
             switch (node)
             {
@@ -1009,6 +1014,22 @@ public sealed partial class CSharpPrinter
         }
         return stores == 1 && addressLoads == 1 && ReferenceEquals(call.Arguments[0], receiver);
     }
+
+    static bool CanEvaluateBeforeInlineValue(IrExpression expression, IrExpression value) => expression switch
+    {
+        Constant => true,
+        LoadArgument argument => !ReferencesArgumentAddress(value, argument.Index),
+        LoadLocal local => !ReferencesLocalAddress(value, local.Index),
+        _ => false,
+    };
+
+    static bool ReferencesArgumentAddress(IrNode node, int index)
+        => node is LoadArgumentAddress address && address.Index == index
+            || node.Descendants.Any(n => n is LoadArgumentAddress address && address.Index == index);
+
+    static bool ReferencesLocalAddress(IrNode node, int index)
+        => node is LoadLocalAddress address && address.Index == index
+            || node.Descendants.Any(n => n is LoadLocalAddress address && address.Index == index);
 
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
@@ -1381,6 +1402,8 @@ public sealed partial class CSharpPrinter
         UsingStatement u => HasUnsafeOperation(u.Resource),
         TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
         TryFinally => false,
+        StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
+            => HasUnsafeOperation(s) || HasUnsafeOperation(store.Value),
         _ => HasUnsafeOperation(node),
     };
 
