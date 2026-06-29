@@ -207,6 +207,24 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "array", "length"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalStringLength = new(
+        "minimal.string-length",
+        """
+        namespace GeneratedFixtures.MinimalStringLength;
+
+        public class Class1
+        {
+            public int Method1(string value) => value.Length;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStringLength.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStringLength.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "string", "length"]);
+
     public static readonly GeneratedFixtureDefinition MinimalNullCoalesce = new(
         "minimal.null-coalesce",
         """
@@ -457,6 +475,7 @@ internal static class GeneratedFixtureCatalog
         MinimalIfElse,
         MinimalArrayIndex,
         MinimalArrayLength,
+        MinimalStringLength,
         MinimalNullCoalesce,
         MinimalTryFinally,
         MinimalUsingDispose,
