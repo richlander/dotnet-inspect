@@ -68,7 +68,8 @@ public sealed class IteratorReconstructionPass : IIrPass
             || moveNext is null)
             return;
 
-        if (!TryReconstruct(moveNext, function, handoff, out var statements))
+        if (!TryReconstruct(moveNext, function, handoff, out var statements)
+            || IteratorReconstructionValidation.HasUnsupportedStructuredShape(statements))
         {
             // The structured matchers above all declined. Fall back to the general
             // transform-then-restructure path: strip the state scaffolding from a fresh

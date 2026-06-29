@@ -57,9 +57,11 @@ internal static class MultiYieldReconstruction
         }
 
         var rewriter = new Rewriter(kickoff, localOffset, hoisted);
+        var expectedYieldCount = moveNext.Descendants.OfType<StoreField>()
+            .Count(store => store is { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" });
         if (!rewriter.TryRewrite(moveNext.Body.Blocks.SelectMany(b => b.Children), out var rebuilt))
             return false;
-        if (!rewriter.DispatchDropped || rewriter.YieldCount == 0)
+        if (!rewriter.DispatchDropped || rewriter.YieldCount == 0 || rewriter.YieldCount != expectedYieldCount)
             return false;
 
         // Commit the predicted locals (order must match the prediction above).

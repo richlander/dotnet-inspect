@@ -382,6 +382,40 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void SwitchIterator_DeclinesToHonestAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.SwitchYield));
+
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void WhileTrueYieldBreakIterator_DeclinesToHonestAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.WhileTrueYieldBreak));
+
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void NestedIfIterator_StillReconstructs()
+    {
+        var function = Raised(nameof(CfgSampleClass.ValidNestedIf));
+
+        Assert.Equal(3, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Contains(function.Descendants.OfType<IfStatement>(), i =>
+            i.Then.Descendants.OfType<IfStatement>().Any());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
     public void SideEffectingEmptyIterator_PreservesSideEffectBeforeBreak()
     {
         var function = Raised(nameof(CfgSampleClass.BreakWithSideEffect));

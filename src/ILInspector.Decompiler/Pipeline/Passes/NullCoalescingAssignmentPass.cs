@@ -15,8 +15,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// expression's result; in statement position that result is dead). The indexer
 /// form (<c>d[k] ??= fallback</c>) is the property form plus index arguments,
 /// accepted when the receiver and every index argument are pairwise re-evaluable
-/// (<see cref="PlaceIdentity.SameOperands"/>). Static properties have no receiver
-/// to re-evaluate and may lower to a direct setter.
+/// (<see cref="PlaceIdentity.SameOperands"/>). Static properties still need the
+/// compiler value-spill discriminator; without it, a hand-written
+/// <c>if (P is null) P = value;</c> is indistinguishable and must stay expanded.
 /// </summary>
 public sealed class NullCoalescingAssignmentPass : IIrPass
 {
@@ -161,18 +162,14 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
     // where the setter and the dead ??= result both read slot S. We return the real
     // value (fallback) only when slot S and the dead local are confined to this
     // block — i.e. nothing else in the function reads them, so dropping the spill is
-    // sound. A direct setter value is deliberately declined when a receiver or
-    // index argument would be collapsed: that is the manual property/indexer
-    // assignment shape, not csc's `??=` lowering.
+    // sound. A direct setter value is deliberately declined for every property:
+    // for static properties it is the manual `if (P is null) P = value;` shape,
+    // not proven csc `??=` lowering.
     static IrExpression? RecoverSpilledValue(IrFunction function, Block then, StoreProperty store)
     {
         var children = then.Children;
         if (store.Value is not LoadStackSlot slot)
-        {
-            return !store.HasInstance && store.IndexArguments.Count == 0 && children.Count == 1
-                ? store.Value
-                : null;
-        }
+            return null;
 
         if (children.Count < 2 || children[0] is not StoreStackSlot spill || spill.Slot != slot.Slot)
             return null;

@@ -2910,6 +2910,14 @@ public class CfgSampleClass
         return StaticNameProp;
     }
 
+    public static string ManualStaticPropertyNullAssignment(string fallback)
+    {
+        if (StaticNameProp == null)
+            StaticNameProp = fallback;
+
+        return StaticNameProp;
+    }
+
     public static string NullCoalescingAssignChainedProperty(CacheHolder holder, string fallback)
     {
         holder.Next!.CacheProp ??= fallback;
@@ -3834,6 +3842,48 @@ public class CfgSampleClass
         }
     }
 
+    public static System.Collections.Generic.IEnumerable<int> SwitchYield(int k)
+    {
+        switch (k)
+        {
+            case 0:
+                yield return 10;
+                break;
+            case 1:
+                yield return 20;
+                yield return 21;
+                break;
+            default:
+                yield return 99;
+                break;
+        }
+
+        yield return 100;
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> WhileTrueYieldBreak(int n)
+    {
+        int i = 0;
+        while (true)
+        {
+            if (i >= n)
+                yield break;
+
+            yield return i;
+            i++;
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> ValidNestedIf(int k)
+    {
+        if (k > 0)
+        {
+            if (k == 1) yield return 1;
+            else yield return 2;
+        }
+        yield return 3;
+    }
+
     // Negative coverage for the #1429 class: a user try/finally inside a non-foreach
     // iterator. csc lowers a user finally to a <>m__Finally call + EndFinally handler +
     // EH region — the same scaffolding shape ForeachIteratorReconstruction strips for
@@ -4412,6 +4462,26 @@ public readonly struct ShiftBox
 public static class ShiftProbe
 {
     public static ShiftBox Shift(ShiftBox value, int n) => value >>> n;
+}
+
+public readonly struct BoolBox
+{
+    public readonly int Value;
+    public BoolBox(int value) { Value = value; }
+    public static bool operator true(in BoolBox value) => value.Value != 0;
+    public static bool operator false(in BoolBox value) => value.Value == 0;
+}
+
+public static class BoolBoxProbe
+{
+    public static bool Choose(BoolBox value) => value ? true : false;
+
+    public static int Branch(BoolBox value)
+    {
+        if (value)
+            return 1;
+        return 2;
+    }
 }
 
 // Issue #1841 (#1202 residual): foreach over a struct array element takes the
