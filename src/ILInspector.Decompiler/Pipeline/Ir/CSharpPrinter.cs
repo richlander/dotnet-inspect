@@ -1018,18 +1018,18 @@ public sealed partial class CSharpPrinter
     static bool CanEvaluateBeforeInlineValue(IrExpression expression, IrExpression value) => expression switch
     {
         Constant => true,
-        LoadArgument argument => !ReferencesArgumentAddress(value, argument.Index),
-        LoadLocal local => !ReferencesLocalAddress(value, local.Index),
+        LoadArgument argument => !ReferencesArgument(value, argument.Index),
+        LoadLocal local => !ReferencesLocal(value, local.Index),
         _ => false,
     };
 
-    static bool ReferencesArgumentAddress(IrNode node, int index)
-        => node is LoadArgumentAddress address && address.Index == index
-            || node.Descendants.Any(n => n is LoadArgumentAddress address && address.Index == index);
+    static bool ReferencesArgument(IrNode node, int index)
+        => IsArgumentReference(node, index)
+            || node.Descendants.Any(n => IsArgumentReference(n, index));
 
-    static bool ReferencesLocalAddress(IrNode node, int index)
-        => node is LoadLocalAddress address && address.Index == index
-            || node.Descendants.Any(n => n is LoadLocalAddress address && address.Index == index);
+    static bool IsArgumentReference(IrNode node, int index)
+        => node is LoadArgument argument && argument.Index == index
+            || node is LoadArgumentAddress address && address.Index == index;
 
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)

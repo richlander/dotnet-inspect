@@ -1793,6 +1793,42 @@ public class CSharpPrinterTests
     }
 
     [Fact]
+    public void StoreElement_KeepsAddressReceiverTempWhenInitializerReferencesTarget()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var stringArray = TypeRef.SzArray(stringType);
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var charType = TypeRef.CoreLib("System", "Char");
+        var spanType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [charType]);
+        var toString = new MethodRef(spanType, "ToString", stringType, [], HasThis: true);
+        var next = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "Next", spanType, [intType], HasThis: false);
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, spanType, new Call(next, isVirtual: false, [new LoadArgument(1, "i", intType)])));
+        block.Add(new StoreElement(
+            elementType: null,
+            new LoadArgument(0, "items", stringArray),
+            new LoadArgument(1, "i", intType),
+            new Call(toString, isVirtual: true, [new LoadLocalAddress(0, spanType)])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [
+                new Parameter("items", stringArray),
+                new Parameter("i", intType),
+            ], HasThis: false, GenericParameterCount: 0),
+            [spanType],
+            body);
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Contains("ReadOnlySpan<char> V_0 = T.Next(i);", output);
+        Assert.Contains("items[i] = V_0.ToString();", output);
+    }
+
+    [Fact]
     public void StoreElement_InlinedUnsafeReceiverTempCarriesUnsafeContext()
     {
         var stringType = TypeRef.CoreLib("System", "String");
