@@ -1,0 +1,23 @@
+[
+  {
+    "Assembly": "ILInspector.Decompiler.dll",
+    "Type": "ILInspector.Decompiler.Pipeline.TypeRef",
+    "Method": "RenderNestedDefinition",
+    "Signature": "",
+    "Shape": "string-build-in-loop"
+  },
+  {
+    "Assembly": "ILInspector.Decompiler.dll",
+    "Type": "ILInspector.Decompiler.Pipeline.TypeRef",
+    "Method": "RenderNestedGenericInstance",
+    "Signature": "ILInspector.Decompiler.Pipeline.TypeRef",
+    "Shape": "capturing-delegate"
+  },
+  {
+    "Assembly": "ILInspector.Decompiler.dll",
+    "Type": "ILInspector.Decompiler.Pipeline.CSharpPrinter",
+    "Method": "CollectStackSlotNames",
+    "Signature": "ILInspector.Decompiler.Pipeline.IrFunction",
+    "Shape": "capturing-delegate"
+  }
+]

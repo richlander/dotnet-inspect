@@ -54,4 +54,17 @@ mechanically-checkable signals — did every assembly open, did the analyzer cho
 diagnostics) — diffed against a committed baseline. A REGRESSION (an assembly that stops opening,
 times out, or whose diagnostics increase) exits nonzero; signal-count DRIFT is reported, not
 failed. Each assembly is bounded by a per-assembly timeout so one pathological input cannot hang
-the sweep. The sampled-judgment precision/recall loop (Layer 3) is tracked on #1818.
+the sweep.
+
+Layer 3 (sampled precision/recall) splits by oracle: recall is mechanical once curated, precision
+needs judgement.
+
+```bash
+dotnet "$DLL" --paydirt-recall ILInspector.Decompiler.dll       # committed reference sites must surface
+dotnet "$DLL" --precision-sample ILInspector.Decompiler.dll --top 20   # worksheet for TP/FP labeling
+```
+
+`--paydirt-recall` exits nonzero if a committed reference paydirt site stops surfacing as a
+loop+high triage candidate (a recall regression). `--precision-sample` emits the top-N ranked
+candidates as a labeling worksheet — there is no automatic precision oracle, so an agent/human
+labels true vs false positive.
