@@ -528,6 +528,42 @@ public class GeneratedFixtureCatalogTests
         Assert.True(method.GetProperty("ShapePassed").GetBoolean());
     }
 
+    [Fact]
+    public void ShapeFrontierRun_FailsWhenFrontierShapeIsAchieved()
+    {
+        var alreadyImproved = new GeneratedFixtureDefinition(
+            "test.frontier-shape-achieved",
+            """
+            namespace GeneratedFixtures.TestFrontierShapeAchieved;
+
+            public class Class1
+            {
+                public int Method1(int left, int right) => left + right;
+            }
+            """,
+            [
+                new(
+                    "GeneratedFixtures.TestFrontierShapeAchieved.Class1",
+                    "Method1",
+                    FidelityCheck.CompileBackStatus.Exact,
+                    IsFrontier: true,
+                    ExpectedShape: SyntaxKind.ReturnStatement,
+                    FrontierShape: SyntaxKind.AddExpression),
+            ],
+            ["test"]);
+
+        var run = GeneratedFixtureRunner.Run([alreadyImproved]);
+        string report = GeneratedFixtureRunner.FormatReport(run);
+        var result = Assert.Single(run.Results);
+
+        Assert.False(run.Passed);
+        Assert.Equal(SyntaxKind.AddExpression, result.ActualShape);
+        Assert.Equal(SyntaxKind.ReturnStatement, result.ExpectedShape);
+        Assert.Equal(SyntaxKind.AddExpression, result.FrontierShape);
+        Assert.False(result.ShapePassed);
+        Assert.Contains("frontier-shape-achieved", report);
+    }
+
     static void AssertTarget(
         GeneratedFixtureRunResult run,
         string fixtureId,

@@ -692,7 +692,7 @@ internal static class GeneratedFixtureRunner
                 {
                     compileBack.TryGetValue(Key(target.Type, target.Method, target.Overload), out var actual);
                     renders.TryGetValue(Key(target.Type, target.Method, target.Overload), out var render);
-                    var shape = ShapeVerdict(render?.Body, target.ExpectedShape);
+                    var shape = ShapeVerdict(render?.Body, target.ExpectedShape, target.FrontierShape);
                     results.Add(new GeneratedFixtureResult(
                         fixture.Id,
                         target.Type,
@@ -862,7 +862,7 @@ internal static class GeneratedFixtureRunner
         return renders;
     }
 
-    static (SyntaxKind? ActualShape, string? Detail) ShapeVerdict(string? body, SyntaxKind? expected)
+    static (SyntaxKind? ActualShape, string? Detail) ShapeVerdict(string? body, SyntaxKind? expected, SyntaxKind? frontier)
     {
         if (expected is null)
             return (null, null);
@@ -881,6 +881,9 @@ internal static class GeneratedFixtureRunner
             """,
             new CSharpParseOptions(LanguageVersion.Preview));
         var root = tree.GetRoot();
+        if (frontier is { } frontierKind && root.DescendantNodes().Any(node => node.IsKind(frontierKind)))
+            return (frontierKind, "frontier-shape-achieved");
+
         if (root.DescendantNodes().Any(node => node.IsKind(expected.Value)))
             return (expected.Value, null);
 
