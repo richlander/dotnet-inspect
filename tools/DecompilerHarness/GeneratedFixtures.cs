@@ -189,7 +189,8 @@ internal static class GeneratedFixtureCatalog
             new("GeneratedFixtures.MinimalIntegerAddition.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalIntegerAddition.Class1", "Method1",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedShape: SyntaxKind.AddExpression),
         ],
         ["minimal", "integer", "arithmetic", "addition"]);
 

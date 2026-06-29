@@ -328,6 +328,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("shape=ForStatement", report);
         Assert.Contains("shape=ElementAccessExpression", report);
 
+        AssertShape(run, "minimal.integer-addition", "Method1", SyntaxKind.AddExpression);
         AssertShape(run, "minimal.array-index", "Method1", SyntaxKind.ElementAccessExpression);
         AssertShape(run, "minimal.array-length", "Method1", SyntaxKind.SimpleMemberAccessExpression);
         AssertShape(run, "minimal.string-length", "Method1", SyntaxKind.SimpleMemberAccessExpression);
