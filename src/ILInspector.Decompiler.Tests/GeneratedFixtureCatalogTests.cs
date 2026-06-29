@@ -135,6 +135,20 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.integer-addition",
+            "GeneratedFixtures.MinimalIntegerAddition.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.integer-addition",
+            "GeneratedFixtures.MinimalIntegerAddition.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.array-index",
             "GeneratedFixtures.MinimalArrayIndex.Class1",
             ".ctor",
@@ -294,6 +308,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.method-call.same-type", report);
         Assert.Contains("minimal.static-method-call", report);
         Assert.Contains("minimal.if-else", report);
+        Assert.Contains("minimal.integer-addition", report);
         Assert.Contains("minimal.array-index", report);
         Assert.Contains("minimal.array-length", report);
         Assert.Contains("minimal.string-length", report);
@@ -327,6 +342,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.for-loop",
                 "minimal.foreach-array",
                 "minimal.if-else",
+                "minimal.integer-addition",
                 "minimal.method-call.same-type",
                 "minimal.null-coalesce",
                 "minimal.primary-ctor.field-init",
@@ -357,6 +373,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.method-call.same-type");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-method-call");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.integer-addition");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-index");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-length");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.string-length");

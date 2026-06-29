@@ -171,6 +171,24 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "branch", "if-else"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalIntegerAddition = new(
+        "minimal.integer-addition",
+        """
+        namespace GeneratedFixtures.MinimalIntegerAddition;
+
+        public class Class1
+        {
+            public int Method1(int left, int right) => left + right;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalIntegerAddition.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIntegerAddition.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "integer", "arithmetic", "addition"]);
+
     public static readonly GeneratedFixtureDefinition MinimalArrayIndex = new(
         "minimal.array-index",
         """
@@ -473,6 +491,7 @@ internal static class GeneratedFixtureCatalog
         MinimalMethodCallSameType,
         MinimalStaticMethodCall,
         MinimalIfElse,
+        MinimalIntegerAddition,
         MinimalArrayIndex,
         MinimalArrayLength,
         MinimalStringLength,
