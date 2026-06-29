@@ -275,8 +275,8 @@ internal static class GeneratedFixtureCatalog
             public int Method1(int count)
             {
                 var sum = 0;
-                for (  i < count; i++)
-                    sum += count;
+                for (var i = 0; i < count; i++)
+                    sum += i;
                 return sum;
             }
         }
@@ -299,7 +299,6 @@ internal static class GeneratedFixtureCatalog
             public int Method1(int count)
             {
                 var sum = 0;
-                 
                 while (count > 0)
                 {
                     sum += count;
