@@ -1643,15 +1643,18 @@ public sealed class LibraryBodyIndex
                         }
                         else if (IsSpanToArrayCopy(callee, out var copyReceiver))
                         {
-                            opportunities.Add(new OptimizationOpportunity(
-                                caller,
-                                "span-to-array-copy",
-                                copyReceiver,
-                                "Let the span flow through to the consumer instead of materializing a copy when the array is not retained.",
-                                "medium",
-                                IsInLoopRegion(offset, loopRegions),
-                                offset,
-                                "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
+                            if (!SpanToArrayResultEscapes(il, GetReachingDefinitions(), position))
+                            {
+                                opportunities.Add(new OptimizationOpportunity(
+                                    caller,
+                                    "span-to-array-copy",
+                                    copyReceiver,
+                                    "Let the span flow through to the consumer instead of materializing a copy when the array is not retained.",
+                                    "medium",
+                                    IsInLoopRegion(offset, loopRegions),
+                                    offset,
+                                    "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
+                            }
                         }
                         else if (IsLinqMembershipScan(callee, out var scanOp) && IsInLoopRegion(offset, loopRegions))
                         {
@@ -2252,6 +2255,43 @@ public sealed class LibraryBodyIndex
             var opcode = ReadOpcode(il, ref positionAfterLoad);
             return IsLoadLocal(il, opcode, ref positionAfterLoad, slot, out bool loadsSlot)
                 && loadsSlot;
+        }
+
+        bool SpanToArrayResultEscapes(byte[] il, ReachingDefinitionsResult reachingDefinitions, int positionAfterCall)
+        {
+            try
+            {
+                if (!reachingDefinitions.IsComplete)
+                    return true;
+
+                SkipNops(il, ref positionAfterCall);
+                if (TryReadStoreLocalDefinition(il, positionAfterCall, out int slot, out int storeOffset))
+                {
+                    var definition = reachingDefinitions.Definitions.FirstOrDefault(d =>
+                        !d.IsArgument && d.Slot == slot && d.Offset == storeOffset);
+                    if (definition is null)
+                        return true;
+
+                    foreach (var use in reachingDefinitions.UsesOf(definition))
+                    {
+                        if (use.Address)
+                            return true;
+                        if (!TryPositionAfterLoadLocal(il, use.Offset, slot, out int positionAfterLoad)
+                            || ArrayLoadEscapes(il, positionAfterLoad))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                return ArrayLoadEscapes(il, positionAfterCall);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+            {
+                return true;
+            }
         }
 
         static bool IsLoadLocal(byte[] il, ILOpCode opcode, ref int position, int slot, out bool matchesSlot)
