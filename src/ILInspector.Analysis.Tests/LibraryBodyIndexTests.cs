@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -1033,6 +1035,26 @@ public class LibraryBodyIndexTests
         Assert.Equal("small-array", local);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_ReachingDefinitionsSeparateReusedLocalSlots()
+    {
+        var (path, directory) = BuildSlotReuseArrayFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+
+            var shapes = ArrayShapes(index, "LocalThenEscapingSlotReuse").ToArray();
+
+            Assert.Equal(2, shapes.Length);
+            Assert.Contains("stackalloc-candidate", shapes);
+            Assert.Contains("small-array", shapes);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField))]
@@ -1525,6 +1547,47 @@ public class LibraryBodyIndexTests
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape is "small-array" or "stackalloc-candidate")
             .Select(o => o.Shape);
+
+    static (string Path, string Directory) BuildSlotReuseArrayFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-slot-reuse-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "SlotReuseArrayFixture.dll");
+
+        var assemblyName = new AssemblyName("SlotReuseArrayFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("SlotReuseArrayFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var method = type.DefineMethod(
+            "LocalThenEscapingSlotReuse",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int[]),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.DeclareLocal(typeof(int[]));
+
+        il.Emit(OpCodes.Ldc_I4_4);
+        il.Emit(OpCodes.Newarr, typeof(int));
+        il.Emit(OpCodes.Stloc_0);
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Stelem_I4);
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Ldelem_I4);
+        il.Emit(OpCodes.Pop);
+
+        il.Emit(OpCodes.Ldc_I4_4);
+        il.Emit(OpCodes.Newarr, typeof(int));
+        il.Emit(OpCodes.Stloc_0);
+        il.Emit(OpCodes.Ldloc_0);
+        il.Emit(OpCodes.Ret);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
+    }
 
     static IEnumerable<string> DelegateShapes(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
