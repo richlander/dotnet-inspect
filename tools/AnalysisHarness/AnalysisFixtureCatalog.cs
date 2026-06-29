@@ -63,7 +63,10 @@ public sealed record AnalysisFixtureDefinition(
     string? ExternalSource,
     bool ExternalNeedsAlias,
     IReadOnlyList<AnalysisFixtureTarget> Targets,
-    IReadOnlyList<string> Tags);
+    IReadOnlyList<string> Tags)
+{
+    public IReadOnlyList<string> ConsumerFrameworkReferences { get; init; } = [];
+}
 
 public sealed record AnalysisFixtureResult(
     string FixtureId,
@@ -452,6 +455,94 @@ public static class AnalysisFixtureCatalog
         ],
         ["opportunity", "enumerator", "in-assembly", "rung5"]);
 
+    public static readonly AnalysisFixtureDefinition RenderMethodRealFrameworkSuppression = new(
+        "suppress.render-method.real-framework-builder",
+        """
+        using System;
+        using Microsoft.AspNetCore.Components.Rendering;
+        namespace Fix;
+        public static class Consumer
+        {
+            // Must-not-flag: a method taking the REAL framework RenderTreeBuilder is treated as
+            // intrinsic Blazor render plumbing, so delegate allocations in the render loop are
+            // suppressed (#1781).
+            public static int RenderWithDelegateLoop(RenderTreeBuilder builder, int[] values, int seed)
+            {
+                var total = 0;
+                foreach (var v in values)
+                {
+                    Func<int> handler = () => v + seed;
+                    total += handler();
+                }
+                return total;
+            }
+
+            // Same allocation shape, no RenderTreeBuilder parameter: proves the fixture would
+            // surface a capturing-delegate row without the render-method suppression.
+            public static int NonRenderDelegateLoop(int[] values, int seed)
+            {
+                var total = 0;
+                foreach (var v in values)
+                {
+                    Func<int> handler = () => v + seed;
+                    total += handler();
+                }
+                return total;
+            }
+        }
+        """,
+        ExternalSource: null,
+        ExternalNeedsAlias: false,
+        [
+            new("RenderWithDelegateLoop", new AnalysisExpectation(OpportunityShapeAbsent: "capturing-delegate"),
+                Note: "Trusted Microsoft.AspNetCore.Components.RenderTreeBuilder suppresses render-method opportunities (#1781)."),
+            new("NonRenderDelegateLoop", new AnalysisExpectation(OpportunityShapePresent: "capturing-delegate"),
+                Note: "Control row: the same in-loop capturing delegate is reported outside render plumbing."),
+        ],
+        ["opportunity", "render", "suppression", "framework", "rung5"])
+    {
+        ConsumerFrameworkReferences = ["Microsoft.AspNetCore.App"],
+    };
+
+    public static readonly AnalysisFixtureDefinition RenderMethodLookalikeBuilderNotSuppressed = new(
+        "suppress.render-method.lookalike-builder",
+        """
+        using System;
+        namespace Fix
+        {
+            public static class Consumer
+            {
+                // Must flag: this parameter has the framework namespace/name but comes from the
+                // inspected user assembly, so it is not a trusted framework RenderTreeBuilder.
+                public static int RenderLikeMethod(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, int[] values, int seed)
+                {
+                    var total = 0;
+                    foreach (var v in values)
+                    {
+                        Func<int> handler = () => v + seed;
+                        total += handler();
+                    }
+                    return total;
+                }
+            }
+        }
+
+        namespace Microsoft.AspNetCore.Components.Rendering
+        {
+            public sealed class RenderTreeBuilder
+            {
+                public void Use(Func<int> handler) => handler();
+            }
+        }
+        """,
+        ExternalSource: null,
+        ExternalNeedsAlias: false,
+        [
+            new("RenderLikeMethod", new AnalysisExpectation(OpportunityShapePresent: "capturing-delegate"),
+                Note: "Untrusted RenderTreeBuilder lookalike must not suppress genuine allocation opportunities (#1781)."),
+        ],
+        ["opportunity", "render", "suppression", "lookalike", "rung5"]);
+
     public static IReadOnlyList<AnalysisFixtureDefinition> All { get; } =
     [
         AllocInAssemblyStruct,
@@ -463,6 +554,8 @@ public static class AnalysisFixtureCatalog
         StringBuildAccumulationInLoop,
         BoxThrowPathSuppression,
         EnumeratorInterfaceForeachInLoop,
+        RenderMethodRealFrameworkSuppression,
+        RenderMethodLookalikeBuilderNotSuppressed,
     ];
 
     public static IReadOnlyList<AnalysisFixtureDefinition> Select(string? selector)

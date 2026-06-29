@@ -46,6 +46,12 @@ public class AnalysisFixtureCatalogTests
         AssertBoundary(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachInterfaceOnce", OwnedBoundary.FalseNegative);
         AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachConcreteListInLoop");
         AssertPasses(run, "alloc.enumerator.interface-foreach-in-loop", "ForeachLookalikeEnumeratorInLoop");
+
+        // Render-method suppression: real framework RenderTreeBuilder suppresses intrinsic Blazor
+        // render plumbing, while a same-namespace/name user lookalike does not.
+        AssertPasses(run, "suppress.render-method.real-framework-builder", "RenderWithDelegateLoop");
+        AssertPasses(run, "suppress.render-method.real-framework-builder", "NonRenderDelegateLoop");
+        AssertPasses(run, "suppress.render-method.lookalike-builder", "RenderLikeMethod");
     }
 
     static void AssertPasses(AnalysisFixtureRunResult run, string fixtureId, string method)

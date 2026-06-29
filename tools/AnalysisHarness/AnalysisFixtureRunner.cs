@@ -65,7 +65,7 @@ public static class AnalysisFixtureRunner
         Directory.CreateDirectory(consumerDir);
         File.WriteAllText(
             Path.Combine(consumerDir, "Consumer.csproj"),
-            ConsumerProjectFile(tfm, hasExternal, fixture.ExternalNeedsAlias));
+            ConsumerProjectFile(tfm, hasExternal, fixture.ExternalNeedsAlias, fixture.ConsumerFrameworkReferences));
         File.WriteAllText(Path.Combine(consumerDir, "Consumer.cs"), fixture.ConsumerSource);
 
         Build(consumerDir);
@@ -245,7 +245,7 @@ public static class AnalysisFixtureRunner
         </Project>
         """;
 
-    static string ConsumerProjectFile(string tfm, bool hasExternal, bool needsAlias)
+    static string ConsumerProjectFile(string tfm, bool hasExternal, bool needsAlias, IReadOnlyList<string> frameworkReferences)
     {
         string reference = hasExternal
             ? needsAlias
@@ -262,6 +262,11 @@ public static class AnalysisFixtureRunner
                   </ItemGroup>
                 """
             : "";
+        string frameworks = frameworkReferences.Count == 0
+            ? ""
+            : "  <ItemGroup>\n"
+              + string.Concat(frameworkReferences.Select(framework => $"    <FrameworkReference Include=\"{framework}\" />\n"))
+              + "  </ItemGroup>\n";
         return $$"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
@@ -274,6 +279,7 @@ public static class AnalysisFixtureRunner
                 <AssemblyName>Consumer</AssemblyName>
               </PropertyGroup>
             {{reference}}
+            {{frameworks}}
             </Project>
             """;
     }
