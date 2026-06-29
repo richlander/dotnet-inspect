@@ -85,14 +85,12 @@ public class AllocationClassifierTests
     }
 
     [Fact]
-    public void CrossAssemblyValueTypeNewObject_IsNotSuppressed_WithoutResolution()
+    public void CrossAssemblyValueTypeNewObject_UsesAnalysisFrameworkSuppression()
     {
-        // The defensive witness: without a locator that can reach corelib, the
-        // value-type-ness is genuinely unknown, so the classifier stays honest
-        // and reports alloc.new rather than guessing. This proves resolution is
-        // doing real work — it is not a vacuous always-confirm — and that the
-        // suppression above is earned, not assumed.
-        Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), locator: (name, trust) => null)));
+        // Track A makes allocation annotations an Analysis projection. Analysis
+        // already suppresses trusted framework value-type constructors such as
+        // DateTime without relying on the decompiler's locator.
+        Assert.DoesNotContain("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), locator: (name, trust) => null)));
     }
 
     [Fact]

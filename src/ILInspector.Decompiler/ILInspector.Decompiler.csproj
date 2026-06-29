@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
   </ItemGroup>

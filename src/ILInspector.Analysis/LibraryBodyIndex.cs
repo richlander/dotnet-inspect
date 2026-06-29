@@ -21,6 +21,7 @@ public sealed class LibraryBodyIndex
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
+        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> allocationOccurrences,
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
@@ -36,6 +37,7 @@ public sealed class LibraryBodyIndex
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
+        _allocationOccurrences = allocationOccurrences;
         _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
@@ -163,26 +165,26 @@ public sealed class LibraryBodyIndex
         foreach (var method in Methods)
             methodByToken[method.MetadataToken] = method;
 
-        // Per-method steady-state object allocations (newobj that is not an exception
-        // constructor) and whether any such allocation is on a loop back-edge.
-        var steadyNewobj = new Dictionary<int, int>();
-        var steadyNewobjLoop = new HashSet<int>();
-        foreach (var call in DirectCalls)
+        // Per-method steady-state allocation occurrences and whether any such
+        // allocation is on a loop back-edge.
+        var steadyAllocations = new Dictionary<int, int>();
+        var steadyAllocationLoop = new HashSet<int>();
+        foreach (var (token, occurrences) in _allocationOccurrences)
         {
-            if (call.Kind != CallKind.NewObject)
-                continue;
-            if (call.Callee.Kind != MemberKind.Unsupported
-                && IsExceptionConstruction(call.Callee.DeclaringType))
-                continue;
-            // A `newobj` of a value type (Span/Nullable/ValueTuple/in-assembly struct, or a
-            // cross-assembly generic struct resolved via the TypeSpec blob during Build) does
-            // not allocate on the heap, so it must not count toward allocation density (#1804).
-            if (_nonHeapNewObjOperandTokens.Contains(call.OperandToken))
-                continue;
-            int token = call.Caller.MetadataToken;
-            steadyNewobj[token] = steadyNewobj.GetValueOrDefault(token) + 1;
-            if (call.InLoop)
-                steadyNewobjLoop.Add(token);
+            foreach (var occurrence in occurrences)
+            {
+                if (!occurrence.CountsAsHeapAllocation)
+                    continue;
+                if (occurrence.Escape == AllocationEscape.ThrowPath)
+                    continue;
+                if (occurrence.Kind == AllocationKind.Object
+                    && occurrence.AllocatedType is { } type
+                    && IsExceptionConstruction(type))
+                    continue;
+                steadyAllocations[token] = steadyAllocations.GetValueOrDefault(token) + 1;
+                if (occurrence.InLoop)
+                    steadyAllocationLoop.Add(token);
+            }
         }
 
         foreach (var (token, method) in methodByToken)
@@ -194,13 +196,12 @@ public sealed class LibraryBodyIndex
             // drowns the actionable specific rows.
             if (methodsWithSpecificShape.Contains(token))
                 continue;
-            _bodySignals.TryGetValue(token, out var body);
             // Only loop allocations are repeated; a once-per-call dense method is usually
             // intrinsic construction (e.g. building an output object), not reducible waste.
-            bool inLoop = steadyNewobjLoop.Contains(token) || body.AllocInLoop;
+            bool inLoop = steadyAllocationLoop.Contains(token);
             if (!inLoop)
                 continue;
-            int allocations = steadyNewobj.GetValueOrDefault(token) + body.Newarr + body.Boxes;
+            int allocations = steadyAllocations.GetValueOrDefault(token);
             if (allocations < AllocationHotspotThreshold)
                 continue;
             yield return new OptimizationOpportunity(
@@ -446,6 +447,7 @@ public sealed class LibraryBodyIndex
 
     Dictionary<int, MethodSignals>? _signals;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
+    readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
@@ -456,12 +458,15 @@ public sealed class LibraryBodyIndex
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
+    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _allocationOccurrences, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
     /// </summary>
     public IReadOnlyDictionary<int, MethodSignals> GetMethodSignals() => Signals;
+
+    /// <summary>Offset-keyed allocation occurrences, grouped by containing method token.</summary>
+    public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
 
     IReadOnlySet<string>? _generatedFrameworkTypes;
 
@@ -585,7 +590,7 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
+            index.BodySignals, index.AllocationOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
             index.NonHeapNewObjOperandTokens);
     }
 
@@ -1022,7 +1027,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -1031,6 +1036,7 @@ public sealed class LibraryBodyIndex
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
             var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
             var bodySignals = new Dictionary<int, BodySignals>();
+            var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
             var suppressedOpportunityTokens = new HashSet<int>();
             var exceptionTypeNames = ComputeExceptionTypeNames();
             int none = 0, impl = 0, expl = 0;
@@ -1069,6 +1075,9 @@ public sealed class LibraryBodyIndex
                         var il = body.GetILBytes() ?? [];
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
                         var loopRegions = CollectLoopRegions(il);
+                        var allocations = CollectAllocationOccurrences(il, caller, scope, loopRegions);
+                        if (allocations.Length > 0)
+                            allocationOccurrences[caller.MetadataToken] = allocations;
                         var methodAttributes = methodDef.GetCustomAttributes();
                         if (!typeSourceGenerated
                             && !HasGeneratedCodeAttribute(methodAttributes)
@@ -1097,7 +1106,7 @@ public sealed class LibraryBodyIndex
             var directCalls = calls.ToImmutable();
             var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
             return (methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
+                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, allocationOccurrences,
                 BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
         }
 
@@ -1451,9 +1460,171 @@ public sealed class LibraryBodyIndex
             return found;
         }
 
+        ImmutableArray<AllocationOccurrence> CollectAllocationOccurrences(
+            byte[] il,
+            MethodIdentity caller,
+            GenericScope callerScope,
+            IReadOnlyList<(int Start, int End)> loopRegions)
+        {
+            var occurrences = ImmutableArray.CreateBuilder<AllocationOccurrence>();
+            ILOpCode previousOpcode = default;
+            int position = 0;
+            while (position < il.Length)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                try
+                {
+                    switch (opcode)
+                    {
+                        case ILOpCode.Ldc_i4_m1:
+                        case ILOpCode.Ldc_i4_0:
+                        case ILOpCode.Ldc_i4_1:
+                        case ILOpCode.Ldc_i4_2:
+                        case ILOpCode.Ldc_i4_3:
+                        case ILOpCode.Ldc_i4_4:
+                        case ILOpCode.Ldc_i4_5:
+                        case ILOpCode.Ldc_i4_6:
+                        case ILOpCode.Ldc_i4_7:
+                        case ILOpCode.Ldc_i4_8:
+                            break;
+                        case ILOpCode.Ldc_i4_s:
+                            ReadByte(il, ref position, offset);
+                            break;
+                        case ILOpCode.Ldc_i4:
+                            ReadInt32(il, ref position, offset);
+                            break;
+                        case ILOpCode.Newarr:
+                        {
+                            int token = ReadInt32(il, ref position, offset);
+                            var element = ResolveTypeToken(token, callerScope);
+                            var array = TypeRef.SzArray(element);
+                            occurrences.Add(MakeAllocation(
+                                caller, offset, token, AllocationKind.Array, array, array.ToDisplayString(), countsAsHeapAllocation: true,
+                                AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
+                                AllocationEscape.Unknown, AllocationFactSource.Newarr));
+                            break;
+                        }
+                        case ILOpCode.Newobj:
+                        {
+                            int token = ReadInt32(il, ref position, offset);
+                            var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                            if (!IsNonHeapNewObj(token, constructor.DeclaringType)
+                                && ClassifyNewObjectAllocation(il, offset, position, token, constructor, loopRegions) is { } occurrence)
+                            {
+                                occurrences.Add(occurrence);
+                            }
+                            break;
+                        }
+                        case ILOpCode.Call:
+                        case ILOpCode.Callvirt:
+                        {
+                            int token = ReadInt32(il, ref position, offset);
+                            var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                            if (IsInterfaceEnumeratorAllocation(callee))
+                            {
+                                occurrences.Add(MakeAllocation(
+                                    caller, offset, token, AllocationKind.Enumerator, callee.ReturnType, callee.ReturnType.ToDisplayString(), countsAsHeapAllocation: true,
+                                    AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
+                                    AllocationEscape.Unknown, AllocationFactSource.GetEnumeratorCall));
+                            }
+                            break;
+                        }
+                        case ILOpCode.Box:
+                        {
+                            int token = ReadInt32(il, ref position, offset);
+                            var boxed = ResolveTypeToken(token, callerScope);
+                            occurrences.Add(MakeAllocation(
+                                caller, offset, token, AllocationKind.Box, boxed, boxed.ToDisplayString(),
+                                countsAsHeapAllocation: IsAllocatingValueTypeBox(token, boxed),
+                                AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
+                                BoxFeedsThrowSoon(il, position) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
+                                AllocationFactSource.Box));
+                            break;
+                        }
+                        default:
+                            SkipOperand(il, opcode, ref position, offset);
+                            break;
+                    }
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+                {
+                    break;
+                }
+
+                if (opcode != ILOpCode.Nop)
+                    previousOpcode = opcode;
+            }
+            return occurrences.ToImmutable();
+
+            AllocationOccurrence? ClassifyNewObjectAllocation(
+                byte[] ilBytes,
+                int newObjectOffset,
+                int afterNewObjectPosition,
+                int operandToken,
+                MemberRef constructor,
+                IReadOnlyList<(int Start, int End)> loops)
+            {
+                var type = constructor.DeclaringType;
+                if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+                {
+                    return MakeAllocation(
+                        caller, newObjectOffset, operandToken, AllocationKind.Array, type, type.ToDisplayString(), countsAsHeapAllocation: true,
+                        AllocationFrequency.Always, IsInLoopRegion(newObjectOffset, loops),
+                        AllocationEscape.Unknown, AllocationFactSource.Newobj);
+                }
+
+                AllocationKind kind = AllocationKind.Object;
+                var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+                string name = definition.Name;
+                if (IsDelegateConstructor(constructor))
+                    kind = AllocationKind.Delegate;
+                else if (name.Contains("c__DisplayClass", StringComparison.Ordinal))
+                    kind = AllocationKind.Closure;
+                else if (name.Contains(">d__", StringComparison.Ordinal))
+                    kind = AllocationKind.StateMachine;
+
+                bool followsFunctionPointer = previousOpcode is ILOpCode.Ldftn or ILOpCode.Ldvirtftn;
+                if (kind == AllocationKind.Delegate && !followsFunctionPointer)
+                    kind = AllocationKind.Object;
+
+                var frequency = kind == AllocationKind.Delegate && DelegateNewObjectIsCachedOnce(ilBytes, newObjectOffset, afterNewObjectPosition)
+                    ? AllocationFrequency.CachedOnce
+                    : AllocationFrequency.Always;
+                return MakeAllocation(
+                    caller, newObjectOffset, operandToken, kind, type, type.ToDisplayString(), countsAsHeapAllocation: true,
+                    frequency, IsInLoopRegion(newObjectOffset, loops),
+                    NewObjectFeedsThrowSoon(ilBytes, afterNewObjectPosition) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
+                    AllocationFactSource.Newobj);
+            }
+
+            static bool IsDelegateConstructor(MemberRef constructor)
+                => constructor.Kind == MemberKind.Constructor
+                   && constructor.DeclaringType.Kind != TypeRefKind.Unsupported
+                   && constructor.ParameterTypes.Length == 2
+                   && constructor.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
+                   && constructor.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr"));
+
+            static AllocationOccurrence MakeAllocation(
+                MethodIdentity method,
+                int offset,
+                int? operandToken,
+                AllocationKind kind,
+                TypeRef? allocatedType,
+                string? detail,
+                bool countsAsHeapAllocation,
+                AllocationFrequency frequency,
+                bool inLoop,
+                AllocationEscape escape,
+                AllocationFactSource source)
+                => new(method, offset, operandToken, kind, allocatedType, detail, countsAsHeapAllocation, frequency, inLoop, escape, source);
+        }
+
         ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
+            var allocationByOffset = CollectAllocationOccurrences(il, caller, callerScope, loopRegions)
+                .ToDictionary(occurrence => occurrence.ILOffset);
             ReachingDefinitionsResult? reachingDefinitions = null;
             ReachingDefinitionsResult GetReachingDefinitions()
                 => reachingDefinitions ??= ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
@@ -1518,7 +1689,9 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Newarr:
                     {
                         int elementToken = ReadInt32(il, ref position, offset);
-                        if (pendingConstant is int length && length >= 0 && length <= 8)
+                        if (allocationByOffset.TryGetValue(offset, out var arrayAllocation)
+                            && arrayAllocation.Kind == AllocationKind.Array
+                            && pendingConstant is int length && length >= 0 && length <= 8)
                         {
                             // Promote to a confident stackalloc recommendation only when the
                             // array provably stays local AND its element type is stackalloc-
@@ -1563,7 +1736,9 @@ public sealed class LibraryBodyIndex
                             // suppress the IL cache pattern directly (`ldsfld; dup; brtrue; ...;
                             // newobj; dup; stsfld`) so cached delegates are not misreported when
                             // the target method's compiler-generated identity is unavailable.
-                            bool cachedOnce = DelegateNewObjectIsCachedOnce(il, offset, position);
+                            bool cachedOnce = allocationByOffset.TryGetValue(offset, out var delegateAllocation)
+                                && delegateAllocation.Kind == AllocationKind.Delegate
+                                && delegateAllocation.Frequency == AllocationFrequency.CachedOnce;
                             if (!cachedOnce && pendingDelegateCapturing)
                             {
                                 // Confidence tracks loop membership: an in-loop delegate is a
@@ -1765,7 +1940,9 @@ public sealed class LibraryBodyIndex
                         // allocates only when non-null. Flag only a positively-identified,
                         // unconditionally-allocating value type. Escape is decided at the
                         // consumer below.
-                        var allocating = IsAllocatingValueTypeBox(token, boxed);
+                        allocationByOffset.TryGetValue(offset, out var boxAllocation);
+                        var allocating = boxAllocation is { Kind: AllocationKind.Box }
+                            && IsAllocatingValueTypeBox(token, boxed);
                         // A box that flows into a throw within a few instructions is an
                         // error-path allocation (an exception message: `throw new
                         // ArgumentException($"bad {x}")` lowers to box; Format; newobj; throw).
@@ -1773,9 +1950,9 @@ public sealed class LibraryBodyIndex
                         // is not pay-dirt — suppress it entirely (mirrors excluding exception
                         // construction from allocation density), not merely demote it off the
                         // hot-loop bit.
-                        var feedsThrow = allocating && BoxFeedsThrowSoon(il, position);
+                        var feedsThrow = allocating && boxAllocation!.Escape == AllocationEscape.ThrowPath;
                         pendingBoxOffset = allocating && !feedsThrow ? offset : null;
-                        pendingBoxType = allocating && !feedsThrow ? boxed : null;
+                        pendingBoxType = allocating && !feedsThrow ? boxAllocation!.AllocatedType ?? boxed : null;
                         pendingBoxInLoop = pendingBoxOffset is not null
                             && IsInLoopRegion(offset, loopRegions);
                         break;

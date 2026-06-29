@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -123,7 +124,8 @@ public static class MethodImporter
             signature,
             methodBody,
             CompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
-            DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())));
+            DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())),
+            MetadataToken: MetadataTokens.GetToken(methodHandle));
     }
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
