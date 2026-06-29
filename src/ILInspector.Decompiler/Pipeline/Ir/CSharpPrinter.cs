@@ -787,8 +787,19 @@ public sealed partial class CSharpPrinter
             {
                 case StoreLocal store when !seenLocals.Contains(store.Index):
                     seenLocals.Add(store.Index);
-                    if (entryStatements.Contains(store))
+                    if (entryStatements.Contains(store)
+                        && !StoreValueReferencesLocal(store)
+                        && !HasBranchTargetAfterStatement(store))
                         _declaringStores.Add(store);
+                    else if (store.Type.Kind == TypeRefKind.ByRef
+                        && LocalReferencesStayInBlockAfterStore(function, store))
+                    {
+                        // A ref local cannot be declared bare up front (CS8174), and
+                        // synthesizing Unsafe.NullRef<T>() changes IL. If the first
+                        // definition dominates every reference inside one block, declare
+                        // at that ref assignment instead.
+                        _declaringStores.Add(store);
+                    }
                     else if (store is { Parent: ForLoop forLoop, ChildIndex: 0 }
                         && LastReferenceIsInside(function, store.Index, forLoop))
                     {
@@ -877,6 +888,51 @@ public sealed partial class CSharpPrinter
         return true;
     }
 
+    bool LocalReferencesStayInBlockAfterStore(IrFunction function, StoreLocal store)
+    {
+        if (store.Parent is not Block block || store.ChildIndex < 0)
+            return false;
+        if (StoreValueReferencesLocal(store))
+            return false;
+        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+        if (HasBranchTargetAfterStatement(store))
+            return false;
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        {
+            if (node is StoreLocal s && s.Index == store.Index
+                || node is LoadLocal l && l.Index == store.Index
+                || node is LoadLocalAddress a && a.Index == store.Index)
+            {
+                if (!allowed.Any(statement => IsDescendantOrSelf(node, statement)))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    static bool StoreValueReferencesLocal(StoreLocal store)
+        => ReferencesLocal(store.Value, store.Index);
+
+    bool HasBranchTargetAfterStatement(IrNode statement)
+    {
+        if (statement.Parent is not Block block || statement.ChildIndex < 0)
+            return false;
+        return block.Children.Skip(statement.ChildIndex + 1)
+            .SelectMany(DescendantsAndSelfOutsideNestedFunctions)
+            .Any(n => n.SourceOffset >= 0 && _labelTargets.Contains(n.SourceOffset));
+    }
+
+    static bool ReferencesLocal(IrNode node, int index)
+    {
+        if (IsLocalReference(node, index))
+            return true;
+        return DescendantsOutsideNestedFunctions(node).Any(n => IsLocalReference(n, index));
+    }
+
+    static bool IsLocalReference(IrNode node, int index)
+        => node is LoadLocal load && load.Index == index
+            || node is LoadLocalAddress address && address.Index == index;
+
     static bool IsDescendantOrSelf(IrNode node, IrNode ancestor)
     {
         for (var current = node; current is not null; current = current.Parent)
@@ -885,6 +941,15 @@ public sealed partial class CSharpPrinter
                 return true;
         }
         return false;
+    }
+
+    static IEnumerable<IrNode> DescendantsAndSelfOutsideNestedFunctions(IrNode node)
+    {
+        yield return node;
+        if (node is Lambda or LocalFunctionStatement)
+            yield break;
+        foreach (var descendant in DescendantsOutsideNestedFunctions(node))
+            yield return descendant;
     }
 
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
