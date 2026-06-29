@@ -68,3 +68,8 @@ dotnet "$DLL" --precision-sample ILInspector.Decompiler.dll --top 20   # workshe
 loop+high triage candidate (a recall regression). `--precision-sample` emits the top-N ranked
 candidates as a labeling worksheet — there is no automatic precision oracle, so an agent/human
 labels true vs false positive.
+
+The daily workflow runs the generated-fixture catalogue, corpus stability sensor, and paydirt
+recall gate. The remaining non-mechanical #1818 work is the precision-labeling convention: who
+labels `--precision-sample` worksheets, where labels live, and what false-positive-rate bar turns
+the worksheet into a maintained quality signal.
