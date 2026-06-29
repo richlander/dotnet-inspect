@@ -15,4 +15,8 @@
 
   <!-- System.Reflection.Metadata is part of net10.0 BCL -->
 
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
+  </ItemGroup>
+
 </Project>
