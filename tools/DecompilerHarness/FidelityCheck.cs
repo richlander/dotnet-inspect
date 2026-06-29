@@ -72,7 +72,7 @@ static class FidelityCheck
         using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var path in assemblies)
         {
-            if (total >= cap)
+            if (total >= cap || zeroSignal?.Stopped == true)
                 break;
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(path)); }
@@ -102,6 +102,9 @@ static class FidelityCheck
                 }
             }
         }
+
+        if (zeroSignal?.ShouldRerunWithoutGuard == true)
+            return Run(assemblies, cap, maxExamples, lowered, timings, zeroSignalGuard: 0);
 
         Report(total, full, exact, contextFail, recompileFail, diffCount,
             recompileFailCodes, diffExamples, zeroSignal);
@@ -394,6 +397,7 @@ static class FidelityCheck
 
         public bool Stopped { get; private set; }
         public bool ProbeCompleted { get; private set; }
+        public bool ShouldRerunWithoutGuard => ProbeCompleted && !Stopped;
         public int StopCount { get; private set; }
         public string? DominantBucket { get; private set; }
         public int DominantCount { get; private set; }
@@ -420,9 +424,14 @@ static class FidelityCheck
                 .OrderByDescending(kv => kv.Value)
                 .ThenBy(kv => kv.Key, StringComparer.Ordinal)
                 .FirstOrDefault();
-            string bucket = dominant.Key ?? (contextFail > 0 ? "context-fail" : "<unknown>");
-            int count = dominant.Value != 0 ? dominant.Value : contextFail;
-            if (count * 10 < total * 9)
+            string bucket = dominant.Key ?? "<unknown>";
+            int count = dominant.Value;
+            if (contextFail > count)
+            {
+                bucket = "context-fail";
+                count = contextFail;
+            }
+            if (count * 10L < total * 9L)
                 return;
 
             Stopped = true;
