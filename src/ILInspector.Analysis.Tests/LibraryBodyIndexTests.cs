@@ -1069,9 +1069,10 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
-    [InlineData(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy))]
-    [InlineData(nameof(OptimizationOpportunityFixtures.MutableSpanToArrayCopy))]
-    public void OptimizationOpportunities_FlagsSpanToArrayCopy(string methodName)
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReadsSpanToArrayLocally))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReadsMutableSpanToArrayLocally))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReadsSpanToArrayLengthLocally))]
+    public void OptimizationOpportunities_FlagsNonEscapingSpanToArrayCopy(string methodName)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
@@ -1080,6 +1081,37 @@ public class LibraryBodyIndexTests
         // The IL offset must point at the real ToArray call (oracle-verifiable), not be inferred.
         Assert.NotNull(opportunity.ILOffset);
         Assert.Equal("medium", opportunity.Confidence);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.MutableSpanToArrayCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.SpanToArrayPassedToArrayApi))]
+    public void OptimizationOpportunities_DoesNotFlagEscapingSpanToArrayCopy(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == methodName && o.Shape == "span-to-array-copy");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SpanToArrayReachingDefinitionsTrackStoredLocal()
+    {
+        var (path, directory) = BuildSpanToArrayLocalFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.Contains(index.OptimizationOpportunities, o =>
+                o.Method.Name == "LocalRead" && o.Shape == "span-to-array-copy");
+            Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+                o.Method.Name == "LocalReturn" && o.Shape == "span-to-array-copy");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -1589,6 +1621,65 @@ public class LibraryBodyIndexTests
         return (path, directory);
     }
 
+    static (string Path, string Directory) BuildSpanToArrayLocalFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-span-local-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "SpanToArrayLocalFixture.dll");
+
+        var assemblyName = new AssemblyName("SpanToArrayLocalFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("SpanToArrayLocalFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var spanType = typeof(ReadOnlySpan<int>);
+        var toArray = spanType.GetMethod(nameof(ReadOnlySpan<int>.ToArray), Type.EmptyTypes)!;
+
+        DefineLocalRead(type, spanType, toArray);
+        DefineLocalReturn(type, spanType, toArray);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
+
+        static void DefineLocalRead(TypeBuilder type, Type spanType, MethodInfo toArray)
+        {
+            var method = type.DefineMethod(
+                "LocalRead",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int),
+                [spanType]);
+            var il = method.GetILGenerator();
+            il.DeclareLocal(typeof(int[]));
+            il.Emit(OpCodes.Ldarga_S, (byte)0);
+            il.Emit(OpCodes.Call, toArray);
+            il.Emit(OpCodes.Stloc_0);
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ldelem_I4);
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Ldelem_I4);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ret);
+        }
+
+        static void DefineLocalReturn(TypeBuilder type, Type spanType, MethodInfo toArray)
+        {
+            var method = type.DefineMethod(
+                "LocalReturn",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int[]),
+                [spanType]);
+            var il = method.GetILGenerator();
+            il.DeclareLocal(typeof(int[]));
+            il.Emit(OpCodes.Ldarga_S, (byte)0);
+            il.Emit(OpCodes.Call, toArray);
+            il.Emit(OpCodes.Stloc_0);
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ret);
+        }
+    }
+
     static IEnumerable<string> DelegateShapes(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate")
@@ -2059,7 +2150,7 @@ public class LibraryBodyIndexTests
         // --- OptimizationOpportunity shapes ---
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot"), "allocation-hotspot");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate"), "stackalloc-candidate");
-        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy), "span-to-array-copy"), "span-to-array-copy");
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.ReadsSpanToArrayLocally), "span-to-array-copy"), "span-to-array-copy");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.FirstValueByte), "temporary-byte-array-copy"), "temporary-byte-array-copy");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), "box-value-type"), "box-value-type");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type"), "box: external well-known value type (Guid)");
@@ -2762,11 +2853,30 @@ public class OptimizationOpportunityFixtures
 
     // --- Copy allocation (span-to-array) ---
 
-    // ReadOnlySpan<T>.ToArray() materializes a copy -> span-to-array-copy.
+    // ReadOnlySpan<T>.ToArray() materializes a copy but the array is returned, so the copy is
+    // required by this API shape. It remains a copy signal but is not an optimization row.
     public static int[] SpanToArrayCopy(System.ReadOnlySpan<int> span) => span.ToArray();
 
-    // Span<T>.ToArray() also copies -> span-to-array-copy.
+    // Span<T>.ToArray() also copies, but returning the array retains it.
     public static int[] MutableSpanToArrayCopy(System.Span<int> span) => span.ToArray();
+
+    public static int ReadsSpanToArrayLocally(System.ReadOnlySpan<int> span)
+    {
+        var copy = span.ToArray();
+        return copy[0];
+    }
+
+    public static int ReadsMutableSpanToArrayLocally(System.Span<int> span)
+    {
+        var copy = span.ToArray();
+        return copy[0];
+    }
+
+    public static int ReadsSpanToArrayLengthLocally(System.ReadOnlySpan<int> span)
+        => span.ToArray().Length;
+
+    public static void SpanToArrayPassedToArrayApi(System.ReadOnlySpan<int> span)
+        => ConsumeArray(span.ToArray());
 
     // List<T>.ToArray() is a common, usually-legitimate snapshot -> deliberately NOT flagged
     // as span-to-array-copy (kept out to avoid flooding the section).
