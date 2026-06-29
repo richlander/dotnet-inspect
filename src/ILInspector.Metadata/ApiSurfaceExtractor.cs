@@ -26,14 +26,10 @@ public static class ApiSurfaceExtractor
             var attributes = typeDef.Attributes;
 
             // Only include public types by default. --all (includeAll) also surfaces
-            // non-public TOP-LEVEL types (internal classes/structs/records) so an author can
-            // inspect and drill into their own library's internals. Nested types keep their
-            // existing public-only rule: a non-public nested type's selector cannot round-trip
-            // through the member command's name resolution yet, so surfacing it would emit a
-            // dead selector. Compiler-generated types are still skipped below regardless.
-            bool isTopLevel = (typeDef.Attributes & TypeAttributes.VisibilityMask)
-                is TypeAttributes.Public or TypeAttributes.NotPublic;
-            if (!typeDef.IsPublic && !(includeAll && isTopLevel))
+            // non-public types, including nested private/internal types, so ranking/triage rows
+            // that already surface non-public IL can be copied into type/member drill commands.
+            // Compiler-generated types are still skipped below regardless.
+            if (!typeDef.IsPublic && !includeAll)
                 continue;
 
             string metadataName = reader.GetString(typeDef.Name);
