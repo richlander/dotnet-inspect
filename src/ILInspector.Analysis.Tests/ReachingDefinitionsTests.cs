@@ -149,6 +149,21 @@ public class ReachingDefinitionsTests
     }
 
     [Fact]
+    public void Analyze_NestedFinallyToCatch_UseSeesFinallyDefinition()
+    {
+        var result = AnalyzeFixture(nameof(NestedFinallyToCatchReadsLocal));
+        var finalizerDefinition = result.Definitions
+            .Where(definition => !definition.IsArgument && definition.Slot == 0)
+            .MaxBy(definition => definition.Offset);
+
+        Assert.True(result.IsComplete, result.IncompleteReason);
+        Assert.Contains(result.Uses, use =>
+            !use.IsArgument
+            && use.Slot == 0
+            && use.ReachingDefinitions.Any(definition => definition.Id == finalizerDefinition?.Id));
+    }
+
+    [Fact]
     public void Analyze_LeaveRegion_MarksResultIncomplete()
     {
         var result = ReachingDefinitions.Analyze([
@@ -241,6 +256,28 @@ public class ReachingDefinitionsTests
             MaybeThrow();
         }
         catch (InvalidOperationException) when (Filter(value))
+        {
+            return value;
+        }
+        return value;
+    }
+
+    static int NestedFinallyToCatchReadsLocal()
+    {
+        int value = 0;
+        try
+        {
+            try
+            {
+                value = 1;
+                MaybeThrow();
+            }
+            finally
+            {
+                value = 2;
+            }
+        }
+        catch
         {
             return value;
         }
