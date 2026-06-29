@@ -72,7 +72,7 @@ static class FidelityCheck
         using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var path in assemblies)
         {
-            if (total >= cap || zeroSignal?.Stopped == true)
+            if (total >= cap || zeroSignal?.Stopped == true || zeroSignal?.ShouldRerunWithoutGuard == true)
                 break;
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(path)); }
@@ -91,7 +91,7 @@ static class FidelityCheck
                     var render = Renderer(source, lowered);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
-                        if (total >= cap || zeroSignal?.Stopped == true)
+                        if (total >= cap || zeroSignal?.Stopped == true || zeroSignal?.ShouldRerunWithoutGuard == true)
                             break;
                         int effectiveCap = zeroSignal?.EffectiveCap(total) ?? cap;
                         RunType(reader, pe, source, typeHandle, references, parseOptions, compileOptions,
@@ -104,7 +104,10 @@ static class FidelityCheck
         }
 
         if (zeroSignal?.ShouldRerunWithoutGuard == true)
+        {
+            zeroSignal.Report();
             return Run(assemblies, cap, maxExamples, lowered, timings, zeroSignalGuard: 0);
+        }
 
         Report(total, full, exact, contextFail, recompileFail, diffCount,
             recompileFailCodes, diffExamples, zeroSignal);
