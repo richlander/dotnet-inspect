@@ -292,6 +292,9 @@ public static class IrPasses
         // earlier IncrementDecrementPass run (before reconstruction) never saw.
         // Re-run it to fold those back into `i++`/`i--` on the rebuilt body.
         new IncrementDecrementPass(),
+        // After post-reconstruction cleanup, verify the recovered iterator still has
+        // a safe structured shape; otherwise degrade honestly instead of claiming Full.
+        new IteratorReconstructionSafetyPass(),
         // Recognize a compiler-generated iterator kickoff and replace its
         // misleading `return new <X>d__N(-2);` handoff with an honest marker
         // (the yield body in MoveNext is not yet reconstructed). Runs late with

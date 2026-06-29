@@ -187,23 +187,43 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
-    public void StaticPropertyNullAssignmentDiamond_RaisesToNullCoalescingPropertyAssignment()
+    public void StaticPropertyNullAssignmentWithoutValueSpill_IsNotRaised()
     {
         var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticProperty));
 
-        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
-        Assert.Equal("StaticNameProp", assignment.PropertyName);
-        Assert.False(assignment.HasInstance);
-        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+        // Static property ??= currently reaches this pass as a direct setter, which is
+        // indistinguishable from hand-written `if (P is null) P = value;`. Decline
+        // rather than false-raise; a future slice can restore static ??= when a
+        // compiler discriminator survives to this altitude.
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
     }
 
     [Fact]
-    public void PrintRaised_RendersStaticPropertyNullCoalescingAssignment()
+    public void PrintRaised_LeavesStaticPropertyNullAssignmentExpanded()
     {
         var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticProperty))).Output;
 
         Assert.NotNull(output);
-        Assert.Contains("StaticNameProp ??= fallback;", output);
+        Assert.DoesNotContain("??=", output);
+        Assert.Contains("if (CfgSampleClass.StaticNameProp is null)", output);
+        Assert.Contains("CfgSampleClass.StaticNameProp = fallback;", output);
+    }
+
+    [Fact]
+    public void ManualStaticPropertyNullAssignment_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualStaticPropertyNullAssignment));
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("??=", output);
+        Assert.Contains("if (CfgSampleClass.StaticNameProp is null)", output);
+        Assert.Contains("CfgSampleClass.StaticNameProp = fallback;", output);
     }
 
     [Fact]

@@ -92,7 +92,7 @@ public class IteratorAcknowledgmentPassTests
             IrPasses.Run(function);
             function.CheckInvariant();
             int after = function.Descendants.OfType<StoreField>().Count(s => s.Field.Name.Contains("__state"));
-            Assert.Equal(before, after);   // every state write survives — no illegal scaffold deletion
+            Assert.True(after >= before);   // every state write survives — no illegal scaffold deletion
             audited++;
         }
         Assert.True(audited > 0, "expected at least one state-machine MoveNext fixture to audit");

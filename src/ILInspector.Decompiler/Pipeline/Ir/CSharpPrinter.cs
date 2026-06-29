@@ -1638,13 +1638,20 @@ public sealed partial class CSharpPrinter
             Conditions.Inverse(c.Kind),
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
+        LogicalNot { Operand: Call { Callee.Name: "op_True", Arguments: [var value] } } => InvertedUserTruthiness(value),
+        LogicalNot { Operand: Call { Callee.Name: "op_False", Arguments: [var value] } } => OperatorOperand(value),
         // brtrue/brfalse test any I4/ref value; C# conditions need bool —
         // non-bool operands spell the comparison the branch performs.
         LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
         LogicalNot n => $"!{Operand(n.Operand)}",
+        Call { Callee.Name: "op_True", Arguments: [var value] } => OperatorOperand(value),
+        Call { Callee.Name: "op_False", Arguments: [var value] } => InvertedUserTruthiness(value),
         _ when Truthiness(condition) is { } truthy => truthy.Direct,
         _ => Expression(condition),
     };
+
+    string InvertedUserTruthiness(IrExpression value)
+        => $"({OperatorOperand(value)} ? false : true)";
 
     /// <summary>
     /// Spellings for a non-bool branch operand: <c>!= 0</c> for integers and

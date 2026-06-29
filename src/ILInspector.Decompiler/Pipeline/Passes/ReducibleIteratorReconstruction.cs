@@ -50,6 +50,10 @@ internal static class ReducibleIteratorReconstruction
         var blocks = work.Body.Blocks;
         if (blocks.Count == 0)
             return false;
+        var expectedYieldCount = work.Descendants.OfType<StoreField>()
+            .Count(store => store is { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" });
+        if (expectedYieldCount == 0)
+            return false;
 
         // The dispatch reads the state into a local: `Vs = this.<>1__state;`.
         var stateStore = blocks[0].Children.OfType<StoreLocal>()
@@ -132,7 +136,7 @@ internal static class ReducibleIteratorReconstruction
         // at least one yield, and leaves no unspeakable state-machine field behind.
         if (work.Body.Descendants.Any(IsUnstructured))
             return false;
-        if (!work.Descendants.OfType<YieldReturn>().Any())
+        if (work.Descendants.OfType<YieldReturn>().Count() != expectedYieldCount)
             return false;
         if (work.Descendants.Any(IsStateMachineField))
             return false;

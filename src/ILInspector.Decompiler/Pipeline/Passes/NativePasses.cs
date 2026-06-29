@@ -103,6 +103,8 @@ internal static class NativePasses
     public static ConstructorCallDiagnosticsPass ConstructorCallDiagnostics => new();
     [Native(NativeCategory.Diagnostic, "compiler-generated iterator kickoff acknowledged honestly (Partial) instead of a misleading <X>d__N handoff stub — DEC0004 residual; yield body not yet reconstructed")]
     public static IteratorAcknowledgmentPass IteratorAcknowledgment => new();
+    [Native(NativeCategory.Diagnostic, "unsafe reconstructed iterator body declined after post-reconstruction cleanup exposed an unsupported structured shape")]
+    public static IteratorReconstructionSafetyPass IteratorReconstructionSafety => new();
 }
 
 /// <summary>What a decompiler-native pass reconstructs (it inverts no Roslyn lowering).</summary>
