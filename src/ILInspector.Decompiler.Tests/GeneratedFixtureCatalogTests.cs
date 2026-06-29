@@ -205,6 +205,20 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.while-loop",
+            "GeneratedFixtures.MinimalWhileLoop.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.while-loop",
+            "GeneratedFixtures.MinimalWhileLoop.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.switch-int",
             "GeneratedFixtures.MinimalSwitchInt.Class1",
             ".ctor",
@@ -229,6 +243,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.using-dispose", report);
         Assert.Contains("minimal.foreach-array", report);
         Assert.Contains("minimal.for-loop", report);
+        Assert.Contains("minimal.while-loop", report);
         Assert.Contains("minimal.switch-int", report);
         Assert.DoesNotContain("minimal.switch-two-case-lowers-if", report);
         Assert.Contains("decompiler=Full", report);
@@ -258,6 +273,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.switch-two-case-lowers-if",
                 "minimal.try-finally",
                 "minimal.using-dispose",
+                "minimal.while-loop",
             ],
             GeneratedFixtureCatalog.Select("minimal").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
@@ -282,6 +298,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.using-dispose");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.foreach-array");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.for-loop");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.while-loop");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-int");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-two-case-lowers-if");
 
