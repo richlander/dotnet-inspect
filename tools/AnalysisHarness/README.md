@@ -70,9 +70,8 @@ candidates as a labeling worksheet — there is no automatic precision oracle, s
 labels true vs false positive.
 
 The daily workflow runs the generated-fixture catalogue, corpus stability sensor, and paydirt
-recall gate. The remaining non-mechanical #1818 work is the precision-labeling convention: who
-labels `--precision-sample` worksheets, where labels live, and what false-positive-rate bar turns
-the worksheet into a maintained quality signal.
+recall gate. Precision labeling, baseline refreshes, and recall-reference edits remain
+maintainer-owned upkeep: they are documented conventions, not automatic CI gates.
 
 ## Precision labeling convention
 
@@ -119,3 +118,58 @@ Summary: <TP>/<labeled> TP, <FP>/<labeled> FP, <Unknown> unknown. Healthy: yes/n
 | --- | --- | --- | --- | --- |
 | <type>::<method>(<signature>) [shape, confidence, loop, root reach] | TP/FP/Unknown | <why> | <command/output> | <next> |
 ```
+
+## Corpus baseline and recall-reference upkeep
+
+The committed corpus files are review artifacts:
+
+| File | Purpose |
+| --- | --- |
+| `corpus/analysis-baseline.json` | The last accepted corpus stability snapshot for the pinned corpus. |
+| `corpus/paydirt-reference.json` | Curated recall anchors that must keep surfacing as loop+high candidates. |
+
+Refresh `analysis-baseline.json` only when the corpus changed, the analyzer intentionally changed
+signal counts, or a previous timeout/failure is now measured. Do not rebaseline a regression away:
+first explain why each change is drift, an improvement, or an environment/corpus update.
+
+Use this command shape for baseline updates:
+
+```bash
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --corpus-list /tmp/corpus-assemblies.txt \
+  --diff-corpus-baseline tools/AnalysisHarness/corpus/analysis-baseline.json \
+  --emit-corpus-snapshot /tmp/analysis-baseline.json
+```
+
+Then copy `/tmp/analysis-baseline.json` to `tools/AnalysisHarness/corpus/analysis-baseline.json`
+only after reviewing the diff card. The PR or issue comment must include the command, the diff-card
+summary, and the reason each movement is acceptable.
+
+Edit `paydirt-reference.json` only after a labeled precision worksheet or targeted investigation
+identifies a stable, high-value recall anchor. A reference should have:
+
+- qualified assembly, type, method, signature, and shape identity;
+- stable loop+high ranking on the current analyzer;
+- evidence that it is real paydirt, not just a convenient row; and
+- enough reach or representative value to make it worth guarding.
+
+Remove or update a reference only when the underlying code moved, the shape was intentionally
+renamed, or the candidate stopped being real paydirt. Missing references are recall regressions
+until proven stale. Validate reference edits with:
+
+```bash
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --paydirt-recall artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll \
+  --reference tools/AnalysisHarness/corpus/paydirt-reference.json
+```
+
+Daily failure triage:
+
+| Symptom | First classification | Expected action |
+| --- | --- | --- |
+| Assembly stops opening or times out | Analyzer or environment regression | Reproduce locally; fix analyzer/runtime issue before rebaselining. |
+| Analyzer diagnostics increase | Analyzer regression | Find the failing method family and fix or file a focused issue. |
+| Signal counts move with no regressions | Drift | Review the card; rebaseline only with an explanation. |
+| Paydirt recall misses a site | Recall regression or stale reference | Re-run precision evidence; fix the analyzer or update the reference with rationale. |
+| Corpus assembly added/removed | Corpus update | Refresh the baseline after confirming the pinned corpus change is intentional. |
