@@ -82,6 +82,11 @@ public static class MethodLeverageRanking
         // fires the value is treated as path-dependent and is not cached.
         var depthCache = new Dictionary<int, int>();
         var onStack = new HashSet<int>();
+        // Cap total chain work: on a cyclic graph (e.g. Roslyn) cut subtrees are uncached, so the
+        // naive per-method DFS is O(methods x graph). The budget bounds it to near-linear; once
+        // exhausted, remaining chains truncate (depth is a coarse leverage cue) and stay uncached.
+        // Deterministic: methods are visited in a fixed order, so the cut-off is reproducible.
+        long chainBudget = 12_000_000;
 
         (int Depth, bool CutCycle) LongestChain(int token, int guard)
         {
@@ -92,7 +97,7 @@ public static class MethodLeverageRanking
                 depthCache[token] = 1;
                 return (1, false);
             }
-            if (guard <= 0 || !onStack.Add(token))
+            if (guard <= 0 || --chainBudget <= 0 || !onStack.Add(token))
                 return (1, true);
 
             int best = 1;
