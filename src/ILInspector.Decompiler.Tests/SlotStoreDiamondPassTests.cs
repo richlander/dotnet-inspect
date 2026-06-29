@@ -139,6 +139,105 @@ public class SlotStoreDiamondPassTests
         Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
     }
 
+    [Fact]
+    public void PreservesNegatedBranchPolarityWhenFolding()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LogicalNot(new LoadArgument(0, "cond", Bool)), 8));
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(0, new Constant("fallthrough", Object)));
+        falseArm.Add(new Branch(12));
+        var trueArm = new Block(8);
+        trueArm.Add(new StoreStackSlot(0, new Constant("target", Object)));
+        var merge = new Block(12);
+        merge.Add(new Return(new LoadStackSlot(0, Object)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(Object, [new Parameter("cond", Bool)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var pass = new SlotStoreDiamondPass();
+        pass.Run(function, PassContext.None);
+
+        var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.IsType<LogicalNot>(conditional.Condition);
+        Assert.Equal("target", Assert.IsType<Constant>(conditional.WhenTrue).Value);
+        Assert.Equal("fallthrough", Assert.IsType<Constant>(conditional.WhenFalse).Value);
+    }
+
+    [Fact]
+    public void SlotDiamond_PreservesNegatedBranchPolarityWhenFolding()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LogicalNot(new LoadArgument(0, "cond", Bool)), 8));
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(0, new Constant("fallthrough", Object)));
+        falseArm.Add(new Branch(12));
+        var trueArm = new Block(8);
+        trueArm.Add(new StoreStackSlot(0, new Constant("target", Object)));
+        var merge = new Block(12);
+        merge.Add(new Return(new LoadStackSlot(0, Object)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(Object, [new Parameter("cond", Bool)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var pass = new SlotDiamondPass();
+        pass.Run(function, PassContext.None);
+
+        var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.IsType<LogicalNot>(conditional.Condition);
+        Assert.Equal("target", Assert.IsType<Constant>(conditional.WhenTrue).Value);
+        Assert.Equal("fallthrough", Assert.IsType<Constant>(conditional.WhenFalse).Value);
+    }
+
+    [Fact]
+    public void BooleanFolding_PreservesNegatedBranchPolarityWhenFoldingStoreDiamond()
+    {
+        static Block BlockOf(params IrNode[] nodes)
+        {
+            var block = new Block();
+            foreach (var node in nodes)
+                block.Add(node);
+            return block;
+        }
+
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LogicalNot(new LoadArgument(0, "cond", Bool)),
+            BlockOf(new StoreStackSlot(0, new Constant("target", Object))),
+            BlockOf(new StoreStackSlot(0, new Constant("fallthrough", Object)))));
+        block.Add(new Return(new LoadStackSlot(0, Object)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(Object, [new Parameter("cond", Bool)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var pass = new BooleanFoldingPass();
+        pass.Run(function, PassContext.None);
+
+        var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.IsType<LogicalNot>(conditional.Condition);
+        Assert.Equal("target", Assert.IsType<Constant>(conditional.WhenTrue).Value);
+        Assert.Equal("fallthrough", Assert.IsType<Constant>(conditional.WhenFalse).Value);
+    }
+
     static IrFunction BuildEffectfulPrefixDiamond(bool reverseLoadOrder)
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");

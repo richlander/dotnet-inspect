@@ -1314,7 +1314,7 @@ public class CSharpPrinterTests
         // The slot/local carrying the ternary declares as the common base,
         // never the WhenTrue arm — config-agnostic (Release spills a stack
         // slot, Debug keeps a named local).
-        Assert.Matches(@"JoinBase \w+ = flag \?", output);
+        Assert.Matches(@"JoinBase \w+ = !flag \?", output);
         Assert.DoesNotContain("JoinDerived S_", output);
         Assert.DoesNotContain("JoinDerived V_", output);
     }
