@@ -101,11 +101,6 @@ public sealed class SlotStoreDiamondPass : IIrPass
             return null;
         var whenFalse = (IrExpression)falseStore.Value.Clone();
         var condition = (IrExpression)branch.Condition.Clone();
-        if (condition is LogicalNot negated)
-        {
-            condition = (IrExpression)negated.Operand.Clone();
-            (whenTrue, whenFalse) = (whenFalse, whenTrue);
-        }
         if (!NormalizeArmTypes(ref whenTrue, ref whenFalse))
             return null;
         var resultType = whenTrue.ResultType ?? whenFalse.ResultType;
