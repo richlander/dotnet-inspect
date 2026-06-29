@@ -381,7 +381,19 @@ public static class ReachingDefinitions
             if (region.Kind == ExceptionRegionKind.Filter)
             {
                 foreach (int block in BlocksInRange(region.FilterStart, region.FilterEnd))
+                {
                     successorsByBlock[block].Add(handlerBlock);
+                    foreach (var sibling in regions)
+                    {
+                        if (sibling.Equals(region)
+                            || sibling.TryStart != region.TryStart
+                            || sibling.TryEnd != region.TryEnd)
+                            continue;
+                        successorsByBlock[block].Add(sibling.Kind == ExceptionRegionKind.Filter
+                            ? offsetToBlock[sibling.FilterStart]
+                            : offsetToBlock[sibling.HandlerStart]);
+                    }
+                }
             }
 
             if (region.Kind == ExceptionRegionKind.Finally)

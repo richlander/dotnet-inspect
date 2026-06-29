@@ -140,6 +140,15 @@ public class ReachingDefinitionsTests
     }
 
     [Fact]
+    public void Analyze_FilterRegion_UseSeesDefinitionsFromTryRegion()
+    {
+        var result = AnalyzeFixture(nameof(TryFilterReadsLocal));
+
+        Assert.True(result.IsComplete, result.IncompleteReason);
+        Assert.Contains(result.Uses, use => !use.IsArgument && use.ReachingDefinitions.Length >= 2);
+    }
+
+    [Fact]
     public void Analyze_LeaveRegion_MarksResultIncomplete()
     {
         var result = ReachingDefinitions.Analyze([
@@ -184,6 +193,13 @@ public class ReachingDefinitionsTests
     [MethodImpl(MethodImplOptions.NoInlining)]
     static void Sink(int value) => s_sink = value;
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static bool Filter(int value)
+    {
+        Sink(value);
+        return true;
+    }
+
     static int TryCatchReadsLocal()
     {
         int value = 0;
@@ -213,5 +229,21 @@ public class ReachingDefinitionsTests
         {
             Sink(value);
         }
+    }
+
+    static int TryFilterReadsLocal()
+    {
+        int value = 0;
+        try
+        {
+            MaybeThrow();
+            value = 1;
+            MaybeThrow();
+        }
+        catch (InvalidOperationException) when (Filter(value))
+        {
+            return value;
+        }
+        return value;
     }
 }
