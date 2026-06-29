@@ -265,6 +265,30 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "foreach", "array", "loop"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalForLoop = new(
+        "minimal.for-loop",
+        """
+        namespace GeneratedFixtures.MinimalForLoop;
+
+        public class Class1
+        {
+            public int Method1(int count)
+            {
+                var sum = 0;
+                for (var i = 0; i < count; i++)
+                    sum += i;
+                return sum;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalForLoop.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalForLoop.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "for", "loop"]);
+
     public static readonly GeneratedFixtureDefinition MinimalSwitchInt = new(
         "minimal.switch-int",
         """
@@ -344,6 +368,7 @@ internal static class GeneratedFixtureCatalog
         MinimalTryFinally,
         MinimalUsingDispose,
         MinimalForeachArray,
+        MinimalForLoop,
         MinimalSwitchInt,
     ];
 
