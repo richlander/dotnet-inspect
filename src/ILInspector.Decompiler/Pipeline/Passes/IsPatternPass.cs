@@ -75,7 +75,7 @@ public sealed class IsPatternPass : IIrPass
 
                 // The tested value is inlined into the pattern, so it must not
                 // depend on the pattern local and must be reorder-safe.
-                if (ReferenceOwnership.SubtreeReferencesLocal(asCast.Operand, store.Index) || !IsSideEffectFree(asCast.Operand))
+                if (ReferenceOwnership.SubtreeReferencesLocal(asCast.Operand, store.Index) || !IsSideEffectFree(function, asCast.Operand))
                     continue;
 
                 if (FindTest(children[i + 1], store.Index) is not { } site)
@@ -409,16 +409,33 @@ public sealed class IsPatternPass : IIrPass
     /// arguments, fields, and constants, plus reference conversions over them.
     /// Excludes calls (including property getters), allocations, and increments.
     /// </summary>
-    static bool IsSideEffectFree(IrExpression expr) => expr switch
+    static bool IsSideEffectFree(IrFunction function, IrExpression expr) => expr switch
     {
         Constant or LoadLocal or LoadArgument or LoadLocalAddress or LoadArgumentAddress => true,
-        LoadField field => field.Instance is null || IsSideEffectFree(field.Instance),
-        LoadFieldAddress fieldAddress => fieldAddress.Instance is null || IsSideEffectFree(fieldAddress.Instance),
-        Convert convert => IsSideEffectFree(convert.Operand),
-        CastClass cast => IsSideEffectFree(cast.Operand),
-        IsInstance isInstance => IsSideEffectFree(isInstance.Operand),
+        LoadField field => field.Instance is null || IsSideEffectFree(function, field.Instance),
+        LoadFieldAddress fieldAddress => fieldAddress.Instance is null || IsSideEffectFree(function, fieldAddress.Instance),
+        LoadProperty property when IsUnionValueProperty(function, property) => IsSimpleUnionValueReceiver(property.Instance),
+        Convert convert => IsSideEffectFree(function, convert.Operand),
+        CastClass cast => IsSideEffectFree(function, cast.Operand),
+        IsInstance isInstance => IsSideEffectFree(function, isInstance.Operand),
         _ => false,
     };
+
+    static bool IsUnionValueProperty(IrFunction function, LoadProperty property)
+        => property.PropertyName == "Value"
+        && property.IndexArguments.Count == 0
+        && function.UnionTypes.Contains(NamedDefinition(property.Accessor.DeclaringType));
+
+    static bool IsSimpleUnionValueReceiver(IrExpression? receiver) => receiver switch
+    {
+        LoadArgumentAddress or LoadArgument or LoadLocalAddress or LoadLocal => true,
+        LoadFieldAddress field => field.Instance is null || IsSimpleUnionValueReceiver(field.Instance),
+        LoadField field => field.Instance is null || IsSimpleUnionValueReceiver(field.Instance),
+        _ => false,
+    };
+
+    static TypeRef NamedDefinition(TypeRef type)
+        => type is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition } ? definition : type;
 
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0
