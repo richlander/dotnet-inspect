@@ -2312,6 +2312,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_IncludesExplicitSemanticsFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-S", "Facts", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("semantics.callee", output);
+        Assert.Contains("may-throw FormatException", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectCostOverlay_RendersExplicitCostFacts()
     {
         var (exit, output, error) = await RunAppAsync(

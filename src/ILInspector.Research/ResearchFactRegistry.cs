@@ -8,7 +8,8 @@ public sealed record ResearchAssemblyContext(
     LibraryBodyIndex Index,
     IReadOnlyDictionary<int, MethodSignals> Signals,
     IReadOnlyDictionary<int, MethodLeverage> LeverageByToken,
-    IReadOnlyDictionary<int, IReadOnlyList<DirectCall>> CallsByCaller)
+    IReadOnlyDictionary<int, IReadOnlyList<DirectCall>> CallsByCaller,
+    IReadOnlyDictionary<int, IReadOnlyList<UnsafeEvidence>> UnsafeEvidenceByToken)
 {
     public static ResearchAssemblyContext Create(LibraryBodyIndex index)
     {
@@ -19,7 +20,12 @@ public sealed record ResearchAssemblyContext(
             .ToDictionary(
                 group => group.Key,
                 group => (IReadOnlyList<DirectCall>)group.ToArray());
-        return new ResearchAssemblyContext(index, index.GetMethodSignals(), leverage, callsByCaller);
+        var unsafeEvidence = index.UnsafeEvidence
+            .GroupBy(evidence => evidence.Member.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<UnsafeEvidence>)group.ToArray());
+        return new ResearchAssemblyContext(index, index.GetMethodSignals(), leverage, callsByCaller, unsafeEvidence);
     }
 }
 

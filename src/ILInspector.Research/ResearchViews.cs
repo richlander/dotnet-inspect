@@ -18,12 +18,22 @@ public static class ResearchViews
     {
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-        return CollectFacts(source, imported, registry);
+        return CollectFacts(
+            source,
+            imported,
+            imported.AssemblyPath is { Length: > 0 } path
+                ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
+                : null,
+            registry);
     }
 
     public static IReadOnlyList<Annotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)
         => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported));
+
+    public static IReadOnlyList<Annotation> CollectFacts(
+        MetadataSource source, IrFunction imported, ResearchAssemblyContext? assembly, ResearchFactRegistry? registry = null)
+        => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported, assembly));
 
     public static DecompilerResult RenderCostOverlay(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,

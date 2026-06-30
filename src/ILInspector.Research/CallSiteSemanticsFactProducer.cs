@@ -33,7 +33,7 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
             if (exceptionTypes.Count > 0)
                 facts.Add(new Annotation(CalleeSemantics, call.ILOffset, ExceptionDetail(exceptionTypes)));
 
-            var unsafeDetail = UnsafeDetail(assembly.Index.UnsafeEvidence, calleeToken);
+            var unsafeDetail = UnsafeDetail(assembly, calleeToken);
             if (unsafeDetail is not null)
                 facts.Add(new Annotation(CalleeSafety, call.ILOffset, unsafeDetail));
         }
@@ -54,12 +54,9 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
     static string ExceptionDetail(IReadOnlyList<string> exceptionTypes)
         => $"may-throw {string.Join("/", exceptionTypes)}";
 
-    static string? UnsafeDetail(IReadOnlyList<UnsafeEvidence> evidence, int token)
+    static string? UnsafeDetail(ResearchAssemblyContext assembly, int token)
     {
-        var calleeEvidence = evidence
-            .Where(item => item.Member.MetadataToken == token)
-            .ToArray();
-        if (calleeEvidence.Length == 0)
+        if (!assembly.UnsafeEvidenceByToken.TryGetValue(token, out var calleeEvidence) || calleeEvidence.Count == 0)
             return null;
 
         var parts = new List<string> { "unsafe" };
