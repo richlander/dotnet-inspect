@@ -60,28 +60,62 @@ and never loads inspected assemblies.
 The typed evaluation stack is opt-in via `MethodInstructions.InterpretStack(...)`,
 so broad scans and the offset join never pay for it.
 
-## Runtime-shape alignment (legibility) and vendoring
+## dotnet/runtime heritage and upstream tracking
 
-The tool is moving to the `dotnet` org and will be reviewed by runtime/Roslyn
-engineers, so the substrate deliberately mirrors the shapes they already maintain
-in `src/coreclr/tools/Common/TypeSystem/IL` — recognition lowers review cost.
+The byte reader is **ported from `dotnet/runtime`** — the same
+`Internal.IL.ILReader` that ILVerify and the ILC type system build on — so
+runtime/Roslyn engineers reviewing this in the `dotnet` org recognize the shape,
+and the table-driven opcode sizing is correct by construction (prefixes like
+`no.`/`unaligned.`, short operand widths). Provenance is pinned in the file
+headers:
 
-- The byte reader is the runtime `ILReader` + `ILOpcodeHelper` opcode-size table,
-  **ported** (not vendored wholesale) into the substrate with the MIT
-  "ported from dotnet/runtime" headers, retargeted to SRM's `ILOpCode`. The
-  table-driven sizing is what makes prefixes like `no.`/`unaligned.` and short
-  operand widths correct by construction. A one-time port, not a tracked vendor
-  branch (IL opcodes are ECMA-frozen).
-- Recognition is the default, not a straitjacket. Deliberate, **documented**
-  divergence is fine where our use case differs: SRM handles instead of
-  `Internal.TypeSystem`'s `TypeDesc`/`MethodDesc`; a visitor/callback shape instead
-  of partial-class composition (we are a reusable cross-project library); `record`
-  / `ImmutableArray` / fail-closed idioms over older mutable-struct style. Vendor
-  the byte cursor; never the runtime type system — staying SRM-only is itself a
-  boundary reviewers expect.
-- Shapes to keep recognizable: `StackValueKind` naming, `FlowGraph.LookupIndex`
-  (the offset→block lookup), the `ILImporter`-style hook shell, and
-  `ComputeMaxStack` if a height tier is ever built.
+- `ILReader.cs` ← `src/coreclr/tools/Common/TypeSystem/IL/ILReader.cs`
+  (`Internal.IL.ILReader`), retargeted to SRM's `ILOpCode`.
+- `ILOpcodeExtensions.cs` ←
+  `src/coreclr/tools/Common/TypeSystem/IL/ILOpcodeHelper.cs`
+  (`Internal.IL.ILOpcodeHelper`) opcode-size table.
+
+Both carry the MIT "Ported from dotnet/runtime `<path>`" header.
+
+### What we adopt, diverge from, and do not use
+
+| `dotnet/runtime` | Here | Status | Why |
+| --- | --- | --- | --- |
+| `Internal.IL.ILReader` byte cursor | `ILReader.cs` | **Adopted** (ported, SRM-retargeted) | table-driven decode; correct by construction |
+| `ILOpcodeHelper` opcode-size table | `ILOpcodeExtensions.cs` | **Adopted** (ported) | prefix + short-operand widths |
+| ILVerify `StackValue`/`StackValueKind` | `StackType`/`StackValue` | **Diverged** (naming kept recognizable, SRM types) | gated Layer 1 only |
+| `FlowGraph.LookupIndex` (offset→block) | `BlockGraph.BlockIndexAt` | **Diverged** (shape kept recognizable) | our offset join key |
+| `ILImporter` partial-class composition | `MethodInstructions` façade + callbacks | **Diverged** | reusable cross-project library, not a partial class |
+| mutable-struct / older idioms | `record` / `ImmutableArray` / fail-closed | **Diverged** | modern, fail-closed contracts |
+| `Internal.TypeSystem` `TypeDesc`/`MethodDesc` | SRM `MetadataReader` handles | **Not used** | stay SRM-only; never vendor the runtime type system |
+| RyuJIT `GenTree`/`typeInfo`, `ILStackHelper` heights | (none) | **Not used** | unlike consumers do not share an abstract interpretation |
+
+The last "not used" row is load-bearing: prior art runs three *separate* typed
+stacks over one shared reader, so we share decode + identity (Layer 0) and let
+each consumer build its own Layer 1.
+
+### Do we track upstream improvements? No — by design
+
+The ported reader is a **one-time port, not a tracked vendor branch**, because
+the IL opcode set and operand encodings are **ECMA-335-frozen**: the decode
+contract cannot drift, so there is nothing upstream to chase for correctness.
+This is the opposite of the vendored managed ILAssembler (the
+`vendor/ilassembler` orphan branch), which *is* tracked because it is an evolving
+codebase.
+
+The narrow cases that would warrant touching the ported files, and how:
+
+- **A real bug in our port** → fix here directly (the fidelity gates are the
+  oracle); optionally report it upstream. No sync needed.
+- **A genuinely new IL opcode** (historically near-never for ECMA IL) → add one
+  row to the size table; no wholesale re-port.
+- **Adopting *more* of the runtime IL stack** later (e.g. a height tier /
+  `ComputeMaxStack`) → port that piece fresh from the cited path at that time.
+
+Re-sync procedure if ever needed: diff our file against the cited upstream path.
+Because we do not track upstream, the heritage headers record the *path*, not a
+pinned commit; pin a commit only if a future re-port makes ongoing comparison
+worthwhile.
 
 ## Fidelity contract
 
