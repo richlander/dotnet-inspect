@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -481,6 +482,85 @@ public class TypeSourceCheckTests
         Assert.Contains("public readonly int Seed = 5;", source);
     }
 
+    [Fact]
+    public void Evaluate_OnUnsafeFieldFixture_RendersCompilableUnsafeBlocks()
+    {
+        string path = typeof(TypeSourceUnsafeFieldFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceUnsafeFieldFixture).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("private unsafe int* _pointer;", source);
+        Assert.Contains("private unsafe delegate*<int, int, int> _adder;", source);
+        Assert.Contains("public unsafe TypeSourceUnsafeFieldFixture(int* pointer)", source);
+        Assert.Contains("public unsafe int* Pointer", source);
+        Assert.Contains("public static unsafe TypeSourceUnsafeFieldFixture operator +(TypeSourceUnsafeFieldFixture left, int* pointer)", source);
+        Assert.Contains("unsafe int ITypeSourceUnsafeConsumer.Consume(int* pointer)", source);
+        Assert.Contains("public unsafe int ReadPointer()", source);
+        Assert.Contains("public unsafe int Invoke(int left, int right)", source);
+
+        AssertCompiles(type.FullName, source);
+    }
+
+    [Fact]
+    public void Evaluate_OnExplicitLayoutFixture_RendersLayoutAttributes()
+    {
+        string path = typeof(TypeSourceExplicitLayoutFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceExplicitLayoutFixture).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("[StructLayout(LayoutKind.Explicit, Size = 4)]", source);
+        Assert.Contains("[FieldOffset(0)]\n    public byte B;", source);
+        Assert.Contains("[FieldOffset(1)]\n    public byte G;", source);
+        Assert.Contains("[FieldOffset(2)]\n    public byte R;", source);
+        Assert.Contains("[FieldOffset(3)]\n    public byte A;", source);
+
+        AssertCompiles(type.FullName, source);
+    }
+
+    [Fact]
+    public void Evaluate_OnSequentialLayoutFixtures_RendersNonDefaultLayoutAttributes()
+    {
+        string path = typeof(TypeSourceSequentialLayoutFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+
+        var packed = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceSequentialLayoutFixture).FullName);
+        var packedSource = TypeSourceComposer.Compose(packed, path, pdbPath: null);
+        Assert.NotNull(packedSource);
+        Assert.Contains("[StructLayout(LayoutKind.Sequential, Size = 16, Pack = 1)]", packedSource);
+        AssertCompiles(packed.FullName, packedSource);
+
+        var sequentialClass = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceSequentialLayoutClassFixture).FullName);
+        var classSource = TypeSourceComposer.Compose(sequentialClass, path, pdbPath: null);
+        Assert.NotNull(classSource);
+        Assert.Contains("[StructLayout(LayoutKind.Sequential)]", classSource);
+        AssertCompiles(sequentialClass.FullName, classSource);
+    }
+
+    static void AssertCompiles(string typeName, string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "__type_source_gate",
+            [tree],
+            TypeBindCheck.ReferencesFor(typeof(object).Assembly.Location),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+
+        var diagnostics = compilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToList();
+        Assert.True(
+            diagnostics.Count == 0,
+            $"{typeName} type source must compile, got:\n  {string.Join("\n  ", diagnostics)}\n--- source ---\n{source}");
+    }
+
 }
 
 public class TypeSourceNullableConstraintMatrix<TNotNull, TClassNullable, TUnmanaged, TNullableInterface>
@@ -534,4 +614,78 @@ public sealed class TypeSourcePrivateCtorInitFixture
     private TypeSourcePrivateCtorInitFixture() { }
 
     public static TypeSourcePrivateCtorInitFixture Create() => new();
+}
+
+public unsafe interface ITypeSourceUnsafeConsumer
+{
+    int Consume(int* pointer);
+}
+
+public sealed class TypeSourceUnsafeFieldFixture : ITypeSourceUnsafeConsumer
+{
+    private unsafe int* _pointer;
+    private unsafe delegate*<int, int, int> _adder;
+
+    public unsafe TypeSourceUnsafeFieldFixture(int* pointer)
+    {
+        _pointer = pointer;
+    }
+
+    public unsafe int* Pointer => _pointer;
+
+    public static unsafe TypeSourceUnsafeFieldFixture operator +(TypeSourceUnsafeFieldFixture left, int* pointer) => left;
+
+    unsafe int ITypeSourceUnsafeConsumer.Consume(int* pointer)
+    {
+        unsafe
+        {
+            return *pointer;
+        }
+    }
+
+    public unsafe void Initialize(int* pointer, delegate*<int, int, int> adder)
+    {
+        _pointer = pointer;
+        _adder = adder;
+    }
+
+    public int ReadPointer()
+    {
+        unsafe
+        {
+            return *_pointer;
+        }
+    }
+
+    public int Invoke(int left, int right)
+    {
+        unsafe
+        {
+            return _adder(left, right);
+        }
+    }
+}
+
+[StructLayout(LayoutKind.Explicit, Size = 4)]
+public struct TypeSourceExplicitLayoutFixture
+{
+    [FieldOffset(0)] public byte B;
+    [FieldOffset(1)] public byte G;
+    [FieldOffset(2)] public byte R;
+    [FieldOffset(3)] public byte A;
+
+    public readonly int Sum() => B + G + R + A;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 1, Size = 16)]
+public struct TypeSourceSequentialLayoutFixture
+{
+    public byte A;
+    public int B;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public class TypeSourceSequentialLayoutClassFixture
+{
+    public int A;
 }

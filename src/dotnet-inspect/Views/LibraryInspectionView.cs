@@ -481,17 +481,16 @@ public class LibraryInspectionView
     public bool HasILOffset => _data.ILOffset != null;
 
     [MarkoutSection(Name = SectionNames.ILOffset, ShowWhenProperty = nameof(HasILOffset))]
-    public List<ILOffsetRow>? ILOffsetSection => _data.ILOffset is not { } result ? null :
-    [
-        new ILOffsetRow(
-            result.Method,
-            result.Token,
-            result.ILOffset,
-            result.MatchedOffset,
-            result.File,
-            result.Line,
-            result.Url)
-    ];
+    public ILOffsetSection? ILOffsetSection => _data.ILOffset is not { } result ? null : new ILOffsetSection
+    {
+        Method = result.Method,
+        Token = result.Token,
+        ILOffset = result.ILOffset,
+        MatchedOffset = result.MatchedOffset,
+        File = result.File,
+        Line = result.Line,
+        Url = result.Url
+    };
 
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
@@ -762,17 +761,20 @@ public record AsyncMethodRow(
     string Kind,
     string Signature);
 
-[MarkoutSerializable]
-public record ILOffsetRow(
-    [property: MarkoutSkipNull] string? Method,
-    [property: MarkoutSkipNull] string? Token,
-    [property: MarkoutPropertyName("IL Offset")]
-    [property: MarkoutSkipNull] string? ILOffset,
-    [property: MarkoutPropertyName("Matched Offset")]
-    [property: MarkoutSkipNull] string? MatchedOffset,
-    [property: MarkoutSkipNull] string? File,
-    [property: MarkoutSkipNull] int? Line,
-    [property: MarkoutSkipNull] string? Url);
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class ILOffsetSection
+{
+    public string? Method { get; init; }
+    public string? Token { get; init; }
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; init; }
+    [MarkoutPropertyName("Matched Offset")]
+    public string? MatchedOffset { get; init; }
+    public string? File { get; init; }
+    public int? Line { get; init; }
+    public string? Url { get; init; }
+}
 
 [MarkoutSerializable]
 public record ResourceRow(

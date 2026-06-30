@@ -552,6 +552,22 @@ public static class MemberIdentity
             && call.Arguments.Count == 2
             && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
 
+    public static bool IsStringInequality(Call call)
+        => !call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: false,
+                Name: "op_Inequality",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes: [var left, var right],
+                ReturnType: var returnType,
+            }
+            && returnType.Equals(s_bool)
+            && left.Equals(s_string)
+            && right.Equals(s_string)
+            && call.Arguments.Count == 2
+            && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
+
     public static bool IsKnownCoreLibraryOperator(MethodRef method)
     {
         if (method.HasThis || !method.TypeArguments.IsEmpty)

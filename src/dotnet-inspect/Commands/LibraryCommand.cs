@@ -99,6 +99,12 @@ public class LibraryCommand
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
 
+        if (options.Count && (options.Print || options.PrintAll))
+        {
+            Console.Error.WriteLine("Error: --count cannot be combined with --print or --print-all.");
+            return 1;
+        }
+
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (shapeCount > 1)
         {
@@ -111,9 +117,9 @@ public class LibraryCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return 1;
-            if (options.Count)
+            if (options.Count || options.Print || options.PrintAll)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count.");
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
                 return 1;
             }
             if (options.Rows is not null)
@@ -123,9 +129,9 @@ public class LibraryCommand
             }
         }
 
-        if (options.JsonArray && shapeCount == 0)
+        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, or --paths.");
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
             return 1;
         }
 
@@ -135,9 +141,30 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.ProjectionRow is not null && shapeCount == 0)
+        if ((options.Print || options.PrintAll) && !ValidateLibraryPrintSelection(options.IncludeSections))
+            return 1;
+
+        if ((options.Print || options.PrintAll) && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --row requires --value, --urls, or --paths.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N to choose a printed row.");
+            return 1;
+        }
+
+        if (options.Print && options.PrintAll)
+        {
+            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
+            return 1;
+        }
+
+        if (options.PrintAll && options.PrintRow is not null)
+        {
+            Console.Error.WriteLine("Error: --print-all cannot be combined with --row.");
+            return 1;
+        }
+
+        if (options.ProjectionRow is not null && !options.Print && !options.PrintAll && shapeCount == 0)
+        {
+            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
             return 1;
         }
 
@@ -234,6 +261,10 @@ public class LibraryCommand
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (TryWriteLibrarySingletonCount(inspection, options))
+                    return 0;
+                if (options.Print || options.PrintAll)
+                    return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
@@ -297,6 +328,10 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (TryWriteLibrarySingletonCount(inspections[0], options))
+                    return 0;
+                if (options.Print || options.PrintAll)
+                    return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
                 WarnEmptySections(inspections[0], options, pipeline);
@@ -346,6 +381,10 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (TryWriteLibrarySingletonCount(inspection, options))
+                    return 0;
+                if (options.Print || options.PrintAll)
+                    return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
@@ -447,6 +486,28 @@ public class LibraryCommand
         return 0;
     }
 
+    private static bool ValidateLibraryPrintSelection(HashSet<string>? sections)
+    {
+        if (sections is { Count: 1 } && sections.Contains(SectionNames.ILOffset))
+            return true;
+
+        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        return false;
+    }
+
+    private static bool TryWriteLibrarySingletonCount(LibraryInspection inspection, LibraryOptions options)
+    {
+        if (!options.Count
+            || options.IncludeSections is not { Count: 1 } sections
+            || !sections.Contains(SectionNames.ILOffset))
+        {
+            return false;
+        }
+
+        Console.WriteLine(inspection.ILOffset is null ? 0 : 1);
+        return true;
+    }
+
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {
         var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
@@ -470,6 +531,105 @@ public class LibraryCommand
         return ShapeProjectionOutput.Write(
             rows,
             new ShapeProjectionOptions(kind, options.ProjectionRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+    }
+
+    private static async Task<int> WriteLibraryPrintProjectionAsync(LibraryInspection inspection, LibraryOptions options)
+    {
+        var section = options.IncludeSections!.Single();
+        var projection = section switch
+        {
+            SectionNames.ILOffset => await ProjectLibraryILOffsetPrintableAsync(inspection, section),
+            _ => new PrintProjectionResult([])
+        };
+        if (projection.Error is not null)
+        {
+            Console.Error.WriteLine(projection.Error);
+            return 1;
+        }
+
+        if (projection.Documents.Count == 0 && section != SectionNames.ILOffset)
+        {
+            Console.Error.WriteLine($"Error: section '{section}' is not printable.");
+            return 1;
+        }
+
+        return PrintProjectionOutput.Write(
+            projection.Documents,
+            new PrintProjectionOptions(
+                options.PrintAll,
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                Bare: false,
+                OutputPath: null));
+    }
+
+    private sealed record PrintProjectionResult(IReadOnlyList<PrintableDocument> Documents, string? Error = null);
+
+    private static async Task<PrintProjectionResult> ProjectLibraryILOffsetPrintableAsync(
+        LibraryInspection inspection,
+        string section)
+    {
+        if (inspection.ILOffset is not { } result)
+            return new PrintProjectionResult([]);
+
+        var (content, error) = await ReadILOffsetSourceLineAsync(result);
+        if (error is not null)
+            return new PrintProjectionResult([], error);
+        if (content is null)
+            return new PrintProjectionResult([]);
+
+        return new PrintProjectionResult(
+        [
+            new PrintableDocument(1, section, result.Method ?? result.File ?? section, result.File, result.Url, content)
+        ]);
+    }
+
+    internal static Task<(string? Content, string? Error)> ReadILOffsetSourceLineForTestsAsync(ILOffsetResult result)
+        => ReadILOffsetSourceLineAsync(result);
+
+    private static async Task<(string? Content, string? Error)> ReadILOffsetSourceLineAsync(ILOffsetResult result)
+    {
+        if (result.Line is not { } line || line < 1)
+        {
+            return (null, "Error: IL Offset row has no source line to print.");
+        }
+
+        if (string.IsNullOrWhiteSpace(result.Url))
+        {
+            return (null, "Error: IL Offset row has no printable source body. Use --urls or --paths to inspect available payloads.");
+        }
+
+        var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
+        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var source = await fetcher.FetchSourceAsync(rawUrl);
+        if (source is null)
+        {
+            return (null, $"Error: Could not fetch SourceLink source for {rawUrl}.");
+        }
+
+        return ReadLine(source.ReplaceLineEndings("\n").Split('\n'), line);
+    }
+
+    private static (string? Content, string? Error) ReadLine(IEnumerable<string> lines, int line)
+    {
+        var value = lines.Skip(line - 1).FirstOrDefault();
+        if (value is null)
+        {
+            return (null, $"Error: Source line {line} is out of range.");
+        }
+
+        return (value, null);
+    }
+
+    private static string StripUrlFragment(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || string.IsNullOrEmpty(uri.Fragment))
+            return url;
+
+        var builder = new UriBuilder(uri) { Fragment = "" };
+        return builder.Uri.ToString();
     }
 
     private static List<ShapeProjectionRow> ProjectLibrarySourceFiles(LibraryInspection inspection, string section, ShapeProjectionKind kind, LibraryOptions options)

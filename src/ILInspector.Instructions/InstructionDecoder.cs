@@ -19,6 +19,25 @@ public static class InstructionDecoder
     public static ImmutableArray<DecodedInstruction> Decode(byte[] il)
     {
         ArgumentNullException.ThrowIfNull(il);
+        try
+        {
+            return DecodeCore(il);
+        }
+        catch (InvalidProgramException ex)
+        {
+            // The runtime-ported ILReader reports a truncated/invalid read (opcode, branch
+            // destination, or switch count) as InvalidProgramException — the JIT/ILVerify
+            // convention. This decoder's documented contract, and every Analysis consumer's
+            // malformed-IL recovery gate, is BadImageFormatException, so normalize at the
+            // substrate boundary. That keeps ILReader a faithful upstream port while presenting
+            // one malformed-IL exception type, so consumers need no per-call-site shim.
+            throw new BadImageFormatException(
+                string.IsNullOrEmpty(ex.Message) ? "Malformed IL" : ex.Message, ex);
+        }
+    }
+
+    static ImmutableArray<DecodedInstruction> DecodeCore(byte[] il)
+    {
         var builder = ImmutableArray.CreateBuilder<DecodedInstruction>();
         var reader = new ILReader(il);
 

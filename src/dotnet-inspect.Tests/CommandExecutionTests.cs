@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -4554,7 +4555,10 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## IL Offset", output);
-        Assert.Contains("| System.HexConverter.FromChar | 0x6000001 | 0x0 |", output);
+        Assert.Contains("| Field | Value |", output);
+        Assert.Contains("| Method | System.HexConverter.FromChar |", output);
+        Assert.Contains("| Token | 0x6000001 |", output);
+        Assert.Contains("| IL Offset | 0x0 |", output);
         Assert.Contains("HexConverter.cs", output);
     }
 
@@ -4568,8 +4572,113 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## IL Offset", output);
-        Assert.Contains("| System.HexConverter.FromChar | 0x6000001 | 0x0 |", output);
+        Assert.Contains("| Field | Value |", output);
+        Assert.Contains("| Method | System.HexConverter.FromChar |", output);
+        Assert.Contains("| Token | 0x6000001 |", output);
+        Assert.Contains("| IL Offset | 0x0 |", output);
         Assert.Contains("HexConverter.cs", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetCount_ReturnsSingletonLocationCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetValue_ProjectsResolvedLine()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--fields", "Line", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Matches(@"^\d+$", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetPrint_PrintsResolvedSourceLine()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--print", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## IL Offset", output);
+        Assert.Contains("CharToHexLookup", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetPrintJsonArray_EmitsPrintableDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--print-all", "--json-array", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("[", output.Trim());
+        Assert.Contains("\"section\":\"IL Offset\"", output);
+        Assert.Contains("\"label\":\"System.HexConverter.FromChar\"", output);
+        Assert.Contains("CharToHexLookup", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetPrintAllRejectsRow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--print-all", "--row", "1", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--print-all cannot be combined with --row", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetCountRejectsPrint()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--count", "--print", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetPrint_DoesNotReadLocalPdbPath()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "secret-local-file-line", TestContext.Current.CancellationToken);
+            var result = new ILOffsetResult
+            {
+                Method = "Attacker.Method",
+                File = tempFile,
+                Line = 1
+            };
+
+            var (content, error) = await LibraryCommand.ReadILOffsetSourceLineForTestsAsync(result);
+
+            Assert.Null(content);
+            Assert.Contains("no printable source body", error);
+            Assert.DoesNotContain("secret-local-file-line", error);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
     }
 
     [Fact]
