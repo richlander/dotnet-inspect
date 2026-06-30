@@ -57,14 +57,39 @@ public class ProjectCommand
         if (options.Count && !CountOutput.ValidateSingleSection(selectResult.Sections))
             return 1;
 
-        if ((options.Print || options.PrintAll) && !ValidateProjectPrintSelection(selectResult.Sections))
+        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+        if (shapeCount > 1)
+        {
+            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
             return 1;
+        }
+
+        if (shapeCount == 1)
+        {
+            var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
+            if (!ShapeProjectionOutput.ValidateSingleSection(selectResult.Sections, optionName))
+                return 1;
+            if (options.Count || options.Print || options.PrintAll)
+            {
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                return 1;
+            }
+            if (options.Rows is not null)
+            {
+                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N to select a projected row.");
+                return 1;
+            }
+        }
 
         if ((options.Columns is { Length: > 0 } || options.Fields is { Length: > 0 })
+            && shapeCount == 0
             && !ValidateProjectProjectionOptions())
         {
             return 1;
         }
+
+        if ((options.Print || options.PrintAll) && !ValidateProjectPrintSelection(selectResult.Sections))
+            return 1;
 
         if (options.Schema && options.Discover == null)
         {
@@ -150,9 +175,13 @@ public class ProjectCommand
             return false;
         }
 
-        if (options.PrintRow is not null && !options.Print)
+        if (options.PrintRow is not null
+            && !options.Print
+            && !options.Value
+            && !options.Urls
+            && !options.Paths)
         {
-            Console.Error.WriteLine("Error: --row requires --print.");
+            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
             return false;
         }
 
@@ -293,6 +322,9 @@ public class ProjectCommand
         var rows = dependencies
             .Select(CreateGroundingRow)
             .ToList();
+
+        if (options.Value || options.Urls || options.Paths)
+            return WriteGroundingShapeProjection(rows, options);
 
         if (options.Print || options.PrintAll || options.Bare)
             return PrintFirstGroundingDocument(rows, options);
@@ -444,6 +476,45 @@ public class ProjectCommand
                 options.Jsonl,
                 options.Bare,
                 options.OutputPath));
+    }
+
+    private static int WriteGroundingShapeProjection(IReadOnlyList<ProjectGroundingRow> rows, ProjectOptions options)
+    {
+        var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
+        List<ShapeProjectionRow> projected = [];
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            string? value = kind switch
+            {
+                ShapeProjectionKind.Paths => row.Path,
+                ShapeProjectionKind.Value => SelectGroundingValue(row, options),
+                _ => null
+            };
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+            projected.Add(new ShapeProjectionRow(i + 1, PackageSections.PackageReadme, value, Label: row.Package, Path: row.Path));
+        }
+
+        return ShapeProjectionOutput.Write(
+            projected,
+            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl));
+    }
+
+    private static string? SelectGroundingValue(ProjectGroundingRow row, ProjectOptions options)
+    {
+        var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
+        return column?.ToLowerInvariant() switch
+        {
+            "package" => row.Package,
+            "version" => row.Version,
+            "kind" => row.Kind,
+            "path" => row.Path,
+            "size" => row.Size.ToString(CultureInfo.InvariantCulture),
+            "name" => row.Name,
+            "description" => row.Description,
+            _ => row.Path
+        };
     }
 
     private static PrintableDocument? CreatePrintableGroundingDocument(ProjectGroundingRow row, int rowNumber, ProjectOptions options)

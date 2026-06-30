@@ -153,6 +153,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(extractResourcesOption);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
+        opts.AddShapeProjectionOptionsTo(assemblyCommand);
         opts.AddPerformanceTriageOptionsTo(assemblyCommand);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
@@ -256,6 +257,10 @@ public static class InspectionCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
+                Value = parseResult.GetValue(opts.Value),
+                Urls = parseResult.GetValue(opts.Urls),
+                Paths = parseResult.GetValue(opts.Paths),
+                ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = opts.ParseRows(parseResult),
                 PerformanceTriage = performanceTriage,
                 Schema = opts.ParseSchema(parseResult),

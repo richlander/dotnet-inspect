@@ -62,6 +62,30 @@ public class PackageCommand
             if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
                 return 1;
 
+            var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+            if (shapeCount > 1)
+            {
+                Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+                return 1;
+            }
+
+            if (shapeCount == 1)
+            {
+                var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
+                if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+                    return 1;
+                if (options.Count || options.Print || options.PrintAll)
+                {
+                    Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                    return 1;
+                }
+                if (options.Rows is not null)
+                {
+                    Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N to select a projected row.");
+                    return 1;
+                }
+            }
+
             if ((options.Print || options.PrintAll) && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
@@ -405,6 +429,9 @@ public class PackageCommand
                 Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
                 return 0;
             }
+
+            if (options.Value || options.Urls || options.Paths)
+                return WritePackageShapeProjection(result, options);
 
             if (options.Bare)
                 return PrintPackageBareSelection(result, extractPath, packageName, version, options);
@@ -786,9 +813,13 @@ public class PackageCommand
             return false;
         }
 
-        if (options.PrintRow is not null && !options.Print)
+        if (options.PrintRow is not null
+            && !options.Print
+            && !options.Value
+            && !options.Urls
+            && !options.Paths)
         {
-            Console.Error.WriteLine("Error: --row requires --print.");
+            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
             return false;
         }
 
@@ -857,6 +888,134 @@ public class PackageCommand
 
         Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
         return false;
+    }
+
+    private static int WritePackageShapeProjection(InspectionResult result, InspectionOptions options)
+    {
+        var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
+        var section = options.IncludeSections!.Single();
+        var rows = section switch
+        {
+            PackageSections.PackageInfo => ProjectPackageInfo(result, section, kind, options),
+            PackageSections.Files => ProjectPackageFiles(new InspectionResultView(result).Files, section, kind, options),
+            PackageSections.LibraryFiles => ProjectPackageFiles(new InspectionResultView(result).LibraryFiles, section, kind, options),
+            PackageSections.MarkdownFiles => ProjectPackageFiles(new InspectionResultView(result).MarkdownFiles, section, kind, options),
+            PackageSections.PackageReadme => ProjectPackageFiles(new InspectionResultView(result).PackageReadme, section, kind, options),
+            PackageSections.SourceFiles => ProjectPackageSourceFiles(result, section, kind, options),
+            _ => []
+        };
+
+        if (rows.Count == 0
+            && section is not (PackageSections.PackageInfo or PackageSections.Files or PackageSections.LibraryFiles
+                or PackageSections.MarkdownFiles or PackageSections.PackageReadme or PackageSections.SourceFiles))
+        {
+            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            return 1;
+        }
+
+        return ShapeProjectionOutput.Write(rows,
+            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl));
+    }
+
+    private static List<ShapeProjectionRow> ProjectPackageFiles(IEnumerable<PackageFileRow>? files, string section, ShapeProjectionKind kind, InspectionOptions options)
+    {
+        List<ShapeProjectionRow> rows = [];
+        var list = files?.ToList() ?? [];
+        for (var i = 0; i < list.Count; i++)
+        {
+            var file = list[i];
+            string? value = kind switch
+            {
+                ShapeProjectionKind.Paths => file.Path,
+                ShapeProjectionKind.Value => SelectPackageFileValue(file, options),
+                _ => null
+            };
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+            rows.Add(new ShapeProjectionRow(i + 1, section, value, Path: file.Path));
+        }
+        return rows;
+    }
+
+    private static string? SelectPackageFileValue(PackageFileRow file, InspectionOptions options)
+    {
+        var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
+        return column?.ToLowerInvariant() switch
+        {
+            "path" => file.Path,
+            "size" => file.Size.ToString(CultureInfo.InvariantCulture),
+            _ => file.Path
+        };
+    }
+
+    private static List<ShapeProjectionRow> ProjectPackageSourceFiles(InspectionResult result, string section, ShapeProjectionKind kind, InspectionOptions options)
+    {
+        var sourceRows = new InspectionResultView(result).SourceFiles ?? [];
+        return sourceRows
+            .Select((row, index) =>
+            {
+                string? value = kind switch
+                {
+                    ShapeProjectionKind.Urls => row.Url,
+                    ShapeProjectionKind.Value => SelectPackageSourceValue(row, options),
+                    _ => null
+                };
+                return string.IsNullOrWhiteSpace(value)
+                    ? null
+                    : new ShapeProjectionRow(index + 1, section, value, Label: row.Type, Url: row.Url);
+            })
+            .Where(row => row is not null)
+            .Cast<ShapeProjectionRow>()
+            .ToList();
+    }
+
+    private static string? SelectPackageSourceValue(PackageSourceFileRow row, InspectionOptions options)
+    {
+        var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
+        return column?.ToLowerInvariant() switch
+        {
+            "library" => row.Library,
+            "type" => row.Type,
+            "url" => row.Url,
+            _ => row.Url
+        };
+    }
+
+    private static List<ShapeProjectionRow> ProjectPackageInfo(InspectionResult result, string section, ShapeProjectionKind kind, InspectionOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Package Info requires --fields <name>.");
+            return [];
+        }
+
+        string? value = field.ToLowerInvariant() switch
+        {
+            "version" => result.Version,
+            "readme" => result.PackageReadmeFile,
+            "repository" => result.Repository,
+            "repository commit" or "repository_commit" => result.RepositoryCommit,
+            "repository type" or "repository_type" => result.RepositoryType,
+            "license" => result.License,
+            "license url" or "license_url" => result.LicenseUrl,
+            "source" => result.Source,
+            "type" => result.PackageTypes is { Count: > 0 } ? string.Join(", ", result.PackageTypes) : null,
+            "signed" => result.SignatureResult is null
+                ? null
+                : result.SignatureResult.IsUnsigned ? "Unsigned"
+                    : result.SignatureResult.AuthorVerified || result.SignatureResult.RepositoryVerified ? "Verified"
+                    : result.SignatureResult.StatusMessage,
+            "size" => result.PackageSize?.ToString(CultureInfo.InvariantCulture),
+            _ => null
+        };
+
+        return string.IsNullOrWhiteSpace(value)
+            ? []
+            : [new ShapeProjectionRow(1, section, value, Label: field)];
     }
 
     private static bool ValidatePathMatchMode(InspectionOptions options)

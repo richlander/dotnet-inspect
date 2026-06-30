@@ -56,6 +56,7 @@ public static class ProjectCommandDefinitions
         opts.AddSectionOptionsTo(projectCommand);
         opts.AddCountOptionTo(projectCommand);
         opts.AddPrintOptionTo(projectCommand);
+        opts.AddShapeProjectionOptionsTo(projectCommand);
         opts.AddNuGetOptionsTo(projectCommand);
 
         projectCommand.SetAction(async (parseResult, ct) =>
@@ -76,6 +77,9 @@ public static class ProjectCommandDefinitions
                 Print = parseResult.GetValue(opts.Print),
                 PrintAll = parseResult.GetValue(opts.PrintAll),
                 PrintRow = opts.ParsePrintRow(parseResult),
+                Value = parseResult.GetValue(opts.Value),
+                Urls = parseResult.GetValue(opts.Urls),
+                Paths = parseResult.GetValue(opts.Paths),
                 Tfm = parseResult.GetValue(tfmOption),
                 ContentScope = contentScope,
                 FrontmatterRequested = frontmatterRequested,
