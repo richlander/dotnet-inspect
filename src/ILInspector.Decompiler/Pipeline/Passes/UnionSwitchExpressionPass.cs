@@ -382,7 +382,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     }
 
     static bool ReferencesLocal(IrExpression expression, int local)
-        => expression.Descendants.Prepend(expression).OfType<LoadLocal>().Any(load => load.Index == local);
+        => ReferenceOwnership.SubtreeReferencesLocal(expression, local);
 
     static bool TryInnerArms(IEnumerable<IrNode> nodes, int tempLocal, int resultLocal, out IReadOnlyList<Arm> arms)
     {
