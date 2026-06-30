@@ -42,6 +42,8 @@ public static class ResearchViews
             var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
             if (result.Output is not { } output)
                 return "";
+            if (result.ConstructorChain is { } chain)
+                output = output.Length == 0 ? $": {chain}" : $": {chain}{Environment.NewLine}{output}";
             if (imported.AssemblyPath is not { Length: > 0 } path)
                 return output;
 

@@ -128,6 +128,18 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void CostOverlay_PreservesConstructorChainWhenBodyIsEmpty()
+    {
+        using var source = MetadataSource.Open(typeof(ConstructorChainDerived).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ConstructorChainDerived).FullName!, ".ctor").Output;
+
+        Assert.StartsWith(": base(", overlay);
+        Assert.DoesNotContain("DEC0003", overlay);
+    }
+
+    [Fact]
     public void CostOverlay_DoesNotAnnotateDirectCallerOnlyCallee()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
@@ -222,3 +234,10 @@ public static class ResearchFixture
     public static int LoopCaller19(int count) { int total = 19; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
     public static int LoopCaller20(int count) { int total = 20; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
 }
+
+public class ConstructorChainBase(string? text)
+{
+    public string? Text { get; } = text;
+}
+
+public sealed class ConstructorChainDerived(int code) : ConstructorChainBase(code > 0 ? "positive" : null);
