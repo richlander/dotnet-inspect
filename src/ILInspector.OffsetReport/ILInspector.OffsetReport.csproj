@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Structural offset report: given a method + IL offset, the literal facts at that code location (instruction, resolved operand, exception-handler context, return-address-of, branch-target) from the substrate + metadata names. SRM-only, PDB-free, no analysis index or decompiler IR. The light "spine" the offset-keyed annotation overlay and PDB source join onto. See issue #2005.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <!-- System.Reflection.Metadata is part of the BCL -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+  </ItemGroup>
+
+</Project>
