@@ -222,6 +222,9 @@ jobs:
       - name: Run CLI tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
+      - name: Run instruction-substrate tests
+        run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
+
       - name: Run metadata tests
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
