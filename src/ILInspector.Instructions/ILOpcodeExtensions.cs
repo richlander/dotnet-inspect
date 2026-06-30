@@ -2,8 +2,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 //
-// One-time port: the IL opcode set is ECMA-335-frozen, so no upstream sync is
-// tracked. See docs/design/instruction-substrate.md ("dotnet/runtime heritage").
+// One-time port (not a live vendor branch). Upstream still receives
+// reliability/perf/security fixes to this helper — periodically diff against the
+// cited path and port them. See docs/design/instruction-substrate.md
+// ("dotnet/runtime heritage").
 
 using System.Reflection.Metadata;
 

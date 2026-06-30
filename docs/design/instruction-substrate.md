@@ -94,28 +94,32 @@ The last "not used" row is load-bearing: prior art runs three *separate* typed
 stacks over one shared reader, so we share decode + identity (Layer 0) and let
 each consumer build its own Layer 1.
 
-### Do we track upstream improvements? No — by design
+### Tracking upstream improvements
 
-The ported reader is a **one-time port, not a tracked vendor branch**, because
-the IL opcode set and operand encodings are **ECMA-335-frozen**: the decode
-contract cannot drift, so there is nothing upstream to chase for correctness.
-This is the opposite of the vendored managed ILAssembler (the
-`vendor/ilassembler` orphan branch), which *is* tracked because it is an evolving
-codebase.
+The decode *contract* is ECMA-335-frozen — which opcodes exist and how their
+operands are encoded will not change. That is **not** a reason to ignore
+upstream. The runtime `ILReader`/`ILOpcodeHelper` *implementation* keeps
+receiving **reliability, performance, and security fixes** — edge-case
+correctness on malformed bodies, bounds-hardening against adversarial IL,
+throughput work — and those matter here precisely because the substrate decodes
+arbitrary, possibly hostile assemblies. So we **do** track upstream, for the
+engineering rather than the spec.
 
-The narrow cases that would warrant touching the ported files, and how:
+This is a one-time *copy*, not a live vendor branch — contrast the vendored
+managed ILAssembler (the `vendor/ilassembler` orphan branch), which is a full
+fork. The lightweight tracking mechanism:
 
-- **A real bug in our port** → fix here directly (the fidelity gates are the
-  oracle); optionally report it upstream. No sync needed.
-- **A genuinely new IL opcode** (historically near-never for ECMA IL) → add one
-  row to the size table; no wholesale re-port.
-- **Adopting *more* of the runtime IL stack** later (e.g. a height tier /
-  `ComputeMaxStack`) → port that piece fresh from the cited path at that time.
+- **Pin the source commit** of each ported file in its header, so the upstream
+  delta is a tractable diff instead of an open-ended comparison.
+- **Periodically — and whenever we touch a ported file — diff our copy against
+  the cited upstream path** and pull relevant reliability/perf/security fixes,
+  re-applying our intentional divergences (SRM retarget, `record` / immutable,
+  fail-closed) on top.
+- **Re-run the fidelity gates** after any such port; they are the acceptance
+  oracle.
 
-Re-sync procedure if ever needed: diff our file against the cited upstream path.
-Because we do not track upstream, the heritage headers record the *path*, not a
-pinned commit; pin a commit only if a future re-port makes ongoing comparison
-worthwhile.
+Our own bug fixes go in directly (the gates are the oracle) and should be
+offered upstream where they apply.
 
 ## Fidelity contract
 
