@@ -600,6 +600,63 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_RetainsNestedGenericBaseClause()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Outer
+            {
+                public class Base<T>
+                {
+                }
+
+                public sealed class Derived : Base<int>
+                {
+                }
+            }
+
+            public static class NestedGenericBaseFactory
+            {
+                public static Outer.Derived Create()
+                    => throw null;
+            }
+            """);
+        try
+        {
+            AssertCheckable(FidelityCheck.Evaluate(assemblyPath), "NestedGenericBaseFactory", "Create");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectSharedFrameworkDirectory_PrefersExactThenNearestSameMajorMinor()
+    {
+        string root = Directory.CreateTempSubdirectory("dotnet-inspect-frameworks-").FullName;
+        try
+        {
+            string exact = Path.Combine(root, "11.0.1");
+            string sameBandLower = Path.Combine(root, "11.0.0");
+            string sameBandHigher = Path.Combine(root, "11.0.3");
+            string otherBand = Path.Combine(root, "11.1.9");
+            Directory.CreateDirectory(exact);
+            Directory.CreateDirectory(sameBandLower);
+            Directory.CreateDirectory(sameBandHigher);
+            Directory.CreateDirectory(otherBand);
+
+            Assert.Equal(exact, FidelityCheck.SelectSharedFrameworkDirectory(root, "11.0.1"));
+
+            Directory.Delete(exact);
+            Assert.Equal(sameBandHigher, FidelityCheck.SelectSharedFrameworkDirectory(root, "11.0.2"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     static void AssertCheckable(IReadOnlyList<FidelityCheck.CompileBackResult> results, string type, string method)
     {
         var result = Assert.Single(

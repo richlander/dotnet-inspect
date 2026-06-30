@@ -3239,8 +3239,11 @@ static class FidelityCheck
 
     /// <summary>Drops the metadata generic-arity suffix (<c>Foo`1</c> → <c>Foo</c>).</summary>
     static string StripArity(string name)
+        => string.Join("+", name.Split('+').Select(StripSegmentArity));
+
+    static string StripSegmentArity(string name)
     {
-        int tick = name.IndexOf('`');
+        int tick = name.LastIndexOf('`');
         return tick < 0 ? name : name[..tick];
     }
 
@@ -3472,12 +3475,32 @@ static class FidelityCheck
         if (!Directory.Exists(frameworkRoot))
             return;
 
-        string runtimeVersion = Path.GetFileName(runtimeDir);
-        string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
-        if (!Directory.Exists(exactDirectory))
+        if (SelectSharedFrameworkDirectory(frameworkRoot, Path.GetFileName(runtimeDir)) is not { } selected)
             return;
-        foreach (var path in Directory.EnumerateFiles(exactDirectory, "*.dll"))
+        foreach (var path in Directory.EnumerateFiles(selected, "*.dll"))
             add(path);
+    }
+
+    internal static string? SelectSharedFrameworkDirectory(string frameworkRoot, string runtimeVersion)
+    {
+        string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
+        if (Directory.Exists(exactDirectory))
+            return exactDirectory;
+        if (!Version.TryParse(runtimeVersion, out var runtime))
+            return null;
+
+        return Directory.EnumerateDirectories(frameworkRoot)
+            .Select(directory => new
+            {
+                Directory = directory,
+                Version = Version.TryParse(Path.GetFileName(directory), out var version) ? version : null,
+            })
+            .Where(candidate => candidate.Version is not null
+                && candidate.Version.Major == runtime.Major
+                && candidate.Version.Minor == runtime.Minor)
+            .OrderByDescending(candidate => candidate.Version)
+            .Select(candidate => candidate.Directory)
+            .FirstOrDefault();
     }
 
     internal static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
