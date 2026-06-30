@@ -456,6 +456,13 @@ public class TypeSourceComposerUnionTests
                     Cat => "other cat",
                     Dog dog => dog.Name,
                 };
+
+                public static string ExhaustiveNoLocal(Pet pet) => pet switch
+                {
+                    Cat { Age: <= 3 } => "young",
+                    Cat => "old",
+                    Dog dog => dog.Name,
+                };
             }
             """);
 
@@ -477,8 +484,22 @@ public class TypeSourceComposerUnionTests
                 _ => "other",
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Inverted"));
-        Assert.DoesNotContain("return pet switch",
-            RenderMember(assembly.Path, "UnionFixtures.Matcher", "Exhaustive"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Name == "cat" => cat.Name,
+                Cat => "other cat",
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Exhaustive"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat V_3 when V_3.Age <= 3 => "young",
+                Cat => "old",
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ExhaustiveNoLocal"));
     }
 
     [Fact]
