@@ -260,7 +260,16 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("return pet is Cat cat && cat.Name.Length > 0;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "HasNamedCat"));
         Assert.Contains("if (pet is Cat cat)", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IfDeclaration"));
-        Assert.Contains("if (pet is Cat cat)", RenderMember(assembly.Path, "UnionFixtures.Matcher", "SwitchWithDefault"));
+        Assert.Equal("""
+            if (pet is Cat cat)
+            {
+                return cat.Name;
+            }
+            else
+            {
+                return "other";
+            }
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "SwitchWithDefault"));
     }
 
     [Fact]
