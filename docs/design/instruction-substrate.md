@@ -105,16 +105,23 @@ gated `StackTypeInterpreter`), never in the ported files.
 That is the deliberate boundary. The substrate guarantees **structural
 completeness** — the stream tiles `[0, ilLength)`, branch targets land on
 instruction boundaries, blocks are EH-aware, and a *dangling* prefix fails closed
-— but it does **not** perform **semantic IL verification** (e.g. that
-`constrained.` is paired with `callvirt`, or stack-type legality). That is
-verifier/importer work, and the upstream `ILImporter` that owns it is
-intentionally not ported: it is bound to `Internal.TypeSystem`, it is Layer 1,
-and it is the non-shareable layer (above). A consumer that needs real
-verification should port a *targeted* upstream slice on a measured trigger, not
-re-derive it inside the decoder.
+— but it does **not** perform **semantic IL verification**. Prefix-follower
+pairing is the clearest case of the split: the substrate enforces the
+*structural* rule — a prefix must be followed by **some** instruction, so a
+dangling `tail.` or `constrained.` fails closed — but not the *semantic* rule
+that the follower be the **right** instruction (`constrained.` → `callvirt`,
+`tail.` → a call then `ret`). A prefix with a legal-but-wrong follower, or an
+illegal stack-type, decodes without complaint. That is verifier/importer work,
+and the upstream `ILImporter` that owns it is intentionally not ported: it is
+bound to `Internal.TypeSystem`, it is Layer 1, and it is the non-shareable layer
+(above). A consumer that needs real verification should port a *targeted*
+upstream slice on a measured trigger, not re-derive it inside the decoder.
 
-The bar is also genuinely lower than runtime's, because dotnet-inspect only
-*reads* IL — it never JITs, executes, or loads the inspected assembly. runtime
+Leaving that semantic validation out means the substrate is **not hardened**
+against IL that is malformed only in ways a verifier would catch — and that is a
+deliberate, accepted trade, because the risk profile is far below runtime's. The
+library is a read-only decoder, and its main consumer, dotnet-inspect, only
+*reads* IL — neither JITs, executes, nor loads the inspected assembly. runtime
 must verify IL because its output runs with full trust (illegal IL there means
 memory corruption or a security hole); our worst case is a wrong line in a report,
 and we already fail closed on anything we cannot decode. So the contract is
