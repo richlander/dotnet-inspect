@@ -70,6 +70,11 @@ fidelity coverage series with the same per-bucket failure breakdown for each cap
 uploads the current JSON snapshot as the `decompiler-corpus-snapshot` artifact so
 trends can be compared without scraping logs.
 
+Standalone `--fidelity-check` reports also print bounded examples for every
+non-success bucket: opcode diffs include canonical opcode streams, while
+recompile and context failures include the method and diagnostic detail. Use
+`--max-examples` to widen the triage sample when exploring a new assembly set.
+
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt

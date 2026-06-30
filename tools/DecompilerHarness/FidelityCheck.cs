@@ -68,6 +68,8 @@ static class FidelityCheck
 
         int total = 0, full = 0, exact = 0, contextFail = 0, recompileFail = 0, diffCount = 0;
         var diffExamples = new List<string>();
+        var recompileFailExamples = new List<string>();
+        var contextFailExamples = new List<string>();
         var recompileFailCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
 
         using var metadata = CorpusMetadata.Create(assemblies);
@@ -97,7 +99,8 @@ static class FidelityCheck
                         int effectiveCap = zeroSignal?.EffectiveCap(total) ?? cap;
                         RunType(reader, pe, source, typeHandle, references, parseOptions, compileOptions,
                             effectiveCap, maxExamples, render, ref total, ref full, ref exact, ref contextFail,
-                            ref recompileFail, ref diffCount, diffExamples, recompileFailCodes, phaseTimings);
+                            ref recompileFail, ref diffCount, diffExamples, recompileFailExamples,
+                            contextFailExamples, recompileFailCodes, phaseTimings);
                         zeroSignal?.Observe(total, exact, diffCount, recompileFail, contextFail, recompileFailCodes);
                     }
                 }
@@ -111,7 +114,7 @@ static class FidelityCheck
         }
 
         Report(total, full, exact, contextFail, recompileFail, diffCount,
-            recompileFailCodes, diffExamples, zeroSignal);
+            recompileFailCodes, diffExamples, recompileFailExamples, contextFailExamples, zeroSignal);
         phaseTimings?.Report();
         return 0;
     }
@@ -1618,7 +1621,8 @@ static class FidelityCheck
         Func<IrFunction, DecompilerResult> render,
         ref int total, ref int full, ref int exact, ref int contextFail,
         ref int recompileFail, ref int diffCount,
-        List<string> diffExamples, SortedDictionary<string, int> recompileFailCodes,
+        List<string> diffExamples, List<string> recompileFailExamples, List<string> contextFailExamples,
+        SortedDictionary<string, int> recompileFailCodes,
         FidelityPhaseTimings? timings)
     {
         int remaining = cap - total;
@@ -1655,9 +1659,13 @@ static class FidelityCheck
                 case CompileBackStatus.RecompileFail:
                     recompileFail++;
                     recompileFailCodes[DiagnosticCode(r.Detail)] = recompileFailCodes.GetValueOrDefault(DiagnosticCode(r.Detail)) + 1;
+                    if (recompileFailExamples.Count < maxExamples)
+                        recompileFailExamples.Add(FormatFailureExample(r));
                     break;
                 case CompileBackStatus.ContextFail:
                     contextFail++;
+                    if (contextFailExamples.Count < maxExamples)
+                        contextFailExamples.Add(FormatFailureExample(r));
                     break;
             }
         }
@@ -1665,7 +1673,8 @@ static class FidelityCheck
 
     static void Report(
         int total, int full, int exact, int contextFail, int recompileFail, int diffCount,
-        SortedDictionary<string, int> recompileFailCodes, List<string> diffExamples, ZeroSignalGuard? zeroSignal)
+        SortedDictionary<string, int> recompileFailCodes, List<string> diffExamples,
+        List<string> recompileFailExamples, List<string> contextFailExamples, ZeroSignalGuard? zeroSignal)
     {
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
         Console.WriteLine($"COMPILE-BACK over {total} rendered methods ({full} Full)");
@@ -1688,7 +1697,26 @@ static class FidelityCheck
             foreach (var e in diffExamples)
                 Console.WriteLine($"  {e}");
         }
+        if (recompileFailExamples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Recompile-fail examples:");
+            foreach (var e in recompileFailExamples)
+                Console.WriteLine($"  {e}");
+        }
+        if (contextFailExamples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Context-fail examples:");
+            foreach (var e in contextFailExamples)
+                Console.WriteLine($"  {e}");
+        }
     }
+
+    static string FormatFailureExample(CompileBackResult result)
+        => string.IsNullOrWhiteSpace(result.Detail)
+            ? $"{result.Type}::{result.Method}"
+            : $"{result.Type}::{result.Method}\n    {result.Detail}";
 
     internal static IReadOnlyDictionary<string, FailureBucketSummary> SummarizeFailures(
         IReadOnlyList<CompileBackResult> results, CompileBackStatus status)
