@@ -1319,6 +1319,44 @@ public class LibraryBodyIndexTests
         Assert.Equal("high", inLoop.Confidence);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_AsyncStateMachine_IsAmortized()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.AsyncStream)
+            && o.Shape == "async-state-machine"));
+        Assert.False(row.InLoop);
+        Assert.True(row.Amortized);
+        Assert.Equal("low", row.Confidence);
+        Assert.Contains("once per call/enumeration/subscription", row.Caveat);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MaterializeInLoop_RequiresLoopInvariantSource()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesInvariantSourceInLoop)
+            && o.Shape == "materialize-in-loop"));
+        Assert.True(row.InLoop);
+        Assert.Equal("high", row.Confidence);
+
+        var shortArg = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesShortFormSourceArgumentInLoop)
+            && o.Shape == "materialize-in-loop"));
+        Assert.True(shortArg.InLoop);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesPerIterationSourceInLoop)
+            && o.Shape == "materialize-in-loop");
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesSourceMutatedByRefInLoop)
+            && o.Shape == "materialize-in-loop");
+    }
+
     [Theory]
     // Non-loop delegate on a high-reach method -> lifted from low to medium.
     [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach, "medium")]
@@ -2651,6 +2689,57 @@ public class OptimizationOpportunityFixtures
             total += f();
         }
         return total;
+    }
+
+    public static async IAsyncEnumerable<int> AsyncStream(int count)
+    {
+        await System.Threading.Tasks.Task.Yield();
+        for (int i = 0; i < count; i++)
+            yield return i;
+    }
+
+    public static int MaterializesInvariantSourceInLoop(IEnumerable<int> source, int count)
+    {
+        var total = 0;
+        for (int i = 0; i < count; i++)
+            total += source.ToArray().Length;
+        return total;
+    }
+
+    public static int MaterializesShortFormSourceArgumentInLoop(int a, int b, int c, int d, IEnumerable<int> source, int count)
+    {
+        var total = a + b + c + d;
+        for (int i = 0; i < count; i++)
+            total += source.ToList().Count;
+        return total;
+    }
+
+    public static int MaterializesPerIterationSourceInLoop(IEnumerable<int> source, int count)
+    {
+        var total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            var filtered = source.Where(value => value > i);
+            total += filtered.ToArray().Length;
+        }
+        return total;
+    }
+
+    public static int MaterializesSourceMutatedByRefInLoop(IEnumerable<int> source, IEnumerable<int> replacement, int count)
+    {
+        var current = source;
+        var total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            ReplaceSource(ref current, replacement);
+            total += current.ToArray().Length;
+        }
+        return total;
+    }
+
+    static void ReplaceSource(ref IEnumerable<int> source, IEnumerable<int> replacement)
+    {
+        source = replacement;
     }
 
     // A method taking an UNTRUSTED RenderTreeBuilder lookalike (defined in this test assembly,

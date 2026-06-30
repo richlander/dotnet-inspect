@@ -9,11 +9,13 @@ public sealed record PerformanceTriageOptions
     public static readonly string[] KnownShapes =
     [
         "allocation-hotspot",
+        "async-state-machine",
         "box-value-type",
         "capturing-delegate",
         "enumerator-allocation",
         "instance-method-group-delegate",
         "linq-scan-in-loop",
+        "materialize-in-loop",
         "scan-method-in-loop-call",
         "small-array",
         "span-to-array-copy",

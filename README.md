@@ -111,7 +111,8 @@ depth, and loop calls; `Performance Triage` surfaces the highest-value
 allocation pay-dirt first — ranking in-loop (hot) and high-confidence
 opportunities ahead of raw leverage — across actionable rewrite shapes (small
 non-escaping arrays, temporary or span-to-array copies, capturing and instance
-method-group delegates, and value-type boxing) plus `allocation-hotspot` rows
+method-group delegates, async state-machine setup, loop-invariant
+materialization, and value-type boxing) plus `allocation-hotspot` rows
 for methods that allocate heavily without matching a specific shape. Use
 `--top`, `--loop`, `--min-confidence`, and `--triage-shape` to ask the tool for
 the curated pay-dirt rows directly instead of post-processing. `--top` limits
@@ -133,8 +134,9 @@ dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fi
 ```
 
 Common `--triage-shape` values include `capturing-delegate`,
-`box-value-type`, `small-array`, `linq-scan-in-loop`,
-`string-build-in-loop`, `enumerator-allocation`, and `allocation-hotspot`.
+`async-state-machine`, `box-value-type`, `small-array`, `linq-scan-in-loop`,
+`materialize-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
+`allocation-hotspot`.
 
 ### Decompiler
 
