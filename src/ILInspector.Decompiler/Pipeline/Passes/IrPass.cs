@@ -200,6 +200,10 @@ public static class IrPasses
         // `&&` short-circuit operand are both formed; left flat it renders as
         // a separate `T t = value as T; if (t is not null)`.
         new IsPatternPass(),
+        // Raise the two-arm union switch-expression lowering (cached Value,
+        // ordered type tests, value arms, and the compiler's unreachable throw
+        // fallback) into `union switch { T t => ..., U => ... }`.
+        new UnionSwitchExpressionPass(),
         // Fold the compiler's dup-based ++/-- idiom (a value-carrying increment
         // spilled to a single-use slot beside the local update) back into the
         // operator at the use site, so a[--i] = src[j++] recompiles to the same
