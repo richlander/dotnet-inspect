@@ -647,6 +647,7 @@ public class PackageCommand
         "License",
         "License URL",
         "Owners",
+        "Published",
         "Readme",
         "Repository",
         "Repository Commit",
@@ -749,6 +750,13 @@ public class PackageCommand
     private static bool ValidatePackageContentMode(InspectionOptions options)
     {
         bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
+        if (options.Tree && options.Discover == null)
+        {
+            Console.Error.WriteLine("Error: package --tree is discovery-tree output and requires -D/--discover.");
+            Console.Error.WriteLine("Use --layout to show the package file tree.");
+            return false;
+        }
+
         if (options.FrontmatterRequested && options.BodyRequested)
         {
             Console.Error.WriteLine("Error: --frontmatter/--yaml-header cannot be combined with --body.");

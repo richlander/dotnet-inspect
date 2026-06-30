@@ -5060,6 +5060,16 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DiscoverSchema_ListsPublishedPackageInfoField()
+    {
+        var (exit, output, error) = await RunAppAsync("package", "-D", "Package Info", "--schema", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Published | field |", output);
+    }
+
+    [Fact]
     public async Task Package_DiscoverSection_ListsSignalsColumns()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
@@ -5096,6 +5106,27 @@ public class CommandExecutionTests
             Assert.Contains("Package Info", output);
             Assert.Contains("Authors", output);
             Assert.DoesNotContain("README.md", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_TreeWithoutDiscovery_ReportsLayoutAlternative()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.TreeAlias",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, _, error) = await RunAppAsync("package", packagePath, "--tree", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("requires -D/--discover", error);
+            Assert.Contains("Use --layout", error);
         }
         finally
         {
