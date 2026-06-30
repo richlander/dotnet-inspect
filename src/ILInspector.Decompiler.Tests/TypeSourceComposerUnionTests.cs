@@ -235,7 +235,7 @@ public class TypeSourceComposerUnionTests
         using var assembly = await CompileWithSdk("""
             namespace UnionFixtures;
 
-            public sealed class Cat { public string Name { get; } = "cat"; }
+            public sealed class Cat { public string Name { get; } = "cat"; public int Age { get; } = 5; }
             public sealed class Dog { }
             public union Pet(Cat, Dog);
 
@@ -246,6 +246,13 @@ public class TypeSourceComposerUnionTests
                 public static string IfDeclaration(Pet pet)
                 {
                     if (pet is Cat cat)
+                        return cat.Name;
+                    return "none";
+                }
+
+                public static string IfGuardedDeclaration(Pet pet)
+                {
+                    if (pet is Cat cat && cat.Age > 3)
                         return cat.Name;
                     return "none";
                 }
@@ -261,6 +268,8 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("return pet is Cat cat && cat.Name.Length > 0;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "HasNamedCat"));
         Assert.Contains("if (pet is Cat cat)", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IfDeclaration"));
+        Assert.Contains("if (pet is Cat { Age: > 3 } cat)",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "IfGuardedDeclaration"));
         Assert.Equal("""
             if (pet is Cat cat)
             {
