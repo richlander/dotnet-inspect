@@ -2,7 +2,7 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Raises the union switch-expression lowering Roslyn currently emits:
-/// one cached <c>union.Value</c>, two ordered type tests, value arms, and the
+/// one cached <c>union.Value</c>, ordered type tests, value arms, and the
 /// compiler's unreachable <c>ThrowSwitchExpressionException</c> fallback. This is
 /// deliberately narrower than general pattern-switch reconstruction.
 /// </summary>

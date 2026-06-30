@@ -366,8 +366,14 @@ public class TypeSourceComposerUnionTests
                 Bird => 3,
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "KindThree"));
-        Assert.Contains("return box switch", RenderMember(assembly.Path, "UnionFixtures.Matcher", "Generic"));
-        Assert.Contains("Bird bird => bird.Name", RenderMember(assembly.Path, "UnionFixtures.Matcher", "Generic"));
+        Assert.Equal("""
+            return box switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+                Bird bird => bird.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Generic"));
     }
 
     [Fact]
