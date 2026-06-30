@@ -11,7 +11,7 @@ namespace ILInspector.Decompiler.Tests;
 public class TypeSourceComposerUnionTests
 {
     [Fact]
-    public void LoweredUnionDeclaration_RendersUnionHeaderAndHidesBasicPattern()
+    public async Task LoweredUnionDeclaration_RendersUnionHeaderAndHidesBasicPattern()
     {
         using var assembly = Compile("""
             #nullable enable
@@ -66,6 +66,7 @@ public class TypeSourceComposerUnionTests
         Assert.DoesNotContain("public Pet(List<Bird> value)", source);
         Assert.DoesNotContain("public object", source);
         Assert.Contains("Describe", source);
+        await AssertSdkPreviewBuilds(source);
     }
 
     [Fact]
@@ -705,6 +706,7 @@ public class TypeSourceComposerUnionTests
                 <TargetFramework>net11.0</TargetFramework>
                 <LangVersion>preview</LangVersion>
                 <Nullable>enable</Nullable>
+                <ImplicitUsings>enable</ImplicitUsings>
               </PropertyGroup>
             </Project>
             """);
