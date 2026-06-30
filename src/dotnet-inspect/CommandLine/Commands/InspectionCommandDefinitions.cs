@@ -260,6 +260,7 @@ public static class InspectionCommandDefinitions
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),
                 Paths = parseResult.GetValue(opts.Paths),
+                JsonArray = parseResult.GetValue(opts.JsonArray),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = opts.ParseRows(parseResult),
                 PerformanceTriage = performanceTriage,

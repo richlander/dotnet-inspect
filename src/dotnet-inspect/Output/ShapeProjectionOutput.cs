@@ -22,7 +22,8 @@ public sealed record ShapeProjectionOptions(
     ShapeProjectionKind Kind,
     int? Row,
     bool JsonOutput,
-    bool Jsonl);
+    bool Jsonl,
+    bool JsonArray);
 
 public static class ShapeProjectionOutput
 {
@@ -73,6 +74,12 @@ public static class ShapeProjectionOutput
         {
             foreach (var item in selected)
                 Console.WriteLine(JsonSerializer.Serialize(item, ShapeProjectionJsonContext.Default.ShapeProjectionRow));
+            return 0;
+        }
+
+        if (options.JsonArray)
+        {
+            Console.Write(JsonSerializer.Serialize(selected.ToArray(), ShapeProjectionJsonContext.Default.ShapeProjectionRowArray));
             return 0;
         }
 

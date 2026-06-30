@@ -62,6 +62,8 @@ public partial record ApiOptions
 
     public bool Paths { get; init; }
 
+    public bool JsonArray { get; init; }
+
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
     /// When false, commands are free to apply their own default format (e.g., shape/tree).

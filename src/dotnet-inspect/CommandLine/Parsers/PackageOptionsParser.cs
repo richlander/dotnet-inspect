@@ -143,6 +143,7 @@ public static class PackageOptionsParser
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),
             Paths = parseResult.GetValue(opts.Paths),
+            JsonArray = parseResult.GetValue(opts.JsonArray),
             ShowContent = parseResult.GetValue(args.ContentOption),
             ContentScope = contentScope,
             FrontmatterRequested = frontmatterRequested,
