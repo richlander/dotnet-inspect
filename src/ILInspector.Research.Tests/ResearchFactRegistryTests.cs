@@ -84,6 +84,19 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void CostOverlay_DoesNotAnnotateExceptionOnlyCallee()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsExceptionOnlyCallee)).Output;
+
+        Assert.Contains("ExceptionOnlyCallee", overlay);
+        Assert.DoesNotContain("cost.callee", overlay);
+        Assert.DoesNotContain("FormatException", overlay);
+    }
+
+    [Fact]
     public void CostOverlay_RendersMethodHeaderLeverage()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
@@ -152,6 +165,15 @@ public static class ResearchFixture
     public static int CallsLowSignalCallee(int value) => LowSignalCallee(value);
 
     public static int LowSignalCallee(int value) => value + 1;
+
+    public static int CallsExceptionOnlyCallee(string value) => ExceptionOnlyCallee(value);
+
+    public static int ExceptionOnlyCallee(string value)
+    {
+        if (value.Length == 0)
+            throw new FormatException();
+        return value.Length;
+    }
 
     public static int SharedLeverageCallee(int value) => value + 1;
 

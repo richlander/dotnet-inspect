@@ -46,7 +46,6 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
 
     static bool IsHighValue(MethodSignals signals, MethodLeverage? leverage)
         => signals.AllocInLoop
-           || !signals.ExceptionTypes.IsEmpty
            || signals.Reflection > 0
            || signals.Unsafe
            || leverage is { RootReach: >= RootReachThreshold }
@@ -58,8 +57,6 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
         var parts = new List<string>();
         if (signals.AllocInLoop)
             parts.Add("alloc-loop");
-        if (!signals.ExceptionTypes.IsEmpty)
-            parts.Add($"throws {string.Join("/", signals.ExceptionTypes.Take(2))}");
         if (signals.Reflection > 0)
             parts.Add("reflection");
         if (signals.Unsafe)
