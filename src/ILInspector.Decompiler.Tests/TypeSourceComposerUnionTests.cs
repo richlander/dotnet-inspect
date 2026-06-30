@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -67,7 +68,7 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
-    public void RenderedUnionDeclaration_BindsUnderPreviewWhenEmbeddedRoslynSupportsUnions()
+    public void RenderedUnionDeclaration_BuildsWithPreviewSdk()
     {
         using var assembly = Compile("""
             #nullable enable
@@ -99,7 +100,7 @@ public class TypeSourceComposerUnionTests
 
         var source = ComposeType(assembly.Path, "UnionFixtures.Pet");
 
-        AssertPreviewBinds(source);
+        AssertSdkPreviewBuilds(source);
     }
 
     [Fact]
@@ -227,7 +228,7 @@ public class TypeSourceComposerUnionTests
         return new TempAssembly(path);
     }
 
-    static void AssertPreviewBinds(string source)
+    static void AssertSdkPreviewBuilds(string source)
     {
         const string caseTypeStubs = """
             namespace Other
@@ -243,32 +244,41 @@ public class TypeSourceComposerUnionTests
             }
             """;
 
-        if (!EmbeddedRoslynSupportsUnionSyntax())
-            throw Xunit.Sdk.SkipException.ForSkip("Embedded Microsoft.CodeAnalysis.CSharp does not parse union syntax yet.");
+        using var project = TempDirectory.Create();
+        File.WriteAllText(Path.Combine(project.Path, "union-bind.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net11.0</TargetFramework>
+                <LangVersion>preview</LangVersion>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(project.Path, "RenderedUnion.cs"), source);
+        File.WriteAllText(Path.Combine(project.Path, "CaseTypes.cs"), caseTypeStubs);
 
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
-        var compilation = CSharpCompilation.Create(
-            "union-bind",
-            [
-                CSharpSyntaxTree.ParseText(source, parseOptions),
-                CSharpSyntaxTree.ParseText(caseTypeStubs, parseOptions)
-            ],
-            RuntimeReferences(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
-
-        var errors = compilation.GetDiagnostics()
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
-            .Select(d => $"{d.Id}: {d.GetMessage()}")
-            .ToArray();
-        Assert.True(errors.Length == 0,
-            "Rendered union source must bind under LangVersion=preview, got:\n  "
-            + string.Join("\n  ", errors) + "\n--- source ---\n" + source);
+        var result = RunDotnetBuild(project.Path);
+        Assert.True(result.ExitCode == 0,
+            "Rendered union source must build with the preview SDK, got exit "
+            + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
     }
 
-    static bool EmbeddedRoslynSupportsUnionSyntax()
+    static (int ExitCode, string Output) RunDotnetBuild(string workingDirectory)
     {
-        var tree = CSharpSyntaxTree.ParseText("public union U(int);", new CSharpParseOptions(LanguageVersion.Preview));
-        return !tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
+        var psi = new ProcessStartInfo("dotnet", "build --nologo --verbosity quiet")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true";
+
+        using var process = Process.Start(psi)!;
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "dotnet build did not complete within 30 seconds.");
+        return (process.ExitCode, stdout + stderr);
     }
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
@@ -291,6 +301,21 @@ public class TypeSourceComposerUnionTests
         public void Dispose()
         {
             try { File.Delete(Path); }
+            catch { }
+        }
+    }
+
+    sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dotnet-inspect-union-bind-{Guid.NewGuid():N}");
+
+        TempDirectory() => Directory.CreateDirectory(Path);
+
+        public static TempDirectory Create() => new();
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); }
             catch { }
         }
     }
