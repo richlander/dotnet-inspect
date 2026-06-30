@@ -57,8 +57,17 @@ dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package Sys
 
 `-S @Integrations` on `library` or `package --library` rolls up the ecosystem
 frameworks a library plugs into — DI, hosting, ASP.NET Core, AI, OpenTelemetry,
-configuration, logging, and more — plus `Integration Opportunities`.
+configuration, logging, and more — plus `Integration Opportunities` and
+language/runtime integration signals like C# union types.
 
 ```bash
 dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --library -S @Integrations
+dnx dotnet-inspect -y -- library MyLibrary.dll -S "Union Types" --tsv
+dnx dotnet-inspect -y -- library --platform System.Text.Json -S "Union Types" --tsv
 ```
+
+Use `Union Types` when looking for C# union adoption in libraries. It reports
+types annotated with `System.Runtime.CompilerServices.UnionAttribute`, whether
+they implement `IUnion`, and constructor-derived case types. Current platform
+libraries may expose the runtime infrastructure before any production library
+declares union types, so an empty table is still a useful signal.
