@@ -1914,7 +1914,7 @@ static class FidelityCheck
         if (kind != TypeKind.Class || typeDef.BaseType.IsNil)
             return "";
         if (FullName(reader, typeDef) == "Aspire.Hosting.ApplicationModel.ResourceAnnotationCollection")
-            return " : System.Collections.Generic.List<Aspire.Hosting.ApplicationModel.IResourceAnnotation>";
+            return " : System.Collections.ObjectModel.Collection<Aspire.Hosting.ApplicationModel.IResourceAnnotation>";
         if (typeDef.BaseType.Kind == HandleKind.TypeDefinition)
         {
             var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
@@ -2416,7 +2416,7 @@ static class FidelityCheck
     {
         var interfaces = new List<string>();
         if (FullName(reader, typeDef) == "Aspire.Hosting.ApplicationModel.IResourceCollection")
-            interfaces.Add("System.Collections.Generic.IEnumerable<Aspire.Hosting.ApplicationModel.IResource>");
+            interfaces.Add("System.Collections.Generic.IList<Aspire.Hosting.ApplicationModel.IResource>");
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
         {
             var implementation = reader.GetInterfaceImplementation(implementationHandle);

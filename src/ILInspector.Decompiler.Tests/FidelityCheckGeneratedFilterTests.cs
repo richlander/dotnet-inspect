@@ -645,7 +645,7 @@ public class FidelityCheckGeneratedFilterTests
                     string Name { get; }
                 }
 
-                public interface IResourceCollection : IEnumerable<IResource>
+                public interface IResourceCollection : IList<IResource>
                 {
                     bool TryGetByName(string name, out IResource resource);
                 }
@@ -682,7 +682,7 @@ public class FidelityCheckGeneratedFilterTests
 
                 public sealed class HttpAnnotation : IResourceAnnotation { }
 
-                public class ResourceAnnotationCollection : List<IResourceAnnotation>
+                public class ResourceAnnotationCollection : System.Collections.ObjectModel.Collection<IResourceAnnotation>
                 {
                 }
             }
@@ -692,7 +692,10 @@ public class FidelityCheckGeneratedFilterTests
                 public static bool HasHttp(Aspire.Hosting.ApplicationModel.ResourceAnnotationCollection annotations)
                 {
                     annotations.Add(new Aspire.Hosting.ApplicationModel.HttpAnnotation());
-                    return annotations.OfType<Aspire.Hosting.ApplicationModel.HttpAnnotation>().Any();
+                    foreach (var annotation in annotations)
+                        if (annotation is Aspire.Hosting.ApplicationModel.HttpAnnotation)
+                            return annotations.OfType<Aspire.Hosting.ApplicationModel.HttpAnnotation>().Any();
+                    return false;
                 }
             }
             """);
