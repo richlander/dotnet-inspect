@@ -2351,7 +2351,7 @@ static class FidelityCheck
         catch { return; }
 
         bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
-        string parameters = Parameters(reader, method, sig, IsExtensionMethod(reader, typeDef, method));
+        string parameters = Parameters(reader, method, sig, IsExtensionMethod(reader, typeDef, method, sig));
         string body = realBody is null ? " throw null;" : "\n" + realBody + "\n" + pad;
 
         if (name is ".ctor")
@@ -2386,7 +2386,8 @@ static class FidelityCheck
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
         string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
-        if (name.StartsWith("op_", StringComparison.Ordinal)
+        if (!IsStaticClass(typeDef)
+            && name.StartsWith("op_", StringComparison.Ordinal)
             && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
         {
             sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
@@ -2503,13 +2504,19 @@ static class FidelityCheck
         return string.Join(", ", parts);
     }
 
-    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, MethodSignature<string> sig)
         => method.Attributes.HasFlag(MethodAttributes.Static)
            && IsStaticClass(typeDef)
            && typeDef.GetDeclaringType().IsNil
            && typeDef.GetGenericParameters().Count == 0
+           && sig.ParameterTypes.Length > 0
+           && CanSpellExtensionReceiver(sig.ParameterTypes[0])
            && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())
            && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
+
+    static bool CanSpellExtensionReceiver(string parameterType)
+        => !parameterType.StartsWith("ref ", StringComparison.Ordinal)
+           && !parameterType.Contains('*', StringComparison.Ordinal);
 
     // ---- Small helpers ----
 
