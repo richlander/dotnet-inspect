@@ -65,6 +65,36 @@ public class LibraryCommand
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
 
+        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+        if (shapeCount > 1)
+        {
+            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+            return 1;
+        }
+
+        if (shapeCount == 1)
+        {
+            var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
+            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+                return 1;
+            if (options.Count)
+            {
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count.");
+                return 1;
+            }
+            if (options.Rows is not null)
+            {
+                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N to select a projected row.");
+                return 1;
+            }
+        }
+
+        if (options.ProjectionRow is not null && shapeCount == 0)
+        {
+            Console.Error.WriteLine("Error: --row requires --value, --urls, or --paths.");
+            return 1;
+        }
+
         // -S targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
@@ -159,6 +189,8 @@ public class LibraryCommand
 
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity);
+                if (options.Value || options.Urls || options.Paths)
+                    return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
@@ -298,6 +330,88 @@ public class LibraryCommand
     private static int IntegrityExitCode(params LibraryInspection[] inspections)
     {
         return inspections.Any(insp => insp.SourceIntegrityMismatches is { Count: > 0 }) ? 1 : 0;
+    }
+
+    private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
+    {
+        var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
+        var section = options.IncludeSections!.Single();
+        var rows = section switch
+        {
+            "Source Files" => ProjectLibrarySourceFiles(inspection, section, kind, options),
+            "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
+            _ => []
+        };
+
+        if (rows.Count == 0 && section is not ("Source Files" or "Library Info"))
+        {
+            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            return 1;
+        }
+
+        return ShapeProjectionOutput.Write(
+            rows,
+            new ShapeProjectionOptions(kind, options.ProjectionRow, options.JsonOutput, options.Jsonl));
+    }
+
+    private static List<ShapeProjectionRow> ProjectLibrarySourceFiles(LibraryInspection inspection, string section, ShapeProjectionKind kind, LibraryOptions options)
+    {
+        var rows = new LibraryInspectionView(inspection).SourceFilesSection ?? [];
+        return rows
+            .Select((row, index) =>
+            {
+                string? value = kind switch
+                {
+                    ShapeProjectionKind.Urls => row.Url,
+                    ShapeProjectionKind.Value => SelectLibrarySourceValue(row, options),
+                    _ => null
+                };
+                return string.IsNullOrWhiteSpace(value)
+                    ? null
+                    : new ShapeProjectionRow(index + 1, section, value, Label: row.Type, Url: row.Url);
+            })
+            .Where(row => row is not null)
+            .Cast<ShapeProjectionRow>()
+            .ToList();
+    }
+
+    private static string? SelectLibrarySourceValue(SourceFileRow row, LibraryOptions options)
+    {
+        var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
+        return column?.ToLowerInvariant() switch
+        {
+            "type" => row.Type,
+            "url" => row.Url,
+            _ => row.Url
+        };
+    }
+
+    private static List<ShapeProjectionRow> ProjectLibraryInfo(LibraryInspection inspection, string section, ShapeProjectionKind kind, LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value)
+            return [];
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Library Info requires --fields <name>.");
+            return [];
+        }
+
+        string? value = field.ToLowerInvariant() switch
+        {
+            "name" => inspection.AssemblyInfo?.AssemblyName ?? Path.GetFileNameWithoutExtension(inspection.FileName),
+            "version" => inspection.PlatformVersion ?? inspection.AssemblyInfo?.AssemblyVersion,
+            "tfm" => inspection.Tfm,
+            "source" => inspection.Source,
+            "file" or "filename" => inspection.FileName,
+            "repository" => inspection.RepositoryUrl,
+            "pdb" or "pdb path" or "pdb_path" => inspection.PdbPath,
+            _ => null
+        };
+
+        return string.IsNullOrWhiteSpace(value)
+            ? []
+            : [new ShapeProjectionRow(1, section, value, Label: field)];
     }
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,

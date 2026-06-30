@@ -56,6 +56,12 @@ public partial record ApiOptions
 
     public int? PrintRow { get; init; }
 
+    public bool Value { get; init; }
+
+    public bool Urls { get; init; }
+
+    public bool Paths { get; init; }
+
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
     /// When false, commands are free to apply their own default format (e.g., shape/tree).
@@ -108,7 +114,7 @@ public partial record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public virtual bool IsRawOutput => Bare || Print || PrintAll || JsonOutput || OneLine || Jsonl || NoHeader || Count;
+    public virtual bool IsRawOutput => Bare || Print || PrintAll || Value || Urls || Paths || JsonOutput || OneLine || Jsonl || NoHeader || Count;
 }
 
 /// <summary>

@@ -158,7 +158,7 @@ dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
 
 ## Output and querying
 
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--print-all` to materialize every printable row with separators, `--rows -n N` to cap rendered table rows, `--count` to reduce a selected section/vector to a single row count, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--print-all` to materialize every printable row with separators, `--rows -n N` to cap rendered table rows, `--count` to reduce a selected section/vector to a single row count, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
 Sections and fields are queryable without a template language:
 
@@ -176,8 +176,11 @@ dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Logging
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
+dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect project ./src/App -S Grounding --jsonl
+dotnet-inspect project ./src/App -S Grounding --paths
 dotnet-inspect project ./src/App -S Grounding --print --row 1
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 

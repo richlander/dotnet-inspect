@@ -39,6 +39,9 @@ public class SharedOptions
     public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N to choose a row when multiple rows are printable" };
     public Option<bool> PrintAll { get; } = new("--print-all") { Description = "Print all documents behind rows in the selected printable section, separated by item headers" };
     public Option<int?> Row { get; } = new("--row") { Description = "With --print, select the Nth printable row" };
+    public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N when multiple rows exist" };
+    public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
+    public Option<bool> Paths { get; } = new("--paths") { Description = "Project path-bearing selected section rows to a path list or JSONL rows" };
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
@@ -198,6 +201,15 @@ public class SharedOptions
         command.Options.Add(Print);
         command.Options.Add(PrintAll);
         command.Options.Add(Row);
+    }
+
+    public void AddShapeProjectionOptionsTo(Command command)
+    {
+        command.Options.Add(Value);
+        command.Options.Add(Urls);
+        command.Options.Add(Paths);
+        if (!command.Options.Contains(Row))
+            command.Options.Add(Row);
     }
 
     public int? ParseRows(ParseResult parseResult)

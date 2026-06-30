@@ -16,6 +16,12 @@ public record ProjectOptions
 
     public int? PrintRow { get; init; }
 
+    public bool Value { get; init; }
+
+    public bool Urls { get; init; }
+
+    public bool Paths { get; init; }
+
     public string? Tfm { get; init; }
 
     public PackageFileContentScope ContentScope { get; init; } = PackageFileContentScope.Full;

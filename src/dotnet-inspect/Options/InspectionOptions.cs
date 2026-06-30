@@ -112,6 +112,12 @@ public record InspectionOptions
 
     public int? PrintRow { get; init; }
 
+    public bool Value { get; init; }
+
+    public bool Urls { get; init; }
+
+    public bool Paths { get; init; }
+
     /// <summary>
     /// Print the contents of files selected by <see cref="PathFilters"/>.
     /// </summary>
@@ -253,7 +259,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || PrintAll || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || PrintAll || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

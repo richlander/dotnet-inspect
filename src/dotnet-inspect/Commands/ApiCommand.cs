@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Net;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -46,6 +47,7 @@ public class ApiCommand
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintAll = options.PrintAll, PrintRow = options.PrintRow,
+            Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
@@ -103,6 +105,30 @@ public class ApiCommand
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return (null!, 1);
 
+        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+        if (shapeCount > 1)
+        {
+            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+            return (null!, 1);
+        }
+
+        if (shapeCount == 1)
+        {
+            var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
+            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+                return (null!, 1);
+            if (options.Count || options.Print || options.PrintAll)
+            {
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                return (null!, 1);
+            }
+            if (options.Rows is not null)
+            {
+                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N to select a projected row.");
+                return (null!, 1);
+            }
+        }
+
         if ((options.Print || options.PrintAll) && !ValidateApiPrintSelection(options.IncludeSections))
             return (null!, 1);
 
@@ -112,9 +138,9 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.PrintRow is not null && !options.Print)
+        if (options.PrintRow is not null && !options.Print && shapeCount == 0)
         {
-            Console.Error.WriteLine("Error: --row requires --print.");
+            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
             return (null!, 1);
         }
 
@@ -749,6 +775,9 @@ public class ApiCommand
         if (options.Print || options.PrintAll)
             return await PrintApiProjectionAsync(view, options);
 
+        if (options.Value || options.Urls || options.Paths)
+            return WriteApiShapeProjection(view, options);
+
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
@@ -881,6 +910,106 @@ public class ApiCommand
                 options.Jsonl,
                 options.Bare,
                 OutputPath: null));
+    }
+
+    private static int WriteApiShapeProjection(TypeView view, ApiOptions options)
+    {
+        var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
+        var section = options.IncludeSections!.Single();
+        var rows = section switch
+        {
+            SectionNames.SourceFiles => ProjectTypeSourceFiles(view, section, kind),
+            SectionNames.SourceLocations => ProjectSourceLocations(view, section, kind, options),
+            _ => []
+        };
+
+        if (rows.Count == 0
+            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations))
+        {
+            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            return 1;
+        }
+
+        return ShapeProjectionOutput.Write(
+            rows,
+            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl));
+    }
+
+    private static List<ShapeProjectionRow> ProjectTypeSourceFiles(TypeView view, string section, ShapeProjectionKind kind)
+    {
+        return (view.SourceFileRows ?? [])
+            .Select((row, index) => row.Url)
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Select((url, index) =>
+            {
+                var value = url!;
+                return kind switch
+                {
+                    ShapeProjectionKind.Urls or ShapeProjectionKind.Value =>
+                        new ShapeProjectionRow(index + 1, section, value, Url: value),
+                    _ => null
+                };
+            })
+            .Where(row => row is not null)
+            .Cast<ShapeProjectionRow>()
+            .ToList();
+    }
+
+    private static List<ShapeProjectionRow> ProjectSourceLocations(TypeView view, string section, ShapeProjectionKind kind, ApiOptions options)
+    {
+        List<ShapeProjectionRow> rows = [];
+        var sourceRows = view.SourceLocationRows ?? [];
+        for (var i = 0; i < sourceRows.Count; i++)
+        {
+            var row = sourceRows[i];
+            string? value = kind switch
+            {
+                ShapeProjectionKind.Urls => row.Url,
+                ShapeProjectionKind.Paths => Uncode(row.File),
+                ShapeProjectionKind.Value => SelectSourceLocationValue(row, options),
+                _ => null
+            };
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+            rows.Add(new ShapeProjectionRow(
+                i + 1,
+                section,
+                value,
+                Label: Uncode(row.Selector),
+                Url: kind == ShapeProjectionKind.Urls ? value : row.Url,
+                Path: kind == ShapeProjectionKind.Paths ? value : Uncode(row.File)));
+        }
+
+        return rows;
+    }
+
+    private static string? SelectSourceLocationValue(MemberSourceLocationRow row, ApiOptions options)
+    {
+        var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
+        return column?.ToLowerInvariant() switch
+        {
+            "selector" => Uncode(row.Selector),
+            "signature" => Uncode(row.Signature),
+            "file" or "path" => Uncode(row.File),
+            "line" => row.Line?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "end line" or "end_line" => row.EndLine?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "url" => row.Url,
+            _ => row.Url
+        };
+    }
+
+    private static string? Uncode(string? value)
+    {
+        if (value is null)
+            return null;
+        if (value is { Length: > 1 } && value[0] == '`' && value[^1] == '`')
+            return WebUtility.HtmlDecode(value[1..^1]);
+        const string open = "<code>";
+        const string close = "</code>";
+        return value.StartsWith(open, StringComparison.OrdinalIgnoreCase)
+            && value.EndsWith(close, StringComparison.OrdinalIgnoreCase)
+                ? WebUtility.HtmlDecode(value[open.Length..^close.Length])
+                : WebUtility.HtmlDecode(value);
     }
 
     private static List<PrintableDocument> CodeSectionDocument(string section, string label, string? url, string? content)

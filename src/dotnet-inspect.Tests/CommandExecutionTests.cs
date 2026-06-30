@@ -1772,6 +1772,55 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SourceFiles_Urls_EmitsUrlColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--urls", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.All(lines, line => Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line));
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_Value_RowSelectsUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--value", "--row", "2", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", output.Trim(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Library_SourceFiles_Urls_RowSelectsUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Source Files", "--urls", "--row", "2", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("https://raw.githubusercontent.com/dotnet/dotnet/", output.Trim());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_UrlsRejectsRowsMode()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--urls", "--rows", "-n", "1", "--raw", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--rows cannot be combined with --urls", error);
+    }
+
+    [Fact]
     public async Task Type_SourceFiles_PrintRequiresRowWhenMultipleUrls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1855,6 +1904,48 @@ public class CommandExecutionTests
         Assert.Contains("`SerializeObject:1`", output);
         Assert.Contains("JsonConvert.cs", output);
         Assert.Contains("raw.githubusercontent.com/JamesNK/Newtonsoft.Json", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_UrlsJsonl_RowSelectsUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--row", "2", "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal(2, document.RootElement.GetProperty("row").GetInt32());
+        Assert.Contains("JsonConvert.cs", document.RootElement.GetProperty("url").GetString());
+        Assert.Equal("SerializeObject:2", document.RootElement.GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_Paths_EmitsSourcePaths()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--paths", "--row", "1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("/_/Src/Newtonsoft.Json/JsonConvert.cs", output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_Value_DecodesCodeMarkup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", "-S", "Source Locations", "--fields", "Signature", "--value", "--row", "1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Serialize<TValue>", output);
+        Assert.DoesNotContain("&lt;", output);
+        Assert.DoesNotContain("<code>", output);
     }
 
     [Fact]
@@ -6213,6 +6304,25 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_Value_PrintsPackageInfoField()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Value.PackageInfo", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package Info", "--fields", "Version", "--value");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("1.0.0", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_PrintRequiresSingleSelectedSection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Print.Requires.Select", "README.md", "readme", "agents");
@@ -7017,6 +7127,49 @@ public class CommandExecutionTests
             using var readmeDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Grounding.Readme")));
             Assert.Equal("readme", readmeDocument.RootElement.GetProperty("kind").GetString());
             Assert.Equal("README.md", readmeDocument.RootElement.GetProperty("path").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingPaths_EmitsPrintablePaths()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Paths.One", "1.0.0", "README.md", "one"),
+            new ProjectDocPackage("Test.Project.Paths.Two", "1.0.0", "PACKAGE.md", "two"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--paths");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(["README.md", "PACKAGE.md"], output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingValue_UsesSelectedField()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Value.One", "1.2.3", "README.md", "one"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--fields", "Version", "--value");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("1.2.3", output.Trim());
         }
         finally
         {

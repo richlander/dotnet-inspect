@@ -183,6 +183,14 @@ public record LibraryOptions
     /// </summary>
     public bool Count { get; init; }
 
+    public bool Value { get; init; }
+
+    public bool Urls { get; init; }
+
+    public bool Paths { get; init; }
+
+    public int? ProjectionRow { get; init; }
+
     /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
@@ -228,5 +236,5 @@ public record LibraryOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ExtractResources != null || Count || ILOffset != null;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ExtractResources != null || Count || Value || Urls || Paths || ILOffset != null;
 }

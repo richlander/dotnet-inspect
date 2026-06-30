@@ -206,8 +206,10 @@ or body:
 
 ```bash
 dotnet-inspect package Markout -S "Grounding"
+dotnet-inspect package Markout -S "Package Info" --fields Version --value
 dotnet-inspect package Markout -S "Grounding" --print
 dotnet-inspect project ./src/App -S "Grounding"
+dotnet-inspect project ./src/App -S "Grounding" --paths
 dotnet-inspect project ./src/App -S "Grounding" --print --row 1
 dotnet-inspect project ./src/App -S "Grounding" --print-all --jsonl
 dotnet-inspect package Markout -S "Markdown Files"
