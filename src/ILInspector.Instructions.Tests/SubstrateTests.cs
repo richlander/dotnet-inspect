@@ -162,4 +162,20 @@ public class StackTypeInterpreterTests
         Assert.False(mi.Blocks.IsComplete);
         Assert.NotNull(mi.Blocks.IncompleteReason);
     }
+
+    [Theory]
+    [InlineData(new byte[] { 0x38 })]              // br <int32> with no destination (ILReader path)
+    [InlineData(new byte[] { 0x2B })]              // br.s <int8> with no destination (ILReader path)
+    [InlineData(new byte[] { 0xFE })]              // dangling two-byte opcode prefix (ILReader path)
+    [InlineData(new byte[] { 0x45, 0x01 })]        // switch with a truncated count (ILReader path)
+    [InlineData(new byte[] { 0x28, 0x01, 0x00 })]  // call <token> with a truncated operand (operand path)
+    public void Decode_throws_BadImageFormat_on_truncated_il(byte[] il)
+    {
+        // The substrate exposes a single malformed-IL exception: BadImageFormatException. The
+        // runtime-ported ILReader uses InvalidProgramException internally for truncated
+        // opcode/branch/switch reads, so InstructionDecoder.Decode must normalize it at the
+        // boundary — otherwise consumers (ReachingDefinitions, LibraryBodyIndex) leak the wrong
+        // exception type past their recovery gate.
+        Assert.Throws<BadImageFormatException>(() => InstructionDecoder.Decode(il));
+    }
 }
