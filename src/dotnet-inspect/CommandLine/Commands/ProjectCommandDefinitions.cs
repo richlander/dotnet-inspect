@@ -74,6 +74,8 @@ public static class ProjectCommandDefinitions
                 AgentsIndex = parseResult.GetValue(agentsIndexOption),
                 ReadmePackageId = parseResult.GetValue(readmeOption),
                 Print = parseResult.GetValue(opts.Print),
+                PrintAll = parseResult.GetValue(opts.PrintAll),
+                PrintRow = opts.ParsePrintRow(parseResult),
                 Tfm = parseResult.GetValue(tfmOption),
                 ContentScope = contentScope,
                 FrontmatterRequested = frontmatterRequested,
@@ -92,6 +94,7 @@ public static class ProjectCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
+                Rows = opts.ParseRows(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };

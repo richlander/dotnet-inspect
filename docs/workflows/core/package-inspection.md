@@ -193,7 +193,7 @@ wc -l | tr -d ' '
 > Goal: Read the best grounding document from inside the nupkg.
 
 ```bash
-dotnet-inspect package System.CommandLine -S Grounding --print -n 10
+dotnet-inspect package System.CommandLine -S Grounding --print
 ```
 
 ```expect
@@ -208,7 +208,8 @@ or body:
 dotnet-inspect package Markout -S "Grounding"
 dotnet-inspect package Markout -S "Grounding" --print
 dotnet-inspect project ./src/App -S "Grounding"
-dotnet-inspect project ./src/App -S "Grounding" --print
+dotnet-inspect project ./src/App -S "Grounding" --print --row 1
+dotnet-inspect project ./src/App -S "Grounding" --print-all --jsonl
 dotnet-inspect package Markout -S "Markdown Files"
 dotnet-inspect package Markout --path @agents --content --frontmatter
 dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl

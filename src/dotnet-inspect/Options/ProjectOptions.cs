@@ -12,6 +12,10 @@ public record ProjectOptions
 
     public bool Print { get; init; }
 
+    public bool PrintAll { get; init; }
+
+    public int? PrintRow { get; init; }
+
     public string? Tfm { get; init; }
 
     public PackageFileContentScope ContentScope { get; init; } = PackageFileContentScope.Full;
@@ -47,6 +51,8 @@ public record ProjectOptions
     public string[]? Fields { get; init; }
 
     public bool Count { get; init; }
+
+    public int? Rows { get; init; }
 
     public bool Verbose { get; init; }
 

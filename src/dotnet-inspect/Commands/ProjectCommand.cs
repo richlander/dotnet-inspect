@@ -57,7 +57,7 @@ public class ProjectCommand
         if (options.Count && !CountOutput.ValidateSingleSection(selectResult.Sections))
             return 1;
 
-        if (options.Print && !ValidateProjectPrintSelection(selectResult.Sections))
+        if ((options.Print || options.PrintAll) && !ValidateProjectPrintSelection(selectResult.Sections))
             return 1;
 
         if ((options.Columns is { Length: > 0 } || options.Fields is { Length: > 0 })
@@ -132,20 +132,39 @@ public class ProjectCommand
             return false;
         }
 
-        if (options.Print && options.ReadmePackageId != null)
+        if ((options.Print || options.PrintAll) && options.ReadmePackageId != null)
         {
-            Console.Error.WriteLine("Error: --print cannot be combined with --readme.");
+            Console.Error.WriteLine("Error: --print/--print-all cannot be combined with --readme.");
             return false;
         }
 
-        if (options.Print && options.AgentsIndex)
+        if ((options.Print || options.PrintAll) && options.AgentsIndex)
         {
-            Console.Error.WriteLine("Error: --print cannot be combined with --agents-index.");
+            Console.Error.WriteLine("Error: --print/--print-all cannot be combined with --agents-index.");
+            return false;
+        }
+
+        if (options.Print && options.PrintAll)
+        {
+            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
+            return false;
+        }
+
+        if (options.PrintRow is not null && !options.Print)
+        {
+            Console.Error.WriteLine("Error: --row requires --print.");
+            return false;
+        }
+
+        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        {
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N to choose a printed row.");
             return false;
         }
 
         if ((options.FrontmatterRequested || options.BodyRequested)
             && !options.Print
+            && !options.PrintAll
             && options.ReadmePackageId == null
             && !options.AgentsIndex)
         {
@@ -275,7 +294,7 @@ public class ProjectCommand
             .Select(CreateGroundingRow)
             .ToList();
 
-        if (options.Print || options.Bare)
+        if (options.Print || options.PrintAll || options.Bare)
             return PrintFirstGroundingDocument(rows, options);
 
         var output = options.Count
@@ -410,29 +429,37 @@ public class ProjectCommand
 
     private static int PrintFirstGroundingDocument(IReadOnlyList<ProjectGroundingRow> rows, ProjectOptions options)
     {
-        var first = rows.FirstOrDefault(row => row.FullPath != null && File.Exists(row.FullPath));
-        if (first?.FullPath == null || !File.Exists(first.FullPath))
-        {
-            Console.Error.WriteLine("Error: No Grounding row references a printable file.");
-            return 1;
-        }
+        var documents = rows
+            .Select((row, index) => CreatePrintableGroundingDocument(row, index + 1, options))
+            .Where(document => document is not null)
+            .Cast<PrintableDocument>()
+            .ToList();
+
+        return PrintProjectionOutput.Write(
+            documents,
+            new PrintProjectionOptions(
+                options.PrintAll,
+                options.Bare && !options.Print && !options.PrintAll ? 1 : options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.Bare,
+                options.OutputPath));
+    }
+
+    private static PrintableDocument? CreatePrintableGroundingDocument(ProjectGroundingRow row, int rowNumber, ProjectOptions options)
+    {
+        if (row.FullPath == null || !File.Exists(row.FullPath))
+            return null;
 
         var content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
-            MarkdownContent.ApplyScope(File.ReadAllText(first.FullPath), options.ContentScope));
-        InfoTracker.SetDetail("readme", $"{first.Path} ({first.Size.ToString(CultureInfo.InvariantCulture)} B)");
-
-        if (options.JsonOutput || options.Jsonl)
-        {
-            var document = new ProjectPackageDocument(first.Package, first.Version, first.Path, first.Size, content);
-            var json = options.Jsonl
-                ? JsonSerializer.Serialize(document, ProjectCommandCompactJsonContext.Default.ProjectPackageDocument)
-                : JsonSerializer.Serialize(document, ProjectCommandJsonContext.Default.ProjectPackageDocument);
-            WriteOutput(options.Jsonl ? json + Environment.NewLine : json, options.OutputPath);
-            return 0;
-        }
-
-        WriteOutput(content, options.OutputPath);
-        return 0;
+            MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope));
+        return new PrintableDocument(
+            rowNumber,
+            PackageSections.PackageReadme,
+            $"{row.Package} {row.Path}",
+            row.Path,
+            null,
+            content);
     }
 
     private static bool ValidateProjectProjectionOptions()

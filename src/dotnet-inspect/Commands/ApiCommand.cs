@@ -45,6 +45,7 @@ public class ApiCommand
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
+            Print = options.Print, PrintAll = options.PrintAll, PrintRow = options.PrintRow,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
@@ -102,6 +103,27 @@ public class ApiCommand
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return (null!, 1);
 
+        if ((options.Print || options.PrintAll) && !ValidateApiPrintSelection(options.IncludeSections))
+            return (null!, 1);
+
+        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        {
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N to choose a printed row.");
+            return (null!, 1);
+        }
+
+        if (options.PrintRow is not null && !options.Print)
+        {
+            Console.Error.WriteLine("Error: --row requires --print.");
+            return (null!, 1);
+        }
+
+        if (options.Print && options.PrintAll)
+        {
+            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
+            return (null!, 1);
+        }
+
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
             return (null!, 1);
 
@@ -120,6 +142,15 @@ public class ApiCommand
             OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static bool ValidateApiPrintSelection(HashSet<string>? includeSections)
+    {
+        if (includeSections is { Count: 1 })
+            return true;
+
+        Console.Error.WriteLine("Error: --print/--print-all requires -S/--select to match exactly one printable section.");
+        return false;
     }
 
     internal static void ApplySurfaceFilters(ApiSurface api, ApiOptions options, string? typeFilter = null)
@@ -563,7 +594,7 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
-    internal static int WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
+    internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
 
@@ -715,6 +746,9 @@ public class ApiCommand
             }
         }
 
+        if (options.Print || options.PrintAll)
+            return await PrintApiProjectionAsync(view, options);
+
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
@@ -800,6 +834,118 @@ public class ApiCommand
             }
         }
         return 0;
+    }
+
+    private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)
+    {
+        var section = options.IncludeSections!.Single();
+        if (section.Equals(SectionNames.SourceFiles, StringComparison.OrdinalIgnoreCase))
+        {
+            return await PrintUrlProjectionAsync(
+                section,
+                view.SourceFileRows?.Select((row, index) => (Row: index + 1, Label: (string?)row.Url, Url: (string?)row.Url)),
+                options);
+        }
+
+        if (section.Equals(SectionNames.SourceLocations, StringComparison.OrdinalIgnoreCase))
+        {
+            return await PrintUrlProjectionAsync(
+                section,
+                view.SourceLocationRows?.Select((row, index) => (Row: index + 1, Label: (string?)row.File ?? row.Url, Url: row.Url)),
+                options);
+        }
+
+        var documents = section switch
+        {
+            SectionNames.OriginalSource => CodeSectionDocument(section, "Original Source", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.OriginalSourceCode.Content),
+            SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
+            SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
+            SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
+            _ => []
+        };
+
+        if (documents.Count == 0
+            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.OriginalSource
+                or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.IL))
+        {
+            Console.Error.WriteLine($"Error: section '{section}' is not printable.");
+            return 1;
+        }
+
+        return PrintProjectionOutput.Write(
+            documents,
+            new PrintProjectionOptions(
+                options.PrintAll,
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.Bare,
+                OutputPath: null));
+    }
+
+    private static List<PrintableDocument> CodeSectionDocument(string section, string label, string? url, string? content)
+        => string.IsNullOrEmpty(content)
+            ? []
+            : [new PrintableDocument(1, section, label, null, url, content)];
+
+    private static async Task<int> PrintUrlProjectionAsync(
+        string section,
+        IEnumerable<(int Row, string? Label, string? Url)>? rows,
+        ApiOptions options)
+    {
+        var printableRows = (rows ?? [])
+            .Where(row => !string.IsNullOrWhiteSpace(row.Url))
+            .ToList();
+        if (printableRows.Count == 0)
+            return PrintProjectionOutput.Write(
+                [],
+                new PrintProjectionOptions(options.PrintAll, null, options.JsonOutput, options.Jsonl, options.Bare, OutputPath: null));
+
+        if (!options.PrintAll)
+        {
+            if (options.PrintRow is null && printableRows.Count != 1)
+            {
+                Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N to choose one row or --print-all.");
+                return 1;
+            }
+
+            var targetIndex = options.PrintRow ?? 1;
+            if (targetIndex < 1 || targetIndex > printableRows.Count)
+            {
+                Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}.");
+                return 1;
+            }
+
+            printableRows = [printableRows[targetIndex - 1]];
+        }
+
+        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        List<PrintableDocument> documents = [];
+        foreach (var row in printableRows)
+        {
+            var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(row.Url!);
+            var content = await fetcher.FetchSourceAsync(rawUrl);
+            if (content == null)
+                continue;
+
+            documents.Add(new PrintableDocument(
+                row.Row,
+                section,
+                string.IsNullOrWhiteSpace(row.Label) ? rawUrl : row.Label!,
+                null,
+                rawUrl,
+                content));
+        }
+
+        return PrintProjectionOutput.Write(
+            documents,
+            new PrintProjectionOptions(
+                options.PrintAll,
+                Row: null,
+                options.JsonOutput,
+                options.Jsonl,
+                options.Bare,
+                OutputPath: null));
     }
 
     private static bool TryGetBareApiPayload(TypeView view, ApiOptions options, out string raw, out string error)

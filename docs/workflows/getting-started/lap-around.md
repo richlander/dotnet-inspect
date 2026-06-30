@@ -209,6 +209,8 @@ SourceLink URLs are exposed on the command you are already using.
 
 ```bash
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --table
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all --jsonl
 ```
 
 ```expect
@@ -219,6 +221,7 @@ Fetch selected member source text when source content is the desired artifact:
 
 ```bash
 dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source" --bare -n 20
+dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
 ```
 
 ```expect

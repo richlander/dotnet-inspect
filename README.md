@@ -158,7 +158,7 @@ dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
 
 ## Output and querying
 
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--rows -n N` to cap rendered table rows, `--count` to reduce a selected section/vector to a single row count, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--print-all` to materialize every printable row with separators, `--rows -n N` to cap rendered table rows, `--count` to reduce a selected section/vector to a single row count, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
 Sections and fields are queryable without a template language:
 
@@ -177,7 +177,8 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect project ./src/App -S Grounding --jsonl
-dotnet-inspect project ./src/App -S Grounding --print
+dotnet-inspect project ./src/App -S Grounding --print --row 1
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
 For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders `@Default`, a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
@@ -194,7 +195,8 @@ dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect project ./src/App -S Grounding
-dotnet-inspect project ./src/App -S Grounding --print
+dotnet-inspect project ./src/App -S Grounding --print --row 1
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all
 dotnet-inspect type string --shape
 dotnet-inspect type --package System.Text.Json --table
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize

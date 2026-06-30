@@ -1772,6 +1772,53 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SourceFiles_PrintRequiresRowWhenMultipleUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--raw", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected section has 2 printable rows; use --row N to choose one row or --print-all", error);
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRowFetchesSelectedSource()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--row", "2", "--jsonl", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal(2, document.RootElement.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("url").GetString());
+        Assert.Contains("ReadAsInt32Async", document.RootElement.GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintAllJsonlFetchesAllSources()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print-all", "--jsonl", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        using var first = JsonDocument.Parse(lines[0]);
+        using var second = JsonDocument.Parse(lines[1]);
+        Assert.Equal(1, first.RootElement.GetProperty("row").GetInt32());
+        Assert.Equal(2, second.RootElement.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", first.RootElement.GetProperty("url").GetString());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", second.RootElement.GetProperty("url").GetString());
+    }
+
+    [Fact]
     public async Task Type_CountAndBare_ComposesForTableSection()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1808,6 +1855,22 @@ public class CommandExecutionTests
         Assert.Contains("`SerializeObject:1`", output);
         Assert.Contains("JsonConvert.cs", output);
         Assert.Contains("raw.githubusercontent.com/JamesNK/Newtonsoft.Json", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_PrintRowFetchesSourceFile()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal(1, document.RootElement.GetProperty("row").GetInt32());
+        Assert.Contains("JsonConvert.cs", document.RootElement.GetProperty("url").GetString());
+        Assert.Contains("SerializeObject", document.RootElement.GetProperty("content").GetString());
     }
 
     [Fact]
@@ -6141,7 +6204,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("agents", output);
         }
         finally
         {
@@ -7037,6 +7100,98 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_GroundingPrint_RequiresRowWhenMultipleGroundingDocuments()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "one"),
+            new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "two"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--print");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("selected section has 2 printable rows; use --row N to choose one row or --print-all", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingPrint_RowSelectionPrintsSelectedDocument()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "one"),
+            new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "two"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--print", "--row", "2");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("two", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingPrint_RowSelectionCountsPrintableRowsOnly()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("A.Project.NoGrounding", "1.0.0", "README.md", "", OmitReadme: true),
+            new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "first"),
+            new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "second"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--print", "--row", "1");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("first", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingPrintAll_UsesSeparators()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.PrintAll.One", "1.0.0", "README.md", "one"),
+            new ProjectDocPackage("Test.Project.PrintAll.Two", "1.0.0", "README.md", "two"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--print-all");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("--- Test.Project.PrintAll.One README.md ---", output);
+            Assert.Contains("--- Test.Project.PrintAll.Two README.md ---", output);
+            Assert.Contains("one", output);
+            Assert.Contains("two", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_GroundingBare_PrintsFirstGroundingDocument()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -7050,6 +7205,29 @@ public class CommandExecutionTests
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
             Assert.Equal("selected", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingBare_MultipleDocuments_PrintsFirstPrintableDocument()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("A.Project.NoGrounding", "1.0.0", "README.md", "", OmitReadme: true),
+            new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "first"),
+            new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "second"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("first", output.Trim());
         }
         finally
         {
