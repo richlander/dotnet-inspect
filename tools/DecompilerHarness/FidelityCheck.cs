@@ -3486,14 +3486,14 @@ static class FidelityCheck
         string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
         if (Directory.Exists(exactDirectory))
             return exactDirectory;
-        if (!Version.TryParse(runtimeVersion, out var runtime))
+        if (!Version.TryParse(VersionCore(runtimeVersion), out var runtime))
             return null;
 
         return Directory.EnumerateDirectories(frameworkRoot)
             .Select(directory => new
             {
                 Directory = directory,
-                Version = Version.TryParse(Path.GetFileName(directory), out var version) ? version : null,
+                Version = Version.TryParse(VersionCore(Path.GetFileName(directory)), out var version) ? version : null,
             })
             .Where(candidate => candidate.Version is not null
                 && candidate.Version.Major == runtime.Major
@@ -3502,6 +3502,8 @@ static class FidelityCheck
             .Select(candidate => candidate.Directory)
             .FirstOrDefault();
     }
+
+    static string VersionCore(string version) => version.Split('-', 2)[0];
 
     internal static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
         => PackageDependencyReferencePaths(targetPath, packageRoots: null);

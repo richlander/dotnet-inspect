@@ -640,16 +640,19 @@ public class FidelityCheckGeneratedFilterTests
             string exact = Path.Combine(root, "11.0.1");
             string sameBandLower = Path.Combine(root, "11.0.0");
             string sameBandHigher = Path.Combine(root, "11.0.3");
+            string preview = Path.Combine(root, "12.0.0-preview.6.1");
             string otherBand = Path.Combine(root, "11.1.9");
             Directory.CreateDirectory(exact);
             Directory.CreateDirectory(sameBandLower);
             Directory.CreateDirectory(sameBandHigher);
+            Directory.CreateDirectory(preview);
             Directory.CreateDirectory(otherBand);
 
             Assert.Equal(exact, FidelityCheck.SelectSharedFrameworkDirectory(root, "11.0.1"));
 
             Directory.Delete(exact);
             Assert.Equal(sameBandHigher, FidelityCheck.SelectSharedFrameworkDirectory(root, "11.0.2"));
+            Assert.Equal(preview, FidelityCheck.SelectSharedFrameworkDirectory(root, "12.0.0-preview.6.2"));
         }
         finally
         {
