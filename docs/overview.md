@@ -8,12 +8,13 @@ It is built for both humans and agents. Markdown is the default output because h
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details.
-- `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites without decompiling to C#.
+- `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation occurrences, method signals, and whole-assembly leverage without decompiling to C#.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
 - `src/DotnetInspector.Services/` contains shared services such as platform/package resolution, dependency resolution, signatures, source fetching, and nuspec parsing.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and annotated IL from method bodies.
+- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and renders the annotated source/IL/Facts views used by `member`.
 
 ## Agent contract
 
@@ -25,6 +26,7 @@ Agents working in this repo should preserve these principles:
 4. Preserve the progressive-disclosure model: verbosity for curated defaults, `-D`/`-S` for query and backpressure, opt-in sections for expensive work, and `-S @All` only for intentional exhaustive output.
 5. Use built-in query/limiter concepts (`-D`, `-S`, `--columns`, `--fields`, `--count`, `--rows`) instead of shell-pipe workarounds when possible.
 6. Treat cache schema changes as versioned categories and invalidate/clean stale metadata caches deliberately.
+7. Preserve the R1/R2 boundary for method-body evidence: Analysis and ControlFlow stay SRM-only and decompiler-IR-free, while Research is the bridge that projects registered producers into user-visible annotation views.
 
 ## Important systems
 
@@ -35,6 +37,7 @@ Agents working in this repo should preserve these principles:
 - [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S @All`, and limiter behavior.
 - [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
 - [Section model](design/section-model.md): section selection and query behavior.
+- [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.
 - [Member Index](design/member-index.md): overload selector and digest contract.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
