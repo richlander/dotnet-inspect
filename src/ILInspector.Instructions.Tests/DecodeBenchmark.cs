@@ -32,13 +32,13 @@ public class DecodeBenchmark
         foreach (var b in bodies)
         {
             _ = MethodInstructions.Decode(b.Il, b.Il.Length, b.Regions);
-            _ = ReachingDefinitions.BlockStartsForParity(b.Il, b.Regions);
+            _ = ReachingDefinitions.BlocksForParity(b.Il, b.Regions);
             _ = InstructionDecoder.Decode(b.Il);
         }
 
         const int iters = 5;
         double sub = Time(iters, bodies, b => MethodInstructions.Decode(b.Il, b.Il.Length, b.Regions));
-        double rd = Time(iters, bodies, b => ReachingDefinitions.BlockStartsForParity(b.Il, b.Regions));
+        double rd = Time(iters, bodies, b => ReachingDefinitions.BlocksForParity(b.Il, b.Regions));
         double dec = Time(iters, bodies, b => InstructionDecoder.Decode(b.Il));
         double typed = Time(iters, bodies, b => MethodInstructions.Decode(b.Body).InterpretStack(reader, b.Handle, b.Body));
 
