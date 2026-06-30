@@ -29,6 +29,17 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 continue;
             }
 
+            if (TryMatchClassUnionBoolTypeTestBlocks(function, container, out var classBoolExpression))
+            {
+                int startOffset = container.Blocks[0].StartOffset;
+                container.DetachChildren();
+                var replacementBlock = new Block(startOffset);
+                replacementBlock.Add(new Return(classBoolExpression));
+                container.Add(replacementBlock);
+                context.Stepper.StepOver("raise class union type-test bool dispatch", container);
+                continue;
+            }
+
             if (container.Blocks is [var block] && TryMatch(function, block, out var match))
             {
                 block.SetChild(match.StartIndex, new Return(match.SwitchExpression));
@@ -92,6 +103,44 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchClassUnionBoolTypeTestBlocks(IrFunction function, BlockContainer container, out IrExpression expression)
+    {
+        expression = null!;
+        var blocks = container.Blocks;
+        if (blocks.Count != 5
+            || blocks[0].Children is not [ConditionalBranch nullBranch]
+            || nullBranch.Condition is not LogicalNot { Operand: var receiver }
+            || blocks[1].Children is not [StoreLocal { Value: LoadProperty unionValue } valueStore, ConditionalBranch testBranch]
+            || !IsUnionValueProperty(function, unionValue)
+            || !PlaceIdentity.SameVariable(unionValue.Instance, receiver)
+            || testBranch.Condition is not LogicalNot { Operand: var directCondition }
+            || !TryRewriteTempTypeTestCondition(directCondition, valueStore.Index, unionValue, out var rewrittenCondition)
+            || blocks[2].Children is not [StoreLocal trueStore, Branch joinBranch]
+            || blocks[3].Children is not [StoreLocal falseStore]
+            || blocks[4].Children is not [Return ret]
+            || nullBranch.TargetOffset != blocks[3].StartOffset
+            || testBranch.TargetOffset != blocks[3].StartOffset
+            || joinBranch.TargetOffset != blocks[4].StartOffset
+            || !StoreReturnMatch(trueStore, ret, trueStore.Index)
+            || falseStore.Index != trueStore.Index
+            || !TryBoolConstants(trueStore.Value, falseStore.Value, out bool conditionIsTrueArm))
+        {
+            return false;
+        }
+
+        if (!conditionIsTrueArm)
+            rewrittenCondition = Conditions.Negate(rewrittenCondition);
+
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, testBranch.Condition])
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, trueStore.Index, [trueStore, falseStore, ret.Value!]))
+        {
+            return false;
+        }
+
+        expression = rewrittenCondition;
+        return true;
     }
 
     static bool TryMatchUnionBoolTypeTest(IrFunction function, Block block, out BoolMatch match)
