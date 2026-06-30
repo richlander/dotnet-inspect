@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using ILInspector.Metadata;
@@ -61,6 +62,8 @@ public static class TypeSourceComposer
             // referenced assembly once across many composed types.
             using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath, locator: locateAssembly, context: context);
 
+            var union = TryUnionDeclaration(reader, typeHandle, type);
+
             var sb = new StringBuilder();
             if (!string.IsNullOrEmpty(type.Namespace))
             {
@@ -75,13 +78,17 @@ public static class TypeSourceComposer
             // join them so the short attribute names resolve.
             var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
 
-            foreach (var attribute in AttributeReader.RenderAttributes(reader, typeHandle, bodyNamespaces))
+            if (union is not null)
+                AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
+
+            foreach (var attribute in AttributeReader.RenderAttributes(reader, reader.GetTypeDefinition(typeHandle).GetCustomAttributes(), bodyNamespaces,
+                         union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
                 sb.AppendLine($"[{attribute}]");
 
-            sb.AppendLine(TypeDeclaration(type));
+            sb.AppendLine(TypeDeclaration(type, union));
             sb.AppendLine("{");
 
-            bool any = false;
+            bool any = union is not null;
             if (type.Kind == "enum")
             {
                 ComposeEnumValues(sb, type, ref any);
@@ -90,7 +97,7 @@ public static class TypeSourceComposer
             {
                 ComposeFields(sb, reader, typeHandle, bodyNamespaces,
                     CollectFieldInitializers(pipelineSource, type.FullName, reader, typeHandle), ref any);
-                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, bodyNamespaces, ref any);
+                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any);
             }
 
             sb.AppendLine("}");
@@ -112,9 +119,30 @@ public static class TypeSourceComposer
         }
     }
 
-    static string TypeDeclaration(ApiType type)
+    sealed record UnionDeclarationInfo(IReadOnlyList<string> CaseTypes, HashSet<int> HiddenMethodTokens);
+
+    static string TypeDeclaration(ApiType type, UnionDeclarationInfo? union = null)
     {
         var sb = new StringBuilder("public ");
+        if (union is not null)
+        {
+            if (type.IsReadOnly) sb.Append("readonly ");
+            sb.Append("union ");
+            sb.Append(DisplayName(type));
+            sb.Append('(');
+            sb.Append(string.Join(", ", union.CaseTypes.Select(caseType =>
+                EscapeKnownIdentifiers(Shorten(caseType), type.TypeParameters.Select(p => p.Name)))));
+            sb.Append(')');
+            var unionBases = type.Interfaces
+                .Where(iface => !IsUnionInterface(iface))
+                .Select(iface => EscapeKnownIdentifiers(iface, type.TypeParameters.Select(p => p.Name)))
+                .ToList();
+            if (unionBases.Count > 0)
+                sb.Append($" : {string.Join(", ", unionBases)}");
+            AppendTypeParameterConstraints(sb, type.TypeParameters);
+            return sb.ToString();
+        }
+
         if (type.Kind == "class")
         {
             if (type.IsStatic) sb.Append("static ");
@@ -278,7 +306,7 @@ public static class TypeSourceComposer
 
     static void ComposeMembers(
         StringBuilder sb, ApiType type, Pipeline.MetadataSource pipelineSource,
-        MetadataReader reader, TypeDefinitionHandle typeHandle,
+        MetadataReader reader, TypeDefinitionHandle typeHandle, UnionDeclarationInfo? union,
         SortedSet<string> bodyNamespaces, ref bool any)
     {
         // Per-name running overload index — the same positional pairing the
@@ -289,6 +317,9 @@ public static class TypeSourceComposer
 
         foreach (var member in type.Members)
         {
+            if (union is not null && IsHiddenUnionMember(member, union))
+                continue;
+
             switch (member.Kind)
             {
                 case "constructor" or "method" or "operator" or "explicit-interface-implementation":
@@ -393,6 +424,116 @@ public static class TypeSourceComposer
                     sb.AppendLine($"    {sig};");
                     break;
                 }
+            }
+
+        }
+    }
+
+    static bool IsHiddenUnionMember(ApiMember member, UnionDeclarationInfo union)
+        => member.MetadataToken is { } token && union.HiddenMethodTokens.Contains(token)
+            || member.Kind == "property" && IsUnionValuePropertyName(member.Name);
+
+    static UnionDeclarationInfo? TryUnionDeclaration(MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type)
+    {
+        if (type.Kind != "struct" || type.IsByRefLike)
+            return null;
+
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        if (!AttributeReader.HasAttribute(reader, typeDef.GetCustomAttributes(), KnownAttributeNames.UnionAttribute))
+            return null;
+
+        if (!type.Interfaces.Any(IsUnionInterface))
+            return null;
+
+        var genericContext = GenericContext.ForType(reader, typeDef);
+        bool hasObjectValueGetter = false;
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            string propertyName = reader.GetString(property.Name);
+            if (!IsUnionValuePropertyName(propertyName))
+                continue;
+
+            if (property.GetAccessors().Getter.IsNil)
+                return null;
+
+            try
+            {
+                var signature = property.DecodeSignature(SignatureDecoder.Instance, genericContext);
+                hasObjectValueGetter = signature.ReturnType is "object" or "System.Object";
+            }
+            catch
+            {
+                return null;
+            }
+            break;
+        }
+        if (!hasObjectValueGetter)
+            return null;
+
+        var caseTypes = new List<string>();
+        var hiddenMethodTokens = new HashSet<int>();
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != ".ctor")
+                continue;
+            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                continue;
+            if ((method.Attributes & MethodAttributes.Static) != 0)
+                continue;
+
+            MethodSignature<string> signature;
+            try
+            {
+                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            }
+            catch
+            {
+                return null;
+            }
+            if (signature.ParameterTypes.Length != 1)
+                continue;
+
+            caseTypes.Add(signature.ParameterTypes[0]);
+            hiddenMethodTokens.Add(MetadataTokens.GetToken(methodHandle));
+        }
+
+        if (caseTypes.Count == 0)
+            return null;
+
+        return new UnionDeclarationInfo(caseTypes, hiddenMethodTokens);
+    }
+
+    static bool IsUnionInterface(string interfaceName)
+        => interfaceName == "System.Runtime.CompilerServices.IUnion";
+
+    static bool IsUnionValuePropertyName(string propertyName)
+        => propertyName == "Value"
+            || propertyName == "System.Runtime.CompilerServices.IUnion.Value"
+            || propertyName == "IUnion.Value";
+
+    static void AddTypeNamespaces(SortedSet<string> namespaces, IEnumerable<string> typeNames)
+    {
+        foreach (var typeName in typeNames)
+        {
+            for (int i = 0; i < typeName.Length;)
+            {
+                if (!char.IsLetter(typeName[i]) && typeName[i] != '_')
+                {
+                    i++;
+                    continue;
+                }
+
+                int start = i++;
+                while (i < typeName.Length
+                    && (char.IsLetterOrDigit(typeName[i]) || typeName[i] is '_' or '.'))
+                    i++;
+
+                string token = typeName[start..i].TrimEnd('.');
+                int lastDot = token.LastIndexOf('.');
+                if (lastDot > 0)
+                    namespaces.Add(token[..lastDot]);
             }
         }
     }
