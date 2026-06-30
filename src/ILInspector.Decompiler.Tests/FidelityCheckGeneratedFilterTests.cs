@@ -43,7 +43,7 @@ public class FidelityCheckGeneratedFilterTests
         }
         finally
         {
-            File.Delete(assemblyPath);
+            DeleteFixture(assemblyPath);
         }
     }
 
@@ -70,7 +70,7 @@ public class FidelityCheckGeneratedFilterTests
         }
         finally
         {
-            File.Delete(assemblyPath);
+            DeleteFixture(assemblyPath);
         }
     }
 
@@ -91,7 +91,7 @@ public class FidelityCheckGeneratedFilterTests
         }
         finally
         {
-            File.Delete(assemblyPath);
+            DeleteFixture(assemblyPath);
         }
     }
 
@@ -121,7 +121,7 @@ public class FidelityCheckGeneratedFilterTests
         }
         finally
         {
-            File.Delete(assemblyPath);
+            DeleteFixture(assemblyPath);
         }
     }
 
@@ -150,17 +150,61 @@ public class FidelityCheckGeneratedFilterTests
                 FidelityCheck.Evaluate(assemblyPath),
                 result => result.Type == "StructWithToStringExtensions" && result.Method == "Humanize");
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact, result.Detail);
         }
         finally
         {
-            File.Delete(assemblyPath);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_RoundTripsExtensionMethodForwarding()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionForwardingFixture;
+
+            public readonly struct TinyDate
+            {
+                public override string ToString() => "tiny";
+            }
+
+            public static class TinyDateExtensions
+            {
+                public static string Humanize(this TinyDate input, int style)
+                    => input.ToString() + style.ToString();
+
+                public static string Humanize(this TinyDate? input, int style)
+                {
+                    if (input.HasValue)
+                    {
+                        return input.Value.Humanize(style);
+                    }
+                    return "never";
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                result => result.Type == "ExtensionForwardingFixture.TinyDateExtensions"
+                          && result.Method == "Humanize"
+                          && result.Signature.Contains("Nullable", StringComparison.Ordinal));
+
+            Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
         }
     }
 
     static string CompileFixture(string source)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}.dll");
+        var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
         var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
             .Select(path => MetadataReference.CreateFromFile(path));
@@ -176,5 +220,13 @@ public class FidelityCheckGeneratedFilterTests
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
+    }
+
+    static void DeleteFixture(string assemblyPath)
+    {
+        var directory = Path.GetDirectoryName(assemblyPath);
+        File.Delete(assemblyPath);
+        if (directory is not null && Path.GetFileName(directory).StartsWith("fidelity-generated-filter-", StringComparison.Ordinal))
+            Directory.Delete(directory, recursive: true);
     }
 }

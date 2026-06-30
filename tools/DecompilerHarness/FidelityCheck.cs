@@ -1881,7 +1881,7 @@ static class FidelityCheck
         // as ref structs; otherwise the whole compile-back unit becomes invalid.
         string keyword = kind == TypeKind.Struct
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
-            : "class";
+            : IsStaticClass(typeDef) ? "static class" : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
         // An [InlineArray(N)] struct must carry the attribute for its span
         // conversions (e.g. `(Span<T>)place`) to bind; the bare reconstructed
@@ -1915,7 +1915,7 @@ static class FidelityCheck
         // a readonly-struct member accessed through a readonly receiver would take a
         // defensive copy against a mutable stub, changing the target's opcodes.
         var stubPropertyAccessors = new HashSet<MethodDefinitionHandle>();
-        if (keyword == "class")
+        if (kind == TypeKind.Class)
             EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
@@ -2351,7 +2351,7 @@ static class FidelityCheck
         catch { return; }
 
         bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
-        string parameters = Parameters(reader, method, sig);
+        string parameters = Parameters(reader, method, sig, IsExtensionMethod(reader, typeDef, method));
         string body = realBody is null ? " throw null;" : "\n" + realBody + "\n" + pad;
 
         if (name is ".ctor")
@@ -2484,7 +2484,7 @@ static class FidelityCheck
         or "int" or "uint" or "long" or "ulong" or "float" or "double"
         or "decimal" or "string" or "object" or "nint" or "nuint";
 
-    static string Parameters(MetadataReader reader, MethodDefinition method, MethodSignature<string> sig)
+    static string Parameters(MetadataReader reader, MethodDefinition method, MethodSignature<string> sig, bool firstIsExtensionReceiver = false)
     {
         var names = new Dictionary<int, string>();
         foreach (var ph in method.GetParameters())
@@ -2497,10 +2497,19 @@ static class FidelityCheck
         for (int i = 0; i < sig.ParameterTypes.Length; i++)
         {
             string name = names.TryGetValue(i, out var n) && n.Length > 0 ? n : $"arg{i}";
-            parts.Add($"{Clean(sig.ParameterTypes[i])} {Identifier(name)}");
+            string modifier = firstIsExtensionReceiver && i == 0 ? "this " : "";
+            parts.Add($"{modifier}{Clean(sig.ParameterTypes[i])} {Identifier(name)}");
         }
         return string.Join(", ", parts);
     }
+
+    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+        => method.Attributes.HasFlag(MethodAttributes.Static)
+           && IsStaticClass(typeDef)
+           && typeDef.GetDeclaringType().IsNil
+           && typeDef.GetGenericParameters().Count == 0
+           && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())
+           && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 
     // ---- Small helpers ----
 
