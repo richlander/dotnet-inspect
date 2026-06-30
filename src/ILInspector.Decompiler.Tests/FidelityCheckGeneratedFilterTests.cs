@@ -95,6 +95,36 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_RoundTripsConstructorAssignedAutoProperties()
+    {
+        var assemblyPath = CompileFixture("""
+            public class AutoPropertyPairFixture
+            {
+                public AutoPropertyPairFixture(int left, int right)
+                {
+                    Left = left;
+                    Right = right;
+                }
+
+                public int Left { get; }
+                public int Right { get; }
+            }
+            """);
+        try
+        {
+            var ctor = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                result => result.Type == "AutoPropertyPairFixture" && result.Method == ".ctor");
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, ctor.Status);
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var path = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}.dll");
