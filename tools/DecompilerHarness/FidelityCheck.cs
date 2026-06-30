@@ -3141,49 +3141,207 @@ static class FidelityCheck
     }
 
     internal static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
+        => PackageDependencyReferencePaths(targetPath, packageRoots: null);
+
+    internal static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath, IReadOnlyList<string>? packageRoots)
     {
-        if (NuGetPackageContext(targetPath) is not { } context)
+        if (NuGetPackageContext(targetPath, packageRoots) is not { } context)
             return [];
 
         var nuspec = Directory.EnumerateFiles(context.PackageDirectory, "*.nuspec").FirstOrDefault();
         if (nuspec is null)
             return [];
 
-        var references = new List<string>();
+        var packageDirectories = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        var dependencyGraph = new Dictionary<string, List<PackageDependency>>(StringComparer.OrdinalIgnoreCase);
+        List<PackageDependency> rootDependencies;
         try
         {
-            var document = XDocument.Load(nuspec);
-            foreach (var dependency in SelectNuGetDependencies(document, context.TargetFramework))
-            {
-                string? id = dependency.Attribute("id")?.Value;
-                string? version = DependencyExactVersion(dependency.Attribute("version")?.Value);
-                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version))
-                    continue;
-
-                foreach (var root in NuGetPackageRoots())
-                {
-                    var packageDir = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant());
-                    foreach (var path in ProbeNuGetPackageVersionDlls(packageDir, context.TargetFramework))
-                        references.Add(path);
-                }
-            }
+            rootDependencies = CollectPackageDependencies(
+                context.PackageDirectory,
+                context.TargetFramework,
+                packageRoots,
+                packageDirectories,
+                dependencyGraph,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
             return [];
         }
 
+        var selectedVersions = packageDirectories.ToDictionary(
+            kv => kv.Key,
+            kv => kv.Value.Keys.OrderByDescending(version => version, PackageVersionComparer.Instance).First(),
+            StringComparer.OrdinalIgnoreCase);
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dependency in rootDependencies)
+            AddResolvedPackage(dependency.Id);
+
+        var references = new List<string>();
+        foreach (string id in resolved.Order(StringComparer.OrdinalIgnoreCase))
+            foreach (var path in ProbeNuGetPackageVersionDlls(packageDirectories[id][selectedVersions[id]], context.TargetFramework))
+                references.Add(path);
         return references;
+
+        void AddResolvedPackage(string id)
+        {
+            if (!selectedVersions.TryGetValue(id, out string? version) || !resolved.Add(id))
+                return;
+            if (!dependencyGraph.TryGetValue(PackageKey(id, version), out var dependencies))
+                return;
+            foreach (var dependency in dependencies)
+                AddResolvedPackage(dependency.Id);
+        }
+    }
+
+    static List<PackageDependency> CollectPackageDependencies(
+        string packageDirectory,
+        string targetFramework,
+        IReadOnlyList<string>? packageRoots,
+        Dictionary<string, Dictionary<string, string>> packageDirectories,
+        Dictionary<string, List<PackageDependency>> dependencyGraph,
+        HashSet<string> visiting)
+    {
+        var nuspec = Directory.EnumerateFiles(packageDirectory, "*.nuspec").FirstOrDefault();
+        if (nuspec is null)
+            return [];
+
+        var document = XDocument.Load(nuspec);
+        var dependencies = new List<PackageDependency>();
+        foreach (var dependency in SelectNuGetDependencies(document, targetFramework))
+        {
+            string? id = dependency.Attribute("id")?.Value;
+            string? version = DependencyExactVersion(dependency.Attribute("version")?.Value);
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version))
+                continue;
+
+            foreach (var root in NuGetPackageRoots(packageRoots))
+            {
+                var dependencyDirectory = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant());
+                if (!Directory.Exists(dependencyDirectory))
+                    continue;
+
+                if (!packageDirectories.TryGetValue(id, out var versions))
+                    packageDirectories[id] = versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                versions[version] = dependencyDirectory;
+                dependencies.Add(new PackageDependency(id, version));
+
+                string visitKey = $"{id}/{version}";
+                if (!dependencyGraph.ContainsKey(PackageKey(id, version)) && visiting.Add(visitKey))
+                {
+                    dependencyGraph[PackageKey(id, version)] = CollectPackageDependencies(
+                        dependencyDirectory,
+                        targetFramework,
+                        packageRoots,
+                        packageDirectories,
+                        dependencyGraph,
+                        visiting);
+                    visiting.Remove(visitKey);
+                }
+                break;
+            }
+        }
+        return dependencies;
+    }
+
+    sealed class PackageVersionComparer : IComparer<string>
+    {
+        public static readonly PackageVersionComparer Instance = new();
+
+        public int Compare(string? left, string? right)
+            => string.Equals(left, right, StringComparison.OrdinalIgnoreCase)
+                ? 0
+                : ComparePackageVersion(left ?? "", right ?? "");
+    }
+
+    readonly record struct PackageDependency(string Id, string Version);
+
+    static string PackageKey(string id, string version) => $"{id}/{version}";
+
+    static int ComparePackageVersion(string left, string right)
+    {
+        var leftVersion = PackageVersion.Parse(left);
+        var rightVersion = PackageVersion.Parse(right);
+
+        int releaseLength = Math.Max(leftVersion.Release.Length, rightVersion.Release.Length);
+        for (int i = 0; i < releaseLength; i++)
+        {
+            int leftPart = i < leftVersion.Release.Length ? leftVersion.Release[i] : 0;
+            int rightPart = i < rightVersion.Release.Length ? rightVersion.Release[i] : 0;
+            int comparison = leftPart.CompareTo(rightPart);
+            if (comparison != 0)
+                return comparison;
+        }
+
+        if (leftVersion.Prerelease.Length == 0 || rightVersion.Prerelease.Length == 0)
+            return leftVersion.Prerelease.Length == rightVersion.Prerelease.Length
+                ? 0
+                : leftVersion.Prerelease.Length == 0 ? 1 : -1;
+
+        int prereleaseLength = Math.Max(leftVersion.Prerelease.Length, rightVersion.Prerelease.Length);
+        for (int i = 0; i < prereleaseLength; i++)
+        {
+            if (i >= leftVersion.Prerelease.Length)
+                return -1;
+            if (i >= rightVersion.Prerelease.Length)
+                return 1;
+
+            var leftIdentifier = leftVersion.Prerelease[i];
+            var rightIdentifier = rightVersion.Prerelease[i];
+            int comparison = leftIdentifier.CompareTo(rightIdentifier);
+            if (comparison != 0)
+                return comparison;
+        }
+
+        return 0;
+    }
+
+    readonly record struct PackageVersion(ImmutableArray<int> Release, ImmutableArray<PrereleaseIdentifier> Prerelease)
+    {
+        public static PackageVersion Parse(string version)
+        {
+            string withoutBuild = version.Split('+', 2)[0];
+            var split = withoutBuild.Split('-', 2);
+            var release = split[0]
+                .Split('.', StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => int.TryParse(part, out int value) ? value : 0)
+                .ToImmutableArray();
+            var prerelease = split.Length == 1
+                ? ImmutableArray<PrereleaseIdentifier>.Empty
+                : split[1]
+                    .Split('.', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(PrereleaseIdentifier.Parse)
+                    .ToImmutableArray();
+            return new(release, prerelease);
+        }
+    }
+
+    readonly record struct PrereleaseIdentifier(bool IsNumeric, int NumericValue, string Text)
+    {
+        public static PrereleaseIdentifier Parse(string value)
+            => int.TryParse(value, out int numeric)
+                ? new(true, numeric, "")
+                : new(false, 0, value);
+
+        public int CompareTo(PrereleaseIdentifier other)
+        {
+            if (IsNumeric && other.IsNumeric)
+                return NumericValue.CompareTo(other.NumericValue);
+            if (IsNumeric != other.IsNumeric)
+                return IsNumeric ? -1 : 1;
+            return string.Compare(Text, other.Text, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     sealed record NuGetReferenceContext(
         string PackageDirectory,
         string TargetFramework);
 
-    static NuGetReferenceContext? NuGetPackageContext(string targetPath)
+    static NuGetReferenceContext? NuGetPackageContext(string targetPath, IReadOnlyList<string>? packageRoots = null)
     {
         string fullPath = Path.GetFullPath(targetPath);
-        foreach (var root in NuGetPackageRoots())
+        foreach (var root in NuGetPackageRoots(packageRoots))
         {
             string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string prefix = fullRoot + Path.DirectorySeparatorChar;
@@ -3202,8 +3360,15 @@ static class FidelityCheck
         return null;
     }
 
-    static IEnumerable<string> NuGetPackageRoots()
+    static IEnumerable<string> NuGetPackageRoots(IReadOnlyList<string>? packageRoots = null)
     {
+        if (packageRoots is not null)
+        {
+            foreach (var root in packageRoots)
+                yield return root;
+            yield break;
+        }
+
         if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
             yield return envRoot;
 
