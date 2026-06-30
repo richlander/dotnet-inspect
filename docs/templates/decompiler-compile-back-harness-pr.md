@@ -60,15 +60,15 @@ then broad-cap context in one sentence}.
 
 Run: `{assembly or delta artifact}`, `{method count}` current changed methods.
 
-| Baseline | PR |
-| --- | --- |
-| Current changed methods: `{N}` | Current changed methods: `{N}` |
-| Attempted: `{N}` | Attempted: `{N}` |
-| Exact: `{count}` | Exact: `{count}` |
-| OpcodeDiff Full: `{count}` | OpcodeDiff Full: `{count}` |
-| Not Full: `{count}` | Not Full: `{count}` |
-| RecompileFail: `{count}` | RecompileFail: `{count}` |
-| ContextFail: `{count}` | ContextFail: `{count}` |
+| Metric | Baseline | PR |
+| --- | ---: | ---: |
+| Current changed methods | {N} | {N} |
+| Attempted | {N} | {N} |
+| Exact | {count} | {count} |
+| OpcodeDiff Full | {count} | {count} |
+| Not Full | {count} | {count} |
+| RecompileFail | {count} | {count} |
+| ContextFail | {count} | {count} |
 
 | Bucket / code | Baseline | PR | Delta | Example |
 | --- | ---: | ---: | ---: | --- |
