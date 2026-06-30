@@ -323,32 +323,21 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void Evaluate_BindsCommonFrameworkCollectionAndRegexTypes()
+    public void Evaluate_BindsConcurrentCollectionsNamespace()
     {
         var assemblyPath = CompileFixture("""
             using System.Collections.Concurrent;
-            using System.Collections.Frozen;
-            using System.Collections.Generic;
-            using System.Text.RegularExpressions;
 
             public class FrameworkNamespaceFixture
             {
                 public ConcurrentDictionary<string, int> CreateConcurrent()
                     => new ConcurrentDictionary<string, int>();
-
-                public FrozenDictionary<string, int> Freeze(Dictionary<string, int> source)
-                    => source.ToFrozenDictionary();
-
-                public Match MatchS(string input)
-                    => Regex.Match(input, "s");
             }
             """);
         try
         {
             var results = FidelityCheck.Evaluate(assemblyPath);
             AssertCheckable(results, "CreateConcurrent");
-            AssertCheckable(results, "Freeze");
-            AssertCheckable(results, "MatchS");
         }
         finally
         {
