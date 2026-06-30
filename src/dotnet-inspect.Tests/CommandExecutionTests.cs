@@ -4220,13 +4220,18 @@ public class CommandExecutionTests
             "library", "System.Runtime", "-S", "Library Info", "--tips", "q");
         var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
             "library", "System.Runtime", "-D", "Library Info", "--tips", "q");
+        var (multiDiscoverExit, multiDiscoverOutput, multiDiscoverError) = await RunAppAsync(
+            "library", "System.Runtime", "-D", "Library Info,Async Methods", "--tips", "q");
 
         Assert.Equal(0, selectExit);
         Assert.Equal(0, discoverExit);
+        Assert.Equal(0, multiDiscoverExit);
         Assert.Empty(selectError);
         Assert.Empty(discoverError);
+        Assert.Contains("section 'Async Methods' has no data", multiDiscoverError);
         Assert.DoesNotContain("| Methods |", selectOutput);
         Assert.DoesNotContain("| Methods | field |", discoverOutput);
+        Assert.DoesNotContain("| Methods | field |", multiDiscoverOutput);
         Assert.Contains("| Async Methods | field |", discoverOutput);
         Assert.Contains("| Extension Methods | field |", discoverOutput);
     }
