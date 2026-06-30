@@ -118,6 +118,40 @@ Run `dotnet-inspect skill` to print the embedded SKILL.md.
 - **Full signatures** - Parameter names included, not just types
 - **Minimal noise** - Hidden/obsolete members excluded by default
 
+## Analysis, Research, and Decompiler Evidence
+
+Method-body evidence is split by representation altitude, then joined by a
+single overlay layer:
+
+- **R1** is the lower, metadata/IL representation. `ILInspector.Analysis` reads
+  assemblies with `System.Reflection.Metadata`, builds whole-assembly indexes,
+  and produces method signals, direct-call evidence, allocation occurrences, and
+  leverage data without depending on the decompiler IR.
+- **R2** is the higher decompiler representation. `ILInspector.Decompiler`
+  imports one method into IR, raises/lowers it for C# printing, projects raw or
+  annotated IL, and supplies IR anchors for source-line placement.
+- **Research** is the bridge. `ILInspector.Research` depends on both Analysis
+  and Decompiler; neither depends back on Research or on each other. It owns the
+  offset-keyed fact overlay for `Annotated Source`, annotated IL, and the
+  structured `Facts` rows.
+
+`ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
+Producers implement `IResearchFactProducer` with a stable name, produced fact
+ids, dependency names, and a `Produce(ResearchFactContext)` method. The registry
+orders producers by dependencies, invokes them for an imported method, and merges
+their annotations by IL offset and descriptor id. The default registry currently
+includes:
+
+| Producer | Source | Facts |
+| -------- | ------ | ----- |
+| `AllocationOccurrenceFactProducer` | `ILInspector.Analysis` `LibraryBodyIndex` allocation occurrences | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
+| `DecompilerHiddenFactProducer` | existing decompiler annotation classifier | `unsafe.*`, `lifetime.*` |
+
+The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,
+Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or
+R1 facts should be new Analysis-backed producers registered through Research,
+not direct `Decompiler -> Analysis` calls and not parallel presentation paths.
+
 ## Library Inspection
 
 The tool uses `System.Reflection.Metadata` and `System.Reflection.PortableExecutable` for low-level assembly inspection without loading assemblies into the runtime.
@@ -429,7 +463,8 @@ Packages are resolved in order:
 
 ## Project Structure
 
-The codebase is organized into four layers, from bottom (domain-agnostic) to top (application-specific):
+The codebase is organized into domain providers, shared method-body engines, the
+Research overlay bridge, and the application layer:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -441,6 +476,26 @@ The codebase is organized into four layers, from bottom (domain-agnostic) to top
 │  Output/          Formatters, serialization pivot            │
 │  Inspectors/      App-specific inspection logic             │
 │  Options/         CLI option types                          │
+├─────────────────────────────────────────────────────────────┤
+│  ILInspector.Research (Fact overlay bridge)                 │
+│                                                             │
+│  ResearchFactRegistry       ordered fact producers           │
+│  ResearchViews              fact overlay for source/IL/Facts  │
+│  *FactProducer              Analysis or Decompiler adapters  │
+├─────────────────────────────────────────────────────────────┤
+│  ILInspector.Decompiler (R2 method projection)              │
+│                                                             │
+│  IrImporter, CSharpPrinter, IlProjection                    │
+│  Per-method IR, source rendering, annotation anchors         │
+├─────────────────────────────────────────────────────────────┤
+│  ILInspector.Analysis (R1 whole-assembly evidence)          │
+│                                                             │
+│  LibraryBodyIndex, CallTree, MethodSignals                  │
+│  AllocationOccurrence, leverage, direct calls               │
+├─────────────────────────────────────────────────────────────┤
+│  ILInspector.ControlFlow (Shared kernels)                   │
+│                                                             │
+│  Block edges, dominance, dataflow fixpoint                  │
 ├─────────────────────────────────────────────────────────────┤
 │  DotnetInspector.Services (Shared services)                 │
 │                                                             │
@@ -456,7 +511,7 @@ The codebase is organized into four layers, from bottom (domain-agnostic) to top
 │  PackageExtractor, NuGetCache, TfmResolver                  │
 │  DependencyGroup, PackageDependency                         │
 ├─────────────────────────────────────────────────────────────┤
-│  ILInspector.Metadata (Domain provider — PE/Assembly)   │
+│  ILInspector.Metadata (Domain provider — PE/Assembly)       │
 │                                                             │
 │  AssemblyReader, ApiSurface models, PdbReader                │
 └─────────────────────────────────────────────────────────────┘
@@ -466,6 +521,9 @@ The codebase is organized into four layers, from bottom (domain-agnostic) to top
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
+- **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading.
+- **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
+- **Research** is the only bridge between Analysis and Decompiler evidence. New overlay facts register as producers; presenters consume the merged offset-keyed overlay.
 - **Models** are pure data with no Markout references. JSON conditional attributes (`[JsonIgnore(Condition = ...)]`) are acceptable since they control data serialization, not presentation.
 - **Views** wrap models and own all Markout attributes, sections, field builders, and computed display properties. They are the only types registered in `MarkoutContext`.
 - **Commands** orchestrate: they call services, populate models, and hand off to `OutputFormatter`. Most commands should not import Markout directly.
@@ -497,7 +555,11 @@ src/dotnet-inspect/
 
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
-src/ILInspector.Metadata/   # PE/assembly domain provider
+src/ILInspector.Metadata/       # PE/assembly domain provider
+src/ILInspector.ControlFlow/    # Shared control-flow/dataflow kernels
+src/ILInspector.Analysis/       # R1 whole-assembly method-body evidence
+src/ILInspector.Decompiler/     # R2 per-method IR and source/IL projection
+src/ILInspector.Research/       # Registered fact overlay and annotated views
 ```
 
 ## Key Design Decisions
@@ -518,4 +580,6 @@ src/ILInspector.Metadata/   # PE/assembly domain provider
 
 8. **Signature-first output** — Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
 
-9. **Deliberate metadata duplication — `ILInspector.Analysis` is a standalone product** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) keeps **zero project references** and re-derives its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the codebase's other type-identity layers (`ILInspector.Metadata`, `ILInspector.MetadataPrimitives`, and the decompiler's `Pipeline/TypeRef`). This is a committed product boundary, not drift: the three `TypeRef` models answer different questions (display string, evidence matching, codegen IR), and `Analysis`'s SRM-direct independence is load-bearing — it ships and evolves as an independent memory-safety deliverable. The full rationale, the rejected consolidation path, and the single trip-wire that would reopen it are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3"). The two analysis subsystems are also distinct: `ILInspector.Decompiler.Annotations` (hidden-fact *annotations* on the decompiler IR — "where in this method are the allocations/unsafe ops?") versus the `ILInspector.Analysis` assembly ("which methods across this assembly require `unsafe`, and who calls them?").
+9. **Deliberate metadata duplication — `ILInspector.Analysis` is a standalone product** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) keeps **zero project references** and re-derives its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the codebase's other type-identity layers (`ILInspector.Metadata`, `ILInspector.MetadataPrimitives`, and the decompiler's `Pipeline/TypeRef`). This is a committed product boundary, not drift: the three `TypeRef` models answer different questions (display string, evidence matching, codegen IR), and `Analysis`'s SRM-direct independence is load-bearing — it ships and evolves as an independent memory-safety deliverable. The full rationale, the rejected consolidation path, and the single trip-wire that would reopen it are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
+
+10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
