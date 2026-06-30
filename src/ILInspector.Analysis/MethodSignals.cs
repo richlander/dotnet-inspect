@@ -68,14 +68,16 @@ public static class MethodSignalAnalysis
     /// Aggregates per-method signals keyed by the method's metadata token. The
     /// call-derived parts (object allocations, copies, reflection, unsafe) come from
     /// <paramref name="directCalls"/>/<paramref name="unsafeEvidence"/>; the
-    /// IL-scan parts (array allocations, throws, exception regions) are merged from
-    /// <paramref name="bodySignals"/>. Pure over its inputs so it is testable without
+    /// IL-scan parts (allocation occurrences, throws, exception regions) are merged from
+    /// <paramref name="allocationOccurrences"/> and <paramref name="bodySignals"/>.
+    /// Pure over its inputs so it is testable without
     /// a real assembly.
     /// </summary>
     public static Dictionary<int, MethodSignals> Collect(
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         IReadOnlyDictionary<int, BodySignals>? bodySignals = null,
+        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null,
         IReadOnlyDictionary<(string Namespace, string Name), bool>? inAssemblyTypeIsException = null,
         IReadOnlySet<int>? nonHeapNewObjOperandTokens = null)
     {
@@ -105,18 +107,8 @@ public static class MethodSignalAnalysis
             int caller = call.Caller.MetadataToken;
             if (call.Kind == CallKind.NewObject)
             {
-                // A `newobj` of a value type (struct/enum) constructs in place and does NOT
-                // allocate on the heap, so it must not count toward the allocation signal
-                // (#1804). The non-heap set is classified during Build, where the metadata
-                // reader is available (in-assembly value types, and cross-assembly generic
-                // structs via the TypeSpec signature blob). A cross-assembly non-generic user
-                // struct is unresolvable single-assembly and is intentionally NOT in the set,
-                // so it remains an owned false positive at the no-referenced-assembly boundary.
-                if (nonHeapNewObjOperandTokens is not null && nonHeapNewObjOperandTokens.Contains(call.OperandToken))
-                    continue;
-                allocations[caller] = allocations.GetValueOrDefault(caller) + 1;
-                AddEvidence(caller, call.ILOffset);
-                if (IsExceptionType(call.Callee.DeclaringType, inAssemblyTypeIsException))
+                bool isExceptionType = IsExceptionType(call.Callee.DeclaringType, inAssemblyTypeIsException);
+                if (isExceptionType)
                 {
                     if (!exceptionTypes.TryGetValue(caller, out var set))
                         exceptionTypes[caller] = set = new SortedSet<string>(StringComparer.Ordinal);
@@ -132,7 +124,21 @@ public static class MethodSignalAnalysis
                         offsets.Add(call.ILOffset);
                     }
                 }
-                else if (call.InLoop)
+
+                if (allocationOccurrences is not null)
+                    continue;
+                // A `newobj` of a value type (struct/enum) constructs in place and does NOT
+                // allocate on the heap, so it must not count toward the allocation signal
+                // (#1804). The non-heap set is classified during Build, where the metadata
+                // reader is available (in-assembly value types, and cross-assembly generic
+                // structs via the TypeSpec signature blob). A cross-assembly non-generic user
+                // struct is unresolvable single-assembly and is intentionally NOT in the set,
+                // so it remains an owned false positive at the no-referenced-assembly boundary.
+                if (nonHeapNewObjOperandTokens is not null && nonHeapNewObjOperandTokens.Contains(call.OperandToken))
+                    continue;
+                allocations[caller] = allocations.GetValueOrDefault(caller) + 1;
+                AddEvidence(caller, call.ILOffset);
+                if (!isExceptionType && call.InLoop)
                 {
                     // Steady-state (non-exception) object construction inside a loop is
                     // the hot/repeated allocation; error-path construction is excluded.
@@ -163,6 +169,24 @@ public static class MethodSignalAnalysis
         tokens.UnionWith(unsafeMethods);
         if (bodySignals is not null)
             tokens.UnionWith(bodySignals.Keys);
+        if (allocationOccurrences is not null)
+        {
+            foreach (var (token, occurrences) in allocationOccurrences)
+            {
+                if (occurrences.Length == 0)
+                    continue;
+                tokens.Add(token);
+                foreach (var occurrence in occurrences)
+                {
+                    if (!occurrence.CountsAsHeapAllocation)
+                        continue;
+                    allocations[token] = allocations.GetValueOrDefault(token) + 1;
+                    AddEvidence(token, occurrence.ILOffset);
+                    if (occurrence.InLoop && occurrence.Escape != AllocationEscape.ThrowPath)
+                        newObjInLoop.Add(token);
+                }
+            }
+        }
 
         var result = new Dictionary<int, MethodSignals>(tokens.Count);
         foreach (var token in tokens)
@@ -170,11 +194,14 @@ public static class MethodSignalAnalysis
             BodySignals body = default;
             bodySignals?.TryGetValue(token, out body);
 
-            foreach (var offset in NormalizeOffsets(body.ArrayAllocOffsets))
-                AddEvidence(token, offset);
+            if (allocationOccurrences is null)
+            {
+                foreach (var offset in NormalizeOffsets(body.ArrayAllocOffsets))
+                    AddEvidence(token, offset);
+                foreach (var offset in NormalizeOffsets(body.BoxOffsets))
+                    AddEvidence(token, offset);
+            }
             foreach (var offset in NormalizeOffsets(body.ThrowOffsets))
-                AddEvidence(token, offset);
-            foreach (var offset in NormalizeOffsets(body.BoxOffsets))
                 AddEvidence(token, offset);
 
             var offsets = evidence.TryGetValue(token, out var set)
@@ -205,7 +232,7 @@ public static class MethodSignalAnalysis
             }
 
             result[token] = new MethodSignals(
-                allocations.GetValueOrDefault(token) + body.Newarr + body.Boxes,
+                allocations.GetValueOrDefault(token) + (allocationOccurrences is null ? body.Newarr + body.Boxes : 0),
                 copies.GetValueOrDefault(token),
                 unsafeMethods.Contains(token),
                 reflection.GetValueOrDefault(token),

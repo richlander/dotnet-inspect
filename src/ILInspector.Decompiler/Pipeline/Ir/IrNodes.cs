@@ -190,6 +190,8 @@ public sealed class IrFunction : IrNode
 
     public string Name { get; }
     public TypeRef DeclaringType { get; }
+    public string? AssemblyPath { get; set; }
+    public int MetadataToken { get; set; }
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
     public ImmutableArray<TypeRef> Locals { get; private set; }

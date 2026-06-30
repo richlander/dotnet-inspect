@@ -1,5 +1,6 @@
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -8,7 +9,7 @@ public class MixedSourceRendererTests
     static string Render(string methodName)
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var result = MixedSourceRenderer.Render(
+        var result = ResearchViews.RenderMixed(
             source, typeof(AllocSampleClass).FullName!, methodName);
         Assert.NotNull(result.Output);
         return result.Output!;
@@ -68,10 +69,10 @@ public class MixedSourceRendererTests
         // underlying Monitor.Enter / try…finally shape it lowers from.
         var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
 
-        var raised = MixedSourceRenderer.Render(
+        var raised = ResearchViews.RenderMixed(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ClassicLock),
             AnnotationStage.Raised);
-        var lowered = MixedSourceRenderer.Render(
+        var lowered = ResearchViews.RenderMixed(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ClassicLock),
             AnnotationStage.Lowered);
 
@@ -90,7 +91,7 @@ public class MixedSourceRendererTests
         // compiler-generated companion bodies, such as LambdaRaisingPass.
         var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
 
-        var lowered = MixedSourceRenderer.Render(
+        var lowered = ResearchViews.RenderMixed(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NonCapturingLambda),
             AnnotationStage.Lowered);
 
@@ -106,7 +107,7 @@ public class MixedSourceRendererTests
         // into its own diagnostics: it mirrors the result's fidelity and
         // diagnostics, and reports the symbol source actually consulted.
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var result = MixedSourceRenderer.Render(
+        var result = ResearchViews.RenderMixed(
             source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList));
 
         Assert.NotNull(result.Trace);
@@ -124,7 +125,7 @@ public class MixedSourceRendererTests
         // OpenWithoutSymbols never consults a PDB, so the trace honestly reports
         // that no symbol source was used even when one exists on disk.
         var source = MetadataSource.OpenWithoutSymbols(typeof(AllocSampleClass).Assembly.Location);
-        var result = MixedSourceRenderer.Render(
+        var result = ResearchViews.RenderMixed(
             source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList));
 
         Assert.NotNull(result.Trace);
