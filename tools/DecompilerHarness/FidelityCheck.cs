@@ -2385,13 +2385,37 @@ static class FidelityCheck
             ? "async "
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
+        string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
         if (name.StartsWith("op_", StringComparison.Ordinal)
             && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
         {
             sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
             return;
         }
-        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
+        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : slotModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
+    }
+
+    static string StructObjectOverrideModifier(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        string name,
+        string returnType,
+        int parameterCount)
+    {
+        if (ShapeOf(reader, typeDef) != TypeKind.Struct
+            || method.Attributes.HasFlag(MethodAttributes.Static)
+            || !method.Attributes.HasFlag(MethodAttributes.Virtual)
+            || method.Attributes.HasFlag(MethodAttributes.NewSlot))
+            return "";
+
+        return (name, returnType, parameterCount) switch
+        {
+            ("ToString", "string", 0) => "override ",
+            ("GetHashCode", "int", 0) => "override ",
+            ("Equals", "bool", 1) => "override ",
+            _ => "",
+        };
     }
 
     static string? OperatorDeclaration(string name, string returnType, string parameters)

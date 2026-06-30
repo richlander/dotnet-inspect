@@ -125,6 +125,39 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_RoundTripsStructObjectToStringDispatch()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct StructWithToString
+            {
+                public override string ToString() => "value";
+            }
+
+            public static class StructWithToStringExtensions
+            {
+                public static string Humanize(this StructWithToString value, string? format)
+                {
+                    if (!string.IsNullOrWhiteSpace(format))
+                        return format;
+                    return value.ToString();
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                result => result.Type == "StructWithToStringExtensions" && result.Method == "Humanize");
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var path = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}.dll");
