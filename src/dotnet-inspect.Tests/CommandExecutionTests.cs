@@ -4237,6 +4237,34 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public void LibraryCommand_RenderedFieldLabels_IgnoreOtherSections()
+    {
+        const string rendered = """
+            ## Library Info
+
+            | Field | Value |
+            | ----- | ----- |
+            | Assembly Version | 1.0.0.0 |
+            | Async Methods | 0 |
+
+            ## Other Section
+
+            | Name | Value |
+            | :--- | ---: |
+            | Methods | Polluting first-column value |
+            | Source | Another polluting value |
+            """;
+
+        var labels = LibraryCommand.GetRenderedFieldLabelsForTests(rendered, "Library Info");
+
+        Assert.Contains("Assembly Version", labels);
+        Assert.Contains("Async Methods", labels);
+        Assert.DoesNotContain("Methods", labels);
+        Assert.DoesNotContain("Source", labels);
+        Assert.DoesNotContain(":---", labels);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverEffective_RendersMarkdownTable()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D");

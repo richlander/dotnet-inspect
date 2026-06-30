@@ -618,6 +618,9 @@ public class LibraryCommand
         return filtered;
     }
 
+    internal static HashSet<string> GetRenderedFieldLabelsForTests(string rendered, string sectionName)
+        => GetRenderedFieldLabels(rendered, sectionName);
+
     private static HashSet<string> GetRenderedFieldLabels(string rendered, string sectionName)
     {
         HashSet<string> labels = new(StringComparer.OrdinalIgnoreCase);
