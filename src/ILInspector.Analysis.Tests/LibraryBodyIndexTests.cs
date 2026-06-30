@@ -1344,6 +1344,11 @@ public class LibraryBodyIndexTests
         Assert.True(row.InLoop);
         Assert.Equal("high", row.Confidence);
 
+        var shortArg = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesShortFormSourceArgumentInLoop)
+            && o.Shape == "materialize-in-loop"));
+        Assert.True(shortArg.InLoop);
+
         Assert.DoesNotContain(index.OptimizationOpportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesPerIterationSourceInLoop)
             && o.Shape == "materialize-in-loop");
@@ -2695,6 +2700,14 @@ public class OptimizationOpportunityFixtures
         var total = 0;
         for (int i = 0; i < count; i++)
             total += source.ToArray().Length;
+        return total;
+    }
+
+    public static int MaterializesShortFormSourceArgumentInLoop(int a, int b, int c, int d, IEnumerable<int> source, int count)
+    {
+        var total = a + b + c + d;
+        for (int i = 0; i < count; i++)
+            total += source.ToList().Count;
         return total;
     }
 

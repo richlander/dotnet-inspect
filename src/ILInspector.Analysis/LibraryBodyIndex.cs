@@ -3024,7 +3024,8 @@ public sealed class LibraryBodyIndex
                     int offset = position;
                     var opcode = ReadOpcode(il, ref position);
                     int operandPosition = position;
-                    SkipOperandStatic(il, opcode, ref position, offset);
+                    if (!TryReadLocalSlot(il, opcode, ref position, offset, out _, out _, out _))
+                        SkipOperandStatic(il, opcode, ref position, offset);
                     if (position > targetOffset)
                         return false;
                     previousOffset = offset;
