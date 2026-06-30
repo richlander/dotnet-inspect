@@ -1379,11 +1379,14 @@ public static class ApiOutputFormatter
             {
                 var rows = facts
                     .Select(fact => new FactRow(
-                        fact.Descriptor.Id,
-                        fact.Descriptor.Category.ToString(),
+                        fact.Member,
+                        fact.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
+                        fact.CSharpLine?.ToString(),
+                        fact.Anchor,
+                        fact.Category,
+                        fact.Id,
                         fact.Detail is { } detail ? MarkoutInline.Code(detail) : null,
-                        fact.Conditionality.ToString(),
-                        fact.SourceOffset >= 0 ? MarkoutInline.Code($"IL_{fact.SourceOffset:X4}") : null))
+                        fact.Conditionality))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.Facts))
                 {

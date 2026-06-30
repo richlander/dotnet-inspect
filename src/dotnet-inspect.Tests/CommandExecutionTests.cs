@@ -2312,6 +2312,47 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_RendersStructuredResearchRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Facts", output);
+        Assert.Contains("| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality |", output);
+        Assert.Contains("FactsTableFixture::BoxInt", output);
+        Assert.Contains("`IL_", output);
+        Assert.Contains("| offset | Allocation | alloc.box | `int` | Always |", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_TsvIncludesStructuredColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("FactsTableFixture::BoxInt\tIL_", output);
+        Assert.Contains("\toffset\tAllocation\talloc.box\tint\tAlways", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_IncludesResearchHeaderFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsHeaderFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsHeaderFixture.Hot), "--all", "-S", "Facts", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("FactsHeaderFixture::Hot\t\t\tmember-header\tCost\tcost.method\t", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectFacts_IncludesExplicitSemanticsFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -7293,6 +7334,37 @@ public class CommandExecutionTests
 
 public interface EmptyDiscoveryFixture
 {
+}
+
+public static class FactsTableFixture
+{
+    public static object BoxInt(int value) => value;
+}
+
+public static class FactsHeaderFixture
+{
+    public static int Hot(int value) => value + 1;
+
+    public static int Caller01(int value) => Hot(value);
+    public static int Caller02(int value) => Hot(value);
+    public static int Caller03(int value) => Hot(value);
+    public static int Caller04(int value) => Hot(value);
+    public static int Caller05(int value) => Hot(value);
+    public static int Caller06(int value) => Hot(value);
+    public static int Caller07(int value) => Hot(value);
+    public static int Caller08(int value) => Hot(value);
+    public static int Caller09(int value) => Hot(value);
+    public static int Caller10(int value) => Hot(value);
+    public static int Caller11(int value) => Hot(value);
+    public static int Caller12(int value) => Hot(value);
+    public static int Caller13(int value) => Hot(value);
+    public static int Caller14(int value) => Hot(value);
+    public static int Caller15(int value) => Hot(value);
+    public static int Caller16(int value) => Hot(value);
+    public static int Caller17(int value) => Hot(value);
+    public static int Caller18(int value) => Hot(value);
+    public static int Caller19(int value) => Hot(value);
+    public static int Caller20(int value) => Hot(value);
 }
 
 public static class CostOverlayFixture

@@ -59,9 +59,10 @@ Three projections share one classification pass:
   right of each statement, and the annotated IL interleaved beneath. The default
   human view when exact IL context matters.
 - **Annotated IL** — the IL projection with the same facts attached by offset.
-- **Facts** — the structured table (id, category, detail, conditionality, IL
-  offset), the agent-facing dual. `ExplicitOnly`: never auto-renders, requested
-  via `-S "Facts"` / `--tsv`.
+- **Facts** — the structured table over the same Research overlay (member,
+  IL offset, C# line when available, anchor, category, id, detail,
+  conditionality), the agent-facing dual. `ExplicitOnly`: never auto-renders,
+  requested via `-S "Facts"` / `--tsv`.
 
 Whole-assembly overlays stay explicit-only while their precision and usefulness
 settle:

@@ -37,7 +37,7 @@ internal static class MemberCodeProvider
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
-        IReadOnlyList<Decompiler.Annotations.Annotation>? Facts = null,
+        IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
         Decompiler.DecompilerTrace? DecompileTrace = null,
         bool RequiresAsyncDeclaration = false);
 
@@ -182,12 +182,12 @@ internal static class MemberCodeProvider
                 }
             }
 
-            // Structured hidden-fact rows for one method: classify the imported
-            // body (the same engine the Decompiled Source view uses), in IL order.
-            IReadOnlyList<Decompiler.Annotations.Annotation>? facts = null;
+            // Structured Research overlay rows for one method: the table-shaped
+            // projection of the same facts the annotated source/IL views render.
+            IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? facts = null;
             if (request.Facts && pipelineSource is not null)
             {
-                facts = ILInspector.Research.ResearchViews.CollectFacts(
+                facts = ILInspector.Research.ResearchViews.CollectFactRows(
                     pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
             }
 
