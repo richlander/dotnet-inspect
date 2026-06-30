@@ -119,44 +119,46 @@ must verify IL because its output runs with full trust (illegal IL there means
 memory corruption or a security hole); our worst case is a wrong line in a report,
 and we already fail closed on anything we cannot decode. So the contract is
 *robustness* — don't crash, hang, or assert false facts on malformed or hostile
-input — not *soundness*. The security we do care about is hardening the reader
-against malformed input (one reason we track upstream reliability/perf/security
-fixes), not proving the IL is safe to execute.
+input — not *soundness*. The security we care about is reader robustness against
+malformed input (which, since the reader is ours on SRM, is largely ours to own),
+not proving the IL is safe to execute.
 
 ### Tracking upstream improvements
 
-The decode *contract* is ECMA-335-frozen — which opcodes exist and how their
-operands are encoded will not change. That is **not** a reason to ignore
-upstream. The runtime `ILReader`/`ILOpcodeHelper` *implementation* keeps
-receiving **reliability, performance, and security fixes** — edge-case
-correctness on malformed bodies, bounds-hardening against adversarial IL,
-throughput work — and those matter here precisely because the substrate decodes
-arbitrary, possibly hostile assemblies. So we **do** track upstream, for the
-engineering rather than the spec.
+What we actually depend on from runtime is narrow, which makes the tracking
+burden small:
 
-This is a one-time *copy*, not a live vendor branch — contrast the vendored
-managed ILAssembler (the `vendor/ilassembler` orphan branch), which is a full
-fork. The lightweight tracking mechanism:
+- **The opcode size table** (`ILOpcodeExtensions`) is the bulk of the port — a
+  1:1 transcription of ECMA-335's opcode/operand definitions. It is frozen data:
+  the IL opcode set does not change, so there is nothing to track.
+- **The reader** (`ILReader`) is mostly thin glue over SRM/BCL — the byte reads
+  are `BinaryPrimitives` over a `ReadOnlySpan<byte>`, not runtime's buffer
+  machinery. We *rebuilt* it on SRM rather than borrowing runtime's
+  implementation, so runtime's implementation-level fixes (perf/reliability of
+  *its* reader over *its* buffers) mostly do not transfer. The one perf change in
+  five years — Spanify (2024-02) — we already match, because we are span-based.
 
-- **Pin the source commit** of each ported file in its header, so the upstream
-  delta is a tractable diff instead of an open-ended comparison.
-- **Periodically — and whenever we touch a ported file — diff our copy against
-  the cited upstream path** and pull relevant reliability/perf/security fixes,
-  re-applying our intentional divergences (SRM retarget, `record` / immutable,
-  fail-closed) on top.
-- **Re-run the fidelity gates** after any such port; they are the acceptance
-  oracle.
+So the only thing worth watching for is a genuine **logic** bug in the small
+sliver of ECMA decode behaviour we mirror (two-byte `0xFE` opcodes, `Skip`,
+branch-target math), and our tiling/round-trip fidelity gates over CoreLib catch
+that class continuously. That is not a reason to ignore upstream entirely — a
+reliability/security fix to that decode logic would still be worth porting — but
+it is a light, occasional glance, not active vendoring.
+
+This is a one-time *copy*, not a live vendor branch (contrast the vendored
+managed ILAssembler on the `vendor/ilassembler` orphan branch, a full fork). The
+mechanism: pin the source commit (below, and in the file headers), diff against
+it when convenient, port any decode-logic fix, and re-run the fidelity gates —
+which are the acceptance oracle. Our own bug fixes go in directly and should be
+offered upstream where they apply.
 
 **Pinned source.** Copied from `dotnet/runtime` at commit
 [`050adea8fc10`](https://github.com/dotnet/runtime/commit/050adea8fc1016ff3cbde74edc5453e8fdad11be)
 (also recorded in the file headers). The files are near-frozen — `ILReader.cs`
-last changed upstream 2024-07-01, `ILOpcodeHelper.cs` 2021-05-17 — so an
-occasional diff against that path is ample. Our copy is verified to match: the
-opcode size-value table is byte-for-byte identical, and `ILReader` is the same
-post-Spanify `ref struct` over `ReadOnlySpan<byte>`, modulo our divergences.
-
-Our own bug fixes go in directly (the gates are the oracle) and should be
-offered upstream where they apply.
+last changed upstream 2024-07-01, `ILOpcodeHelper.cs` 2021-05-17. Our copy is
+verified to match: the opcode size-value table is byte-for-byte identical, and
+`ILReader` is the same post-Spanify `ref struct` over `ReadOnlySpan<byte>`,
+modulo our divergences.
 
 ## Fidelity contract
 
