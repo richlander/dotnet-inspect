@@ -771,6 +771,32 @@ public class TypeSourceComposerUnionTests
                     Cat otherCat => otherCat.Name.ToUpperInvariant(),
                     Dog dog => dog.Name,
                 };
+
+                public static string Ternary(Pet pet) => pet is Cat cat ? cat.Name : "other";
+
+                public static string TernaryGuard(Pet pet) => pet is Cat cat && cat.Name == "cat" ? cat.Name : "other";
+
+                public static bool SideEffect() => true;
+
+                public static string GuardedOrSideEffect(Pet pet)
+                {
+                    if (pet is not null)
+                    {
+                        if (pet is Cat cat || SideEffect())
+                            return "cat";
+                    }
+                    return "other";
+                }
+
+                public static string SideEffectBeforePattern(Pet pet)
+                {
+                    if (pet is not null)
+                    {
+                        if (SideEffect() && pet is Cat cat)
+                            return cat.Name;
+                    }
+                    return "other";
+                }
             }
             """);
 
@@ -829,6 +855,18 @@ public class TypeSourceComposerUnionTests
                 Dog dog => dog.Name,
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedExhaustiveBound"));
+        Assert.Equal("return pet is Cat cat ? cat.Name : \"other\";",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "Ternary"));
+        Assert.Equal("return pet is Cat cat && cat.Name == \"cat\" ? cat.Name : \"other\";",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
+        var guardedOr = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedOrSideEffect");
+        Assert.DoesNotContain("pet is Cat cat || SideEffect() ? \"cat\" : \"other\"", guardedOr);
+        Assert.Contains("if (", guardedOr);
+        Assert.Contains("SideEffect()", guardedOr);
+        var sideEffectBefore = RenderMember(assembly.Path, "UnionFixtures.Matcher", "SideEffectBeforePattern");
+        Assert.DoesNotContain("SideEffect() && pet is Cat cat ? cat.Name : \"other\"", sideEffectBefore);
+        Assert.Contains("if (", sideEffectBefore);
+        Assert.Contains("SideEffect()", sideEffectBefore);
     }
 
     [Fact]
