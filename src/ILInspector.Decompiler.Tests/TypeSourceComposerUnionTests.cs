@@ -360,6 +360,12 @@ public class TypeSourceComposerUnionTests
                         Dog dog => dog.Name,
                         _ => "other",
                     };
+
+                    public static string ExhaustiveLooking(PetLike pet) => pet.Value switch
+                    {
+                        Cat cat => cat.Name,
+                        Dog dog => dog.Name,
+                    };
                 }
             }
             """);
@@ -368,6 +374,7 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "HasCat"));
         Assert.DoesNotContain("return pet switch", RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
+        Assert.DoesNotContain("return pet switch", RenderMember(assembly.Path, "UnionFixtures.Matcher", "ExhaustiveLooking"));
     }
 
     [Fact]
