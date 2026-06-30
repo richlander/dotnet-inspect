@@ -403,6 +403,7 @@ public sealed class MetadataSource : IDisposable
     Dictionary<TypeRef, TypeRef?>? _baseTypes;
     HashSet<TypeRef>? _interfaces;
     Dictionary<TypeRef, ImmutableArray<TypeRef>>? _interfaceImpls;
+    HashSet<TypeRef>? _unionTypes;
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -418,6 +419,13 @@ public sealed class MetadataSource : IDisposable
             return TypeShape.Unknown;
         EnsureTypeMaps();
         return _shapes!.GetValueOrDefault(type, TypeShape.Unknown);
+    }
+
+    internal bool IsUnionType(TypeRef type)
+    {
+        EnsureTypeMaps();
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null && _unionTypes!.Contains(definition);
     }
 
     /// <summary>
@@ -451,6 +459,7 @@ public sealed class MetadataSource : IDisposable
         var bases = new Dictionary<TypeRef, TypeRef?>();
         var interfaces = new HashSet<TypeRef>();
         var interfaceImpls = new Dictionary<TypeRef, ImmutableArray<TypeRef>>();
+        var unionTypes = new HashSet<TypeRef>();
         foreach (var handle in Reader.TypeDefinitions)
         {
             var typeDef = Reader.GetTypeDefinition(handle);
@@ -467,7 +476,11 @@ public sealed class MetadataSource : IDisposable
             bases[key] = DecodeBaseType(typeDef.BaseType, scope);
             if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
                 interfaces.Add(key);
-            interfaceImpls[key] = DecodeInterfaces(typeDef, scope);
+            var impls = DecodeInterfaces(typeDef, scope);
+            if (MethodDefinitionFacts.HasUnionAttribute(Reader, typeDef)
+                && impls.Any(IsUnionInterface))
+                unionTypes.Add(key);
+            interfaceImpls[key] = impls;
             if (shape == TypeShape.Enum)
             {
                 enums[key] = BuildEnumMembers(typeDef);
@@ -480,6 +493,7 @@ public sealed class MetadataSource : IDisposable
         _baseTypes = bases;
         _interfaces = interfaces;
         _interfaceImpls = interfaceImpls;
+        _unionTypes = unionTypes;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
     }
 
@@ -492,6 +506,9 @@ public sealed class MetadataSource : IDisposable
             names.Add(Reader.GetString(Reader.GetGenericParameter(handle).Name));
         return names.MoveToImmutable();
     }
+
+    static bool IsUnionInterface(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Namespace: "System.Runtime.CompilerServices", Name: "IUnion" };
 
     /// <summary>The interfaces a definition directly implements, decoded with the type's own generic scope (open — concrete instances substitute later).</summary>
     ImmutableArray<TypeRef> DecodeInterfaces(TypeDefinition typeDef, GenericScope scope)

@@ -1786,7 +1786,7 @@ public sealed partial class CSharpPrinter
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => Expression(b.Operand),
-        IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
+        IsInstance i => $"{TypeTestValueText(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
@@ -1869,6 +1869,36 @@ public sealed partial class CSharpPrinter
     string InvertedUserTruthiness(IrExpression value)
         => $"({OperatorOperand(value)} ? false : true)";
 
+    string TypeTestValueText(IrExpression value)
+        => UnionValueReceiverText(value) ?? Operand(value);
+
+    string? UnionValueReceiverText(IrExpression value)
+        => value is LoadProperty property ? UnionValueReceiverText(property) : null;
+
+    string? UnionValueReceiverText(LoadProperty property)
+    {
+        if (property.PropertyName != "Value"
+            || property.IndexArguments.Count != 0
+            || !_function.UnionTypes.Contains(NamedDefinition(property.Accessor.DeclaringType)))
+        {
+            return null;
+        }
+
+        return property.Instance switch
+        {
+            LoadArgumentAddress argument => CSharpNaming.EscapeIdentifier(argument.Name),
+            LoadArgument argument => CSharpNaming.EscapeIdentifier(argument.Name),
+            LoadLocalAddress local => LocalName(local.Index),
+            LoadLocal local => LocalName(local.Index),
+            LoadFieldAddress field => FieldTarget(field.Field, field.Instance),
+            LoadField field => FieldTarget(field.Field, field.Instance),
+            _ => null,
+        };
+    }
+
+    static TypeRef NamedDefinition(TypeRef type)
+        => type is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition } ? definition : type;
+
     /// <summary>
     /// Spellings for a non-bool branch operand: <c>!= 0</c> for integers and
     /// enums, <c>is null</c>/<c>is not null</c> for reference shapes. The
@@ -1892,7 +1922,7 @@ public sealed partial class CSharpPrinter
         // in `!= 0` would be `bool != int` (CS0019); the inverse negates it.
         if (operand is IsInstance ii)
         {
-            string test = $"{Operand(ii.Operand)} is {TypeText(ii.Type)}";
+            string test = $"{TypeTestValueText(ii.Operand)} is {TypeText(ii.Type)}";
             return (test, $"!({test})");
         }
 
