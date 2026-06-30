@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Gated Rung 5 typed-stack substrate: decode -> typed instructions -> typed-stack -> EH-aware blocks. SRM-only, no IrNode/structuring/C#. Prototype (issue #1908).</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <!-- System.Reflection.Metadata is part of the BCL -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
+  </ItemGroup>
+
+</Project>
