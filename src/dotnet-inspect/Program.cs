@@ -114,6 +114,7 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
 // Install line-limiting writer when -NN shorthand was used (e.g. -30).
 // With --rows, -n/-NN is interpreted by commands as per-table row limits.
 var rowLimitMode = args.Any(a => a == "--rows");
+var printProjectionMode = args.Any(a => a is "--print" or "--print-all");
 if (rowLimitMode && CommandLineBuilder.TailLines != null)
 {
     Console.Error.WriteLine("Error: --rows cannot be combined with --tail.");
@@ -124,7 +125,7 @@ if (rowLimitMode && CommandLineBuilder.HeadLines == null)
     Console.Error.WriteLine("Error: --rows requires -n/--head or -N.");
     return 1;
 }
-if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)
+if (!rowLimitMode && !printProjectionMode && CommandLineBuilder.HeadLines is int headLines)
     Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
 
 // Install tail writer when --tail N was used

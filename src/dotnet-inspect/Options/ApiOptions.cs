@@ -50,6 +50,12 @@ public partial record ApiOptions
     /// fence, separator, or tips.</summary>
     public bool Bare { get; init; }
 
+    public bool Print { get; init; }
+
+    public bool PrintAll { get; init; }
+
+    public int? PrintRow { get; init; }
+
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
     /// When false, commands are free to apply their own default format (e.g., shape/tree).
@@ -102,7 +108,7 @@ public partial record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public virtual bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || Count;
+    public virtual bool IsRawOutput => Bare || Print || PrintAll || JsonOutput || OneLine || Jsonl || NoHeader || Count;
 }
 
 /// <summary>
