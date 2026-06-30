@@ -241,6 +241,87 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public class TargetedDictionaryOutFixture
+            {
+                public bool Lookup(Dictionary<string, int> dictionary, string key)
+                {
+                    int value = default;
+                    return dictionary.TryGetValue(key, out value);
+                }
+            }
+            """);
+        var originalOut = Console.Out;
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                result => result.Type == "TargetedDictionaryOutFixture" && result.Method == "Lookup");
+            Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact, result.Detail);
+
+            var deltaPath = Path.Combine(Path.GetDirectoryName(assemblyPath)!, "delta.json");
+            File.WriteAllText(deltaPath, System.Text.Json.JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1,
+                generatedUtc = DateTimeOffset.UtcNow,
+                baselineGeneratedUtc = DateTimeOffset.UtcNow,
+                currentGeneratedUtc = DateTimeOffset.UtcNow,
+                baselineHasMethodDetails = true,
+                currentHasMethodDetails = true,
+                changedMethods = new[]
+                {
+                    new
+                    {
+                        method = "fixture!TargetedDictionaryOutFixture::Lookup#0",
+                        assembly = "fixture",
+                        assemblyPath = Path.GetFileName(assemblyPath),
+                        type = "TargetedDictionaryOutFixture",
+                        methodName = "Lookup",
+                        overload = 0,
+                        signature = result.Signature,
+                        baseline = (object?)null,
+                        current = new
+                        {
+                            assembly = "fixture",
+                            assemblyPath = Path.GetFileName(assemblyPath),
+                            type = "TargetedDictionaryOutFixture",
+                            method = "Lookup",
+                            overload = 0,
+                            signature = result.Signature,
+                            fidelity = "Full",
+                            fullyRaised = true,
+                            residual = (string?)null,
+                            passBug = (string?)null,
+                            validity = "not-sampled",
+                            fidelityCheck = "not-sampled",
+                        },
+                        deltas = new[] { "triage" },
+                    },
+                },
+            }));
+
+            using var writer = new StringWriter();
+            Console.SetOut(writer);
+            int exitCode = FidelityCheck.RunMethodDelta([assemblyPath], deltaPath, maxExamples: 5);
+            Console.SetOut(originalOut);
+            var output = writer.ToString();
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("exact opcode match : 1", output);
+            Assert.DoesNotContain("CS1620", output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
