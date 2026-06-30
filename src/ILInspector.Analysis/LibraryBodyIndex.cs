@@ -1090,7 +1090,7 @@ public sealed class LibraryBodyIndex
                         var allocations = CollectAllocationOccurrences(il, caller, scope, loopRegions);
                         if (allocations.Length > 0)
                             allocationOccurrences[caller.MetadataToken] = allocations;
-                        var unsafety = CollectUnsafetyOccurrences(il, caller, scope, includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
+                        var unsafety = CollectUnsafetyOccurrences(il, body, caller, scope);
                         if (unsafety.Length > 0)
                             unsafetyOccurrences[caller.MetadataToken] = unsafety;
                         var lifetime = CollectLifetimeOccurrences(il, caller, scope);
@@ -1745,12 +1745,14 @@ public sealed class LibraryBodyIndex
 
         ImmutableArray<UnsafetyOccurrence> CollectUnsafetyOccurrences(
             byte[] il,
+            MethodBodyBlock body,
             MethodIdentity caller,
-            GenericScope scope,
-            bool includeIndirectOpcodes)
+            GenericScope scope)
         {
             var occurrences = ImmutableArray.CreateBuilder<UnsafetyOccurrence>();
-            bool sawLocalloc = false;
+            var locals = DecodeLocalTypes(body, scope);
+            var localValues = new Dictionary<int, StackValueKind>();
+            var stack = new List<StackValueKind>();
             int position = 0;
             while (position < il.Length)
             {
@@ -1764,26 +1766,73 @@ public sealed class LibraryBodyIndex
                         {
                             int token = ReadInt32(il, ref position, offset);
                             occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.CallIndirect, CalliReturnDetail(token, scope)));
+                            stack.Clear();
                             break;
                         }
                         case ILOpCode.Localloc:
-                            sawLocalloc = true;
+                            stack.Add(StackValueKind.Pointer);
                             occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.StackAlloc, "byte*"));
                             break;
-                        case ILOpCode.Cpblk:
-                        case ILOpCode.Initblk:
-                            occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.Deref, null));
+                        case ILOpCode.Ldind_i1:
+                        case ILOpCode.Ldind_u1:
+                        case ILOpCode.Ldind_i2:
+                        case ILOpCode.Ldind_u2:
+                        case ILOpCode.Ldind_i4:
+                        case ILOpCode.Ldind_u4:
+                        case ILOpCode.Ldind_i8:
+                        case ILOpCode.Ldind_i:
+                        case ILOpCode.Ldind_r4:
+                        case ILOpCode.Ldind_r8:
+                        case ILOpCode.Ldind_ref:
+                            if (Pop(stack, out var address) && address == StackValueKind.Pointer)
+                                occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.Deref, IndirectTypeDetail(opcode)));
+                            stack.Add(StackValueKind.Other);
                             break;
-                        case ILOpCode.Newobj:
-                        case ILOpCode.Call:
-                        case ILOpCode.Callvirt:
-                            SkipOperand(il, opcode, ref position, offset);
-                            sawLocalloc = false;
+                        case ILOpCode.Stind_i1:
+                        case ILOpCode.Stind_i2:
+                        case ILOpCode.Stind_i4:
+                        case ILOpCode.Stind_i8:
+                        case ILOpCode.Stind_i:
+                        case ILOpCode.Stind_r4:
+                        case ILOpCode.Stind_r8:
+                        case ILOpCode.Stind_ref:
+                            if (Pop(stack, out _) && Pop(stack, out address) && address == StackValueKind.Pointer)
+                                occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.Deref, IndirectTypeDetail(opcode)));
+                            break;
+                        case ILOpCode.Dup:
+                            stack.Add(stack.Count == 0 ? StackValueKind.Unknown : stack[^1]);
+                            break;
+                        case ILOpCode.Conv_u:
+                        case ILOpCode.Conv_i:
+                        case ILOpCode.Nop:
                             break;
                         default:
-                            if ((includeIndirectOpcodes || sawLocalloc) && IndirectTypeDetail(opcode) is { } detail)
-                                occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.Deref, detail));
+                            if (TryReadAddressLoad(il, opcode, ref position, offset, out var addressKind))
+                            {
+                                stack.Add(addressKind);
+                                break;
+                            }
+                            if (TryReadLocalSlot(il, opcode, ref position, offset, out bool isStore, out bool isArg, out int slot))
+                            {
+                                if (isStore)
+                                {
+                                    Pop(stack, out var value);
+                                    if (!isArg)
+                                        localValues[slot] = value;
+                                }
+                                else
+                                {
+                                    stack.Add(SlotKind(isArg, slot, caller, locals, localValues));
+                                }
+                                break;
+                            }
+                            if (PushConstant(opcode, il, ref position, offset))
+                            {
+                                stack.Add(StackValueKind.Other);
+                                break;
+                            }
                             SkipOperand(il, opcode, ref position, offset);
+                            stack.Clear();
                             break;
                     }
                 }
@@ -1793,6 +1842,114 @@ public sealed class LibraryBodyIndex
                 }
             }
             return occurrences.ToImmutable();
+        }
+
+        enum StackValueKind { Unknown, Other, Pointer, ManagedRef }
+
+        static bool Pop(List<StackValueKind> stack, out StackValueKind value)
+        {
+            if (stack.Count == 0)
+            {
+                value = StackValueKind.Unknown;
+                return false;
+            }
+            value = stack[^1];
+            stack.RemoveAt(stack.Count - 1);
+            return true;
+        }
+
+        static StackValueKind SlotKind(bool isArgument, int slot, MethodIdentity caller, ImmutableArray<TypeRef> locals, IReadOnlyDictionary<int, StackValueKind> localValues)
+        {
+            if (isArgument)
+            {
+                if (!caller.IsStatic)
+                {
+                    if (slot == 0)
+                        return StackValueKind.Other;
+                    slot--;
+                }
+                return slot >= 0 && slot < caller.ParameterTypes.Length
+                    ? TypeStackKind(caller.ParameterTypes[slot])
+                    : StackValueKind.Unknown;
+            }
+            if (localValues.TryGetValue(slot, out var value) && value == StackValueKind.Pointer)
+                return value;
+            return slot >= 0 && slot < locals.Length ? TypeStackKind(locals[slot]) : StackValueKind.Unknown;
+        }
+
+        static StackValueKind TypeStackKind(TypeRef type)
+            => type.Kind switch
+            {
+                TypeRefKind.Pointer => StackValueKind.Pointer,
+                TypeRefKind.ByRef => StackValueKind.ManagedRef,
+                TypeRefKind.Pinned when type.ElementType?.Kind == TypeRefKind.Pointer => StackValueKind.Pointer,
+                _ => StackValueKind.Other,
+            };
+
+        ImmutableArray<TypeRef> DecodeLocalTypes(MethodBodyBlock body, GenericScope scope)
+        {
+            if (body.LocalSignature.IsNil)
+                return [];
+            try
+            {
+                var signature = _reader.GetStandaloneSignature(body.LocalSignature);
+                return signature.DecodeLocalSignature(TypeRefDecoder.Instance, scope);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return [];
+            }
+        }
+
+        static bool TryReadAddressLoad(byte[] il, ILOpCode opcode, ref int position, int offset, out StackValueKind kind)
+        {
+            kind = StackValueKind.ManagedRef;
+            switch (opcode)
+            {
+                case ILOpCode.Ldloca_s:
+                case ILOpCode.Ldarga_s:
+                    ReadByte(il, ref position, offset);
+                    return true;
+                case ILOpCode.Ldloca:
+                case ILOpCode.Ldarga:
+                    ReadInt16(il, ref position, offset);
+                    return true;
+                default:
+                    kind = StackValueKind.Unknown;
+                    return false;
+            }
+        }
+
+        static bool PushConstant(ILOpCode opcode, byte[] il, ref int position, int offset)
+        {
+            switch (opcode)
+            {
+                case ILOpCode.Ldc_i4_m1:
+                case ILOpCode.Ldc_i4_0:
+                case ILOpCode.Ldc_i4_1:
+                case ILOpCode.Ldc_i4_2:
+                case ILOpCode.Ldc_i4_3:
+                case ILOpCode.Ldc_i4_4:
+                case ILOpCode.Ldc_i4_5:
+                case ILOpCode.Ldc_i4_6:
+                case ILOpCode.Ldc_i4_7:
+                case ILOpCode.Ldc_i4_8:
+                case ILOpCode.Ldnull:
+                    return true;
+                case ILOpCode.Ldc_i4_s:
+                    ReadByte(il, ref position, offset);
+                    return true;
+                case ILOpCode.Ldc_i4:
+                case ILOpCode.Ldc_r4:
+                    ReadInt32(il, ref position, offset);
+                    return true;
+                case ILOpCode.Ldc_i8:
+                case ILOpCode.Ldc_r8:
+                    position += 8;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         ImmutableArray<LifetimeOccurrence> CollectLifetimeOccurrences(byte[] il, MethodIdentity caller, GenericScope scope)
