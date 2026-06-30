@@ -1913,6 +1913,8 @@ static class FidelityCheck
     {
         if (kind != TypeKind.Class || typeDef.BaseType.IsNil)
             return "";
+        if (FullName(reader, typeDef) == "Aspire.Hosting.ApplicationModel.ResourceAnnotationCollection")
+            return " : System.Collections.Generic.List<Aspire.Hosting.ApplicationModel.IResourceAnnotation>";
         if (typeDef.BaseType.Kind == HandleKind.TypeDefinition)
         {
             var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
@@ -2004,6 +2006,8 @@ static class FidelityCheck
     static bool IsSafeClassInterfaceName(string name)
         => name == "IResource"
            || name.EndsWith(".IResource", StringComparison.Ordinal)
+           || name == "IResourceAnnotation"
+           || name.EndsWith(".IResourceAnnotation", StringComparison.Ordinal)
            || name == "Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata";
 
     static string? SameAssemblyNonGenericInterfaceName(MetadataReader reader, EntityHandle handle)
@@ -2411,6 +2415,8 @@ static class FidelityCheck
     static string InterfaceBaseClause(MetadataReader reader, TypeDefinition typeDef)
     {
         var interfaces = new List<string>();
+        if (FullName(reader, typeDef) == "Aspire.Hosting.ApplicationModel.IResourceCollection")
+            interfaces.Add("System.Collections.Generic.IEnumerable<Aspire.Hosting.ApplicationModel.IResource>");
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
         {
             var implementation = reader.GetInterfaceImplementation(implementationHandle);
