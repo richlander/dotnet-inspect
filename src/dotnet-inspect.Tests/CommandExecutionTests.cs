@@ -2312,6 +2312,35 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_RendersStructuredResearchRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Facts", output);
+        Assert.Contains("| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality |", output);
+        Assert.Contains("FactsTableFixture::BoxInt", output);
+        Assert.Contains("`IL_", output);
+        Assert.Contains("| offset | Allocation | alloc.box | `int` | Always |", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_TsvIncludesStructuredColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("FactsTableFixture::BoxInt\tIL_", output);
+        Assert.Contains("\toffset\tAllocation\talloc.box\tint\tAlways", output);
+    }
+
+    [Fact]
     public async Task Member_Facts_IsExplicitOnly_NotShownAtDetailed()
     {
         var options = new MemberOptions
@@ -7157,4 +7186,9 @@ public class CommandExecutionTests
 
 public interface EmptyDiscoveryFixture
 {
+}
+
+public static class FactsTableFixture
+{
+    public static object BoxInt(int value) => value;
 }
