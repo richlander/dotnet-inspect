@@ -65,6 +65,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var children = block.Children;
         for (int start = 0; start < children.Count; start++)
         {
+            if (TryMatchDirectSwitchStatementReturnChainAt(function, children, start, out var directStatementSwitch))
+            {
+                match = new Match(start, directStatementSwitch);
+                return true;
+            }
+
             if (TryMatchSwitchStatementReturnChainAt(function, children, start, out var statementSwitch))
             {
                 match = new Match(start, statementSwitch);
@@ -103,6 +109,51 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchDirectSwitchStatementReturnChainAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 2 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsUnionValueProperty(function, unionValue)
+            || children[start + 1] is not IfStatement firstIf
+            || firstIf.HasElse
+            || firstIf.Condition is not LogicalNot { Operand: var firstCondition }
+            || !TryArmPattern(firstCondition, valueStore.Index, out var firstType, out var firstLocal, out var firstRoots)
+            || children[start + 2] is not Return { Value: { } firstValue }
+            || !TryReturnArmsWithDefault(firstIf.Then.Children, valueStore.Index, out var innerArms, out var defaultValue))
+        {
+            return false;
+        }
+
+        var firstArm = new Arm(
+            firstType,
+            firstLocal,
+            firstValue,
+            [.. firstRoots, firstValue]);
+        var arms = new[] { firstArm }.Concat(innerArms).ToArray();
+        var allowedTempUses = (IReadOnlyList<IrNode>)[valueStore, firstIf];
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, allowedTempUses)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || arms.Select(arm => arm.PatternType).Distinct().Count() != arms.Length)
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            (IrExpression)defaultValue.Clone());
+        return true;
     }
 
     static bool TryMatchClassUnionBoolTypeTestBlocks(IrFunction function, BlockContainer container, out IrExpression expression)
