@@ -1017,7 +1017,9 @@ static class FidelityCheck
             if (!parameterNames.TryGetValue(value.Index - 1, out string? parameterName))
                 return null;
 
-            initializers.Add((store.Field.Name, parameterName));
+            string name = AutoPropertyNameForBackingField(reader, declaringType, store.Field.Name)
+                ?? store.Field.Name;
+            initializers.Add((name, parameterName));
         }
 
         if (initializers.Count == 0)
@@ -1914,7 +1916,7 @@ static class FidelityCheck
         // defensive copy against a mutable stub, changing the target's opcodes.
         var stubPropertyAccessors = new HashSet<MethodDefinitionHandle>();
         if (keyword == "class")
-            EmitStubProperties(reader, typeDef, targets, accessibility, stubPropertyAccessors, sb, pad + "    ");
+            EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
         {
@@ -2083,7 +2085,8 @@ static class FidelityCheck
     /// </summary>
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
-        SignatureAccessibility accessibility, HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad)
+        SignatureAccessibility accessibility, IReadOnlyList<(string Field, string Value)> fieldInits,
+        HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad)
     {
         var typeContext = GenericContext.ForType(reader, typeDef);
         foreach (var ph in typeDef.GetProperties())
@@ -2130,8 +2133,11 @@ static class FidelityCheck
                     continue;
                 if (isAutoProperty)
                 {
+                    string initializer = fieldInits.FirstOrDefault(init => init.Field == pname).Value is { } value
+                        ? $" = {value};"
+                        : "";
                     string autoBody = " get;" + (hasSet ? " set;" : "");
-                    sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{autoBody} }}");
+                    sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{autoBody} }}{initializer}");
                     if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                     if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
                     continue;
@@ -2173,6 +2179,21 @@ static class FidelityCheck
             }
         }
         return false;
+    }
+
+    static string? AutoPropertyNameForBackingField(MetadataReader reader, TypeDefinition typeDef, string fieldName)
+    {
+        if (!fieldName.StartsWith('<') || !fieldName.EndsWith(">k__BackingField", StringComparison.Ordinal))
+            return null;
+
+        string propertyName = fieldName[1..^">k__BackingField".Length];
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (reader.GetString(property.Name) == propertyName)
+                return propertyName;
+        }
+        return null;
     }
 
     static bool AccessorsAreCompilerGenerated(MetadataReader reader, PropertyAccessors accessors)
