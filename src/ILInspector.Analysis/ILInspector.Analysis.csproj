@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
+    <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
   </ItemGroup>
 
 </Project>

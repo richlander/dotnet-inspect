@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Gated Rung 5 typed-stack substrate: decode -> typed instructions -> typed-stack -> EH-aware blocks. SRM-only, no IrNode/structuring/C#. Prototype (issue #1908).</Description>
+    <Description>Shared SRM-only IL decode and exception-handling-aware basic-block substrate (Layer 0) that the analyzer and decompiler converge onto, plus an opt-in, gated typed evaluation stack (Layer 1). No IrNode/structuring/C#/Roslyn; no inspected-assembly loading. See issue #1939.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

@@ -111,6 +111,25 @@ public class ReachingDefinitionsTests
     }
 
     [Fact]
+    public void Analyze_TruncatedInstruction_ThrowsBadImageFormat()
+    {
+        // Truncated reads go through the substrate's runtime-ported ILReader, which throws
+        // InvalidProgramException; RD must normalize these to BadImageFormatException so callers'
+        // recoverable-failure filters still fail closed. Covers a lone two-byte opcode prefix and
+        // truncated short/long branch operands and switch count.
+        byte[][] truncated =
+        [
+            [0xFE],                              // lone two-byte opcode prefix (missing second byte)
+            [Op(ILOpCode.Br_s)],                 // br.s with no displacement byte
+            [Op(ILOpCode.Br), 0x00, 0x00],       // br with fewer than 4 operand bytes
+            [Op(ILOpCode.Switch), 0x00, 0x00],   // switch with fewer than 4 count bytes
+        ];
+
+        foreach (var il in truncated)
+            Assert.Throws<BadImageFormatException>(() => ReachingDefinitions.Analyze(il, argumentSlotCount: 0));
+    }
+
+    [Fact]
     public void Analyze_MalformedExceptionRegion_MarksResultIncomplete()
     {
         var result = ReachingDefinitions.Analyze([
