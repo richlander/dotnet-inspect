@@ -6,7 +6,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// boolean folding:
 /// <code>
 ///   T t = value as T;          // StoreLocal t = IsInstance T(value)
-///   if (t != null) { ...t... } // statement guard
+///   if (t != null) { ...t... } // statement guard, optional else that cannot use t
 ///   // or, as a short-circuit expression:
 ///   ... t != null &amp;&amp; ...t... // LogicalAnd(LoadLocal t, rest)
 /// </code>
@@ -17,7 +17,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>T t = value as T; if (t is not null) { ... }</c> — the owed
 /// <c>is</c>-pattern idiom. Transactional: the pattern local must be referenced
 /// only by the <c>as</c> store, the null test being replaced, and the scope the
-/// test gates (the <c>if</c>-body or the <c>&amp;&amp;</c> right operand), and
+/// test gates (the <c>if</c>-body or the <c>&amp;&amp;</c> right operand — not an
+/// <c>else</c> arm), and
 /// the tested value must be side-effect-free so moving it into the pattern
 /// cannot reorder observable effects. Otherwise the construct is left flat.</para>
 ///
@@ -388,9 +389,10 @@ public sealed class IsPatternPass : IIrPass
             }
         }
 
-        // Statement-guard form: `if (t != null) { ...t... }` — the whole
-        // condition is the bare truthy load; the then-arm is the gated scope.
-        if (next is IfStatement { Condition: LoadLocal guardLoad } guard && guardLoad.Index == index && guard.Else is null)
+        // Statement-guard form: `if (t != null) { ...t... } else { ... }` —
+        // only the then-arm is gated by the successful pattern. The caller's
+        // LocalReferencesOnlyWithin check rejects any else-arm use of t.
+        if (next is IfStatement { Condition: LoadLocal guardLoad } guard && guardLoad.Index == index)
             return new TestSite(guard.Condition, guard.Then);
 
         return null;
