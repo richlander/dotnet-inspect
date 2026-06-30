@@ -23,12 +23,13 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--table` — compact aligned rows.
 - `--tsv` — stable snake_case headers, no embedded tabs/newlines.
 - `--jsonl` — one JSON object per row.
+- `--json-array` — one JSON array for projected rows (`--urls`, `--paths`, `--value`, `--print-all`).
 - `--json` — structured documents.
 - `--bare` — one undecorated payload or URL list.
 - `--count` — a bare row count.
 - `--value` / `--urls` / `--paths` — project one selected section to scalar, URL, or path payloads.
 - `--print` — print one document behind a selected printable row; use `--row N` when multiple printable rows exist.
-- `--print-all` — print every printable row from one selected section, with text separators or one JSON object per row under `--jsonl`.
+- `--print-all` — print every printable row from one selected section, with text separators, `--jsonl`, or `--json-array`.
 - `--mermaid` — graph-shaped output.
 
 ## Discover and select sections
