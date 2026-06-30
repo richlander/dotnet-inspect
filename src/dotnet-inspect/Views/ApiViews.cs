@@ -716,11 +716,14 @@ public record UnsafeOperationRow(
 
 [MarkoutSerializable]
 public record FactRow(
-    string Id,
+    string Member,
+    [property: MarkoutSkipNull] string? IL,
+    [property: MarkoutSkipNull] string? CsLine,
+    string Anchor,
     string Category,
+    string Id,
     [property: MarkoutSkipNull] string? Detail,
-    string Conditionality,
-    [property: MarkoutSkipNull] string? IL);
+    string Conditionality);
 
 [MarkoutSerializable]
 public record UnsafeMemberRow(

@@ -8,6 +8,16 @@ namespace ILInspector.Research;
 
 public static class ResearchViews
 {
+    public sealed record FactRow(
+        string Member,
+        int? ILOffset,
+        int? CSharpLine,
+        string Anchor,
+        string Category,
+        string Id,
+        string? Detail,
+        string Conditionality);
+
     public sealed record CostOverlayResult(
         DecompilerResult Body,
         IReadOnlyList<ResearchHeaderFact> HeaderFacts);
@@ -24,6 +34,42 @@ public static class ResearchViews
     public static IReadOnlyList<Annotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)
         => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported));
+
+    public static IReadOnlyList<FactRow> CollectFactRows(
+        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
+        ResearchFactRegistry? registry = null)
+    {
+        var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+            ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
+        ResearchAssemblyContext? assembly = imported.AssemblyPath is { Length: > 0 } path
+            ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
+            : null;
+        var context = new ResearchFactContext(source, imported, assembly);
+        var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
+        var facts = effectiveRegistry.Collect(context);
+        var linesByFact = CSharpLinesByFact(imported, facts);
+        string member = $"{type}::{method}";
+        var rows = facts.Select(fact => new FactRow(
+            member,
+            fact.SourceOffset >= 0 ? fact.SourceOffset : null,
+            linesByFact.TryGetValue(fact, out int line) ? line + 1 : null,
+            fact.SourceOffset >= 0 ? "offset" : "member-header",
+            fact.Descriptor.Category.ToString(),
+            fact.Descriptor.Id,
+            fact.Detail,
+            fact.Conditionality.ToString()));
+        var headerRows = effectiveRegistry.CollectHeaderFacts(context)
+            .Select(fact => new FactRow(
+                member,
+                ILOffset: null,
+                CSharpLine: null,
+                Anchor: "member-header",
+                fact.Descriptor.Category.ToString(),
+                fact.Descriptor.Id,
+                fact.Detail,
+                Conditionality: "Always"));
+        return [.. rows.Concat(headerRows)];
+    }
 
     public static DecompilerResult RenderCostOverlay(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
@@ -196,6 +242,24 @@ public static class ResearchViews
             if (commentByLine.TryGetValue(i, out var comment))
                 lines[i] = $"{lines[i].TrimEnd()}  // {comment}";
         return string.Join(Environment.NewLine, lines);
+    }
+
+    static Dictionary<Annotation, int> CSharpLinesByFact(IrFunction imported, IReadOnlyList<Annotation> facts)
+    {
+        var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
+        if (result.Output is null || facts.Count == 0)
+            return [];
+        var spans = AnnotationAnchor.ComputeSpans(imported);
+        var lines = new Dictionary<Annotation, int>();
+        foreach (var fact in facts)
+        {
+            if (AnnotationAnchor.Best(spans, fact.SourceOffset) is { } owner
+                && AnnotationAnchor.TryGetPrintedLine(owner, statementLines, out int line))
+            {
+                lines[fact] = line;
+            }
+        }
+        return lines;
     }
 
     static string AddFactsToAnnotatedIl(string output, IReadOnlyList<Annotation> annotations)
