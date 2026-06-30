@@ -16,6 +16,7 @@ public sealed record PrintProjectionOptions(
     int? Row,
     bool JsonOutput,
     bool Jsonl,
+    bool JsonArray,
     bool Bare,
     string? OutputPath);
 
@@ -72,6 +73,12 @@ public static class PrintProjectionOutput
             var lines = selected
                 .Select(item => JsonSerializer.Serialize(item, PrintProjectionJsonContext.Default.PrintableDocument));
             WriteOutput(string.Join(Environment.NewLine, lines) + Environment.NewLine, options.OutputPath);
+            return 0;
+        }
+
+        if (options.JsonArray)
+        {
+            WriteOutput(JsonSerializer.Serialize(selected.ToArray(), PrintProjectionJsonContext.Default.PrintableDocumentArray), options.OutputPath);
             return 0;
         }
 

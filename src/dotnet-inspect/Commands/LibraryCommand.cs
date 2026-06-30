@@ -89,6 +89,18 @@ public class LibraryCommand
             }
         }
 
+        if (options.JsonArray && shapeCount == 0)
+        {
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, or --paths.");
+            return 1;
+        }
+
+        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
+        {
+            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            return 1;
+        }
+
         if (options.ProjectionRow is not null && shapeCount == 0)
         {
             Console.Error.WriteLine("Error: --row requires --value, --urls, or --paths.");
@@ -351,7 +363,7 @@ public class LibraryCommand
 
         return ShapeProjectionOutput.Write(
             rows,
-            new ShapeProjectionOptions(kind, options.ProjectionRow, options.JsonOutput, options.Jsonl));
+            new ShapeProjectionOptions(kind, options.ProjectionRow, options.JsonOutput, options.Jsonl, options.JsonArray));
     }
 
     private static List<ShapeProjectionRow> ProjectLibrarySourceFiles(LibraryInspection inspection, string section, ShapeProjectionKind kind, LibraryOptions options)

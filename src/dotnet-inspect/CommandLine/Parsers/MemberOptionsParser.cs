@@ -256,6 +256,7 @@ public static class MemberOptionsParser
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),
             Paths = parseResult.GetValue(opts.Paths),
+            JsonArray = parseResult.GetValue(opts.JsonArray),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,

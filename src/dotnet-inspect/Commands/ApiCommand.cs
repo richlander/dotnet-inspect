@@ -129,6 +129,18 @@ public class ApiCommand
             }
         }
 
+        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+        {
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+            return (null!, 1);
+        }
+
+        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
+        {
+            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            return (null!, 1);
+        }
+
         if ((options.Print || options.PrintAll) && !ValidateApiPrintSelection(options.IncludeSections))
             return (null!, 1);
 
@@ -908,6 +920,7 @@ public class ApiCommand
                 options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
+                options.JsonArray,
                 options.Bare,
                 OutputPath: null));
     }
@@ -932,7 +945,7 @@ public class ApiCommand
 
         return ShapeProjectionOutput.Write(
             rows,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl));
+            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
     }
 
     private static List<ShapeProjectionRow> ProjectTypeSourceFiles(TypeView view, string section, ShapeProjectionKind kind)
@@ -1028,7 +1041,7 @@ public class ApiCommand
         if (printableRows.Count == 0)
             return PrintProjectionOutput.Write(
                 [],
-                new PrintProjectionOptions(options.PrintAll, null, options.JsonOutput, options.Jsonl, options.Bare, OutputPath: null));
+                new PrintProjectionOptions(options.PrintAll, null, options.JsonOutput, options.Jsonl, options.JsonArray, options.Bare, OutputPath: null));
 
         if (!options.PrintAll)
         {
@@ -1073,6 +1086,7 @@ public class ApiCommand
                 Row: null,
                 options.JsonOutput,
                 options.Jsonl,
+                options.JsonArray,
                 options.Bare,
                 OutputPath: null));
     }

@@ -81,6 +81,18 @@ public class ProjectCommand
             }
         }
 
+        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+        {
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+            return 1;
+        }
+
+        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
+        {
+            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            return 1;
+        }
+
         if ((options.Columns is { Length: > 0 } || options.Fields is { Length: > 0 })
             && shapeCount == 0
             && !ValidateProjectProjectionOptions())
@@ -474,6 +486,7 @@ public class ProjectCommand
                 options.Bare && !options.Print && !options.PrintAll ? 1 : options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
+                options.JsonArray,
                 options.Bare,
                 options.OutputPath));
     }
@@ -498,7 +511,7 @@ public class ProjectCommand
 
         return ShapeProjectionOutput.Write(
             projected,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl));
+            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
     }
 
     private static string? SelectGroundingValue(ProjectGroundingRow row, ProjectOptions options)

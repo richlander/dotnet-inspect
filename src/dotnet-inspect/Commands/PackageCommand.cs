@@ -86,6 +86,18 @@ public class PackageCommand
                 }
             }
 
+            if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+            {
+                Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+                return 1;
+            }
+
+            if (options.JsonArray && (options.JsonOutput || options.Jsonl))
+            {
+                Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+                return 1;
+            }
+
             if ((options.Print || options.PrintAll) && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
@@ -914,7 +926,7 @@ public class PackageCommand
         }
 
         return ShapeProjectionOutput.Write(rows,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl));
+            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
     }
 
     private static List<ShapeProjectionRow> ProjectPackageFiles(IEnumerable<PackageFileRow>? files, string section, ShapeProjectionKind kind, InspectionOptions options)
@@ -2839,6 +2851,7 @@ public class PackageCommand
                     options.PrintRow,
                     options.JsonOutput,
                     options.Jsonl,
+                    options.JsonArray,
                     options.Bare,
                     options.OutputPath));
         }

@@ -80,6 +80,7 @@ public static class ProjectCommandDefinitions
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),
                 Paths = parseResult.GetValue(opts.Paths),
+                JsonArray = parseResult.GetValue(opts.JsonArray),
                 Tfm = parseResult.GetValue(tfmOption),
                 ContentScope = contentScope,
                 FrontmatterRequested = frontmatterRequested,

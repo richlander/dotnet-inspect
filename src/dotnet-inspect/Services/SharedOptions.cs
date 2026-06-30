@@ -42,6 +42,7 @@ public class SharedOptions
     public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N when multiple rows exist" };
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
     public Option<bool> Paths { get; } = new("--paths") { Description = "Project path-bearing selected section rows to a path list or JSONL rows" };
+    public Option<bool> JsonArray { get; } = new("--json-array") { Description = "With a shape projection, emit projected rows as one JSON array" };
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
@@ -208,6 +209,7 @@ public class SharedOptions
         command.Options.Add(Value);
         command.Options.Add(Urls);
         command.Options.Add(Paths);
+        command.Options.Add(JsonArray);
         if (!command.Options.Contains(Row))
             command.Options.Add(Row);
     }

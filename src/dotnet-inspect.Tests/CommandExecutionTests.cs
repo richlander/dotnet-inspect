@@ -1786,6 +1786,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SourceFiles_UrlsJsonArray_EmitsSingleArrayDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--urls", "--json-array", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.Equal(1, rows[0].GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
+        Assert.Equal(2, rows[1].GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+    }
+
+    [Fact]
     public async Task Type_SourceFiles_Value_RowSelectsUrl()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1865,6 +1883,37 @@ public class CommandExecutionTests
         Assert.Equal(2, second.RootElement.GetProperty("row").GetInt32());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", first.RootElement.GetProperty("url").GetString());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", second.RootElement.GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintAllJsonArrayFetchesAllSources()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print-all", "--json-array", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.Equal(1, rows[0].GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
+        Assert.Contains("JsonReader", rows[0].GetProperty("content").GetString());
+        Assert.Equal(2, rows[1].GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Type_JsonArrayRequiresProjectionShape()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--json-array", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--json-array requires --value, --urls, --paths, --print, or --print-all", error);
     }
 
     [Fact]

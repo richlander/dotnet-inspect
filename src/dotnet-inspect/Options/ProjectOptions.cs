@@ -22,6 +22,8 @@ public record ProjectOptions
 
     public bool Paths { get; init; }
 
+    public bool JsonArray { get; init; }
+
     public string? Tfm { get; init; }
 
     public PackageFileContentScope ContentScope { get; init; } = PackageFileContentScope.Full;
