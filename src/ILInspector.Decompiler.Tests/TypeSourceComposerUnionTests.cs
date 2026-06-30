@@ -780,6 +780,9 @@ public class TypeSourceComposerUnionTests
 
                 public static bool IsCatOrDog(Pet pet) => pet is Cat or Dog;
 
+                public static bool IsCatWithName(Pet pet) => pet is Cat { Name: "cat" };
+                public static bool IsCatWithOtherName(Pet pet) => pet is Cat { Name: not "dog" };
+
                 public static bool SideEffect() => true;
 
                 public static string GuardedOrSideEffect(Pet pet)
@@ -865,6 +868,10 @@ public class TypeSourceComposerUnionTests
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
         Assert.Equal("return pet is Cat || pet is Dog;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog"));
+        Assert.Equal("return pet is Cat { Name: \"cat\" };",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatWithName"));
+        Assert.Equal("return pet is Cat { Name: not \"dog\" };",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatWithOtherName"));
         var guardedOr = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedOrSideEffect");
         Assert.DoesNotContain("pet is Cat cat || SideEffect() ? \"cat\" : \"other\"", guardedOr);
         Assert.Contains("if (", guardedOr);

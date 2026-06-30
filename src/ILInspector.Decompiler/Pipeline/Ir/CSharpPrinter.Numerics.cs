@@ -1049,6 +1049,16 @@ public sealed partial class CSharpPrinter
 
     string ConditionalText(Conditional conditional, TypeRef? target)
     {
+        if (IsFalseConstant(conditional.WhenFalse)
+            && IsBooleanLike(conditional)
+            && IsBooleanLike(conditional.WhenTrue))
+        {
+            return Condition(new LogicalBinary(
+                LogicalKind.And,
+                (IrExpression)conditional.Condition.Clone(),
+                (IrExpression)conditional.WhenTrue.Clone()));
+        }
+
         // `?:` is right-associative, so a conditional in the condition position
         // reassociates without parentheses (`(a ? b : c) ? d : e` would reparse
         // as `a ? b : (c ? d : e)`). The arms render through Operand, which
@@ -1058,6 +1068,12 @@ public sealed partial class CSharpPrinter
             : Condition(conditional.Condition);
         return $"{condition} ? {ConditionalArm(conditional.WhenTrue, target)} : {ConditionalArm(conditional.WhenFalse, target)}";
     }
+
+    static bool IsFalseConstant(IrExpression expression)
+        => expression is Constant { Value: false } or Constant { Value: 0 };
+
+    static bool IsBooleanLike(IrExpression expression)
+        => expression.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary };
 
     string ConditionalArm(IrExpression arm, TypeRef? target)
         => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
