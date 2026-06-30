@@ -119,19 +119,27 @@ public static class TypeSourceComposer
         }
     }
 
-    sealed record UnionDeclarationInfo(IReadOnlyList<string> CaseTypes, HashSet<int> HiddenMethodTokens, string ValuePropertyName);
+    sealed record UnionDeclarationInfo(IReadOnlyList<string> CaseTypes, HashSet<int> HiddenMethodTokens);
 
     static string TypeDeclaration(ApiType type, UnionDeclarationInfo? union = null)
     {
         var sb = new StringBuilder("public ");
         if (union is not null)
         {
+            if (type.IsReadOnly) sb.Append("readonly ");
+            if (type.IsByRefLike) sb.Append("ref ");
             sb.Append("union ");
             sb.Append(DisplayName(type));
             sb.Append('(');
             sb.Append(string.Join(", ", union.CaseTypes.Select(caseType =>
                 EscapeKnownIdentifiers(Shorten(caseType), type.TypeParameters.Select(p => p.Name)))));
             sb.Append(')');
+            var unionBases = type.Interfaces
+                .Where(iface => !IsUnionInterface(iface))
+                .Select(iface => EscapeKnownIdentifiers(iface, type.TypeParameters.Select(p => p.Name)))
+                .ToList();
+            if (unionBases.Count > 0)
+                sb.Append($" : {string.Join(", ", unionBases)}");
             AppendTypeParameterConstraints(sb, type.TypeParameters);
             return sb.ToString();
         }
@@ -424,7 +432,7 @@ public static class TypeSourceComposer
 
     static bool IsHiddenUnionMember(ApiMember member, UnionDeclarationInfo union)
         => member.MetadataToken is { } token && union.HiddenMethodTokens.Contains(token)
-            || member.Kind == "property" && member.Name == union.ValuePropertyName;
+            || member.Kind == "property" && IsUnionValuePropertyName(member.Name);
 
     static UnionDeclarationInfo? TryUnionDeclaration(MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type)
     {
@@ -443,7 +451,8 @@ public static class TypeSourceComposer
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
-            if (reader.GetString(property.Name) != "Value")
+            string propertyName = reader.GetString(property.Name);
+            if (!IsUnionValuePropertyName(propertyName))
                 continue;
 
             if (property.GetAccessors().Getter.IsNil)
@@ -494,21 +503,38 @@ public static class TypeSourceComposer
         if (caseTypes.Count == 0)
             return null;
 
-        return new UnionDeclarationInfo(caseTypes, hiddenMethodTokens, "Value");
+        return new UnionDeclarationInfo(caseTypes, hiddenMethodTokens);
     }
 
     static bool IsUnionInterface(string interfaceName)
         => interfaceName is "System.Runtime.CompilerServices.IUnion" or "IUnion";
 
+    static bool IsUnionValuePropertyName(string propertyName)
+        => propertyName == "Value"
+            || propertyName.EndsWith(".Value", StringComparison.Ordinal);
+
     static void AddTypeNamespaces(SortedSet<string> namespaces, IEnumerable<string> typeNames)
     {
         foreach (var typeName in typeNames)
         {
-            int generic = typeName.IndexOf('<');
-            string head = generic >= 0 ? typeName[..generic] : typeName;
-            int lastDot = head.LastIndexOf('.');
-            if (lastDot > 0)
-                namespaces.Add(head[..lastDot]);
+            for (int i = 0; i < typeName.Length;)
+            {
+                if (!char.IsLetter(typeName[i]) && typeName[i] != '_')
+                {
+                    i++;
+                    continue;
+                }
+
+                int start = i++;
+                while (i < typeName.Length
+                    && (char.IsLetterOrDigit(typeName[i]) || typeName[i] is '_' or '.'))
+                    i++;
+
+                string token = typeName[start..i].TrimEnd('.');
+                int lastDot = token.LastIndexOf('.');
+                if (lastDot > 0)
+                    namespaces.Add(token[..lastDot]);
+            }
         }
     }
 

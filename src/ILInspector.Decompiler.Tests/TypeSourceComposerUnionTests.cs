@@ -24,19 +24,29 @@ public class TypeSourceComposerUnionTests
                 }
             }
 
+            namespace Other
+            {
+                public sealed class Bird { }
+            }
+
             namespace UnionFixtures
             {
+                using System;
+                using System.Collections.Generic;
+
                 public sealed class Cat { }
                 public sealed class Dog { }
 
                 [System.Runtime.CompilerServices.Union]
-                public struct Pet : System.Runtime.CompilerServices.IUnion
+                public readonly struct Pet : System.Runtime.CompilerServices.IUnion, IDisposable
                 {
                     public Pet(Cat value) => Value = value;
                     public Pet(Dog value) => Value = value;
+                    public Pet(List<Other.Bird> value) => Value = value;
 
                     public object? Value { get; }
 
+                    public void Dispose() { }
                     public string Describe() => Value?.ToString() ?? "";
                 }
             }
@@ -44,13 +54,16 @@ public class TypeSourceComposerUnionTests
 
         var source = ComposeType(assembly.Path, "UnionFixtures.Pet");
 
-        Assert.Contains("public union Pet(Cat, Dog)", source);
+        Assert.Contains("using Other;", source);
+        Assert.Contains("public readonly union Pet(Cat, Dog, List<Bird>) : IDisposable", source);
         Assert.DoesNotContain("[Union", source);
         Assert.DoesNotContain("public struct Pet", source);
         Assert.DoesNotContain("IUnion", source);
         Assert.DoesNotContain("public Pet(Cat value)", source);
         Assert.DoesNotContain("public Pet(Dog value)", source);
+        Assert.DoesNotContain("public Pet(List<Bird> value)", source);
         Assert.DoesNotContain("public object", source);
+        Assert.Contains("Dispose", source);
         Assert.Contains("Describe", source);
     }
 
