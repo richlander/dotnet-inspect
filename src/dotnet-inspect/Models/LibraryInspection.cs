@@ -217,6 +217,12 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
 
+    /// <summary>
+    /// Experimental resource-lifecycle correctness findings inferred from IL evidence.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LeakTriageSummary>? LeakTriage { get; set; }
+
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
 
@@ -574,6 +580,21 @@ public record class OptimizationOpportunitySummary
     public string Fix { get; init; } = "";
     public string Confidence { get; init; } = "";
     public string Loop { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IL { get; init; }
+}
+
+/// <summary>
+/// Experimental resource-lifecycle correctness finding inferred from IL evidence.
+/// </summary>
+public record class LeakTriageSummary
+{
+    public string Member { get; init; } = "";
+    public string Shape { get; init; } = "";
+    public string Evidence { get; init; } = "";
+    public string Severity { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RentIL { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IL { get; init; }
 }

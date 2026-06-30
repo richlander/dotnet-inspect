@@ -27,6 +27,7 @@ public static class LibrarySections
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
+    public const string ScannerLeakTriage = "LeakTriage";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -62,6 +63,7 @@ public static class LibrarySections
             .Add<UnsafeMembers>()
             .Add<TopLeverage>()
             .Add<OptimizationOpportunities>()
+            .Add<LeakTriage>()
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
             .Add<Resources>()
@@ -106,6 +108,8 @@ public static class LibrarySections
             .Add(ScannerOptimizationOpportunities, ctx =>
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
                     ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
+            .Add(ScannerLeakTriage, ctx =>
+                ctx.Model.LeakTriage = LibraryMetadataService.ScanLeakTriage(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
@@ -426,6 +430,16 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => model.OptimizationOpportunities is { Count: > 0 } || model.HasMethodBodies;
+    }
+
+    public sealed class LeakTriage : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.LeakTriage;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerLeakTriage;
+        public static bool CanRender(LibraryInspection model)
+            => model.LeakTriage is { Count: > 0 } || model.HasMethodBodies;
     }
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>

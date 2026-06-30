@@ -748,6 +748,37 @@ internal static class LibraryMetadataService
         }
     }
 
+    /// <summary>
+    /// Collects experimental resource-lifecycle correctness findings across the assembly.
+    /// </summary>
+    internal static List<LeakTriageSummary>? ScanLeakTriage(string path, VerboseLogger logger)
+    {
+        try
+        {
+            var rows = Analysis.LeakTriageAnalyzer.AnalyzeAssembly(path)
+                .OrderBy(finding => finding.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
+                .ThenBy(finding => finding.Method.Name, StringComparer.Ordinal)
+                .ThenBy(finding => finding.ILOffset ?? finding.RentOffset)
+                .ThenBy(finding => finding.Shape, StringComparer.Ordinal)
+                .Select(finding => new LeakTriageSummary
+                {
+                    Member = FormatMethod(finding.Method),
+                    Shape = finding.Shape,
+                    Evidence = finding.Evidence,
+                    Severity = finding.Severity,
+                    RentIL = $"IL_{finding.RentOffset:X4}",
+                    IL = finding.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
+                })
+                .ToList();
+            return rows.Count > 0 ? rows : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning leak triage in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
     // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
     // allocations lead, then by confidence, then by call-graph leverage (root reach),
     // then a stable structural tie-break. This is distinct from Top Leverage, which ranks

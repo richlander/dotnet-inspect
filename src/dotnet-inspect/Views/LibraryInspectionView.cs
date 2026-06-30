@@ -619,6 +619,20 @@ public class LibraryInspectionView
                 o.IL is null ? null : MarkoutInline.Code(o.IL)))
             .ToList();
 
+    public bool HasLeakTriage => _data.LeakTriage is { Count: > 0 };
+
+    [MarkoutSection(Name = "Leak Triage", ShowWhenProperty = nameof(HasLeakTriage))]
+    public List<LeakTriageRow>? LeakTriageSection =>
+        _data.LeakTriage?
+            .Select(f => new LeakTriageRow(
+                MarkoutInline.Code(f.Member),
+                f.Shape,
+                f.Evidence,
+                f.Severity,
+                f.RentIL is null ? null : MarkoutInline.Code(f.RentIL),
+                f.IL is null ? null : MarkoutInline.Code(f.IL)))
+            .ToList();
+
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
@@ -820,6 +834,19 @@ public record IntegrationOpportunityRow(
 public record IntegrationSignalRow(
     string Kind,
     string Type);
+
+[MarkoutSerializable]
+public record LeakTriageRow(
+    string Member,
+    string Shape,
+    string Evidence,
+    string Severity,
+    [property: MarkoutPropertyName("Rent IL")]
+    [property: MarkoutSkipNull]
+    string? RentIL,
+    [property: MarkoutPropertyName("IL")]
+    [property: MarkoutSkipNull]
+    string? IL);
 
 [MarkoutSerializable]
 public record IntegrationApiSignalRow(

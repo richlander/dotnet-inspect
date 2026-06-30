@@ -133,6 +133,9 @@ public static class SectionNames
     /// <summary>Section for safe, local optimization opportunities inferred from IL/body evidence.</summary>
     public const string PerformanceTriage = "Performance Triage";
 
+    /// <summary>Experimental section for resource-lifecycle correctness findings.</summary>
+    public const string LeakTriage = "Leak Triage";
+
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";
 
