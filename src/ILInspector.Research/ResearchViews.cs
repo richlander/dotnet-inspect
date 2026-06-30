@@ -192,11 +192,8 @@ public static class ResearchViews
         if (facts.Count == 0)
             return output;
         var lines = output.Replace("\r\n", "\n").Split('\n').ToList();
-        int headerLine = lines.FindIndex(line => line.Contains('(') && !line.TrimStart().StartsWith("//", StringComparison.Ordinal));
-        if (headerLine < 0)
-            headerLine = 0;
         var annotations = facts.Select(fact => new Annotation(fact.Descriptor, SourceOffset: -1, fact.Detail)).ToArray();
-        lines.Insert(headerLine, $"// {AnnotationText.Format(annotations)}");
+        lines.Insert(0, $"// {AnnotationText.Format(annotations)}");
         return string.Join(Environment.NewLine, lines);
     }
 

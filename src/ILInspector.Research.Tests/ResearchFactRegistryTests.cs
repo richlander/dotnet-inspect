@@ -96,6 +96,21 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void CostOverlay_RendersMethodHeaderLeverageBeforeBodyStatements()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.AllocInLoopCallee)).Output;
+
+        Assert.NotNull(overlay);
+        Assert.StartsWith("// cost.method(", overlay);
+        Assert.True(
+            overlay.IndexOf("// cost.method(", StringComparison.Ordinal) < overlay.IndexOf("int total = 0;", StringComparison.Ordinal),
+            overlay);
+    }
+
+    [Fact]
     public void AnnotatedSource_DoesNotIncludeCostOverlayByDefault()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);

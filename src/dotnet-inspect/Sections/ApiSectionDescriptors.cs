@@ -97,7 +97,6 @@ public static class ApiMemberSectionDescriptors
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
-            .Add<CostOverlay>()
             .Add<ILBody>()
             .Add<Facts>()
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);

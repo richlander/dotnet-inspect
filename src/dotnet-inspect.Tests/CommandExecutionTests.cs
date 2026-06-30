@@ -2354,6 +2354,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Discovery_DoesNotListCostOverlay()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath, "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Cost Overlay", output);
+    }
+
+    [Fact]
     public async Task Member_Facts_IsExplicitOnly_NotShownAtDetailed()
     {
         var options = new MemberOptions
