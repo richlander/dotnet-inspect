@@ -168,6 +168,33 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void SemanticsOverlay_SuppressesArgumentValidationOnlyCallee()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderSemanticsOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsArgumentValidationOnlyCallee)).Output;
+
+        Assert.Contains("ArgumentValidationOnlyCallee", overlay);
+        Assert.DoesNotContain("semantics.callee", overlay);
+        Assert.DoesNotContain("ArgumentNullException", overlay);
+    }
+
+    [Fact]
+    public void SemanticsOverlay_PrefersDomainExceptionOverArgumentValidation()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderSemanticsOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsMixedExceptionCallee)).Output;
+
+        Assert.Contains("MixedExceptionCallee", overlay);
+        Assert.Contains("semantics.callee", overlay);
+        Assert.Contains("may-throw FormatException", overlay);
+        Assert.DoesNotContain("ArgumentNullException", overlay);
+    }
+
+    [Fact]
     public void SemanticsOverlay_AnnotatesUnsafeCalleeAtCallSite()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
@@ -228,6 +255,24 @@ public static class ResearchFixture
 
     public static int ExceptionOnlyCallee(string value)
     {
+        if (value.Length == 0)
+            throw new FormatException();
+        return value.Length;
+    }
+
+    public static int CallsArgumentValidationOnlyCallee(string? value) => ArgumentValidationOnlyCallee(value);
+
+    public static int ArgumentValidationOnlyCallee(string? value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return value.Length;
+    }
+
+    public static int CallsMixedExceptionCallee(string? value) => MixedExceptionCallee(value);
+
+    public static int MixedExceptionCallee(string? value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
         if (value.Length == 0)
             throw new FormatException();
         return value.Length;

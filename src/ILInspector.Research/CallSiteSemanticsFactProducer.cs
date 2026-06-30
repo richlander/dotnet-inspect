@@ -29,8 +29,9 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
                 continue;
 
             var signals = assembly.Signals.GetValueOrDefault(calleeToken, MethodSignals.None);
-            if (!signals.ExceptionTypes.IsEmpty)
-                facts.Add(new Annotation(CalleeSemantics, call.ILOffset, ExceptionDetail(signals)));
+            var exceptionTypes = DomainExceptionTypes(signals);
+            if (exceptionTypes.Count > 0)
+                facts.Add(new Annotation(CalleeSemantics, call.ILOffset, ExceptionDetail(exceptionTypes)));
 
             var unsafeDetail = UnsafeDetail(assembly.Index.UnsafeEvidence, calleeToken);
             if (unsafeDetail is not null)
@@ -44,8 +45,14 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
             ? call.CalleeDefinitionToken
             : 0;
 
-    static string ExceptionDetail(MethodSignals signals)
-        => $"may-throw {string.Join("/", signals.ExceptionTypes.Take(2))}";
+    static IReadOnlyList<string> DomainExceptionTypes(MethodSignals signals)
+        => [.. signals.ExceptionTypes.Where(type => !IsArgumentValidationException(type)).Take(2)];
+
+    static bool IsArgumentValidationException(string type)
+        => type is "ArgumentException" or "ArgumentNullException" or "ArgumentOutOfRangeException";
+
+    static string ExceptionDetail(IReadOnlyList<string> exceptionTypes)
+        => $"may-throw {string.Join("/", exceptionTypes)}";
 
     static string? UnsafeDetail(IReadOnlyList<UnsafeEvidence> evidence, int token)
     {
