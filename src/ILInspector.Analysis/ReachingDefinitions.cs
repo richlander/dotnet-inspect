@@ -51,8 +51,21 @@ public static class ReachingDefinitions
             return new ReachingDefinitionsResult([], [], exceptionRegions.Count == 0,
                 exceptionRegions.Count == 0 ? null : "Exception-handler regions reference empty IL.");
 
-        var instructions = InstructionDecoder.Decode(il);
-        var blockGraph = BlockGraph.Build(il.Length, instructions, exceptionRegions);
+        ImmutableArray<DecodedInstruction> instructions;
+        BlockGraph blockGraph;
+        try
+        {
+            instructions = InstructionDecoder.Decode(il);
+            blockGraph = BlockGraph.Build(il.Length, instructions, exceptionRegions);
+        }
+        catch (InvalidProgramException ex)
+        {
+            // Preserve RD's malformed-IL contract. The substrate's runtime-ported ILReader throws
+            // InvalidProgramException on a truncated read (opcode / branch operand / switch count),
+            // but RD — and its callers' recoverable-failure filters — expect BadImageFormatException.
+            throw new BadImageFormatException(ex.Message, ex);
+        }
+
         var blocks = blockGraph.Blocks;
         var incompleteReason = blockGraph.IncompleteReason;
         var definitions = ImmutableArray.CreateBuilder<LocalDefinition>();
