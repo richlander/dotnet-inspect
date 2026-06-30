@@ -451,6 +451,14 @@ public class TypeSourceComposerUnionTests
                     _ => "other",
                 };
 
+                public static string GuardedValueEqualsDefault(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => "other",
+                    Cat => "z",
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
+
                 public static string Inverted(Pet pet) => pet switch
                 {
                     Cat { Age: <= 3 } => "young",
@@ -500,6 +508,14 @@ public class TypeSourceComposerUnionTests
                 _ => "other",
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "DefaultedBound"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when !(cat.Name == "cat") => "z",
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedValueEqualsDefault"));
         Assert.Equal("""
             return pet switch
             {

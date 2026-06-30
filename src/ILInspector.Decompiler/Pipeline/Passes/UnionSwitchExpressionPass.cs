@@ -203,7 +203,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             {
                 return BuildArms(patternType, localIndex, patternRoots,
                 [
-                    new ArmBody(fallbackValue, Conditions.Negate((IrExpression)guard.Clone()), [guard], ReferencesLocal(fallbackValue, localIndex)),
+                    new ArmBody(fallbackValue, Conditions.Negate((IrExpression)guard.Clone()), [guard], KeepsLocal: true),
                 ]);
             }
         }
@@ -684,7 +684,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
             if (PlaceIdentity.SameOperand(guardedValue, defaultValue))
             {
-                arms = [new ArmBody(fallbackValue, Conditions.Negate((IrExpression)guardIf.Condition.Clone()), [guardIf.Condition], KeepsLocal: localIndex is { } local && ReferencesLocal(fallbackValue, local))];
+                arms = [new ArmBody(fallbackValue, Conditions.Negate((IrExpression)guardIf.Condition.Clone()), [guardIf.Condition], KeepsLocal: localIndex is not null)];
                 return true;
             }
 
