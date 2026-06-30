@@ -31,17 +31,22 @@ dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations"
 
 `-S "Original Source"` returns the original source body when SourceLink can
 resolve it (also part of the `-S @Source` bundle alongside the decompiled and IL
-views).
+views). Use `--print` to fetch the source body behind one printable SourceLink
+row; add `--row N` when the selected section has multiple printable rows.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source"
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all --jsonl
 ```
 
 ## URL forms
 
-PDBs *carry* SourceLink data; they are not SourceLink themselves. SourceLink URLs
-default to raw/fetchable form; add `--blob` for browser URLs. Use `--bare` to
-extract a clean URL list for scripting.
+PDBs *carry* SourceLink data; they are not SourceLink themselves. SourceLink URL
+rows default to raw/fetchable form; add `--blob` for browser URLs. Use `--bare`
+to extract a clean URL list for scripting; use `--print` when you want the
+referenced source body.
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --bare

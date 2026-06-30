@@ -26,7 +26,7 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--json` — structured documents.
 - `--bare` — one undecorated payload or URL list.
 - `--count` — a bare row count.
-- `--print` — print one document behind a selected section row; use `-n N` or numeric shorthand like `-2` when multiple printable rows exist.
+- `--print` — print one document behind a selected printable row; use `--row N` when multiple printable rows exist.
 - `--print-all` — print every printable row from one selected section, with text separators or one JSON object per row under `--jsonl`.
 - `--mermaid` — graph-shaped output.
 
@@ -53,7 +53,7 @@ Prefer built-in limits to shell pipes:
 - `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
 - `--tail N` shows the end, like `tail`.
 - `--rows` makes `-n` cap Markdown table data rows instead of output lines.
-- With `--print`, `-n N` chooses the Nth printable row instead of limiting output lines.
+- With `--print`, `--row N` chooses the Nth printable row; `-n N` still limits printed document lines.
 - `--count` counts rows in one selected table.
 
 Command-specific caps: `-t N` for type/find rows, `-m N` for members, and
