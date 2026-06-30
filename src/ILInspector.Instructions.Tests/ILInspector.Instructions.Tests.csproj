@@ -21,7 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
-    <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
   </ItemGroup>
 
 </Project>
