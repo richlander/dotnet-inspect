@@ -69,7 +69,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         var body = nullGuard.Then.Children;
-        if (body.Count < 2
+        if (body.Count is not (2 or 3)
             || body[0] is not StoreLocal { Value: LoadProperty unionValue } valueStore
             || !IsUnionValueProperty(function, unionValue)
             || !PlaceIdentity.SameVariable(unionValue.Instance, nullGuard.Condition))
@@ -251,15 +251,17 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         firstExtraUse = null;
         if (body[1] is StoreLocal { Value: IsInstance firstAs } firstStore)
         {
-                if (!IsTempTypeTest(firstAs, tempLocal)
-                    || body[2] is not IfStatement { HasElse: true } withLocalIf
-                    || !IsNotLocal(withLocalIf.Condition, firstStore.Index)
-                    || withLocalIf.Else is not { } elseArm
-                    || !TryStoreReturn(elseArm.Children, 0, out int firstResultLocal, out var firstValue)
-                    || firstResultLocal != resultLocal)
-                {
-                    return false;
-                }
+            if (!IsTempTypeTest(firstAs, tempLocal)
+                || body.Count != 3
+                || body[2] is not IfStatement { HasElse: true } withLocalIf
+                || !IsNotLocal(withLocalIf.Condition, firstStore.Index)
+                || withLocalIf.Else is not { } elseArm
+                || elseArm.Children.Count != 2
+                || !TryStoreReturn(elseArm.Children, 0, out int firstResultLocal, out var firstValue)
+                || firstResultLocal != resultLocal)
+            {
+                return false;
+            }
 
                 firstIf = withLocalIf;
                 firstArm = new Arm(firstAs.Type, firstStore.Index, firstValue, [firstStore, withLocalIf.Condition, firstValue]);
@@ -271,6 +273,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 && noLocalIf.Condition is LogicalNot { Operand: IsInstance firstTest }
                 && IsTempTypeTest(firstTest, tempLocal)
                 && noLocalIf.Else is { } noLocalElse
+                && noLocalElse.Children.Count == 2
                 && TryStoreReturn(noLocalElse.Children, 0, out int noLocalResultLocal, out var noLocalValue)
                 && noLocalResultLocal == resultLocal)
         {
