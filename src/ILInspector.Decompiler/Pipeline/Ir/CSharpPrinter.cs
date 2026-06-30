@@ -2381,7 +2381,7 @@ public sealed partial class CSharpPrinter
         var subpatterns = new List<(string PropertyName, string Subpattern)>();
         foreach (var conjunct in rest)
         {
-            if (!TryPropertySubpattern(conjunct, pattern.LocalIndex, out var propertyName, out var subpattern))
+            if (!TryPropertySubpattern(conjunct, pattern.LocalIndex, allowStringEquality: !pattern.PreserveLocalInPropertyPattern, out var propertyName, out var subpattern))
                 return null;
             subpatterns.Add((propertyName, subpattern));
         }
@@ -2414,13 +2414,42 @@ public sealed partial class CSharpPrinter
     /// (<c>{ P: &gt; 5 }</c>). Floats are excluded: their unordered (NaN)
     /// comparison semantics are not reproduced by a relational pattern.
     /// </summary>
-    static bool TryPropertySubpattern(IrExpression expression, int patternLocal, out string propertyName, out string subpattern)
+    static bool TryPropertySubpattern(IrExpression expression, int patternLocal, bool allowStringEquality, out string propertyName, out string subpattern)
     {
         propertyName = "";
         subpattern = "";
 
         if (expression is not Comparison comparison)
+        {
+            if (expression is LogicalNot { Operand: Call negatedCall }
+                && allowStringEquality
+                && MemberIdentity.IsStringEquality(negatedCall)
+                && negatedCall.Arguments is [var negatedLeft, var negatedRight]
+                && TryPropertyConstant(negatedLeft, negatedRight, patternLocal, out propertyName, out var negatedConstant))
+            {
+                subpattern = $"not {ConstantText(negatedConstant)}";
+                return true;
+            }
+            if (expression is Call call
+                && allowStringEquality
+                && MemberIdentity.IsStringEquality(call)
+                && call.Arguments is [var left, var right]
+                && TryPropertyConstant(left, right, patternLocal, out propertyName, out var stringConstant))
+            {
+                subpattern = ConstantText(stringConstant);
+                return true;
+            }
+            if (expression is Call inequalityCall
+                && allowStringEquality
+                && MemberIdentity.IsStringInequality(inequalityCall)
+                && inequalityCall.Arguments is [var inequalityLeft, var inequalityRight]
+                && TryPropertyConstant(inequalityLeft, inequalityRight, patternLocal, out propertyName, out var notConstant))
+            {
+                subpattern = $"not {ConstantText(notConstant)}";
+                return true;
+            }
             return false;
+        }
 
         // Orient the comparison so the property is the left operand; mirror the
         // kind when the constant leads (`5 < t.P` reads as `t.P > 5`).
@@ -2467,6 +2496,32 @@ public sealed partial class CSharpPrinter
 
         subpattern = $"{relationalOperator} {ConstantText(constant)}";
         return true;
+    }
+
+    static bool TryPropertyConstant(
+        IrExpression left,
+        IrExpression right,
+        int patternLocal,
+        out string propertyName,
+        out Constant constant)
+    {
+        if (left is LoadProperty leftProperty && IsPatternLocalProperty(leftProperty, patternLocal) && right is Constant rightConstant)
+        {
+            propertyName = leftProperty.PropertyName;
+            constant = rightConstant;
+            return true;
+        }
+
+        if (right is LoadProperty rightProperty && IsPatternLocalProperty(rightProperty, patternLocal) && left is Constant leftConstant)
+        {
+            propertyName = rightProperty.PropertyName;
+            constant = leftConstant;
+            return true;
+        }
+
+        propertyName = "";
+        constant = null!;
+        return false;
     }
 
     static bool IsPatternLocalProperty(LoadProperty property, int patternLocal)
