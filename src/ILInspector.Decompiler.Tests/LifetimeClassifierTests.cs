@@ -4,7 +4,7 @@ using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
-public class LifetimeOccurrenceFactTests
+public class LifetimeClassifierTests
 {
     static IReadOnlyList<Annotation> Classify(string methodName)
     {

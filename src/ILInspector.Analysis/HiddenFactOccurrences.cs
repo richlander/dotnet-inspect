@@ -12,18 +12,3 @@ public sealed record UnsafetyOccurrence(
     int ILOffset,
     UnsafetyKind Kind,
     string? Detail);
-
-public enum LifetimeKind
-{
-    RefReturn,
-    StackBound,
-    RefStructReturn,
-    PointerReturn,
-    StackEscape,
-}
-
-public sealed record LifetimeOccurrence(
-    MethodIdentity Method,
-    int ILOffset,
-    LifetimeKind Kind,
-    string? Detail);
