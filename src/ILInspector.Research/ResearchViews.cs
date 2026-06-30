@@ -41,10 +41,15 @@ public static class ResearchViews
     {
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-        var facts = CollectFacts(source, imported, registry);
+        ResearchAssemblyContext? assembly = imported.AssemblyPath is { Length: > 0 } path
+            ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
+            : null;
+        var context = new ResearchFactContext(source, imported, assembly);
+        var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
+        var facts = effectiveRegistry.Collect(context);
         var linesByFact = CSharpLinesByFact(imported, facts);
         string member = $"{type}::{method}";
-        return [.. facts.Select(fact => new FactRow(
+        var rows = facts.Select(fact => new FactRow(
             member,
             fact.SourceOffset >= 0 ? fact.SourceOffset : null,
             linesByFact.TryGetValue(fact, out int line) ? line + 1 : null,
@@ -52,7 +57,18 @@ public static class ResearchViews
             fact.Descriptor.Category.ToString(),
             fact.Descriptor.Id,
             fact.Detail,
-            fact.Conditionality.ToString()))];
+            fact.Conditionality.ToString()));
+        var headerRows = effectiveRegistry.CollectHeaderFacts(context)
+            .Select(fact => new FactRow(
+                member,
+                ILOffset: null,
+                CSharpLine: null,
+                Anchor: "member-header",
+                fact.Descriptor.Category.ToString(),
+                fact.Descriptor.Id,
+                fact.Detail,
+                Conditionality: "Always"));
+        return [.. rows.Concat(headerRows)];
     }
 
     public static DecompilerResult RenderCostOverlay(
