@@ -50,8 +50,12 @@ public static class ProjectCommandDefinitions
         projectCommand.Options.Add(bodyOption);
         projectCommand.Options.Add(outOption);
         projectCommand.Options.Add(opts.Json);
+        projectCommand.Options.Add(opts.Bare);
         opts.AddTableOptionsTo(projectCommand);
         opts.AddOutputOptionsTo(projectCommand);
+        opts.AddSectionOptionsTo(projectCommand);
+        opts.AddCountOptionTo(projectCommand);
+        opts.AddPrintOptionTo(projectCommand);
         opts.AddNuGetOptionsTo(projectCommand);
 
         projectCommand.SetAction(async (parseResult, ct) =>
@@ -69,6 +73,7 @@ public static class ProjectCommandDefinitions
                 ProjectPath = parseResult.GetValue(pathArg) ?? ".",
                 AgentsIndex = parseResult.GetValue(agentsIndexOption),
                 ReadmePackageId = parseResult.GetValue(readmeOption),
+                Print = parseResult.GetValue(opts.Print),
                 Tfm = parseResult.GetValue(tfmOption),
                 ContentScope = contentScope,
                 FrontmatterRequested = frontmatterRequested,
@@ -79,6 +84,14 @@ public static class ProjectCommandDefinitions
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
+                Bare = parseResult.GetValue(opts.Bare),
+                Discover = opts.ParseDiscover(parseResult),
+                Tree = opts.ParseTree(parseResult),
+                Schema = opts.ParseSchema(parseResult),
+                Select = opts.ParseSelect(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
+                Count = parseResult.GetValue(opts.Count),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
