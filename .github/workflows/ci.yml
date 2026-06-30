@@ -12,8 +12,10 @@ env:
 
 # Cancel superseded PR runs (e.g. when an agent pushes again to the same branch)
 # so only the latest commit of a PR consumes a full CI run. Pushes to main are
-# NOT cancelled: release.yml publishes from a main-push CI run's package
-# artifacts, so those runs must always complete.
+# not cancelled, but they only run the lightweight changes/markdownlint legs
+# (test/pack/pack-rid are PR-only), so there is little to cancel. release.yml
+# builds all release packages fresh at publish time and does not consume CI
+# artifacts.
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -80,8 +82,9 @@ jobs:
             # itself. Test/harness csproj changes and unrelated workflow edits
             # don't affect the package, so they must not trip this. Most PRs
             # (e.g. decompiler raises) touch none of these, keeping pack off the
-            # hot PR path. On push to main, pack still runs (see job `if`s) to
-            # produce the artifacts release.yml publishes.
+            # hot PR path. pack/pack-rid are a PR-only packaging smoke test and
+            # never produce release artifacts: release.yml builds all packages
+            # fresh at publish time from the resolved commit SHA.
             case "$file" in
               src/dotnet-inspect/dotnet-inspect.csproj) PACKAGING=true ;;
               Directory.Build.props|Directory.Build.targets|Directory.Packages.props) PACKAGING=true ;;

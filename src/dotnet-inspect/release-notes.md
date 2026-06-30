@@ -1,5 +1,50 @@
 # Release Notes
 
+## v0.16.0
+
+### Research overlay and performance analysis (experimental)
+
+- Adds the `ILInspector.Research` overlay layer over Analysis and the
+  Decompiler, with explicit `Cost` and `Semantics` overlay sections and a
+  structured `Facts` table (#1920, #1934, #1932, #1927).
+- Builds a shared `ControlFlow` dataflow fixpoint and reaching-definitions
+  pass, then uses them to gate allocation triage: local-array and span
+  `ToArray` copies are now promoted only when the value actually escapes,
+  cutting false positives (#1880, #1896, #1905, #1903, #1907).
+- Converges allocation and unsafety facts on the Analysis occurrences and
+  adds an allocation-parity regression gate (#1910, #1918, #1909).
+- Adds Rung 7 `Performance Triage` shapes: `async-state-machine` (reported as
+  amortized off-loop) and `materialize-in-loop` (loop-invariant
+  `ToArray`/`ToList`), plus nested-type triage drilldown (#1948, #1889).
+
+### Output and projections
+
+- Adds JSON array projection output and scalar URL/path shape projections,
+  generalizes print row projection, and aligns library value projection with
+  rendered fields (#1955, #1950, #1935, #1963, #1928).
+
+### Decompiler fidelity and unions (experimental)
+
+- Raises discriminated-union switch and declaration-pattern shapes
+  (declaration rendering, value-type tests, two-arm/three-case/guarded switch
+  expressions, else arms) (#1915, #1925, #1933, #1936, #1942, #1946, #1951,
+  #1957, #1962).
+- Improves fidelity skeletons: struct auto-properties and object overrides,
+  extension methods, `in`/`out` parameters, constructor auto-property
+  initializers, and ref-local/ref-slot declaration accuracy (#1947, #1937,
+  #1945, #1943, #1929, #1906, #1919, #1911, #1901).
+- Hardens fidelity-check infrastructure: zero-signal guard, phase timings,
+  NuGet dependency resolution, and corpus-metadata-driven targeted checks
+  (#1894, #1895, #1890, #1898, #1953).
+
+### Docs and skills
+
+- Documents the Research overlay architecture and refreshes performance,
+  query, and projection skill guidance (#1927, #1958, #1956, #1940, #1952).
+- Corrects stale `ci.yml` comments that described the old release-artifact
+  model; `release.yml` builds every package fresh at publish time and CI
+  never produces release artifacts (#1699).
+
 ## v0.14.0
 
 ### Grounding and skill workflow
