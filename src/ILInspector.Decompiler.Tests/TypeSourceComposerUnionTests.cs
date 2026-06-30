@@ -377,6 +377,56 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task ClassUnionSwitchExpression_RendersTypePatternArms()
+    {
+        using var assembly = await CompileWithSdk("""
+            using System.Runtime.CompilerServices;
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+
+            [Union]
+            public sealed class Pet : IUnion
+            {
+                public Pet(Cat value) => Value = value;
+                public Pet(Dog value) => Value = value;
+                public object? Value { get; }
+            }
+
+            public static class Matcher
+            {
+                public static string Describe(Pet pet) => pet switch
+                {
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                };
+
+                public static int Kind(Pet pet) => pet switch
+                {
+                    Cat => 1,
+                    Dog => 2,
+                };
+            }
+            """);
+
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat => 1,
+                Dog => 2,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Kind"));
+    }
+
+    [Fact]
     public void NonUnionValuePropertyTypeTest_KeepsValueAccess()
     {
         using var assembly = Compile("""

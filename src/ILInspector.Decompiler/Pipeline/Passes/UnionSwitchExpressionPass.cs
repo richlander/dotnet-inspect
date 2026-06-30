@@ -34,6 +34,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var children = block.Children;
         for (int start = 0; start < children.Count; start++)
         {
+            if (TryMatchClassNullGuardAt(function, children, start, out var guardedSwitch))
+            {
+                match = new Match(start, guardedSwitch);
+                return true;
+            }
+
             if (TryMatchAt(function, children, start, out var switchExpression))
             {
                 match = new Match(start, switchExpression);
@@ -42,6 +48,43 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchClassNullGuardAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 3 != children.Count
+            || children[start] is not IfStatement { HasElse: false } nullGuard
+            || children[start + 1] is not ExpressionStatement throwStatement
+            || children[start + 2] is not Return throwReturn
+            || !IsThrowSwitchExpression(throwStatement)
+            || !ThrowArgumentMatches(throwStatement, nullGuard.Condition)
+            || !ReturnsLocal(throwReturn, out int resultLocal))
+        {
+            return false;
+        }
+
+        var body = nullGuard.Then.Children;
+        if (body.Count < 2
+            || body[0] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsUnionValueProperty(function, unionValue)
+            || !PlaceIdentity.SameVariable(unionValue.Instance, nullGuard.Condition))
+        {
+            return false;
+        }
+
+        int tempLocal = valueStore.Index;
+        if (!TryFirstArmWithElse(body, tempLocal, resultLocal, out var firstIf, out var firstArm, out var firstExtraUse))
+            return false;
+
+        var allowedTempUses = firstExtraUse is null
+            ? (IReadOnlyList<IrNode>)[valueStore, firstIf]
+            : [valueStore, firstExtraUse, firstIf];
+        return TryBuildSwitch(function, unionValue, tempLocal, resultLocal, firstIf.Then.Children, firstArm, allowedTempUses, out switchExpression);
     }
 
     static bool TryMatchAt(
@@ -110,8 +153,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             || firstIf.Then.Children[^2] is not ExpressionStatement throwStatement
             || firstIf.Then.Children[^1] is not Return throwReturn
             || !IsThrowSwitchExpression(throwStatement)
-            || !ReturnsLocal(throwReturn, resultLocal)
-            || !TryInnerArms(firstIf.Then.Children.Take(firstIf.Then.Children.Count - 2), tempLocal, resultLocal, out var innerArms))
+            || !ReturnsLocal(throwReturn, resultLocal))
         {
             return false;
         }
@@ -120,6 +162,23 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var allowedTempUses = extraTempUse is null
             ? (IReadOnlyList<IrNode>)[unionValue.Parent!, firstIf]
             : [unionValue.Parent!, extraTempUse, firstIf];
+        return TryBuildSwitch(function, unionValue, tempLocal, resultLocal, firstIf.Then.Children.Take(firstIf.Then.Children.Count - 2), firstArm, allowedTempUses, out switchExpression);
+    }
+
+    static bool TryBuildSwitch(
+        IrFunction function,
+        LoadProperty unionValue,
+        int tempLocal,
+        int resultLocal,
+        IEnumerable<IrNode> innerArmNodes,
+        Arm firstArm,
+        IReadOnlyList<IrNode> allowedTempUses,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (!TryInnerArms(innerArmNodes, tempLocal, resultLocal, out var innerArms))
+            return false;
+
         if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, allowedTempUses)
             || !ArmLocalReferencesAreOwned(function, firstArm)
             || innerArms.Any(arm => !ArmLocalReferencesAreOwned(function, arm)))
@@ -179,6 +238,50 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
     }
 
+    static bool TryFirstArmWithElse(
+        IReadOnlyList<IrNode> body,
+        int tempLocal,
+        int resultLocal,
+        out IfStatement firstIf,
+        out Arm firstArm,
+        out IrNode? firstExtraUse)
+    {
+        firstIf = null!;
+        firstArm = null!;
+        firstExtraUse = null;
+        if (body[1] is StoreLocal { Value: IsInstance firstAs } firstStore)
+        {
+                if (!IsTempTypeTest(firstAs, tempLocal)
+                    || body[2] is not IfStatement { HasElse: true } withLocalIf
+                    || !IsNotLocal(withLocalIf.Condition, firstStore.Index)
+                    || withLocalIf.Else is not { } elseArm
+                    || !TryStoreReturn(elseArm.Children, 0, out int firstResultLocal, out var firstValue)
+                    || firstResultLocal != resultLocal)
+                {
+                    return false;
+                }
+
+                firstIf = withLocalIf;
+                firstArm = new Arm(firstAs.Type, firstStore.Index, firstValue, [firstStore, withLocalIf.Condition, firstValue]);
+                firstExtraUse = firstStore;
+                return true;
+        }
+
+        if (body[1] is IfStatement { HasElse: true } noLocalIf
+                && noLocalIf.Condition is LogicalNot { Operand: IsInstance firstTest }
+                && IsTempTypeTest(firstTest, tempLocal)
+                && noLocalIf.Else is { } noLocalElse
+                && TryStoreReturn(noLocalElse.Children, 0, out int noLocalResultLocal, out var noLocalValue)
+                && noLocalResultLocal == resultLocal)
+        {
+                firstIf = noLocalIf;
+                firstArm = new Arm(firstTest.Type, LocalIndex: null, noLocalValue, []);
+                return true;
+        }
+
+        return false;
+    }
+
     static bool TryStoreReturn(IReadOnlyList<IrNode> nodes, int index, out int local, out IrExpression value)
     {
         local = -1;
@@ -198,6 +301,18 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
     static bool ReturnsLocal(Return ret, int local)
         => ret.Value is LoadLocal load && load.Index == local;
+
+    static bool ReturnsLocal(Return ret, out int local)
+    {
+        if (ret.Value is LoadLocal load)
+        {
+            local = load.Index;
+            return true;
+        }
+
+        local = -1;
+        return false;
+    }
 
     static bool IsNotLocal(IrExpression expression, int local)
         => expression is LogicalNot { Operand: LoadLocal load } && load.Index == local;
@@ -221,6 +336,10 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 DeclaringType.Name: "<PrivateImplementationDetails>",
             },
         };
+
+    static bool ThrowArgumentMatches(ExpressionStatement statement, IrExpression receiver)
+        => statement.Expression is Call { Arguments: [var argument] }
+        && PlaceIdentity.SameVariable(argument, receiver);
 
     static bool IsUnionValueProperty(IrFunction function, LoadProperty property)
         => property.PropertyName == "Value"
