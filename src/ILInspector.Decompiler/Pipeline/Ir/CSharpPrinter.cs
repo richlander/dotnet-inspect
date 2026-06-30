@@ -298,6 +298,9 @@ public sealed partial class CSharpPrinter
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<RecursivePropertyDeclarationPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
+        foreach (var arm in DescendantsOutsideNestedFunctions(function).OfType<UnionSwitchExpressionArm>())
+            if (arm.LocalIndex is { } localIndex)
+                _isPatternLocals.Add(localIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
             foreach (var target in deconstruction.Targets)
                 if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
@@ -1180,6 +1183,16 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("};");
             return;
         }
+        if (node is Return { Value: UnionSwitchExpression unionSwitch })
+        {
+            string inner = pad + "    ";
+            sb.Append(pad).Append("return ").Append(UnionSwitchReceiverText(unionSwitch.Value)).AppendLine(" switch");
+            sb.Append(pad).AppendLine("{");
+            foreach (var arm in unionSwitch.Arms)
+                sb.Append(inner).Append(UnionSwitchArmText(arm, _function.Signature.ReturnType)).AppendLine(",");
+            sb.Append(pad).AppendLine("};");
+            return;
+        }
         if (node is Return { Value: StackAllocate stackAllocate }
             && _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
         {
@@ -1741,6 +1754,7 @@ public sealed partial class CSharpPrinter
         LogicalBinary l => LogicalText(l),
         Conditional t => ConditionalText(t),
         SwitchExpression se => SwitchExpressionInline(se),
+        UnionSwitchExpression se => UnionSwitchExpressionInline(se),
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",

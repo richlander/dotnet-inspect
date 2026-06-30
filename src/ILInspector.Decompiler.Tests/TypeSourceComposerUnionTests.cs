@@ -273,13 +273,118 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionSwitchExpression_RendersTypePatternArms()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+            public sealed class Bird { public string Name { get; } = "bird"; }
+            public union Pet(Cat, Dog);
+            public union Pet3(Cat, Dog, Bird);
+            public union Box<T>(Cat, Dog, T);
+
+            public static class Matcher
+            {
+                public static string Describe(Pet pet) => pet switch
+                {
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                };
+
+                public static int Kind(Pet pet) => pet switch
+                {
+                    Cat => 1,
+                    Dog => 2,
+                };
+
+                public static int KindWithOffset(Pet pet, int offset)
+                {
+                    int baseValue = offset + 1;
+                    return pet switch
+                    {
+                        Cat => baseValue,
+                        Dog dog => dog.Name.Length + baseValue,
+                    };
+                }
+
+                public static string DescribeThree(Pet3 pet) => pet switch
+                {
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                    Bird bird => bird.Name,
+                };
+
+                public static int KindThree(Pet3 pet) => pet switch
+                {
+                    Cat => 1,
+                    Dog => 2,
+                    Bird => 3,
+                };
+
+                public static string Generic(Box<Bird> box) => box switch
+                {
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                    Bird bird => bird.Name,
+                };
+            }
+            """);
+
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat => 1,
+                Dog => 2,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Kind"));
+        var withOffset = RenderMember(assembly.Path, "UnionFixtures.Matcher", "KindWithOffset");
+        Assert.Contains("int baseValue = offset + 1;", withOffset);
+        Assert.Contains("return pet switch", withOffset);
+        Assert.Contains("Dog dog => dog.Name.Length + baseValue", withOffset);
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+                Bird bird => bird.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "DescribeThree"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat => 1,
+                Dog => 2,
+                Bird => 3,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "KindThree"));
+        Assert.Equal("""
+            return box switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+                Bird bird => bird.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Generic"));
+    }
+
+    [Fact]
     public void NonUnionValuePropertyTypeTest_KeepsValueAccess()
     {
         using var assembly = Compile("""
             #nullable enable
             namespace UnionFixtures
             {
-                public sealed class Cat { }
+                public sealed class Cat { public string Name { get; } = "cat"; }
+                public sealed class Dog { public string Name { get; } = "dog"; }
 
                 public readonly struct PetLike
                 {
@@ -296,6 +401,19 @@ public class TypeSourceComposerUnionTests
                         Cat cat = pet.Value as Cat;
                         return cat is not null;
                     }
+
+                    public static string Describe(PetLike pet) => pet.Value switch
+                    {
+                        Cat cat => cat.Name,
+                        Dog dog => dog.Name,
+                        _ => "other",
+                    };
+
+                    public static string ExhaustiveLooking(PetLike pet) => pet.Value switch
+                    {
+                        Cat cat => cat.Name,
+                        Dog dog => dog.Name,
+                    };
                 }
             }
             """);
@@ -303,6 +421,8 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
         Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "HasCat"));
+        Assert.DoesNotContain("return pet switch", RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
+        Assert.DoesNotContain("return pet switch", RenderMember(assembly.Path, "UnionFixtures.Matcher", "ExhaustiveLooking"));
     }
 
     [Fact]

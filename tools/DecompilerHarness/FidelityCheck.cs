@@ -1881,7 +1881,7 @@ static class FidelityCheck
         // as ref structs; otherwise the whole compile-back unit becomes invalid.
         string keyword = kind == TypeKind.Struct
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
-            : "class";
+            : IsStaticClass(typeDef) ? "static class" : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
         // An [InlineArray(N)] struct must carry the attribute for its span
         // conversions (e.g. `(Span<T>)place`) to bind; the bare reconstructed
@@ -1911,12 +1911,14 @@ static class FidelityCheck
         // binds — the dominant cluster bail (CS1061) once namespace + ctor stubs
         // land. A property whose accessor is a target is left to the method loop
         // unchanged, so the target's own emission and opcode comparison are
-        // untouched; the replaced accessor handles are skipped below. Classes only:
-        // a readonly-struct member accessed through a readonly receiver would take a
-        // defensive copy against a mutable stub, changing the target's opcodes.
+        // untouched; the replaced accessor handles are skipped below. Structs are
+        // restricted to compiler auto-properties: a non-auto mutable stub on a
+        // readonly receiver can introduce a defensive copy and change opcodes, but
+        // an auto-property preserves the field-backed accessor shape.
         var stubPropertyAccessors = new HashSet<MethodDefinitionHandle>();
-        if (keyword == "class")
-            EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors, sb, pad + "    ");
+        if (kind is TypeKind.Class or TypeKind.Struct)
+            EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors, sb, pad + "    ",
+                requireAutoProperty: kind == TypeKind.Struct);
 
         foreach (var mh in typeDef.GetMethods())
         {
@@ -2086,7 +2088,8 @@ static class FidelityCheck
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         SignatureAccessibility accessibility, IReadOnlyList<(string Field, string Value)> fieldInits,
-        HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad)
+        HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad,
+        bool requireAutoProperty = false)
     {
         var typeContext = GenericContext.ForType(reader, typeDef);
         foreach (var ph in typeDef.GetProperties())
@@ -2127,6 +2130,8 @@ static class FidelityCheck
                 bool isAutoProperty = hasGet
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
+                if (requireAutoProperty && !isAutoProperty)
+                    continue;
                 bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
                     || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
@@ -2351,7 +2356,7 @@ static class FidelityCheck
         catch { return; }
 
         bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
-        string parameters = Parameters(reader, method, sig);
+        string parameters = Parameters(reader, method, sig, IsExtensionMethod(reader, typeDef, method, sig));
         string body = realBody is null ? " throw null;" : "\n" + realBody + "\n" + pad;
 
         if (name is ".ctor")
@@ -2386,7 +2391,8 @@ static class FidelityCheck
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
         string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
-        if (name.StartsWith("op_", StringComparison.Ordinal)
+        if (!IsStaticClass(typeDef)
+            && name.StartsWith("op_", StringComparison.Ordinal)
             && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
         {
             sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
@@ -2484,7 +2490,7 @@ static class FidelityCheck
         or "int" or "uint" or "long" or "ulong" or "float" or "double"
         or "decimal" or "string" or "object" or "nint" or "nuint";
 
-    static string Parameters(MetadataReader reader, MethodDefinition method, MethodSignature<string> sig)
+    static string Parameters(MetadataReader reader, MethodDefinition method, MethodSignature<string> sig, bool firstIsExtensionReceiver = false)
     {
         var names = new Dictionary<int, string>();
         foreach (var ph in method.GetParameters())
@@ -2497,10 +2503,25 @@ static class FidelityCheck
         for (int i = 0; i < sig.ParameterTypes.Length; i++)
         {
             string name = names.TryGetValue(i, out var n) && n.Length > 0 ? n : $"arg{i}";
-            parts.Add($"{Clean(sig.ParameterTypes[i])} {Identifier(name)}");
+            string modifier = firstIsExtensionReceiver && i == 0 ? "this " : "";
+            parts.Add($"{modifier}{Clean(sig.ParameterTypes[i])} {Identifier(name)}");
         }
         return string.Join(", ", parts);
     }
+
+    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, MethodSignature<string> sig)
+        => method.Attributes.HasFlag(MethodAttributes.Static)
+           && IsStaticClass(typeDef)
+           && typeDef.GetDeclaringType().IsNil
+           && typeDef.GetGenericParameters().Count == 0
+           && sig.ParameterTypes.Length > 0
+           && CanSpellExtensionReceiver(sig.ParameterTypes[0])
+           && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())
+           && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
+
+    static bool CanSpellExtensionReceiver(string parameterType)
+        => !parameterType.StartsWith("ref ", StringComparison.Ordinal)
+           && !parameterType.Contains('*', StringComparison.Ordinal);
 
     // ---- Small helpers ----
 

@@ -41,6 +41,8 @@ internal static class NativePasses
     public static ReturnMergePass ReturnMerge => new();
     [Native(NativeCategory.EmitArtifact, "whole-method flat guard return dispatch collapsed to ordered guard returns")]
     public static ReturnDispatchPass ReturnDispatch => new();
+    [Native(NativeCategory.EmitArtifact, "two-arm union type-test switch-expression dispatch collapsed from cached Value tests and compiler fallback throw")]
+    public static UnionSwitchExpressionPass UnionSwitchExpression => new();
     [Native(NativeCategory.EmitArtifact, "a prologue if (c) goto L; return X; guard folded to a structured if even when the rest of the body stays EH-entangled-flat")]
     public static PrologueGuardReturnPass PrologueGuardReturn => new();
     [Native(NativeCategory.EmitArtifact, "return-accumulator temp spilled across an EH/lock region eliminated")]
