@@ -106,6 +106,7 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task UnionDeclaration_WithNonPublicExplicitConstructors_KeepsConstructorsOutOfCases()
     {
         using var assembly = await CompileWithSdk("""
@@ -113,18 +114,18 @@ public class TypeSourceComposerUnionTests
             {
                 public union Result(int, bool)
                 {
-                    public Result()
-                        : this(true)
-                    {
-                    }
-
-                    internal Result(string message)
-                        : this(0)
+                    internal Result(string message, int code)
+                        : this(code)
                     {
                     }
 
                     private Result(double value)
                         : this((int)value)
+                    {
+                    }
+
+                    public Result()
+                        : this(true)
                     {
                     }
                 }
@@ -136,9 +137,9 @@ public class TypeSourceComposerUnionTests
         Assert.Contains("public union Result(int, bool)", source);
         Assert.DoesNotContain("Result(int, bool, string", source);
         Assert.DoesNotContain("Result(int, bool, double", source);
-        Assert.Contains("public Result() : this(true)", source);
-        Assert.Contains("internal Result(string message)", source);
+        Assert.Contains("internal Result(string message, int code)", source);
         Assert.Contains("private Result(double value)", source);
+        Assert.Contains("public Result() : this(true)", source);
         await AssertSdkPreviewBuilds(source);
     }
 

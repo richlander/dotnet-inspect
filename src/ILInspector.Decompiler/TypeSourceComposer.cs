@@ -370,6 +370,9 @@ public static class TypeSourceComposer
         {
             if (union is not null && IsHiddenUnionMember(member, union))
             {
+                // Hidden union case constructors still occupy metadata overload
+                // slots. Keep fallback overload counting aligned for any
+                // original public members that are not synthesized below.
                 if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation")
                     overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
                 continue;
