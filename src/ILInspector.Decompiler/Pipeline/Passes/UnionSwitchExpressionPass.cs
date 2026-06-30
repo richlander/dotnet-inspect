@@ -17,6 +17,17 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
+            if (TryMatchClassExhaustiveGuardedBlocks(function, container, out var classExhaustiveSwitch))
+            {
+                int startOffset = container.Blocks[0].StartOffset;
+                container.DetachChildren();
+                var replacementBlock = new Block(startOffset);
+                replacementBlock.Add(new Return(classExhaustiveSwitch));
+                container.Add(replacementBlock);
+                context.Stepper.StepOver("raise class union guarded dispatch to switch expression", container);
+                continue;
+            }
+
             if (container.Blocks is [var block] && TryMatch(function, block, out var match))
             {
                 block.SetChild(match.StartIndex, new Return(match.SwitchExpression));
@@ -66,6 +77,83 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchClassExhaustiveGuardedBlocks(
+        IrFunction function,
+        BlockContainer container,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        var blocks = container.Blocks;
+        if (blocks.Count != 9
+            || blocks[0].Children is not [ConditionalBranch nullBranch]
+            || nullBranch.Condition is not LogicalNot { Operand: var receiver }
+            || blocks[1].Children is not
+            [
+                StoreLocal { Value: LoadProperty unionValue } valueStore,
+                StoreLocal { Value: IsInstance firstTest } firstStore,
+                ConditionalBranch firstNullBranch
+            ]
+            || !IsUnionValueProperty(function, unionValue)
+            || !PlaceIdentity.SameVariable(unionValue.Instance, receiver)
+            || !IsTempTypeTest(firstTest, valueStore.Index)
+            || !IsNotLocal(firstNullBranch.Condition, firstStore.Index)
+            || blocks[2].Children is not [ConditionalBranch guardBranch]
+            || blocks[3].Children is not [StoreLocal firstFallbackStore, Return firstFallbackReturn]
+            || blocks[4].Children is not
+            [
+                StoreLocal { Value: IsInstance finalTest } finalStore,
+                ConditionalBranch finalValueBranch
+            ]
+            || !IsTempTypeTest(finalTest, valueStore.Index)
+            || finalValueBranch.Condition is not LoadLocal finalCondition || finalCondition.Index != finalStore.Index
+            || blocks[5].Children is not [Branch finalThrowBranch]
+            || blocks[6].Children is not [StoreLocal firstGuardedStore, Return firstGuardedReturn]
+            || blocks[7].Children is not [StoreLocal finalValueStore, Return finalValueReturn]
+            || blocks[8].Children is not [ExpressionStatement throwStatement, Return throwReturn]
+            || nullBranch.TargetOffset != blocks[8].StartOffset
+            || firstNullBranch.TargetOffset != blocks[4].StartOffset
+            || guardBranch.TargetOffset != blocks[6].StartOffset
+            || finalValueBranch.TargetOffset != blocks[7].StartOffset
+            || finalThrowBranch.TargetOffset != blocks[8].StartOffset
+            || !IsThrowSwitchExpression(throwStatement)
+            || !ThrowArgumentMatches(throwStatement, receiver)
+            || !StoreReturnMatch(firstFallbackStore, firstFallbackReturn, firstFallbackStore.Index)
+            || !StoreReturnMatch(firstGuardedStore, firstGuardedReturn, firstFallbackStore.Index)
+            || !StoreReturnMatch(finalValueStore, finalValueReturn, firstFallbackStore.Index)
+            || !ReturnsLocal(throwReturn, firstFallbackStore.Index)
+            || ReferencesLocal(firstFallbackStore.Value, firstStore.Index))
+        {
+            return false;
+        }
+
+        var arms = new[]
+        {
+            new Arm(firstTest.Type, firstStore.Index, firstGuardedStore.Value,
+                [firstStore, firstNullBranch.Condition, guardBranch.Condition, firstGuardedStore.Value],
+                guardBranch.Condition),
+            new Arm(firstTest.Type, LocalIndex: null, firstFallbackStore.Value, [firstFallbackStore.Value]),
+            new Arm(finalTest.Type, finalStore.Index, finalValueStore.Value,
+                [finalStore, finalValueBranch.Condition, finalValueStore.Value]),
+        };
+
+        var allowedTempUses = blocks.SelectMany(block => block.Children).ToArray();
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, allowedTempUses)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())));
+        return true;
     }
 
     static bool TryMatchClassDefaultAt(
