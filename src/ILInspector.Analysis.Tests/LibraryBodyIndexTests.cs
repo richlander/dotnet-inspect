@@ -1352,6 +1352,9 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain(index.OptimizationOpportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesPerIterationSourceInLoop)
             && o.Shape == "materialize-in-loop");
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesSourceMutatedByRefInLoop)
+            && o.Shape == "materialize-in-loop");
     }
 
     [Theory]
@@ -2720,6 +2723,23 @@ public class OptimizationOpportunityFixtures
             total += filtered.ToArray().Length;
         }
         return total;
+    }
+
+    public static int MaterializesSourceMutatedByRefInLoop(IEnumerable<int> source, IEnumerable<int> replacement, int count)
+    {
+        var current = source;
+        var total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            ReplaceSource(ref current, replacement);
+            total += current.ToArray().Length;
+        }
+        return total;
+    }
+
+    static void ReplaceSource(ref IEnumerable<int> source, IEnumerable<int> replacement)
+    {
+        source = replacement;
     }
 
     // A method taking an UNTRUSTED RenderTreeBuilder lookalike (defined in this test assembly,

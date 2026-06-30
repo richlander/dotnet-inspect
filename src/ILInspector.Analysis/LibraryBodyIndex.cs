@@ -2028,8 +2028,7 @@ public sealed class LibraryBodyIndex
                     var definition = interfaceType.Kind == TypeRefKind.GenericInstance
                         ? interfaceType.ElementType ?? interfaceType
                         : interfaceType;
-                    if (definition.Namespace == "System.Runtime.CompilerServices"
-                        && definition.Name == "IAsyncStateMachine")
+                    if (FrameworkIdentity.IsCoreLibraryType(definition, "System.Runtime.CompilerServices", "IAsyncStateMachine"))
                     {
                         set.Add(type.ToQualifiedDisplayString());
                         break;
@@ -3005,6 +3004,15 @@ public sealed class LibraryBodyIndex
                 && candidate.Slot == slot);
             if (use is null || use.Address || use.ReachingDefinitions.Length == 0)
                 return false;
+            if (reachingDefinitions.Uses.Any(candidate =>
+                candidate.Address
+                && candidate.IsArgument == isArg
+                && candidate.Slot == slot
+                && candidate.Offset >= loop.Start
+                && candidate.Offset <= loop.End))
+            {
+                return false;
+            }
             foreach (var definition in use.ReachingDefinitions)
             {
                 if (definition.Offset >= loop.Start && definition.Offset <= loop.End)
