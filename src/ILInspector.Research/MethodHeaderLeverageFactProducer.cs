@@ -4,6 +4,10 @@ namespace ILInspector.Research;
 
 sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
 {
+    const int RootReachThreshold = 100;
+    const int DirectCallerThreshold = 20;
+    const int LoopCallThreshold = 20;
+
     static readonly AnnotationDescriptor HeaderCost =
         new("cost.method", AnnotationCategory.Cost, "method has call-graph leverage");
 
@@ -19,18 +23,15 @@ sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
             return [];
         if (!assembly.LeverageByToken.TryGetValue(context.Imported.MetadataToken, out var leverage))
             return [];
-        if (leverage is { RootReach: 0, DirectCallerCount: 0, LoopCallCount: 0 })
-            return [];
-
         var parts = new List<string>();
-        if (leverage.RootReach > 0)
+        if (leverage.RootReach >= RootReachThreshold)
             parts.Add($"root-reach {leverage.RootReach}");
-        if (leverage.DirectCallerCount > 0)
+        if (leverage.DirectCallerCount >= DirectCallerThreshold)
             parts.Add($"direct-callers {leverage.DirectCallerCount}");
-        if (leverage.LoopCallCount > 0)
+        if (leverage.LoopCallCount >= LoopCallThreshold)
             parts.Add($"loop-calls {leverage.LoopCallCount}");
-        if (leverage.Fanout > 0)
-            parts.Add($"fanout {leverage.Fanout}");
+        if (parts.Count == 0)
+            return [];
 
         return [new ResearchHeaderFact(HeaderCost, string.Join("; ", parts))];
     }

@@ -106,11 +106,11 @@ public class ResearchFactRegistryTests
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
         var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.SharedLeverageCallee));
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.HighLoopLeverageCallee));
 
         var fact = Assert.Single(overlay.HeaderFacts);
         Assert.Equal("cost.method", fact.Descriptor.Id);
-        Assert.Contains("direct-callers 2", fact.Detail);
+        Assert.Contains("direct-callers 20", fact.Detail);
         Assert.DoesNotContain("cost.method", overlay.Body.Output);
     }
 
@@ -120,11 +120,25 @@ public class ResearchFactRegistryTests
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
         var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.AllocInLoopCallee));
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.HighLoopLeverageCallee));
 
         Assert.NotEmpty(overlay.HeaderFacts);
         Assert.DoesNotContain("cost.method", overlay.Body.Output);
-        Assert.StartsWith("int total = 0;", overlay.Body.Output);
+        Assert.StartsWith("return value + 1;", overlay.Body.Output);
+    }
+
+    [Fact]
+    public void CostOverlay_DoesNotAnnotateDirectCallerOnlyCallee()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.LoopCaller01)).Output;
+
+        Assert.Contains("HighLoopLeverageCallee", overlay);
+        Assert.DoesNotContain("cost.callee", overlay);
+        Assert.DoesNotContain("root-reach 1", overlay);
+        Assert.DoesNotContain("direct-callers 1", overlay);
     }
 
     [Fact]
@@ -184,4 +198,27 @@ public static class ResearchFixture
     public static int LeverageCallerA(int value) => SharedLeverageCallee(value);
 
     public static int LeverageCallerB(int value) => SharedLeverageCallee(value + 1);
+
+    public static int HighLoopLeverageCallee(int value) => value + 1;
+
+    public static int LoopCaller01(int count) { int total = 1; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller02(int count) { int total = 2; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller03(int count) { int total = 3; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller04(int count) { int total = 4; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller05(int count) { int total = 5; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller06(int count) { int total = 6; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller07(int count) { int total = 7; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller08(int count) { int total = 8; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller09(int count) { int total = 9; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller10(int count) { int total = 10; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller11(int count) { int total = 11; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller12(int count) { int total = 12; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller13(int count) { int total = 13; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller14(int count) { int total = 14; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller15(int count) { int total = 15; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller16(int count) { int total = 16; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller17(int count) { int total = 17; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller18(int count) { int total = 18; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller19(int count) { int total = 19; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller20(int count) { int total = 20; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
 }

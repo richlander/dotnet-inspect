@@ -2312,10 +2312,7 @@ public class CommandExecutionTests
         Assert.Contains("## Cost Overlay", output);
         Assert.Contains("cost.callee", output);
         Assert.Contains("alloc-loop", output);
-        Assert.Contains("cost.method", output);
-        Assert.True(
-            output.IndexOf("cost.method", StringComparison.Ordinal) < output.IndexOf("return CostOverlayFixture.HotCallee", StringComparison.Ordinal),
-            output);
+        Assert.DoesNotContain("cost.method(root-reach 1", output);
     }
 
     [Fact]

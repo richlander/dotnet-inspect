@@ -32,7 +32,7 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
 
             var signals = assembly.Signals.GetValueOrDefault(calleeToken, MethodSignals.None);
             assembly.LeverageByToken.TryGetValue(calleeToken, out var leverage);
-            if (!IsHighValue(signals, leverage))
+            if (!IsHighValue(call, signals, leverage))
                 continue;
             facts.Add(new Annotation(CalleeCost, call.ILOffset, Detail(call.Callee, signals, leverage, call.InLoop)));
         }
@@ -44,13 +44,10 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
             ? call.CalleeDefinitionToken
             : 0;
 
-    static bool IsHighValue(MethodSignals signals, MethodLeverage? leverage)
+    static bool IsHighValue(DirectCall call, MethodSignals signals, MethodLeverage? leverage)
         => signals.AllocInLoop
            || signals.Reflection > 0
-           || signals.Unsafe
-           || leverage is { RootReach: >= RootReachThreshold }
-           || leverage is { DirectCallerCount: >= DirectCallerThreshold }
-           || leverage is { LoopCallCount: >= LoopCallThreshold };
+           || (call.InLoop && leverage is { LoopCallCount: >= LoopCallThreshold });
 
     static string Detail(MemberRef callee, MethodSignals signals, MethodLeverage? leverage, bool callInLoop)
     {
@@ -59,17 +56,15 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
             parts.Add("alloc-loop");
         if (signals.Reflection > 0)
             parts.Add("reflection");
-        if (signals.Unsafe)
-            parts.Add("unsafe");
         if (callInLoop)
             parts.Add("call-in-loop");
         if (leverage is not null)
         {
-            if (leverage.RootReach > 0)
+            if (leverage.RootReach >= RootReachThreshold)
                 parts.Add($"root-reach {leverage.RootReach}");
-            if (leverage.DirectCallerCount > 0)
+            if (leverage.DirectCallerCount >= DirectCallerThreshold)
                 parts.Add($"direct-callers {leverage.DirectCallerCount}");
-            if (leverage.LoopCallCount > 0)
+            if (leverage.LoopCallCount >= LoopCallThreshold)
                 parts.Add($"loop-calls {leverage.LoopCallCount}");
         }
 
