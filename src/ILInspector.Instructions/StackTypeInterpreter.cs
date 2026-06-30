@@ -144,9 +144,25 @@ public static class StackTypeInterpreter
 
         IEnumerable<DecodedInstruction> InstructionsIn(InstructionBlock block)
         {
-            foreach (var instruction in instructions)
-                if (instruction.Offset >= block.Start && instruction.Offset < block.End)
-                    yield return instruction;
+            // instructions is sorted by Offset (contiguous tiling), so binary-search the block's
+            // first instruction instead of scanning the whole method on every block evaluation —
+            // that scan made worklist convergence O(instructions × block-evaluations).
+            int lo = 0, hi = instructions.Length - 1, start = instructions.Length;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) >>> 1;
+                if (instructions[mid].Offset >= block.Start)
+                {
+                    start = mid;
+                    hi = mid - 1;
+                }
+                else
+                {
+                    lo = mid + 1;
+                }
+            }
+            for (int i = start; i < instructions.Length && instructions[i].Offset < block.End; i++)
+                yield return instructions[i];
         }
     }
 
