@@ -94,7 +94,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         switchExpression = null!;
         int current = start;
         StoreLocal? receiverStore = null;
-        if (current + 4 < children.Count
+        if (current + 1 < children.Count
             && children[current] is StoreLocal possibleReceiver
             && children[current + 1] is StoreLocal { Value: LoadProperty possibleUnionValue }
             && IsLocalReceiver(possibleUnionValue.Instance, possibleReceiver.Index))
@@ -103,7 +103,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             current++;
         }
 
-        if (current + 3 >= children.Count
+        if (current + 2 >= children.Count
             || children[current] is not StoreLocal { Value: LoadProperty unionValue } valueStore
             || !IsUnionValueProperty(function, unionValue)
             || children[current + 1] is not StoreLocal { Value: IsInstance firstTest } firstStore
@@ -116,30 +116,38 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
         if (firstIf.HasElse)
         {
-            if (current + 4 != children.Count
-                || firstIf.Then.Children is not [IfStatement secondIf]
-                || firstIf.Else?.Children is not [IfStatement guardIf]
-                || children[current + 3] is not Return { Value: { } defaultValue }
-                || guardIf.HasElse
-                || guardIf.Then.Children is not [Return { Value: { } guardedValue }]
-                || !TryReturnArm(secondIf, valueStore.Index, out var secondArm))
+            if (firstIf.Else is not { } elseBlock
+                || !TryElseArm(elseBlock.Children, firstTest.Type, firstStore.Index, [firstStore, firstIf.Condition], out var firstArm))
             {
                 return false;
             }
 
-            var firstArm = new Arm(
-                firstTest.Type,
-                firstStore.Index,
-                guardedValue,
-                [firstStore, firstIf.Condition, guardIf.Condition, guardedValue],
-                guardIf.Condition);
-            return BuildStatementSwitch(function, unionValue, valueStore, firstStore, receiverStore, [firstArm, secondArm], defaultValue, firstIf, out switchExpression);
+            IrExpression defaultValue;
+            IReadOnlyList<Arm> innerArms;
+            if (current + 4 == children.Count
+                && children[current + 3] is Return { Value: { } tailDefault }
+                && TryReturnArms(firstIf.Then.Children, valueStore.Index, out var tailArms))
+            {
+                defaultValue = tailDefault;
+                innerArms = tailArms;
+            }
+            else if (current + 3 == children.Count
+                && TryReturnArmsWithDefault(firstIf.Then.Children, valueStore.Index, out var embeddedArms, out var embeddedDefault))
+            {
+                defaultValue = embeddedDefault;
+                innerArms = embeddedArms;
+            }
+            else
+            {
+                return false;
+            }
+
+            return BuildStatementSwitch(function, unionValue, valueStore, firstStore, receiverStore, [firstArm, .. innerArms], defaultValue, firstIf, out switchExpression);
         }
 
         if (current + 4 != children.Count
-            || firstIf.Then.Children is not [IfStatement secondIfNoElse, Return { Value: { } defaultFromThen }]
             || children[current + 3] is not Return { Value: { } firstValue }
-            || !TryReturnArm(secondIfNoElse, valueStore.Index, out var secondArmNoElse))
+            || !TryReturnArmsWithDefault(firstIf.Then.Children, valueStore.Index, out var innerArmsNoElse, out var defaultFromThen))
         {
             return false;
         }
@@ -149,21 +157,127 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             firstStore.Index,
             firstValue,
             [firstStore, firstIf.Condition, firstValue]);
-        return BuildStatementSwitch(function, unionValue, valueStore, firstStore, receiverStore, [firstArmNoElse, secondArmNoElse], defaultFromThen, firstIf, out switchExpression);
+        return BuildStatementSwitch(function, unionValue, valueStore, firstStore, receiverStore, [firstArmNoElse, .. innerArmsNoElse], defaultFromThen, firstIf, out switchExpression);
+    }
+
+    static bool TryReturnArmsWithDefault(IReadOnlyList<IrNode> nodes, int tempLocal, out IReadOnlyList<Arm> arms, out IrExpression defaultValue)
+    {
+        arms = [];
+        defaultValue = null!;
+        if (nodes.Count < 1)
+            return false;
+
+        if (nodes[^1] is IfStatement finalArmIf
+            && TryReturnArmWithDefault(finalArmIf, tempLocal, out var finalArm, out var finalDefault))
+        {
+            IReadOnlyList<Arm> prefixArms = [];
+            if (nodes.Count > 1 && !TryReturnArms(nodes.Take(nodes.Count - 1).ToArray(), tempLocal, out prefixArms))
+                return false;
+
+            arms = [.. prefixArms, finalArm];
+            defaultValue = finalDefault;
+            return true;
+        }
+
+        if (nodes.Count < 2 || nodes[^1] is not Return { Value: { } retDefault })
+            return false;
+
+        if (!TryReturnArms(nodes.Take(nodes.Count - 1).ToArray(), tempLocal, out arms))
+            return false;
+
+        defaultValue = retDefault;
+        return true;
+    }
+
+    static bool TryReturnArms(IReadOnlyList<IrNode> nodes, int tempLocal, out IReadOnlyList<Arm> arms)
+    {
+        var builder = new List<Arm>();
+        foreach (var node in nodes)
+        {
+            if (node is not IfStatement armIf || !TryReturnArm(armIf, tempLocal, out var arm))
+            {
+                arms = [];
+                return false;
+            }
+
+            builder.Add(arm);
+        }
+
+        arms = builder;
+        return arms.Count > 0;
+    }
+
+    static bool TryElseArm(
+        IReadOnlyList<IrNode> nodes,
+        TypeRef patternType,
+        int localIndex,
+        IReadOnlyList<IrNode> patternRoots,
+        out Arm arm)
+    {
+        arm = null!;
+        switch (nodes)
+        {
+            case [Return { Value: { } value }]:
+            {
+                var roots = new List<IrNode>(patternRoots) { value };
+                arm = new Arm(patternType, localIndex, value, roots);
+                return true;
+            }
+            case [IfStatement guardIf] when !guardIf.HasElse && guardIf.Then.Children is [Return { Value: { } guardedValue }]:
+            {
+                var roots = new List<IrNode>(patternRoots) { guardIf.Condition, guardedValue };
+                arm = new Arm(patternType, localIndex, guardedValue, roots, guardIf.Condition);
+                return true;
+            }
+            default:
+                return false;
+        }
     }
 
     static bool TryReturnArm(IfStatement armIf, int tempLocal, out Arm arm)
     {
         arm = null!;
         if (armIf.HasElse
-            || !TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots)
-            || armIf.Then.Children is not [Return { Value: { } value }])
+            || !TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots))
         {
             return false;
         }
 
-        var roots = new List<IrNode>(patternRoots) { value };
-        arm = new Arm(patternType, localIndex, value, roots);
+        if (armIf.Then.Children is [Return { Value: { } value }])
+        {
+            var roots = new List<IrNode>(patternRoots) { value };
+            arm = new Arm(patternType, localIndex, value, roots);
+            return true;
+        }
+
+        if (armIf.Then.Children is [IfStatement guardIf]
+            && !guardIf.HasElse
+            && guardIf.Then.Children is [Return { Value: { } guardedValue }])
+        {
+            var roots = new List<IrNode>(patternRoots) { guardIf.Condition, guardedValue };
+            arm = new Arm(patternType, localIndex, guardedValue, roots, guardIf.Condition);
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool TryReturnArmWithDefault(IfStatement armIf, int tempLocal, out Arm arm, out IrExpression defaultValue)
+    {
+        arm = null!;
+        defaultValue = null!;
+        if (armIf.HasElse
+            || !TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots)
+            || armIf.Then.Children is not [IfStatement guardIf, Return { Value: { } armDefault }]
+            || guardIf.HasElse
+            || guardIf.Then.Children is not [Return { Value: { } guardedValue }])
+        {
+            return false;
+        }
+
+        var roots = new List<IrNode>(patternRoots) { guardIf.Condition, guardedValue };
+        arm = new Arm(patternType, localIndex, guardedValue, roots, guardIf.Condition);
+        defaultValue = armDefault;
         return true;
     }
 
