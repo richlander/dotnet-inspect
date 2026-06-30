@@ -283,6 +283,46 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionConditionalReturn_RendersPatternConditional()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; public int Age { get; } = 5; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static string Ternary(Pet pet) => pet is Cat cat ? cat.Name : "other";
+                public static string TernaryGuard(Pet pet) => pet is Cat cat && cat.Age > 3 ? cat.Name : "other";
+                public static int ConditionalNumber(Pet pet) => pet is Cat cat ? cat.Age : -1;
+
+                public static string ManualFallbackUsesLocal(Pet pet)
+                {
+                    Cat cat = pet.Value as Cat;
+                    if (cat is null)
+                        return FormatNull(cat);
+                    return cat.Name;
+                }
+
+                static string FormatNull(Cat? cat) => cat?.Name ?? "null";
+            }
+            """);
+
+        Assert.Equal("return pet is Cat cat ? cat.Name : \"other\";",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "Ternary"));
+        Assert.Equal("return pet is Cat { Age: > 3 } cat ? cat.Name : \"other\";",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
+        Assert.Equal("return pet is Cat cat ? cat.Age : -1;",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "ConditionalNumber"));
+        var manual = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ManualFallbackUsesLocal");
+        Assert.Contains("Cat cat = pet.Value as Cat;", manual);
+        Assert.Contains("FormatNull(cat)", manual);
+        Assert.DoesNotContain("pet is Cat cat ? cat.Name : FormatNull(cat)", manual);
+    }
+
+    [Fact]
     public async Task UnionSwitchExpression_RendersTypePatternArms()
     {
         using var assembly = await CompileWithSdk("""

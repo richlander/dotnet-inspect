@@ -58,6 +58,7 @@ public sealed class IsPatternPass : IIrPass
     public void Run(IrFunction function, PassContext context)
     {
         while (TransformOne(function, context.Stepper)
+            || FoldConditionalReturnOne(function, context.Stepper)
             || TransformRecursivePropertyDeclaration(function, context.Stepper)
             || FoldPositionalPatternReturnOne(function, context.Stepper))
         {
@@ -104,6 +105,93 @@ public sealed class IsPatternPass : IIrPass
         }
         return false;
     }
+
+    static bool FoldConditionalReturnOne(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i + 2 < children.Count; i++)
+            {
+                if (children[i] is not StoreLocal { Value: IsInstance asCast } store
+                    || children[i + 1] is not IfStatement guard
+                    || children[i + 2] is not Return { Value: { } whenTrue }
+                    || !TryUnionConditionalGuard(function, asCast, store.Index, guard, out var condition, out var whenFalse))
+                {
+                    continue;
+                }
+
+                if (ReferenceOwnership.SubtreeReferencesLocal(asCast.Operand, store.Index)
+                    || !IsSideEffectFree(function, asCast.Operand)
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, guard.Condition, whenTrue]))
+                {
+                    continue;
+                }
+
+                var conditional = new Conditional(condition, (IrExpression)whenTrue.Clone(), (IrExpression)whenFalse.Clone())
+                {
+                    MergedType = whenTrue.ResultType ?? whenFalse.ResultType
+                };
+                stepper.StepOver("raise union pattern return chain to conditional", guard);
+                children[i + 2].ReplaceWith(new Return(conditional));
+                guard.Detach();
+                store.Detach();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryUnionConditionalGuard(
+        IrFunction function,
+        IsInstance asCast,
+        int localIndex,
+        IfStatement guard,
+        out IrExpression condition,
+        out IrExpression whenFalse)
+    {
+        condition = null!;
+        whenFalse = null!;
+        if (guard.HasElse
+            || guard.Then.Children is not [Return { Value: { } fallback }]
+            || asCast.Operand is not LoadProperty property
+            || !IsUnionValueProperty(function, property))
+        {
+            return false;
+        }
+
+        if (IsPatternLocalNull(guard.Condition, localIndex))
+        {
+            condition = new IsPattern((IrExpression)asCast.Operand.Clone(), asCast.Type, localIndex);
+            whenFalse = fallback;
+            return true;
+        }
+
+        if (guard.Condition is LogicalBinary { Kind: LogicalKind.Or } logical
+            && IsPatternLocalNull(logical.Left, localIndex))
+        {
+            var pattern = new IsPattern((IrExpression)asCast.Operand.Clone(), asCast.Type, localIndex)
+            {
+                PreserveLocalInPropertyPattern = true
+            };
+            condition = new LogicalBinary(LogicalKind.And, pattern, Conditions.Negate((IrExpression)logical.Right.Clone()));
+            whenFalse = fallback;
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool IsPatternLocalNull(IrExpression expression, int localIndex) => expression switch
+    {
+        LogicalNot { Operand: LoadLocal load } => load.Index == localIndex,
+        Comparison { Kind: ComparisonKind.Equal, Left: LoadLocal load, Right: Constant { Value: null } }
+            => load.Index == localIndex,
+        Comparison { Kind: ComparisonKind.Equal, Left: Constant { Value: null }, Right: LoadLocal load }
+            => load.Index == localIndex,
+        _ => false,
+    };
 
     static bool TransformRecursivePropertyDeclaration(IrFunction function, Stepper stepper)
     {
