@@ -931,17 +931,53 @@ static class FidelityCheck
             catch { continue; }
             if (body is null)
                 continue;
+            var requiredNamespaces = RequiredNamespaces(function);
             PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(reader, method, function, body);
             var original = ILDisassembler.Disassemble(pe, reader, method);
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier, primaryConstructor), fieldInits,
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier, primaryConstructor, requiredNamespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
                 break;
         }
         return (fullType, entries);
+    }
+
+    static IReadOnlySet<string> RequiredNamespaces(IrFunction function)
+    {
+        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
+
+        void Add(TypeRef? type)
+        {
+            switch (type?.Kind)
+            {
+                case TypeRefKind.Definition:
+                    if (type.Namespace.Length > 0)
+                        namespaces.Add(type.Namespace);
+                    break;
+                case TypeRefKind.GenericInstance:
+                    Add(type.ElementType);
+                    foreach (var argument in type.TypeArguments)
+                        Add(argument);
+                    break;
+                case TypeRefKind.SzArray or TypeRefKind.Array
+                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
+                    Add(type.ElementType);
+                    break;
+            }
+        }
+
+        foreach (var node in function.Descendants.Prepend(function))
+        {
+            foreach (var type in node.DirectTypes)
+                Add(type);
+            if (node is IrExpression expression)
+                Add(expression.ResultType);
+        }
+
+        return namespaces;
     }
 
     static bool IsGeneratedType(MetadataReader reader, TypeDefinition typeDef, string fullType)
@@ -1755,7 +1791,8 @@ static class FidelityCheck
         string Body,
         string? Chain,
         bool RequiresAsync,
-        PrimaryConstructorShape? PrimaryConstructor = null);
+        PrimaryConstructorShape? PrimaryConstructor = null,
+        IReadOnlySet<string>? RequiredNamespaces = null);
 
     public sealed record PrimaryConstructorShape(
         string Parameters,
@@ -1796,7 +1833,12 @@ static class FidelityCheck
         // whole-module compile. Kept conservative — only widely-assumed, low-
         // collision namespaces — so a body's short name resolves without
         // introducing CS0104 ambiguity.
-        foreach (var ns in SkeletonUsings)
+        var usings = new SortedSet<string>(SkeletonUsings, StringComparer.Ordinal);
+        foreach (var target in targets.Values)
+            if (target.RequiredNamespaces is not null)
+                foreach (var ns in target.RequiredNamespaces)
+                    usings.Add(ns);
+        foreach (var ns in usings)
             sb.AppendLine($"using {ns};");
         foreach (var typeHandle in reader.TypeDefinitions)
         {
