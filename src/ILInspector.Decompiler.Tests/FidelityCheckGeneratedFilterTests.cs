@@ -457,6 +457,159 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_RetainsSatisfiedInterfaceBaseClause()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IResource
+            {
+                string Name { get; }
+            }
+
+            public class Resource : IResource
+            {
+                public virtual string Name => "resource";
+            }
+
+            public sealed class ConnectionStringResource : Resource
+            {
+            }
+
+            public interface IResourceBuilder<T>
+                where T : IResource
+            {
+            }
+
+            public static class ResourceBuilderFactory
+            {
+                public static IResourceBuilder<ConnectionStringResource> Create()
+                    => throw null;
+            }
+            """);
+        try
+        {
+            AssertCheckable(FidelityCheck.Evaluate(assemblyPath), "ResourceBuilderFactory", "Create");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_RetainsProtobufSelfMessageInterfaceClause()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Google.Protobuf.Reflection
+            {
+                public class MessageDescriptor { }
+            }
+
+            namespace Google.Protobuf
+            {
+                public interface IMessage
+                {
+                    Google.Protobuf.Reflection.MessageDescriptor Descriptor { get; }
+                }
+
+                public interface IMessage<T> : IMessage
+                    where T : IMessage<T>
+                {
+                }
+
+                public class MessageParser<T>
+                    where T : IMessage<T>
+                {
+                }
+            }
+
+            namespace Fixture
+            {
+                public sealed class Request : Google.Protobuf.IMessage<Request>
+                {
+                    public static Google.Protobuf.Reflection.MessageDescriptor Descriptor => throw null;
+                    public Request Clone() => throw null;
+                    public void WriteTo(object output) { }
+                    public int CalculateSize() => 0;
+                    public void MergeFrom(Request other) { }
+                    public void MergeFrom(object input) { }
+                    Google.Protobuf.Reflection.MessageDescriptor Google.Protobuf.IMessage.Descriptor => Descriptor;
+                }
+
+                public static class ParserFactory
+                {
+                    public static Google.Protobuf.MessageParser<Request> Create()
+                        => throw null;
+                }
+            }
+            """);
+        try
+        {
+            AssertCheckable(FidelityCheck.Evaluate(assemblyPath), "Fixture.ParserFactory", "Create");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_RetainsGenericBaseAndStaticMetadataClause()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Aspire.Hosting.Dcp.Model
+            {
+                public interface IKubernetesStaticMetadata
+                {
+                    string ObjectKind { get; }
+                }
+
+                public class CustomResource { }
+                public class CustomResource<TSpec, TStatus> : CustomResource { }
+                public sealed class ServiceSpec { }
+                public sealed class ServiceStatus { }
+
+                public sealed class Service : CustomResource<ServiceSpec, ServiceStatus>, IKubernetesStaticMetadata
+                {
+                    public static string ObjectKind => "Service";
+                    string IKubernetesStaticMetadata.ObjectKind => ObjectKind;
+                }
+            }
+
+            namespace Aspire.Hosting.Dcp
+            {
+                public class RenderedModelResource<T>
+                    where T : Aspire.Hosting.Dcp.Model.CustomResource, Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata
+                {
+                }
+            }
+
+            public static class DcpFactory
+            {
+                public static Aspire.Hosting.Dcp.RenderedModelResource<Aspire.Hosting.Dcp.Model.Service> Create()
+                    => throw null;
+            }
+            """);
+        try
+        {
+            AssertCheckable(FidelityCheck.Evaluate(assemblyPath), "DcpFactory", "Create");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    static void AssertCheckable(IReadOnlyList<FidelityCheck.CompileBackResult> results, string type, string method)
+    {
+        var result = Assert.Single(
+            results,
+            result => result.Type == type && result.Method == method);
+        Assert.True(
+            result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+            result.Detail);
+    }
+
     static string CompileFixture(string source)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
