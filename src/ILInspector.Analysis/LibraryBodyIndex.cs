@@ -83,7 +83,9 @@ public sealed class LibraryBodyIndex
                             : AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
                         return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
                     }),
-                    .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities.Select(o => o.Method.MetadataToken))),
+                    .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
+                        .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
+                        .Select(o => o.Method.MetadataToken))),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
             }
@@ -267,6 +269,8 @@ public sealed class LibraryBodyIndex
         if (!IsEnumerableDefinition(member.DeclaringType))
             return false;
         if (member.ParameterTypes.Length != 1)
+            return false;
+        if (member.TypeArguments.Length != 1)
             return false;
         switch (member.Name)
         {
