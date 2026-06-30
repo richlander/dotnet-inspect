@@ -33,7 +33,7 @@ public enum OperandKind
 /// resolved branch targets, and the structural control-flow facts the block builder needs.
 /// The single decode shared by analysis and (eventually) the decompiler importer.
 /// </summary>
-public readonly record struct DecodedInstruction(
+public sealed record DecodedInstruction(
     int Offset,
     ILOpCode OpCode,
     int OperandOffset,
