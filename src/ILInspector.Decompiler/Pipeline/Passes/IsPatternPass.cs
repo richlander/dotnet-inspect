@@ -236,18 +236,34 @@ public sealed class IsPatternPass : IIrPass
         out IsPattern pattern)
     {
         pattern = null!;
-        foreach (var candidate in condition.Descendants.Prepend(condition).OfType<IsPattern>())
+        var candidate = LeftmostAndOperand(condition);
+        if (candidate is IsPattern directPattern)
         {
-            if (candidate.Value is LoadProperty property
-                && IsUnionValueProperty(function, property)
-                && PlaceIdentity.SameVariable(property.Instance, receiver))
-            {
-                pattern = candidate;
-                return true;
-            }
+            return TryAccept(directPattern, out pattern);
         }
 
         return false;
+
+        bool TryAccept(IsPattern candidatePattern, out IsPattern accepted)
+        {
+            accepted = null!;
+            if (candidatePattern.Value is LoadProperty property
+                && IsUnionValueProperty(function, property)
+                && PlaceIdentity.SameVariable(property.Instance, receiver))
+            {
+                accepted = candidatePattern;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    static IrExpression LeftmostAndOperand(IrExpression expression)
+    {
+        var current = expression;
+        while (current is LogicalBinary { Kind: LogicalKind.And } and)
+            current = and.Left;
+        return current;
     }
 
     static bool TransformRecursivePropertyDeclaration(IrFunction function, Stepper stepper)
