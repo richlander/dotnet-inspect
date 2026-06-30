@@ -155,7 +155,7 @@ DecompilerHarness.
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Decompiled Source"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source"
-dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
+dotnet-inspect library MyLib.dll -S "IL Offset:0x06000001+0x5"
 ```
 
 ## Output and querying
@@ -214,7 +214,7 @@ dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.J
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
-dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
+dotnet-inspect library System.Text.Json -S "IL Offset:0x06000004+0x15"
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect depends Stream --markdown --mermaid
 ```

@@ -26,6 +26,7 @@ source path rows.
 dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
+dnx dotnet-inspect -y -- library System.Text.Json -S "IL Offset:0x06000001+0x0"
 ```
 
 ## Fetch the original source

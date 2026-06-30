@@ -251,7 +251,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(36, pipeline.AllSectionNames.Length);
+        Assert.Equal(37, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -261,6 +261,7 @@ public class SectionPipelineTests
         Assert.Contains("Health Checks", pipeline.AllSectionNames);
         Assert.Contains("Hosting", pipeline.AllSectionNames);
         Assert.Contains("HTTP Client", pipeline.AllSectionNames);
+        Assert.Contains("IL Offset", pipeline.AllSectionNames);
         Assert.Contains("Integration Opportunities", pipeline.AllSectionNames);
         Assert.Contains("Integrations", pipeline.AllSectionNames);
         Assert.Contains("Logging", pipeline.AllSectionNames);
@@ -518,6 +519,23 @@ public class SectionPipelineTests
         Assert.DoesNotContain("SourceLink Availability", renderable);
         Assert.DoesNotContain("SourceLink Missing Files", renderable);
         Assert.DoesNotContain("SourceLink Integrity", renderable);
+    }
+
+    [Fact]
+    public void LibraryPipeline_ILOffsetDiscovery_UsesMethodBodyApplicability()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true
+        };
+
+        var applicable = pipeline.GetApplicableSections(model);
+        var renderable = pipeline.GetAvailableSections(model);
+
+        Assert.Contains("IL Offset", applicable);
+        Assert.DoesNotContain("IL Offset", renderable);
     }
 
     [Fact]

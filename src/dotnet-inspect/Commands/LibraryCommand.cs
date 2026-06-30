@@ -57,12 +57,34 @@ public class LibraryCommand
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
+        var normalized = NormalizeILOffsetSelection(options);
+        if (normalized.Error is not null)
+        {
+            Console.Error.WriteLine(normalized.Error);
+            return 1;
+        }
+        options = normalized.Options;
+
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
+        {
+            if (selectResult.Sections.Contains(SectionNames.ILOffset)
+                && string.IsNullOrWhiteSpace(options.ILOffset))
+            {
+                if (SelectResolver.IsAllSelector(options.Select))
+                    selectResult.Sections.Remove(SectionNames.ILOffset);
+                else if (options.Discover == null)
+                {
+                    Console.Error.WriteLine("Error: IL Offset requires a token+offset parameter. Use --il-offset 0x06000001+0x5 or -S \"IL Offset:0x06000001+0x5\".");
+                    return 1;
+                }
+            }
+
             options = options with { IncludeSections = selectResult.Sections };
+        }
 
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
@@ -196,13 +218,12 @@ public class LibraryCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
-                if (!string.IsNullOrEmpty(options.ILOffset))
-                    return await ILOffsetSourceQuery.ExecuteAsync(
-                        resolvedPath!, null, null, isPlatformAssembly: true,
-                        options, context.HttpClient, logger);
-
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity);
+                var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
+                    inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
+                if (ilOffsetExitCode != 0)
+                    return ilOffsetExitCode;
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
@@ -225,11 +246,6 @@ public class LibraryCommand
                 tempDir = extractTempDir;
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
-
-                if (!string.IsNullOrEmpty(options.ILOffset))
-                    return await ILOffsetSourceQuery.ExecuteAsync(
-                        assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
-                        options, context.HttpClient, logger);
 
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
@@ -266,6 +282,11 @@ public class LibraryCommand
 
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity);
+                var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
+                    inspections[0], assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
+                    options, context.HttpClient, logger);
+                if (ilOffsetExitCode != 0)
+                    return ilOffsetExitCode;
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
@@ -306,13 +327,13 @@ public class LibraryCommand
 
                 inspection.Source = SourceKind.File;
 
-                if (!string.IsNullOrEmpty(options.ILOffset))
-                    return await ILOffsetSourceQuery.ExecuteAsync(
-                        assemblyPath!, null, null, isPlatformAssembly: false,
-                        options, context.HttpClient, logger);
-
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity);
+                var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
+                    inspection, assemblyPath!, null, null, isPlatformAssembly: false,
+                    options, context.HttpClient, logger);
+                if (ilOffsetExitCode != 0)
+                    return ilOffsetExitCode;
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
@@ -344,6 +365,67 @@ public class LibraryCommand
     private static int IntegrityExitCode(params LibraryInspection[] inspections)
     {
         return inspections.Any(insp => insp.SourceIntegrityMismatches is { Count: > 0 }) ? 1 : 0;
+    }
+
+    private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)
+    {
+        var select = options.Select?.ToList() ?? [];
+        string? ilOffset = options.ILOffset;
+
+        for (var i = 0; i < select.Count; i++)
+        {
+            var value = select[i].Trim();
+            if (!value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var parameter = value["IL Offset:".Length..].Trim();
+            if (string.IsNullOrWhiteSpace(parameter))
+                return (options, "Error: IL Offset selector requires a token+offset parameter, for example -S \"IL Offset:0x06000001+0x5\".");
+
+            if (!string.IsNullOrWhiteSpace(ilOffset)
+                && !string.Equals(ilOffset, parameter, StringComparison.OrdinalIgnoreCase))
+                return (options, "Error: specify only one IL Offset token+offset parameter.");
+
+            ilOffset = parameter;
+            select[i] = SectionNames.ILOffset;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ilOffset)
+            && options.Discover == null
+            && !select.Any(s => s.Equals(SectionNames.ILOffset, StringComparison.OrdinalIgnoreCase))
+            && !select.Any(s => s.Equals(SelectResolver.AllSelector, StringComparison.OrdinalIgnoreCase)))
+        {
+            select.Add(SectionNames.ILOffset);
+        }
+
+        return (options with
+        {
+            ILOffset = ilOffset,
+            Select = select.Count == 0 ? null : [.. select]
+        }, null);
+    }
+
+    private static async Task<int> PopulateILOffsetIfRequestedAsync(
+        LibraryInspection inspection,
+        string assemblyPath,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(options.ILOffset)
+            || options.IncludeSections?.Contains(SectionNames.ILOffset) != true)
+            return 0;
+
+        var resolved = await ILOffsetSourceQuery.ResolveAsync(
+            assemblyPath, packageName, packageVersion, isPlatformAssembly, options, httpClient, logger);
+        if (resolved.ExitCode != 0)
+            return resolved.ExitCode;
+
+        inspection.ILOffset = resolved.Result;
+        return 0;
     }
 
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
@@ -499,7 +581,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v9";
+    private const string EffectiveCategory = "effective-v10";
 
     static LibraryCommand()
     {

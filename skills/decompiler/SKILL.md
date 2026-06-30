@@ -50,9 +50,10 @@ maintainers diagnose pipeline state with DecompilerHarness.
 ## Locate code by IL offset
 
 ```bash
-dnx dotnet-inspect -y -- library Foo --il-offset 0x06000001+0x5
+dnx dotnet-inspect -y -- library Foo -S "IL Offset:0x06000001+0x5"
 ```
 
-Use `library Foo --il-offset 0x06000001+0x5` (MethodDef token plus IL offset) to
-map a crash location back to the method and source. For call edges (what a method
-calls, who calls it), see the `relationships` skill.
+Use `library Foo -S "IL Offset:0x06000001+0x5"` (MethodDef token plus IL offset)
+to map a crash location back to the method and source; `--il-offset` is a
+compatibility alias. For call edges (what a method calls, who calls it), see the
+`relationships` skill.

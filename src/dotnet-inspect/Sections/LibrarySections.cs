@@ -33,6 +33,7 @@ public static class LibrarySections
     {
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
+            .Add<ILOffset>(HasILBodies)
             .Add<SourceFiles>()
             .Add<SourceLinkAudit>(SourceLinkAuditApplicable)
             .Add<MissingSourceFiles>(SourceLinkAuditApplicable)
@@ -120,6 +121,16 @@ public static class LibrarySections
         public static bool Info => true;
         public static string? ScannerKey => ScannerInfoCounts;
         public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
+    }
+
+    public sealed class ILOffset : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ILOffset;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset != null;
     }
 
     // ===== Symbol/provenance sections (network-capable, acceptable default cost) =====
@@ -309,6 +320,9 @@ public static class LibrarySections
            && (model.HasSourceLink
                || model.HasEmbeddedPdb
                || !string.IsNullOrWhiteSpace(model.PdbPath));
+
+    private static bool HasILBodies(LibraryInspection model)
+        => model.AssemblyInfo != null && model.HasMethodBodies;
 
     private static bool HasReferenceData(LibraryInspection model)
         => model.AssemblyInfo?.References is { Count: > 0 }

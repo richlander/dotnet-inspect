@@ -1,17 +1,15 @@
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
-using DotnetInspector.Views;
 using ILInspector.Metadata;
-using Markout;
-using Markout.Formatting;
 
 namespace DotnetInspector.Commands;
 
 internal static class ILOffsetSourceQuery
 {
-    public static async Task<int> ExecuteAsync(
+    public static async Task<(int ExitCode, ILOffsetResult? Result)> ResolveAsync(
         string dllPath,
         string? packageName,
         string? packageVersion,
@@ -24,7 +22,7 @@ internal static class ILOffsetSourceQuery
         {
             Console.Error.WriteLine($"Error: Invalid --il-offset format '{options.ILOffset}'.");
             Console.Error.WriteLine("Expected format: 0x6000001+0x5 (method token + IL offset)");
-            return 1;
+            return (1, null);
         }
 
         using var service = SourceLinkService.Open(dllPath, logger.Log);
@@ -33,7 +31,7 @@ internal static class ILOffsetSourceQuery
         if (!pdbContext.HasMetadata)
         {
             Console.Error.WriteLine("Error: No metadata in library.");
-            return 1;
+            return (1, null);
         }
 
         await SourceEnricher.AcquirePdbAsync(
@@ -47,7 +45,7 @@ internal static class ILOffsetSourceQuery
         if (!pdbContext.HasPdb)
         {
             WritePdbWarning(pdbContext);
-            return 1;
+            return (1, null);
         }
 
         if (!service.HasSourceLink)
@@ -58,66 +56,25 @@ internal static class ILOffsetSourceQuery
         {
             Console.Error.WriteLine($"Error: Could not resolve source location for token 0x{methodToken:X}+0x{ilOffset:X}.");
             Console.Error.WriteLine("The method token may be invalid or the PDB may not contain sequence points for this method.");
-            return 1;
+            return (1, null);
         }
 
         string? url = options.BrowsableUrls ? result.GitHubBrowseUrl : result.SourceUrl;
         if (url != null)
             url += $"#L{result.Line}";
 
-        if (options.JsonOutput)
+        var resolved = new ILOffsetResult
         {
-            var jsonResult = new ILOffsetResult
-            {
-                Method = result.MethodName,
-                Token = $"0x{methodToken:X}",
-                ILOffset = $"0x{ilOffset:X}",
-                MatchedOffset = $"0x{result.MatchedOffset:X}",
-                File = result.FilePath,
-                Line = result.Line,
-                Url = url
-            };
-            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(jsonResult, SourceJsonContext.Default.ILOffsetResult));
-            return 0;
-        }
-
-        bool showSections = options.Verbosity >= Verbosity.Minimal;
-        bool showSource = options.Verbosity >= Verbosity.Normal;
-        string token = $"0x{methodToken:X}";
-        string ilOffsetHex = $"0x{ilOffset:X}";
-        string? matchedOffset = result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null;
-
-        var view = new SourceILOffsetView
-        {
-            Title = result.MethodName ?? token,
-            Token = showSections ? null : token,
-            ILOffset = showSections ? null : ilOffsetHex,
-            MatchedOffset = showSections ? null : matchedOffset,
-            Offset = showSections
-                ? new ILOffsetInfoSection { Token = token, ILOffset = ilOffsetHex, MatchedOffset = matchedOffset }
-                : null,
-            Location = showSource ? [new ILOffsetSourceRow(result.FilePath, result.Line, url)] : null,
+            Method = result.MethodName,
+            Token = $"0x{methodToken:X}",
+            ILOffset = $"0x{ilOffset:X}",
+            MatchedOffset = result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null,
+            File = result.FilePath,
+            Line = result.Line,
+            Url = url
         };
 
-        if (options.OneLine && !options.JsonOutput)
-        {
-            Console.WriteLine(url ?? $"{result.FilePath}:{result.Line}");
-            return 0;
-        }
-
-        var writerOpts = OutputFormatter.CreateProjectedWriterOptions(options.Columns, options.Fields);
-        var formatter = options.PlainText ? (IMarkoutFormatter)new PlainTextFormatter() : new MarkdownFormatter();
-        if (options.PlainText)
-        {
-            MarkoutSerializer.Serialize(view, Console.Out, formatter, SourceViewContext.Default, writerOpts);
-        }
-        else
-        {
-            OutputFormatter.WriteLimitedMarkdown(Console.Out,
-                MarkoutSerializer.Serialize(view, SourceViewContext.Default, writerOpts), options.Rows);
-        }
-
-        return 0;
+        return (0, resolved);
     }
 
     public static bool TryParse(string value, out int methodToken, out int ilOffset)
@@ -164,15 +121,4 @@ internal static class ILOffsetSourceQuery
         Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink Availability\"' for full source reachability.");
         Console.Error.WriteLine();
     }
-}
-
-public class ILOffsetResult
-{
-    public string? Method { get; init; }
-    public string? Token { get; init; }
-    public string? ILOffset { get; init; }
-    public string? MatchedOffset { get; init; }
-    public string? File { get; init; }
-    public int? Line { get; init; }
-    public string? Url { get; init; }
 }

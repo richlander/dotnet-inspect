@@ -4465,6 +4465,7 @@ public class CommandExecutionTests
                 "Health Checks",
                 "Hosting",
                 "HTTP Client",
+                "IL Offset",
                 "Integration Opportunities",
                 "Integrations",
                 "Logging",
@@ -4546,6 +4547,31 @@ public class CommandExecutionTests
         Assert.Contains("\"token\": \"0x6000001\"", output);
         Assert.Contains("\"line\": 527", output);
         Assert.Contains("HexConverter.cs", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetSectionSelector_ResolvesSourceLocation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "IL Offset:0x06000001+0x0", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## IL Offset", output);
+        Assert.Contains("| System.HexConverter.FromChar | 0x6000001 | 0x0 |", output);
+        Assert.Contains("HexConverter.cs", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetSectionSelector_RequiresParameter()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "IL Offset", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("IL Offset requires a token+offset parameter", error);
     }
 
     [Fact]

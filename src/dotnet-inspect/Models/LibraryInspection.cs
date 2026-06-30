@@ -371,6 +371,13 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<SourceFileInfo>? SourceFiles { get; set; }
 
+    /// <summary>
+    /// MethodDef token + IL offset source resolution result. Populated only when
+    /// the IL Offset section is selected with a token+offset parameter.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ILOffsetResult? ILOffset { get; set; }
+
     // Presence flags — populated cheaply from MetadataReader before scanners run.
     // Used by CanRender for fast -s discovery without full scanning.
 
@@ -483,6 +490,17 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore]
     public bool UseDependenciesView { get; set; }
+}
+
+public class ILOffsetResult
+{
+    public string? Method { get; init; }
+    public string? Token { get; init; }
+    public string? ILOffset { get; init; }
+    public string? MatchedOffset { get; init; }
+    public string? File { get; init; }
+    public int? Line { get; init; }
+    public string? Url { get; init; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);

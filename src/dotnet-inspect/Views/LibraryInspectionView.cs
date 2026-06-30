@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using DotnetInspector.Output;
 using Markout;
@@ -476,6 +477,22 @@ public class LibraryInspectionView
             .Select(file => new SourceFileRow(file.Type, file.Url))
             .ToList();
 
+    [MarkoutIgnore]
+    public bool HasILOffset => _data.ILOffset != null;
+
+    [MarkoutSection(Name = SectionNames.ILOffset, ShowWhenProperty = nameof(HasILOffset))]
+    public List<ILOffsetRow>? ILOffsetSection => _data.ILOffset is not { } result ? null :
+    [
+        new ILOffsetRow(
+            result.Method,
+            result.Token,
+            result.ILOffset,
+            result.MatchedOffset,
+            result.File,
+            result.Line,
+            result.Url)
+    ];
+
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
@@ -744,6 +761,18 @@ public record AsyncMethodRow(
     [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
     string Kind,
     string Signature);
+
+[MarkoutSerializable]
+public record ILOffsetRow(
+    [property: MarkoutSkipNull] string? Method,
+    [property: MarkoutSkipNull] string? Token,
+    [property: MarkoutPropertyName("IL Offset")]
+    [property: MarkoutSkipNull] string? ILOffset,
+    [property: MarkoutPropertyName("Matched Offset")]
+    [property: MarkoutSkipNull] string? MatchedOffset,
+    [property: MarkoutSkipNull] string? File,
+    [property: MarkoutSkipNull] int? Line,
+    [property: MarkoutSkipNull] string? Url);
 
 [MarkoutSerializable]
 public record ResourceRow(
