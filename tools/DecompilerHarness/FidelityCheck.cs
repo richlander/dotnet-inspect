@@ -1303,8 +1303,8 @@ static class FidelityCheck
     {
         string unit;
         try { unit = timings is null
-            ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility)
-            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility)); }
+            ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces)
+            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces)); }
         catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = timings is null
@@ -1423,8 +1423,8 @@ static class FidelityCheck
         {
             string unit;
             try { unit = timings is null
-                ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include)
-                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include)); }
+                ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)
+                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)); }
             catch { return null; } // fall back to the whole-module build
 
             var tree = timings is null
@@ -1803,11 +1803,13 @@ static class FidelityCheck
         bool targetRequiresAsync,
         PrimaryConstructorShape? targetPrimaryConstructor,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
-        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
+        SignatureAccessibility accessibility,
+        IReadOnlySet<string>? requiredNamespaces = null,
+        IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync, targetPrimaryConstructor) };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
-        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots);
+        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots, requiredNamespaces);
     }
 
     /// <summary>
@@ -1822,7 +1824,8 @@ static class FidelityCheck
     /// </summary>
     static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
+        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
+        IReadOnlySet<string>? isolatedTargetNamespaces = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
@@ -1834,10 +1837,9 @@ static class FidelityCheck
         // collision namespaces — so a body's short name resolves without
         // introducing CS0104 ambiguity.
         var usings = new SortedSet<string>(SkeletonUsings, StringComparer.Ordinal);
-        foreach (var target in targets.Values)
-            if (target.RequiredNamespaces is not null)
-                foreach (var ns in target.RequiredNamespaces)
-                    usings.Add(ns);
+        if (isolatedTargetNamespaces is not null)
+            foreach (var ns in isolatedTargetNamespaces)
+                usings.Add(ns);
         foreach (var ns in usings)
             sb.AppendLine($"using {ns};");
         foreach (var typeHandle in reader.TypeDefinitions)

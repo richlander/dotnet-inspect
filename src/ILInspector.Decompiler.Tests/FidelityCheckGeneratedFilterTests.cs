@@ -349,9 +349,16 @@ public class FidelityCheckGeneratedFilterTests
             AssertCheckable(results, "CreateConcurrent");
             AssertCheckable(results, "Freeze");
             AssertCheckable(results, "MatchS");
+
+            Environment.SetEnvironmentVariable("CB_NOGROUP", "1");
+            var perMethodResults = FidelityCheck.Evaluate(assemblyPath);
+            AssertCheckable(perMethodResults, "CreateConcurrent");
+            AssertCheckable(perMethodResults, "Freeze");
+            AssertCheckable(perMethodResults, "MatchS");
         }
         finally
         {
+            Environment.SetEnvironmentVariable("CB_NOGROUP", null);
             DeleteFixture(assemblyPath);
         }
 
