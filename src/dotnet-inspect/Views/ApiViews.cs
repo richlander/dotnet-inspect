@@ -617,6 +617,9 @@ public class MemberCodeView
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
 
+    [MarkoutSection(Name = "Cost Overlay")]
+    public CodeSection CostOverlayCode { get; set; }
+
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 

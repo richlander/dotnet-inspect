@@ -255,6 +255,18 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike);
     }
 
+    public sealed class CostOverlay : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CostOverlay;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsMethodLike);
+    }
+
     public sealed class UnsafeMembers : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.UnsafeMembers;
@@ -437,6 +449,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.Facts>();
     }
@@ -468,6 +481,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<MethodAttributes>()
             .Add<DecompiledSource>()
             .Add<AnnotatedSource>()
+            .Add<CostOverlay>()
             .Add<OriginalSource>()
             .Add<SourceLocations>()
             .Add<Calls>()
@@ -530,6 +544,18 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.AnnotatedSource;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class CostOverlay : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CostOverlay;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

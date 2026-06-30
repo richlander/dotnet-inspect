@@ -16,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -29,6 +29,9 @@ internal static class MemberCodeProvider
         IReadOnlyList<string>? MethodGenericParameters,
         string? AnnotatedBody,
         string? AnnotatedDiagnostic,
+        string? CostOverlayBody,
+        IReadOnlyList<string>? CostOverlayHeaderComments,
+        string? CostOverlayDiagnostic,
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
@@ -129,6 +132,26 @@ internal static class MemberCodeProvider
                     annotatedDiagnostic = DiagnosticComment(result);
             }
 
+            string? costOverlayBody = null, costOverlayDiagnostic = null;
+            IReadOnlyList<string>? costOverlayHeaderComments = null;
+            if (request.CostOverlay && pipelineSource is not null)
+            {
+                var overlay = ILInspector.Research.ResearchViews.RenderCostOverlayWithHeaderFacts(
+                    pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
+                var result = overlay.Body;
+                decompileTrace = result.Trace;
+                if (result.Output is { } costOverlay)
+                {
+                    costOverlayBody = costOverlay.TrimEnd();
+                    if (overlay.HeaderFacts.Count > 0)
+                        costOverlayHeaderComments = overlay.HeaderFacts
+                            .Select(fact => $"// {fact.Format()}")
+                            .ToList();
+                }
+                else
+                    costOverlayDiagnostic = DiagnosticComment(result);
+            }
+
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
             {
@@ -160,6 +183,9 @@ internal static class MemberCodeProvider
                 methodGenericParameters,
                 annotatedBody,
                 annotatedDiagnostic,
+                costOverlayBody,
+                costOverlayHeaderComments,
+                costOverlayDiagnostic,
                 ilText,
                 ilDiagnostic,
                 attributes,
@@ -239,7 +265,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.Facts)
             return null;
         try
         {

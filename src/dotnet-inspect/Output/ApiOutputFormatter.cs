@@ -1043,6 +1043,7 @@ public static class ApiOutputFormatter
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
+            CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
@@ -1255,7 +1256,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.IL || request.Attributes || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.IL || request.Attributes || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false))
@@ -1314,6 +1315,33 @@ public static class ApiOutputFormatter
             {
                 EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 memberCode.AnnotatedSourceCode = new CodeSection("csharp", annotatedDiagnostic);
+                hasCode = true;
+            }
+
+            if (code.CostOverlayBody is { } costOverlay)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                string source;
+                try
+                {
+                    source = FormatSourceWithDeclaration(
+                        type,
+                        member,
+                        code.MethodGenericParameters,
+                        costOverlay,
+                        leadingBodyComments: code.CostOverlayHeaderComments);
+                }
+                catch (Exception ex)
+                {
+                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
+                }
+                memberCode.CostOverlayCode = new CodeSection("csharp", source);
+                hasCode = true;
+            }
+            else if (code.CostOverlayDiagnostic is { } costDiagnostic)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                memberCode.CostOverlayCode = new CodeSection("csharp", costDiagnostic);
                 hasCode = true;
             }
 
@@ -1730,7 +1758,8 @@ public static class ApiOutputFormatter
         IReadOnlyList<string>? methodGenericParameters,
         string lowered,
         bool requiresAsyncDeclaration = false,
-        bool preferExpressionBodied = false)
+        bool preferExpressionBodied = false,
+        IReadOnlyList<string>? leadingBodyComments = null)
     {
         var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
         if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
@@ -1753,12 +1782,17 @@ public static class ApiOutputFormatter
         if (string.IsNullOrWhiteSpace(declaration))
             return body;
 
-        if (preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
+        bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
+        if (!hasLeadingComments && preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
             return $"{declaration} => {expressionBody};";
 
+        var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');
+        var lines = hasLeadingComments
+            ? leadingBodyComments!.Concat(formattedBodyLines)
+            : formattedBodyLines;
         var indentedBody = string.Join(
             Environment.NewLine,
-            body.ReplaceLineEndings("\n").Split('\n').Select(line => line.Length == 0 ? "" : $"    {line}"));
+            lines.Select(line => line.Length == 0 ? "" : $"    {line}"));
 
         return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }
