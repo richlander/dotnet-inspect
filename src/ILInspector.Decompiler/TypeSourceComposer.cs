@@ -61,7 +61,6 @@ public static class TypeSourceComposer
             // shared context (when a batch caller supplies one) opens each
             // referenced assembly once across many composed types.
             using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath, locator: locateAssembly, context: context);
-
             var union = TryUnionDeclaration(reader, typeHandle, type);
 
             var sb = new StringBuilder();
@@ -81,7 +80,11 @@ public static class TypeSourceComposer
             if (union is not null)
                 AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
 
-            foreach (var attribute in AttributeReader.RenderAttributes(reader, reader.GetTypeDefinition(typeHandle).GetCustomAttributes(), bodyNamespaces,
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
+                sb.AppendLine($"[{attribute}]");
+
+            foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
                          union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
                 sb.AppendLine($"[{attribute}]");
 
@@ -229,6 +232,41 @@ public static class TypeSourceComposer
         _ => null,
     };
 
+    static IEnumerable<string> LayoutAttributes(ApiType type, TypeDefinition typeDef, SortedSet<string> namespaces)
+    {
+        var layoutKind = typeDef.Attributes & TypeAttributes.LayoutMask;
+        var layout = typeDef.GetLayout();
+        string? kind = layoutKind switch
+        {
+            TypeAttributes.ExplicitLayout => "LayoutKind.Explicit",
+            TypeAttributes.SequentialLayout when type.Kind == "class" || layout.Size > 0 || layout.PackingSize > 0 => "LayoutKind.Sequential",
+            TypeAttributes.AutoLayout when type.Kind == "struct" => "LayoutKind.Auto",
+            _ => null,
+        };
+        if (kind is null)
+            yield break;
+
+        namespaces.Add("System.Runtime.InteropServices");
+        var arguments = new List<string> { kind };
+
+        if (layout.Size > 0)
+            arguments.Add($"Size = {layout.Size}");
+        if (layout.PackingSize > 0)
+            arguments.Add($"Pack = {layout.PackingSize}");
+
+        yield return $"StructLayout({string.Join(", ", arguments)})";
+    }
+
+    static IEnumerable<string> FieldLayoutAttributes(FieldDefinition field, SortedSet<string> namespaces)
+    {
+        int offset = field.GetOffset();
+        if (offset < 0)
+            yield break;
+
+        namespaces.Add("System.Runtime.InteropServices");
+        yield return $"FieldOffset({offset})";
+    }
+
     static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle,
         SortedSet<string> namespaces, IReadOnlyDictionary<string, string> fieldInitializers, ref bool any)
     {
@@ -271,10 +309,14 @@ public static class TypeSourceComposer
                 continue;
             }
 
+            foreach (var attribute in FieldLayoutAttributes(field, namespaces))
+                sb.AppendLine($"    [{attribute}]");
             foreach (var attribute in AttributeReader.RenderAttributes(reader, fieldHandle, namespaces))
                 sb.AppendLine($"    [{attribute}]");
 
             var decl = new StringBuilder($"    {access} ");
+            if (fieldType.Contains('*', StringComparison.Ordinal))
+                decl.Append("unsafe ");
             if (field.Attributes.HasFlag(FieldAttributes.Literal))
                 decl.Append("const ");
             else
@@ -344,9 +386,10 @@ public static class TypeSourceComposer
 
                     string? constructorChain = null;
                     bool requiresAsync = false;
+                    bool requiresUnsafeContext = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresAsync);
+                        : DecompileBody(pipelineSource, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -361,7 +404,8 @@ public static class TypeSourceComposer
                             ?? (member.Signature is { } sig && sig.IndexOf(' ') is var sp and > 0
                                 ? sig[..sp]
                                 : "object");
-                        string head = $"    {EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
+                        string unsafeModifier = (member.IsUnsafe || requiresUnsafeContext) ? "unsafe " : "";
+                        string head = $"    {unsafeModifier}{EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
                         if (member.Name.Contains(".set_", StringComparison.Ordinal))
                         {
                             sb.AppendLine(head);
@@ -394,7 +438,7 @@ public static class TypeSourceComposer
                         break;
                     }
 
-                    var declaration = MethodDeclaration(type, member);
+                    var declaration = MethodDeclaration(type, member, requiresUnsafeContext);
                     if (body is not null && requiresAsync && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
                         declaration = AddAsyncModifier(declaration);
                     AppendMember(sb, declaration, body, constructorChain);
@@ -562,29 +606,34 @@ public static class TypeSourceComposer
     /// signatures do); synthesize the declaration from the member flags.
     /// Constructors rename .ctor/.cctor to the type's display name.
     /// </summary>
-    static string MethodDeclaration(ApiType type, ApiMember member)
+    static string MethodDeclaration(ApiType type, ApiMember member, bool requiresUnsafeContext)
     {
         string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, type.TypeParameters);
         string typeName = DisplayName(type);
         int tick = typeName.IndexOf('<');
         string ctorName = tick >= 0 ? typeName[..tick] : typeName;
+        bool isUnsafe = member.IsUnsafe || requiresUnsafeContext;
+        string unsafeModifier = isUnsafe ? "unsafe " : "";
 
         if (member.Name == ".cctor")
-            return $"static {ctorName}()";
+            return $"static {unsafeModifier}{ctorName}()";
         if (member.Name == ".ctor")
         {
             if (signature.StartsWith("void ", StringComparison.Ordinal))
                 signature = signature[5..];
-            return $"public {signature.Replace(".ctor", ctorName)}";
+            return $"public {unsafeModifier}{signature.Replace(".ctor", ctorName)}";
         }
         if (member.Kind == "operator")
-            return OperatorDeclaration(member, type.TypeParameters);
+            return OperatorDeclaration(member, type.TypeParameters, isUnsafe);
 
-        // Explicit interface implementations take no modifiers.
+        // Explicit interface implementations take no accessibility/static/virtual
+        // modifiers, but pointer signatures still require unsafe context.
         if (member.Kind == "explicit-interface-implementation")
-            return signature;
+            return isUnsafe ? $"unsafe {signature}" : signature;
 
         var parts = new List<string> { member.Accessibility ?? "public" };
+        if (isUnsafe)
+            parts.Add("unsafe");
         if (type.Kind != "interface")
         {
             if (member.IsStatic) parts.Add("static");
@@ -597,7 +646,7 @@ public static class TypeSourceComposer
         return string.Join(" ", parts);
     }
 
-    static string OperatorDeclaration(ApiMember member, IReadOnlyList<TypeParameter> typeParameters)
+    static string OperatorDeclaration(ApiMember member, IReadOnlyList<TypeParameter> typeParameters, bool isUnsafe)
     {
         string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, typeParameters);
         int parenStart = signature.IndexOf('(');
@@ -610,17 +659,18 @@ public static class TypeSourceComposer
 
         string returnType = signature[..nameIndex].TrimEnd();
         string parameters = signature[parenStart..];
+        string modifiers = isUnsafe ? "public static unsafe" : "public static";
 
         if (member.Name.StartsWith("op_Checked", StringComparison.Ordinal)
             && OperatorNames.MapBinaryOrUnary(member.Name["op_Checked".Length..]) is { } checkedSymbol)
-            return $"public static {returnType} operator checked {checkedSymbol}{parameters}";
+            return $"{modifiers} {returnType} operator checked {checkedSymbol}{parameters}";
 
         return member.Name switch
         {
-            "op_Implicit" => $"public static implicit operator {returnType}{parameters}",
-            "op_Explicit" => $"public static explicit operator {returnType}{parameters}",
-            "op_CheckedExplicit" => $"public static explicit operator checked {returnType}{parameters}",
-            _ => $"public static {returnType} {OperatorNames.FormatDisplayName(member.Name)}{parameters}"
+            "op_Implicit" => $"{modifiers} implicit operator {returnType}{parameters}",
+            "op_Explicit" => $"{modifiers} explicit operator {returnType}{parameters}",
+            "op_CheckedExplicit" => $"{modifiers} explicit operator checked {returnType}{parameters}",
+            _ => $"{modifiers} {returnType} {OperatorNames.FormatDisplayName(member.Name)}{parameters}"
         };
     }
 
@@ -660,6 +710,25 @@ public static class TypeSourceComposer
         parts.Insert(insert, "async");
         return string.Join(" ", parts);
     }
+
+    static string InsertModifier(string signature, string modifier)
+    {
+        var parts = signature.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (parts.Contains(modifier))
+            return signature;
+        int insert = 0;
+        while (insert < parts.Count && parts[insert] is
+               "public" or "private" or "protected" or "internal" or "static" or
+               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern")
+        {
+            insert++;
+        }
+        parts.Insert(insert, modifier);
+        return string.Join(" ", parts);
+    }
+
+    static bool ContainsModifier(string signature, string modifier)
+        => signature.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(modifier);
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
         => typeParameter.Variance is { } variance
@@ -832,6 +901,7 @@ public static class TypeSourceComposer
         string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, typeParameters);
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
+        bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
 
         // The extractor's property signatures sometimes omit modifiers.
         if (!head.StartsWith("public", StringComparison.Ordinal)
@@ -842,22 +912,27 @@ public static class TypeSourceComposer
             string access = member.Accessibility ?? "public";
             head = member.IsStatic ? $"{access} static {head}" : $"{access} {head}";
         }
+        if (requiresUnsafeContext && !ContainsModifier(head, "unsafe"))
+            head = InsertModifier(head, "unsafe");
 
-        var accessors = new List<(string Keyword, string? Body)>();
+        var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext)>();
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, typeFullName, $"get_{member.Name}", bodyNamespaces)));
+                accessors.Add(("get", DecompileAccessor(pipelineSource, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe), getRequiresUnsafe));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces)));
+                accessors.Add(("set", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe), setRequiresUnsafe));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces)));
+                accessors.Add(("init", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe), initRequiresUnsafe));
         }
+
+        if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext) && !ContainsModifier(head, "unsafe"))
+            head = InsertModifier(head, "unsafe");
 
         if (accessors.Count == 0 || member.IsAbstract || accessors.All(a => a.Body is null))
         {
-            sb.AppendLine($"    {signature}");
+            sb.AppendLine(accessorList >= 0 ? $"    {head} {signature[accessorList..]}" : $"    {head}");
             return;
         }
 
@@ -875,7 +950,7 @@ public static class TypeSourceComposer
         // (csharp_style_expression_bodied_properties/accessors = true):
         // a lone getter returning one expression is 'head => expr;', and any
         // single-statement accessor is 'get/set => ...;'.
-        if (accessors is [("get", { } loneGet)] && CSharpExpressionBody.FromSingleStatement(loneGet) is { } propExpr)
+        if (accessors is [("get", { } loneGet, _)] && CSharpExpressionBody.FromSingleStatement(loneGet) is { } propExpr)
         {
             sb.AppendLine($"    {head} => {propExpr};");
             return;
@@ -885,7 +960,7 @@ public static class TypeSourceComposer
         sb.AppendLine("    {");
         for (int i = 0; i < accessors.Count; i++)
         {
-            var (keyword, body) = accessors[i];
+            var (keyword, body, _) = accessors[i];
             if (i > 0) sb.AppendLine();
             if (body is null)
             {
@@ -955,20 +1030,20 @@ public static class TypeSourceComposer
 
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member, int overloadIndex,
-        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
         // ordering the running index is built from.
         => DecompileMethod(pipelineSource, member.DeclaringType ?? typeFullName, member.Name, overloadIndex,
-            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces, out constructorChain, out requiresAsync);
+            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
 
     static string? DecompileAccessor(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string accessorName,
-        SortedSet<string> bodyNamespaces)
+        SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext)
         // Accessors are non-public special-name methods; count across all
         // visibilities (a property has one get_/set_ per name anyway).
         => DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out _);
+            publicOnly: false, bodyNamespaces, out _, out _, out requiresUnsafeContext);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -980,20 +1055,50 @@ public static class TypeSourceComposer
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
-        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync)
+        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
     {
         constructorChain = null;
         requiresAsync = false;
+        requiresUnsafeContext = false;
         var function = Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly);
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
+        requiresUnsafeContext = RequiresUnsafeMemberContext(function);
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
         constructorChain = result.ConstructorChain;
         requiresAsync = result.ContainsAwaitExpression;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
+
+    static bool RequiresUnsafeMemberContext(Pipeline.IrFunction function)
+        => function.Descendants.Prepend(function).Any(IsUnsafeContextOperation);
+
+    static bool IsUnsafeContextOperation(Pipeline.IrNode node) => node switch
+    {
+        Pipeline.CallIndirect => true,
+        Pipeline.StackAllocate => true,
+        Pipeline.StackAllocArray => false,
+        Pipeline.Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
+        Pipeline.NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
+        Pipeline.LoadIndirect l => RendersAsPointerDeref(l.Address),
+        Pipeline.StoreIndirect s => RendersAsPointerDeref(s.Address),
+        Pipeline.InitObject o => RendersAsPointerDeref(o.Address),
+        _ => false,
+    };
+
+    static bool SignatureRequiresUnsafe(Pipeline.MethodRef callee)
+        => ContainsPointer(callee.ReturnType) || callee.ParameterTypes.Any(ContainsPointer);
+
+    static bool ContainsPointer(Pipeline.TypeRef? type)
+        => type is not null
+            && (type.Kind is Pipeline.TypeRefKind.Pointer or Pipeline.TypeRefKind.FunctionPointer
+                || ContainsPointer(type.ElementType)
+                || type.TypeArguments.Any(ContainsPointer));
+
+    static bool RendersAsPointerDeref(Pipeline.IrExpression address)
+        => address.ResultType?.Kind != Pipeline.TypeRefKind.ByRef;
 
     /// <summary>
     /// Unions the namespaces of every definition type the function references
