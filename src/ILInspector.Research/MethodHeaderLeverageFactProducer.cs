@@ -9,7 +9,7 @@ sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
 
     public string Name => "method-header-leverage";
     public IReadOnlyList<string> Produces { get; } = ["cost.method"];
-    public IReadOnlyList<string> DependsOn { get; } = ["call-site-cost"];
+    public IReadOnlyList<string> DependsOn { get; } = [];
 
     public IReadOnlyList<Annotation> Produce(ResearchFactContext context) => [];
 

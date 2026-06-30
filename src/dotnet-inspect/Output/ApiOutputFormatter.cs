@@ -1324,7 +1324,12 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, costOverlay);
+                    source = FormatSourceWithDeclaration(
+                        type,
+                        member,
+                        code.MethodGenericParameters,
+                        costOverlay,
+                        leadingBodyComments: code.CostOverlayHeaderComments);
                 }
                 catch (Exception ex)
                 {
@@ -1750,7 +1755,8 @@ public static class ApiOutputFormatter
         IReadOnlyList<string>? methodGenericParameters,
         string lowered,
         bool requiresAsyncDeclaration = false,
-        bool preferExpressionBodied = false)
+        bool preferExpressionBodied = false,
+        IReadOnlyList<string>? leadingBodyComments = null)
     {
         var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
         if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
@@ -1773,12 +1779,17 @@ public static class ApiOutputFormatter
         if (string.IsNullOrWhiteSpace(declaration))
             return body;
 
-        if (preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
+        bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
+        if (!hasLeadingComments && preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
             return $"{declaration} => {expressionBody};";
 
+        var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');
+        var lines = hasLeadingComments
+            ? leadingBodyComments!.Concat(formattedBodyLines)
+            : formattedBodyLines;
         var indentedBody = string.Join(
             Environment.NewLine,
-            body.ReplaceLineEndings("\n").Split('\n').Select(line => line.Length == 0 ? "" : $"    {line}"));
+            lines.Select(line => line.Length == 0 ? "" : $"    {line}"));
 
         return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }

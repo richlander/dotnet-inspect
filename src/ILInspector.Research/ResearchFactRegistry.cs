@@ -30,7 +30,13 @@ public sealed record ResearchFactContext(
 
 public sealed record ResearchHeaderFact(
     AnnotationDescriptor Descriptor,
-    string? Detail = null);
+    string? Detail = null)
+{
+    public string Format()
+        => string.IsNullOrEmpty(Detail)
+            ? Descriptor.Id
+            : $"{Descriptor.Id}({Detail})";
+}
 
 public interface IResearchFactProducer
 {

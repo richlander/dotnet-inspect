@@ -2313,6 +2313,9 @@ public class CommandExecutionTests
         Assert.Contains("cost.callee", output);
         Assert.Contains("alloc-loop", output);
         Assert.Contains("cost.method", output);
+        Assert.True(
+            output.IndexOf("cost.method", StringComparison.Ordinal) < output.IndexOf("return CostOverlayFixture.HotCallee", StringComparison.Ordinal),
+            output);
     }
 
     [Fact]

@@ -8,6 +8,10 @@ namespace ILInspector.Research;
 
 public static class ResearchViews
 {
+    public sealed record CostOverlayResult(
+        DecompilerResult Body,
+        IReadOnlyList<ResearchHeaderFact> HeaderFacts);
+
     public static IReadOnlyList<Annotation> CollectFacts(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
@@ -24,8 +28,14 @@ public static class ResearchViews
     public static DecompilerResult RenderCostOverlay(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
+        => RenderCostOverlayWithHeaderFacts(source, type, method, overloadIndex, publicOnly, registry).Body;
+
+    public static CostOverlayResult RenderCostOverlayWithHeaderFacts(
+        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
+        ResearchFactRegistry? registry = null)
     {
-        return Run(() =>
+        IReadOnlyList<ResearchHeaderFact> headerFacts = [];
+        var body = Run(() =>
         {
             var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
@@ -43,13 +53,14 @@ public static class ResearchViews
             var annotations = effectiveRegistry.Collect(context)
                 .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
                 .ToList();
-            var headerFacts = effectiveRegistry.CollectHeaderFacts(context)
+            headerFacts = effectiveRegistry.CollectHeaderFacts(context)
                 .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                 .ToList();
             if (annotations.Count > 0)
                 output = AddTrailingComments(imported, output, statementLines, annotations);
-            return AddHeaderFacts(output, headerFacts);
+            return output;
         }, emptyOutputIsFailure: true);
+        return new CostOverlayResult(body, headerFacts);
     }
 
     public static DecompilerResult RenderAnnotatedSource(
@@ -184,16 +195,6 @@ public static class ResearchViews
         for (int i = 0; i < lines.Length; i++)
             if (commentByLine.TryGetValue(i, out var comment))
                 lines[i] = $"{lines[i].TrimEnd()}  // {comment}";
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    static string AddHeaderFacts(string output, IReadOnlyList<ResearchHeaderFact> facts)
-    {
-        if (facts.Count == 0)
-            return output;
-        var lines = output.Replace("\r\n", "\n").Split('\n').ToList();
-        var annotations = facts.Select(fact => new Annotation(fact.Descriptor, SourceOffset: -1, fact.Detail)).ToArray();
-        lines.Insert(0, $"// {AnnotationText.Format(annotations)}");
         return string.Join(Environment.NewLine, lines);
     }
 

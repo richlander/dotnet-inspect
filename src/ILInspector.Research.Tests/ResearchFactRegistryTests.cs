@@ -27,8 +27,12 @@ public class ResearchFactRegistryTests
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
         var il = ResearchViews.ProjectAnnotatedIl(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
+        var imported = IrImporter.Import(source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt))
+            ?? throw new InvalidOperationException("fixture method has no IL body");
+        var headerFacts = registry.CollectHeaderFacts(new ResearchFactContext(source, imported));
 
         Assert.Empty(facts);
+        Assert.Empty(headerFacts);
         Assert.DoesNotContain("alloc.", annotated);
         Assert.DoesNotContain("alloc.", il);
     }
@@ -101,26 +105,26 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlay(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.SharedLeverageCallee)).Output;
+        var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.SharedLeverageCallee));
 
-        Assert.Contains("cost.method", overlay);
-        Assert.Contains("direct-callers 2", overlay);
+        var fact = Assert.Single(overlay.HeaderFacts);
+        Assert.Equal("cost.method", fact.Descriptor.Id);
+        Assert.Contains("direct-callers 2", fact.Detail);
+        Assert.DoesNotContain("cost.method", overlay.Body.Output);
     }
 
     [Fact]
-    public void CostOverlay_RendersMethodHeaderLeverageBeforeBodyStatements()
+    public void CostOverlay_KeepsMethodHeaderLeverageOutOfBodyText()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlay(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.AllocInLoopCallee)).Output;
+        var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.AllocInLoopCallee));
 
-        Assert.NotNull(overlay);
-        Assert.StartsWith("// cost.method(", overlay);
-        Assert.True(
-            overlay.IndexOf("// cost.method(", StringComparison.Ordinal) < overlay.IndexOf("int total = 0;", StringComparison.Ordinal),
-            overlay);
+        Assert.NotEmpty(overlay.HeaderFacts);
+        Assert.DoesNotContain("cost.method", overlay.Body.Output);
+        Assert.StartsWith("int total = 0;", overlay.Body.Output);
     }
 
     [Fact]

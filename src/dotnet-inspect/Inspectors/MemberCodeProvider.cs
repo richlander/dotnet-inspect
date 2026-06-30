@@ -30,6 +30,7 @@ internal static class MemberCodeProvider
         string? AnnotatedBody,
         string? AnnotatedDiagnostic,
         string? CostOverlayBody,
+        IReadOnlyList<string>? CostOverlayHeaderComments,
         string? CostOverlayDiagnostic,
         string? ILText,
         string? ILDiagnostic,
@@ -132,13 +133,21 @@ internal static class MemberCodeProvider
             }
 
             string? costOverlayBody = null, costOverlayDiagnostic = null;
+            IReadOnlyList<string>? costOverlayHeaderComments = null;
             if (request.CostOverlay && pipelineSource is not null)
             {
-                var result = ILInspector.Research.ResearchViews.RenderCostOverlay(
+                var overlay = ILInspector.Research.ResearchViews.RenderCostOverlayWithHeaderFacts(
                     pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
+                var result = overlay.Body;
                 decompileTrace = result.Trace;
                 if (result.Output is { } costOverlay)
+                {
                     costOverlayBody = costOverlay.TrimEnd();
+                    if (overlay.HeaderFacts.Count > 0)
+                        costOverlayHeaderComments = overlay.HeaderFacts
+                            .Select(fact => $"// {fact.Format()}")
+                            .ToList();
+                }
                 else
                     costOverlayDiagnostic = DiagnosticComment(result);
             }
@@ -175,6 +184,7 @@ internal static class MemberCodeProvider
                 annotatedBody,
                 annotatedDiagnostic,
                 costOverlayBody,
+                costOverlayHeaderComments,
                 costOverlayDiagnostic,
                 ilText,
                 ilDiagnostic,
