@@ -149,6 +149,66 @@ library MyLib.dll -S "Top Leverage" --count
 member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Method.cs
 ```
 
+### Case study: IL offset as a shape catalogue
+
+`library --il-offset` is a compact example of the shape ladder because one
+resolved source location can be useful as a human fact sheet, a row, a scalar, a
+URL, a path, or a source-line payload.
+
+The default stays evidence-oriented and renders the singleton location as
+vertical facts:
+
+```bash
+dotnet-inspect library My.dll --il-offset 0x06000002+0x1
+```
+
+```md
+## IL Offset
+
+| Field | Value |
+| ----- | ----- |
+| Method | My.Type.Method |
+| Token | 0x6000002 |
+| IL Offset | 0x1 |
+| File | /_/src/Foo.cs |
+| Line | 42 |
+| Url | https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42 |
+```
+
+The same resolved location then projects cleanly:
+
+```bash
+# Scalar
+dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+  -S "IL Offset" --fields Line --value
+# 42
+
+# URL vector (one row)
+dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+  -S "IL Offset" --urls
+# https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
+
+# Path vector (one row)
+dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+  -S "IL Offset" --paths
+# /_/src/Foo.cs
+
+# Printable payload: the raw resolved source line
+dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+  -S "IL Offset" --print
+#         return JsonSerializer.Serialize(value, options);
+
+# Singleton count
+dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+  -S "IL Offset" --count
+# 1
+```
+
+This keeps the concerns separate: the default fact section shows all
+symbolication evidence, `--urls` returns the anchored source location, `--paths`
+returns the PDB document path, and `--print` returns the raw payload at the
+location rather than a decorated snippet.
+
 ## Design discipline for future flags
 
 The stable vocabulary is:
