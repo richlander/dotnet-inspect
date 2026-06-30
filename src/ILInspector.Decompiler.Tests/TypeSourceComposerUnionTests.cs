@@ -229,6 +229,34 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionDeclarationPattern_RendersAgainstUnion()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; }
+            public sealed class Dog { }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static bool HasNamedCat(Pet pet) => pet is Cat cat && cat.Name.Length > 0;
+
+                public static string IfDeclaration(Pet pet)
+                {
+                    if (pet is Cat cat)
+                        return cat.Name;
+                    return "none";
+                }
+            }
+            """);
+
+        Assert.Equal("return pet is Cat cat && cat.Name.Length > 0;",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "HasNamedCat"));
+        Assert.Contains("if (pet is Cat cat)", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IfDeclaration"));
+    }
+
+    [Fact]
     public void NonUnionValuePropertyTypeTest_KeepsValueAccess()
     {
         using var assembly = Compile("""
@@ -247,12 +275,18 @@ public class TypeSourceComposerUnionTests
                 {
                     public static bool IsCat(PetLike pet) => pet.Value is Cat;
                     public static bool IsNull(PetLike pet) => pet.Value is null;
+                    public static bool HasCat(PetLike pet)
+                    {
+                        Cat cat = pet.Value as Cat;
+                        return cat is not null;
+                    }
                 }
             }
             """);
 
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
         Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+        Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "HasCat"));
     }
 
     [Fact]
@@ -334,7 +368,7 @@ public class TypeSourceComposerUnionTests
             "Union fixture must build with the preview SDK, got exit "
             + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
 
-        string dll = Path.Combine(project.Path, "bin", "Debug", "net11.0", "union-fixture.dll");
+        string dll = Path.Combine(project.Path, "bin", "Release", "net11.0", "union-fixture.dll");
         return new TempAssembly(dll, project);
     }
 
@@ -386,7 +420,7 @@ public class TypeSourceComposerUnionTests
 
     static async Task<(int ExitCode, string Output)> RunDotnetBuild(string workingDirectory)
     {
-        var psi = new ProcessStartInfo("dotnet", "build --nologo --verbosity quiet")
+        var psi = new ProcessStartInfo("dotnet", "build -c Release --nologo --verbosity quiet")
         {
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
