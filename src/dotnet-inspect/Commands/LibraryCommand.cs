@@ -602,7 +602,7 @@ public class LibraryCommand
 
             if (string.Equals(name, "Library Info", StringComparison.OrdinalIgnoreCase))
             {
-                var renderedLabels = GetRenderedFieldLabels(rendered);
+                var renderedLabels = GetRenderedFieldLabels(rendered, "Library Info");
                 var effectiveItems = section.Items
                     .Where(item => renderedLabels.Contains(item.Name))
                     .Select(item => item.Name)
@@ -618,22 +618,54 @@ public class LibraryCommand
         return filtered;
     }
 
-    private static HashSet<string> GetRenderedFieldLabels(string rendered)
+    internal static HashSet<string> GetRenderedFieldLabelsForTests(string rendered, string sectionName)
+        => GetRenderedFieldLabels(rendered, sectionName);
+
+    private static HashSet<string> GetRenderedFieldLabels(string rendered, string sectionName)
     {
         HashSet<string> labels = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var line in rendered.ReplaceLineEndings("\n").Split('\n'))
+        foreach (var line in ExtractSection(rendered, sectionName))
         {
             if (!line.StartsWith('|'))
                 continue;
 
             var cells = line.Split('|', StringSplitOptions.TrimEntries);
-            if (cells.Length < 3 || cells[1] is "Field" or "---" or "-----")
+            if (cells.Length < 3
+                || cells[1].Equals("Field", StringComparison.OrdinalIgnoreCase)
+                || IsMarkdownSeparatorCell(cells[1]))
                 continue;
 
             labels.Add(cells[1]);
         }
 
         return labels;
+    }
+
+    private static IEnumerable<string> ExtractSection(string rendered, string sectionName)
+    {
+        var inSection = false;
+        var heading = "## " + sectionName;
+        foreach (var line in rendered.ReplaceLineEndings("\n").Split('\n'))
+        {
+            if (line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                inSection = line.Equals(heading, StringComparison.Ordinal)
+                    || line.StartsWith(heading + " (", StringComparison.Ordinal);
+                continue;
+            }
+
+            if (inSection)
+                yield return line;
+        }
+    }
+
+    private static bool IsMarkdownSeparatorCell(string cell)
+    {
+        var trimmed = cell.Trim();
+        if (trimmed.Length == 0)
+            return false;
+
+        return trimmed.All(ch => ch is '-' or ':');
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,

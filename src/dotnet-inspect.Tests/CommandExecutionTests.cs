@@ -4220,15 +4220,48 @@ public class CommandExecutionTests
             "library", "System.Runtime", "-S", "Library Info", "--tips", "q");
         var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
             "library", "System.Runtime", "-D", "Library Info", "--tips", "q");
+        var (multiDiscoverExit, multiDiscoverOutput, multiDiscoverError) = await RunAppAsync(
+            "library", "System.Runtime", "-D", "Library Info,Async Methods", "--tips", "q");
 
         Assert.Equal(0, selectExit);
         Assert.Equal(0, discoverExit);
+        Assert.Equal(0, multiDiscoverExit);
         Assert.Empty(selectError);
         Assert.Empty(discoverError);
+        Assert.Contains("section 'Async Methods' has no data", multiDiscoverError);
         Assert.DoesNotContain("| Methods |", selectOutput);
         Assert.DoesNotContain("| Methods | field |", discoverOutput);
+        Assert.DoesNotContain("| Methods | field |", multiDiscoverOutput);
         Assert.Contains("| Async Methods | field |", discoverOutput);
         Assert.Contains("| Extension Methods | field |", discoverOutput);
+    }
+
+    [Fact]
+    public void LibraryCommand_RenderedFieldLabels_IgnoreOtherSections()
+    {
+        const string rendered = """
+            ## Library Info
+
+            | Field | Value |
+            | ----- | ----- |
+            | Assembly Version | 1.0.0.0 |
+            | Async Methods | 0 |
+
+            ## Other Section
+
+            | Name | Value |
+            | :--- | ---: |
+            | Methods | Polluting first-column value |
+            | Source | Another polluting value |
+            """;
+
+        var labels = LibraryCommand.GetRenderedFieldLabelsForTests(rendered, "Library Info");
+
+        Assert.Contains("Assembly Version", labels);
+        Assert.Contains("Async Methods", labels);
+        Assert.DoesNotContain("Methods", labels);
+        Assert.DoesNotContain("Source", labels);
+        Assert.DoesNotContain(":---", labels);
     }
 
     [Fact]
