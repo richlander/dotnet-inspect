@@ -373,6 +373,49 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_RetainsAbstractOverloadsForForwardingCalls()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class AbstractForwardingFixture
+            {
+                public enum Gender
+                {
+                    Neutral,
+                }
+
+                public string Convert(long value)
+                    => Convert(value, Gender.Neutral, true);
+
+                public string ConvertToOrdinal(int value, bool words)
+                    => ConvertToOrdinal(value);
+
+                public abstract string Convert(long value, Gender gender, bool words);
+                public abstract string ConvertToOrdinal(int value);
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            AssertCheckable(results, "Convert");
+            AssertCheckable(results, "ConvertToOrdinal");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertCheckable(IReadOnlyList<FidelityCheck.CompileBackResult> results, string method)
+        {
+            var result = Assert.Single(
+                results,
+                result => result.Type == "AbstractForwardingFixture" && result.Method == method);
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Detail);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");

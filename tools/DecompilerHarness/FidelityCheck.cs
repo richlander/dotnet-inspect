@@ -2394,9 +2394,6 @@ static class FidelityCheck
         // emitted so a changed explicit impl is not silently lost.
         if (realBody is null && name.Contains('.') && name is not ".ctor" and not ".cctor")
             return;
-        if (method.RelativeVirtualAddress == 0 && realBody is null)
-            return; // abstract/extern sibling — no body, and we strip abstractness
-
         var context = GenericContext.ForMethod(reader, typeDef, method);
         if (realBody is null && !accessibility.CanEmitMethod(reader, method, context))
             return;
@@ -2405,6 +2402,12 @@ static class FidelityCheck
         catch { return; }
 
         bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
+        bool isAbstractStub = method.RelativeVirtualAddress == 0
+            && realBody is null
+            && !isStatic
+            && method.Attributes.HasFlag(MethodAttributes.Abstract);
+        if (method.RelativeVirtualAddress == 0 && realBody is null && !isAbstractStub)
+            return; // extern sibling — no body, and no C# stub shape we can safely infer
         string parameters = Parameters(reader, method, sig, IsExtensionMethod(reader, typeDef, method, sig));
         string body = realBody is null ? " throw null;" : "\n" + realBody + "\n" + pad;
 
@@ -2440,6 +2443,7 @@ static class FidelityCheck
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
         string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
+        string instanceModifier = isAbstractStub ? "virtual " : slotModifier;
         if (!IsStaticClass(typeDef)
             && name.StartsWith("op_", StringComparison.Ordinal)
             && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
@@ -2447,7 +2451,7 @@ static class FidelityCheck
             sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
             return;
         }
-        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : slotModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
+        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
     }
 
     static string StructObjectOverrideModifier(
