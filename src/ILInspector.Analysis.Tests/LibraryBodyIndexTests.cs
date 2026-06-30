@@ -1334,6 +1334,16 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_PlainAsyncTask_IsNotClassStateMachineAllocationInRelease()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.PlainAsyncTask)
+            && o.Shape == "async-state-machine");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MaterializeInLoop_RequiresLoopInvariantSource()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -2696,6 +2706,12 @@ public class OptimizationOpportunityFixtures
         await System.Threading.Tasks.Task.Yield();
         for (int i = 0; i < count; i++)
             yield return i;
+    }
+
+    public static async Task<int> PlainAsyncTask(int value)
+    {
+        await Task.Yield();
+        return value + 1;
     }
 
     public static int MaterializesInvariantSourceInLoop(IEnumerable<int> source, int count)
