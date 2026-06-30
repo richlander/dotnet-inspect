@@ -263,23 +263,23 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 return false;
             }
 
-                firstIf = withLocalIf;
-                firstArm = new Arm(firstAs.Type, firstStore.Index, firstValue, [firstStore, withLocalIf.Condition, firstValue]);
-                firstExtraUse = firstStore;
-                return true;
+            firstIf = withLocalIf;
+            firstArm = new Arm(firstAs.Type, firstStore.Index, firstValue, [firstStore, withLocalIf.Condition, firstValue]);
+            firstExtraUse = firstStore;
+            return true;
         }
 
         if (body[1] is IfStatement { HasElse: true } noLocalIf
-                && noLocalIf.Condition is LogicalNot { Operand: IsInstance firstTest }
-                && IsTempTypeTest(firstTest, tempLocal)
-                && noLocalIf.Else is { } noLocalElse
-                && noLocalElse.Children.Count == 2
-                && TryStoreReturn(noLocalElse.Children, 0, out int noLocalResultLocal, out var noLocalValue)
-                && noLocalResultLocal == resultLocal)
+            && noLocalIf.Condition is LogicalNot { Operand: IsInstance firstTest }
+            && IsTempTypeTest(firstTest, tempLocal)
+            && noLocalIf.Else is { } noLocalElse
+            && noLocalElse.Children.Count == 2
+            && TryStoreReturn(noLocalElse.Children, 0, out int noLocalResultLocal, out var noLocalValue)
+            && noLocalResultLocal == resultLocal)
         {
-                firstIf = noLocalIf;
-                firstArm = new Arm(firstTest.Type, LocalIndex: null, noLocalValue, []);
-                return true;
+            firstIf = noLocalIf;
+            firstArm = new Arm(firstTest.Type, LocalIndex: null, noLocalValue, []);
+            return true;
         }
 
         return false;
