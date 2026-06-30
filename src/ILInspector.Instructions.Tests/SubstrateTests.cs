@@ -54,6 +54,32 @@ public class InstructionDecoderTests
         Assert.True(instructions[0].FallsThrough);
         Assert.Equal([13, 13], instructions[0].BranchTargets);
     }
+
+    [Fact]
+    public void ShortInlineVar_index_is_unsigned()
+    {
+        // ldloc.s 200 (0x11 0xC8) ; ret  — index 200 must read as 200, not -56.
+        byte[] il = [0x11, 0xC8, 0x2A];
+        var instructions = InstructionDecoder.Decode(il);
+
+        Assert.Equal(ILOpCode.Ldloc_s, instructions[0].OpCode);
+        Assert.Equal(200, instructions[0].OperandValue);
+    }
+
+    [Fact]
+    public void No_prefix_does_not_desync_decode()
+    {
+        // no. 0x01 (0xFE 0x19 0x01) ; ldarg.0 (0x02) ; ret (0x2A)
+        // The no. prefix has a 1-byte operand; mishandling it would misread ldarg.0 as the operand.
+        byte[] il = [0xFE, 0x19, 0x01, 0x02, 0x2A];
+        var instructions = InstructionDecoder.Decode(il);
+
+        Assert.Equal(3, instructions.Length);
+        Assert.Equal((ILOpCode)0xFE19, instructions[0].OpCode);   // no. (not a named BCL ILOpCode member)
+        Assert.Equal(3, instructions[0].NextOffset);
+        Assert.Equal((3, ILOpCode.Ldarg_0), (instructions[1].Offset, instructions[1].OpCode));
+        Assert.Equal((4, ILOpCode.Ret), (instructions[2].Offset, instructions[2].OpCode));
+    }
 }
 
 public class BlockGraphTests
@@ -121,5 +147,17 @@ public class StackTypeInterpreterTests
 
         Assert.False(mi.TypedStack.IsComplete);
         Assert.Contains("Unresolved", mi.TypedStack.IncompleteReason);
+    }
+
+    [Fact]
+    public void Malformed_il_fails_closed_instead_of_throwing()
+    {
+        // call (0x28) with a truncated 4-byte token — decode would run off the end.
+        byte[] il = [0x28, 0x01, 0x00];
+        var mi = MethodInstructions.Create(il, il.Length, [], methodReturnsValue: false);
+
+        Assert.False(mi.IsComplete);
+        Assert.False(mi.Blocks.IsComplete);
+        Assert.NotNull(mi.Blocks.IncompleteReason);
     }
 }

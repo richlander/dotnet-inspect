@@ -26,10 +26,25 @@ public sealed record MethodInstructions(
         IStackTypeResolver? resolver = null)
     {
         ArgumentNullException.ThrowIfNull(il);
-        var instructions = InstructionDecoder.Decode(il);
-        var blocks = BlockGraph.Build(ilLength, instructions, exceptionRegions);
-        var typedStack = StackTypeInterpreter.Interpret(instructions, blocks, methodReturnsValue, resolver);
-        return new MethodInstructions(instructions, blocks, typedStack);
+        try
+        {
+            var instructions = InstructionDecoder.Decode(il);
+            var blocks = BlockGraph.Build(ilLength, instructions, exceptionRegions);
+            var typedStack = StackTypeInterpreter.Interpret(instructions, blocks, methodReturnsValue, resolver);
+            return new MethodInstructions(instructions, blocks, typedStack);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidProgramException)
+        {
+            // Fail closed: malformed IL produces an incomplete result with a reason, never a throw.
+            return Malformed(ex.Message);
+        }
+    }
+
+    static MethodInstructions Malformed(string reason)
+    {
+        var blocks = new BlockGraph([], [], IsComplete: false, reason);
+        var typedStack = new TypedStackResult([], blocks, ImmutableDictionary<int, ImmutableArray<StackValue>>.Empty, IsComplete: false, reason);
+        return new MethodInstructions([], blocks, typedStack);
     }
 
     /// <summary>Decode + block + typed-stack from a method body, wiring an SRM-backed resolver from the reader.</summary>
