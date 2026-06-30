@@ -24,8 +24,7 @@ SourceLink answers three related questions:
 
 The command model should prefer sections over new flags. SourceLink URL listings
 are document sections, not standalone verbs. Point queries, such as method-token
-plus IL offset symbolication, use parameterized sections; `--il-offset` remains a
-compatibility alias for selecting `IL Offset`.
+plus IL offset symbolication, use parameterized sections.
 
 ## Current product surfaces
 
@@ -90,8 +89,7 @@ records the removal path: source inventories became `Source Files` sections,
 source-body retrieval follows selected-member `Original Source` / package
 content patterns, availability checks live in `SourceLink Integrity` and
 `SourceLink Availability`, URL shape is selected with `--blob`, and IL offset
-symbolication is now `library -S "IL Offset:<token>+<offset>"` (or the
-compatibility alias `--il-offset`).
+symbolication is now `library -S "IL Offset:<token>+<offset>"`.
 
 Sample URLs are less direct: they should be URL rows from real package or
 documentation metadata rather than calculated links, because some sample URL

@@ -18,9 +18,9 @@ internal static class ILOffsetSourceQuery
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (!TryParse(options.ILOffset!, out var methodToken, out var ilOffset))
+        if (!TryParse(options.ILOffsetParameter!, out var methodToken, out var ilOffset))
         {
-            Console.Error.WriteLine($"Error: Invalid --il-offset format '{options.ILOffset}'.");
+            Console.Error.WriteLine($"Error: Invalid IL Offset parameter '{options.ILOffsetParameter}'.");
             Console.Error.WriteLine("Expected format: 0x6000001+0x5 (method token + IL offset)");
             return (1, null);
         }

@@ -135,7 +135,6 @@ public static class InspectionCommandDefinitions
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
-        var ilOffsetOption = new Option<string?>("--il-offset") { Description = "Resolve MethodDef token + IL offset to source (e.g., 0x06000001+0x5)" };
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -147,7 +146,6 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
-        assemblyCommand.Options.Add(ilOffsetOption);
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
@@ -237,7 +235,6 @@ public static class InspectionCommandDefinitions
                 PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
                 TypeFilter = typeFilter,
-                ILOffset = parseResult.GetValue(ilOffsetOption),
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),
                 JsonOutput = parseResult.GetValue(opts.Json),

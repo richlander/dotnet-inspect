@@ -67,9 +67,9 @@ public record LibraryOptions
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// MethodDef token + IL offset to map to a SourceLink source location.
+    /// MethodDef token + IL offset parameter from the IL Offset section selector.
     /// </summary>
-    public string? ILOffset { get; init; }
+    public string? ILOffsetParameter { get; init; }
 
     /// <summary>
     /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.

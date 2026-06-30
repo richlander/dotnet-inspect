@@ -3,7 +3,7 @@ using DotnetInspector.Commands;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for the IL offset token+offset parser used by library --il-offset.
+/// Tests for the IL offset token+offset parser used by the library IL Offset section.
 /// </summary>
 public class ILOffsetParserTests
 {

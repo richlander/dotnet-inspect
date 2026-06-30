@@ -72,13 +72,13 @@ public class LibraryCommand
         if (selectResult.Sections != null)
         {
             if (selectResult.Sections.Contains(SectionNames.ILOffset)
-                && string.IsNullOrWhiteSpace(options.ILOffset))
+                && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
                 if (SelectResolver.IsAllSelector(options.Select))
                     selectResult.Sections.Remove(SectionNames.ILOffset);
                 else if (options.Discover == null)
                 {
-                    Console.Error.WriteLine("Error: IL Offset requires a token+offset parameter. Use --il-offset 0x06000001+0x5 or -S \"IL Offset:0x06000001+0x5\".");
+                    Console.Error.WriteLine("Error: IL Offset requires a token+offset parameter. Use -S \"IL Offset:0x06000001+0x5\".");
                     return 1;
                 }
             }
@@ -370,7 +370,7 @@ public class LibraryCommand
     private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)
     {
         var select = options.Select?.ToList() ?? [];
-        string? ilOffset = options.ILOffset;
+        string? ilOffset = options.ILOffsetParameter;
 
         for (var i = 0; i < select.Count; i++)
         {
@@ -400,7 +400,7 @@ public class LibraryCommand
 
         return (options with
         {
-            ILOffset = ilOffset,
+            ILOffsetParameter = ilOffset,
             Select = select.Count == 0 ? null : [.. select]
         }, null);
     }
@@ -415,7 +415,7 @@ public class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (string.IsNullOrWhiteSpace(options.ILOffset)
+        if (string.IsNullOrWhiteSpace(options.ILOffsetParameter)
             || options.IncludeSections?.Contains(SectionNames.ILOffset) != true)
             return 0;
 

@@ -4536,20 +4536,6 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffset_ResolvesSourceLocation()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "--json", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("\"token\": \"0x6000001\"", output);
-        Assert.Contains("\"line\": 527", output);
-        Assert.Contains("HexConverter.cs", output);
-    }
-
-    [Fact]
     public async Task LibraryCommand_IlOffsetSectionSelector_ResolvesSourceLocation()
     {
         var (exit, output, error) = await RunAppAsync(
