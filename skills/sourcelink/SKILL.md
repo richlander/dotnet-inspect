@@ -39,7 +39,7 @@ row; add `--row N` when the selected section has multiple printable rows.
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
-dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all --jsonl
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all --json-array
 ```
 
 ## URL forms
@@ -52,6 +52,7 @@ escape hatch.
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --jsonl
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files" --urls --blob
 ```
 
