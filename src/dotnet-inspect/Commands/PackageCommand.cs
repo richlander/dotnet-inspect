@@ -36,7 +36,7 @@ public class PackageCommand
         // Also keep no-target package discovery static because there is no target to make effective.
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
         {
-            var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+            var schemaMap = PackageDiscoverySchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
@@ -76,7 +76,7 @@ public class PackageCommand
             // Pre-render validation: check --fields/--columns names against the section schema
             if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
             {
-                var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+                var schemaMap = PackageDiscoverySchema();
                 if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
                     return 1;
             }
@@ -362,7 +362,8 @@ public class PackageCommand
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
             }
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true;
+            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
+                || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
             bool allowsVulnerabilityTraffic = options.Verbosity >= Verbosity.Detailed
                 || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
             using var vulnerabilityTrafficScope = allowsVulnerabilityTraffic
@@ -418,7 +419,7 @@ public class PackageCommand
             if (effectiveDiscovery)
             {
                 var effective = pipeline.GetDiscoverableSections(result, options.IncludeSections);
-                var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+                var schemaMap = PackageDiscoverySchema();
                 var fullSchemaMap = schemaMap;
 
                 // Field-level filtering: detect which fields produced output
@@ -634,6 +635,95 @@ public class PackageCommand
         return false;
     }
 
+    private static readonly string[] PackageInfoFieldNames =
+    [
+        "Authors",
+        "Built",
+        "Content",
+        "Deprecated Note",
+        "Framework Dependent",
+        "Highest TFM",
+        "Libraries",
+        "License",
+        "License URL",
+        "Owners",
+        "Published",
+        "Readme",
+        "Repository",
+        "Repository Commit",
+        "Repository Type",
+        "RID-Specific Pointer",
+        "Runtime Identifiers",
+        "Runtime Target RID",
+        "Signed",
+        "Size",
+        "Source",
+        "TFM Count",
+        "Tool Commands",
+        "Type",
+        "Verified",
+        "Version",
+        "Vulnerabilities"
+    ];
+
+    private static readonly string[] PackageSignalsColumnNames =
+    [
+        "Area",
+        "Signal",
+        "Value",
+        "Evidence"
+    ];
+
+    private static DocumentSchema PackageDiscoverySchema()
+        => AddPackageDynamicDiscoveryItems(InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
+
+    private static DocumentSchema AddPackageDynamicDiscoveryItems(DocumentSchema schema)
+    {
+        var result = new DocumentSchema();
+        foreach (var name in schema.SectionNames)
+        {
+            var section = schema.GetSection(name);
+            if (string.Equals(name, PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(name, "field", PackageInfoFieldNames);
+            }
+            else if (string.Equals(name, PackageSections.Signals, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(name, "column", PackageSignalsColumnNames);
+            }
+            else if (section is { Items.Length: > 0 })
+            {
+                result.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
+            }
+            else
+            {
+                result.AddSection(name);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool DiscoverRequestsSection(string[]? discover, string sectionName, SectionPipeline<InspectionResult> pipeline)
+    {
+        if (discover is not { Length: > 0 })
+            return false;
+
+        var categories = pipeline.GetCategoryMap();
+        foreach (var value in discover)
+        {
+            if (categories.TryGetValue(value, out var categorySections)
+                && categorySections.Contains(sectionName, StringComparer.OrdinalIgnoreCase))
+                return true;
+
+            var (matches, miss) = SelectResolver.ResolveSingle(value, pipeline.SelectableSectionNames, singleGlob: true);
+            if (miss == null && matches.Contains(sectionName, StringComparer.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     private static bool ValidateMultiPackageMode(InspectionOptions options)
     {
         List<string> conflicts = [];
@@ -660,6 +750,13 @@ public class PackageCommand
     private static bool ValidatePackageContentMode(InspectionOptions options)
     {
         bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
+        if (options.Tree && options.Discover == null)
+        {
+            Console.Error.WriteLine("Error: package --tree is discovery-tree output and requires -D/--discover.");
+            Console.Error.WriteLine("Use --layout to show the package file tree.");
+            return false;
+        }
+
         if (options.FrontmatterRequested && options.BodyRequested)
         {
             Console.Error.WriteLine("Error: --frontmatter/--yaml-header cannot be combined with --body.");
@@ -904,7 +1001,8 @@ public class PackageCommand
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true;
+            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
+                || DiscoverRequestsSection(options.Discover, PackageSections.Signals, PackageSectionDescriptors.CreatePipeline());
             var result = await PackageInspector.InspectAsync(
                 extractPath,
                 target.PackageName,
@@ -2335,15 +2433,23 @@ public class PackageCommand
             var section = schema.GetSection(name);
             if (section == null) { filtered.AddSection(name); continue; }
 
-            var effectiveItems = section.Items
-                .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
-                .Select(item => item.Name)
-                .ToArray();
-
-            if (effectiveItems.Length > 0)
-                filtered.Add(name, section.ItemKind, effectiveItems);
+            if (string.Equals(name, PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                var effectiveItems = section.Items
+                    .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
+                    .Select(item => item.Name)
+                    .ToArray();
+                filtered.Add(name, section.ItemKind,
+                    effectiveItems.Length > 0 ? effectiveItems : section.Items.Select(i => i.Name).ToArray());
+            }
+            else if (section.Items.Length > 0)
+            {
+                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
+            }
             else
+            {
                 filtered.AddSection(name);
+            }
         }
         return filtered;
     }

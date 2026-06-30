@@ -3997,6 +3997,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Performance Triage", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not found", error);
+        Assert.Contains("| Member | column |", output);
+        Assert.Contains("| Root Reach | column |", output);
+        Assert.Contains("| Shape | column |", output);
+        Assert.Contains("| Fix | column |", output);
+        Assert.Contains("| Confidence | column |", output);
+        Assert.Contains("| Loop | column |", output);
+        Assert.Contains("| IL | column |", output);
+    }
+
+    [Fact]
     public async Task LibraryCommand_SourceFilesSection_RendersTypeUrls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -5008,6 +5025,113 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Source: Platform", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Package_DiscoverSection_ListsPackageInfoFields()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageInfoDiscovery",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "Package Info", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Authors | field |", output);
+            Assert.Contains("| Version | field |", output);
+
+            var (projectExit, projected, projectError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package Info", "--fields", "Authors,Version", "-v:q", "--tips", "q");
+
+            Assert.Equal(0, projectExit);
+            Assert.DoesNotContain("not found", projectError);
+            Assert.Contains("Authors", projected);
+            Assert.Contains("tests", projected);
+            Assert.Contains("Version", projected);
+            Assert.Contains("1.0.0", projected);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DiscoverSchema_ListsPublishedPackageInfoField()
+    {
+        var (exit, output, error) = await RunAppAsync("package", "-D", "Package Info", "--schema", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Published | field |", output);
+    }
+
+    [Fact]
+    public async Task Package_DiscoverSection_ListsSignalsColumns()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "Signals", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("not found", error);
+            Assert.Contains("| Area | column |", output);
+            Assert.Contains("| Signal | column |", output);
+            Assert.Contains("| Value | column |", output);
+            Assert.Contains("| Evidence | column |", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DiscoverTree_UsesDiscoveryTreeNotFileTree()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.DiscoveryTree",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--tree", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Package Info", output);
+            Assert.Contains("Authors", output);
+            Assert.DoesNotContain("README.md", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_TreeWithoutDiscovery_ReportsLayoutAlternative()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.TreeAlias",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, _, error) = await RunAppAsync("package", packagePath, "--tree", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("requires -D/--discover", error);
+            Assert.Contains("Use --layout", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
