@@ -16,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -32,6 +32,8 @@ internal static class MemberCodeProvider
         string? CostOverlayBody,
         IReadOnlyList<string>? CostOverlayHeaderComments,
         string? CostOverlayDiagnostic,
+        string? SemanticsOverlayBody,
+        string? SemanticsOverlayDiagnostic,
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
@@ -152,6 +154,18 @@ internal static class MemberCodeProvider
                     costOverlayDiagnostic = DiagnosticComment(result);
             }
 
+            string? semanticsOverlayBody = null, semanticsOverlayDiagnostic = null;
+            if (request.SemanticsOverlay && pipelineSource is not null)
+            {
+                var result = ILInspector.Research.ResearchViews.RenderSemanticsOverlay(
+                    pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
+                decompileTrace = result.Trace;
+                if (result.Output is { } semanticsOverlay)
+                    semanticsOverlayBody = semanticsOverlay.TrimEnd();
+                else
+                    semanticsOverlayDiagnostic = DiagnosticComment(result);
+            }
+
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
             {
@@ -186,6 +200,8 @@ internal static class MemberCodeProvider
                 costOverlayBody,
                 costOverlayHeaderComments,
                 costOverlayDiagnostic,
+                semanticsOverlayBody,
+                semanticsOverlayDiagnostic,
                 ilText,
                 ilDiagnostic,
                 attributes,
@@ -265,7 +281,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts)
             return null;
         try
         {

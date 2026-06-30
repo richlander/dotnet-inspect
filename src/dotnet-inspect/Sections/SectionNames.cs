@@ -87,6 +87,9 @@ public static class SectionNames
     /// <summary>Section for explicit inter-method cost annotations over the decompiled C# method body.</summary>
     public const string CostOverlay = "Cost Overlay";
 
+    /// <summary>Section for explicit inter-method semantics/safety annotations over the decompiled C# method body.</summary>
+    public const string SemanticsOverlay = "Semantics Overlay";
+
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 

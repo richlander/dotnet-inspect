@@ -620,6 +620,9 @@ public class MemberCodeView
     [MarkoutSection(Name = "Cost Overlay")]
     public CodeSection CostOverlayCode { get; set; }
 
+    [MarkoutSection(Name = "Semantics Overlay")]
+    public CodeSection SemanticsOverlayCode { get; set; }
+
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 

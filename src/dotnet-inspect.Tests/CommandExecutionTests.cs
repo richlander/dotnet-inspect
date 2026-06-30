@@ -2353,6 +2353,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_IncludesExplicitSemanticsFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-S", "Facts", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("semantics.callee", output);
+        Assert.Contains("may-throw FormatException", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectCostOverlay_RendersExplicitCostFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2406,6 +2419,60 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectSemanticsOverlay_RendersExplicitFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-S", "Semantics Overlay", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Semantics Overlay", output);
+        Assert.Contains("semantics.callee", output);
+        Assert.Contains("may-throw FormatException", output);
+        Assert.DoesNotContain("cost.callee", output);
+    }
+
+    [Fact]
+    public async Task Member_SemanticsOverlay_IsExplicitOnly_NotShownAtDetailed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Semantics Overlay", output);
+        Assert.DoesNotContain("semantics.callee", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SemanticsOverlay_BareRendersPayload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc), "--index", "1", "--all", "-S", "Semantics Overlay", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Semantics Overlay", output);
+        Assert.Contains("safety.callee", output);
+        Assert.Contains("stackalloc", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DiscoveryListsSemanticsOverlayAsOptIn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Semantics Overlay   section (opt-in)", output);
+    }
+
+    [Fact]
     public async Task Type_Discovery_DoesNotListCostOverlay()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2414,6 +2481,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.DoesNotContain("Cost Overlay", output);
+        Assert.DoesNotContain("Semantics Overlay", output);
     }
 
     [Fact]
@@ -4010,6 +4078,7 @@ public class CommandExecutionTests
         Assert.DoesNotContain("Performance Triage", sections);
         Assert.DoesNotContain("Facts", sections);
         Assert.DoesNotContain("Cost Overlay", sections);
+        Assert.DoesNotContain("Semantics Overlay", sections);
         Assert.DoesNotContain("IL", sections);
         Assert.DoesNotContain("Source Files", sections);
     }
@@ -4021,6 +4090,7 @@ public class CommandExecutionTests
         "Decompiled Source",
         "Annotated Source",
         "Cost Overlay",
+        "Semantics Overlay",
         "Original Source",
         "Calls",
         "Callers",
@@ -7311,5 +7381,23 @@ public static class CostOverlayFixture
         for (int i = 0; i < count; i++)
             total += new object().GetHashCode();
         return total;
+    }
+
+    public static int CallsExceptionOnly(string value) => ExceptionOnly(value);
+
+    public static int ExceptionOnly(string value)
+    {
+        if (value.Length == 0)
+            throw new FormatException();
+        return value.Length;
+    }
+
+    public static int CallsStackalloc(int value) => Stackalloc(value);
+
+    public static int Stackalloc(int value)
+    {
+        Span<int> values = stackalloc int[1];
+        values[0] = value;
+        return values[0];
     }
 }
