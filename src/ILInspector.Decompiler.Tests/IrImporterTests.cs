@@ -16,6 +16,15 @@ public class IrImporterTests
         return function;
     }
 
+    static IrFunction ImportFixtureWithTrustedPlatformContext(string methodName)
+    {
+        using var context = new MetadataContext(TrustedPlatformLocator());
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: context);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        return function;
+    }
+
     static Block SingleBlock(IrFunction function)
         => (Block)Assert.Single(function.Body.Children);
 
@@ -737,13 +746,31 @@ public class IrImporterTests
     [Fact]
     public void DeadDefaultInitializer_KeptWhenAssignmentNotProven()
     {
-        // ParseOrZero reaches its local first through a by-ref out-argument,
-        // which the conservative analysis does not treat as a proven assignment,
-        // so the `= default` stays — dropping it would be CS0165.
+        // Without a metadata context, ParseOrZero reaches its local first through
+        // an unresolved by-ref argument. The conservative analysis does not treat
+        // that as a proven assignment, so the `= default` stays — dropping it
+        // would be CS0165 if the parameter were actually `ref`.
         var function = ImportFixture(nameof(CfgSampleClass.ParseOrZero));
         IrPasses.Run(function);
 
         Assert.Contains("= default", CSharpPrinter.PrintRaised(function).Output!);
+    }
+
+    [Fact]
+    public void DeadDefaultInitializer_DroppedForVerifiedOutArgument()
+    {
+        // The fidelity harness opens a metadata context, so int.TryParse's real
+        // parameter rows prove the local-address argument is `out`. A verified
+        // out call definitely assigns the local before the following return reads
+        // it, so the initializer is a dead store the original IL did not carry.
+        var function = ImportFixtureWithTrustedPlatformContext(nameof(CfgSampleClass.ParseOrZero));
+        IrPasses.Run(function);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("int v;", output);
+        Assert.Contains("out v", output);
+        Assert.DoesNotContain("= default", output);
     }
 
     [Fact]
@@ -896,6 +923,20 @@ public class IrImporterTests
         => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
             || (type.ElementType is { } element && ContainsGenericParameter(element))
             || type.TypeArguments.Any(ContainsGenericParameter);
+
+    static AssemblyLocator TrustedPlatformLocator()
+    {
+        var assemblies = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        return (name, trust) =>
+            trust == AssemblyTrust.Platform && assemblies.TryGetValue(name, out var path)
+                ? path
+                : null;
+    }
 
     [Fact]
     public void AddressOf_OutArgument_ImportsAsLocalAddress()

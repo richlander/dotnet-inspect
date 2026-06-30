@@ -99,6 +99,11 @@ public class LoweredFidelityGateTests
         "CallOutTarget",
         "FloatPositionalPattern",
         "GenericRefKindCallSites",
+        // Expression-tree factory fixtures are valid and Full, but SDK preview6
+        // compile-back reshapes the manually emitted Expression.* calls around
+        // stack-slot/local temporaries. Same preview drift as the sugared gate.
+        "ManualSimpleExpressionTreeFactory",
+        "SimpleExpressionTreeLambda",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
@@ -150,6 +155,7 @@ public class LoweredFidelityGateTests
         "SmallStringSwitch",
         "StringSwitchWithJoin",
         "StringSwitchNoDefault",
+        "ParseOrZero",
         "ClassifyMode",
         "ClassifyWide",
         "AnonShorthand",

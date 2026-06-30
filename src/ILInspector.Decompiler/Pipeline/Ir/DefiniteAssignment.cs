@@ -57,27 +57,176 @@ static class DefiniteAssignment
         {
             if (node is null)
                 return;
-            foreach (var n in SelfAndDescendantsOutsideNestedFunctions(node))
+            switch (node)
             {
-                int? read = n switch
+                case Lambda or LocalFunctionStatement:
+                    return;
+                case LoadLocal l:
+                    if (!assigned.Contains(l.Index))
+                        readEarly.Add(l.Index);
+                    return;
+                case LoadLocalAddress la:
+                    if (!assigned.Contains(la.Index))
+                        readEarly.Add(la.Index);
+                    return;
+                case Conditional conditional:
                 {
-                    LoadLocal l => l.Index,
-                    LoadLocalAddress la => la.Index,
-                    _ => null,
-                };
-                if (read is { } index && !assigned.Contains(index))
-                    readEarly.Add(index);
+                    CheckReads(conditional.Condition, assigned);
+                    var trueSet = new HashSet<int>(assigned);
+                    CheckReads(conditional.WhenTrue, trueSet);
+                    var falseSet = new HashSet<int>(assigned);
+                    CheckReads(conditional.WhenFalse, falseSet);
+                    trueSet.IntersectWith(falseSet);
+                    assigned.Clear();
+                    assigned.UnionWith(trueSet);
+                    return;
+                }
+                case LogicalBinary logical:
+                {
+                    CheckReads(logical.Left, assigned);
+                    var rightSet = new HashSet<int>(assigned);
+                    CheckReads(logical.Right, rightSet);
+                    return;
+                }
+                case Coalesce coalesce:
+                {
+                    CheckReads(coalesce.Left, assigned);
+                    var rightSet = new HashSet<int>(assigned);
+                    CheckReads(coalesce.Right, rightSet);
+                    return;
+                }
+                case SwitchExpression switchExpression:
+                {
+                    CheckReads(switchExpression.Value, assigned);
+                    foreach (var arm in switchExpression.Arms)
+                    {
+                        var armSet = new HashSet<int>(assigned);
+                        CheckReads(arm.Value, armSet);
+                    }
+                    return;
+                }
+                case UnionSwitchExpression unionSwitch:
+                {
+                    CheckReads(unionSwitch.Value, assigned);
+                    foreach (var arm in unionSwitch.Arms)
+                    {
+                        var armSet = new HashSet<int>(assigned);
+                        if (arm.LocalIndex is { } local)
+                            armSet.Add(local);
+                        CheckReads(arm.Guard, armSet);
+                        CheckReads(arm.Value, armSet);
+                    }
+                    if (unionSwitch.DefaultValue is { } defaultValue)
+                    {
+                        var defaultSet = new HashSet<int>(assigned);
+                        CheckReads(defaultValue, defaultSet);
+                    }
+                    return;
+                }
+                case NullConditional nullConditional:
+                {
+                    var memberSet = new HashSet<int>(assigned);
+                    CheckReads(nullConditional.Member, memberSet);
+                    return;
+                }
+                case Call call:
+                    CheckCall(call.Callee, call.Arguments, call.Callee.HasThis ? 1 : 0, assigned);
+                    return;
+                case NewObject newObject:
+                    CheckCall(newObject.Constructor, newObject.Arguments, 0, assigned);
+                    return;
             }
+
+            foreach (var child in node.Children)
+                CheckReads(child, assigned);
         }
 
-        static IEnumerable<IrNode> SelfAndDescendantsOutsideNestedFunctions(IrNode node)
+        void CheckCall(MethodRef callee, IReadOnlyList<IrExpression> arguments, int parameterStart, HashSet<int> assigned)
         {
-            yield return node;
-            if (node is Lambda or LocalFunctionStatement)
-                yield break;
-            foreach (var child in node.Children)
-                foreach (var descendant in SelfAndDescendantsOutsideNestedFunctions(child))
-                    yield return descendant;
+            if (parameterStart == 1 && arguments.Count > 0)
+                CheckReads(arguments[0], assigned);
+
+            var outAssigned = new List<int>();
+            for (int argumentIndex = parameterStart; argumentIndex < arguments.Count; argumentIndex++)
+            {
+                var argument = arguments[argumentIndex];
+                int parameterIndex = argumentIndex - parameterStart;
+                if (IsVerifiedOutLocal(callee, parameterIndex, argument, out int local))
+                {
+                    outAssigned.Add(local);
+                    continue;
+                }
+
+                CheckReads(argument, assigned);
+            }
+
+            foreach (int local in outAssigned)
+                assigned.Add(local);
+        }
+
+        static bool IsVerifiedOutLocal(MethodRef callee, int parameterIndex, IrExpression argument, out int local)
+        {
+            local = -1;
+            if (callee.ParameterRefKindsFacts != ParameterRefKindFacts.Known
+                || parameterIndex < 0
+                || parameterIndex >= callee.ParameterRefKinds.Length
+                || callee.ParameterRefKinds[parameterIndex] != ArgumentRefKind.Out
+                || argument is not LoadLocalAddress address)
+            {
+                return false;
+            }
+
+            local = address.Index;
+            return true;
+        }
+
+        static void AddVerifiedOutLocals(IrExpression expression, HashSet<int> assigned)
+        {
+            switch (expression)
+            {
+                case Call call:
+                    if (call.Callee.HasThis && call.Arguments.Count > 0)
+                        AddVerifiedOutLocals(call.Arguments[0], assigned);
+                    foreach (var argument in call.Arguments.Skip(call.Callee.HasThis ? 1 : 0))
+                        AddVerifiedOutLocals(argument, assigned);
+                    AddCallOutLocals(call.Callee, call.Arguments, call.Callee.HasThis ? 1 : 0, assigned);
+                    return;
+                case NewObject newObject:
+                    foreach (var argument in newObject.Arguments)
+                        AddVerifiedOutLocals(argument, assigned);
+                    AddCallOutLocals(newObject.Constructor, newObject.Arguments, 0, assigned);
+                    return;
+                case Conditional conditional:
+                    AddVerifiedOutLocals(conditional.Condition, assigned);
+                    return;
+                case LogicalBinary logical:
+                    AddVerifiedOutLocals(logical.Left, assigned);
+                    return;
+                case Coalesce coalesce:
+                    AddVerifiedOutLocals(coalesce.Left, assigned);
+                    return;
+                case SwitchExpression switchExpression:
+                    AddVerifiedOutLocals(switchExpression.Value, assigned);
+                    return;
+                case UnionSwitchExpression unionSwitch:
+                    AddVerifiedOutLocals(unionSwitch.Value, assigned);
+                    return;
+                case NullConditional:
+                    return;
+            }
+
+            foreach (var child in expression.Children.OfType<IrExpression>())
+                AddVerifiedOutLocals(child, assigned);
+        }
+
+        static void AddCallOutLocals(MethodRef callee, IReadOnlyList<IrExpression> arguments, int parameterStart, HashSet<int> assigned)
+        {
+            for (int argumentIndex = parameterStart; argumentIndex < arguments.Count; argumentIndex++)
+            {
+                int parameterIndex = argumentIndex - parameterStart;
+                if (IsVerifiedOutLocal(callee, parameterIndex, arguments[argumentIndex], out int local))
+                    assigned.Add(local);
+            }
         }
 
         // assigned is the set definitely assigned on entry; it is mutated to the
@@ -161,6 +310,10 @@ static class DefiniteAssignment
                         gen.Add(store.Index);
                     else if (child is InitObject { Address: LoadLocalAddress address })
                         gen.Add(address.Index);
+                    else if (child is ConditionalBranch conditional)
+                        AddVerifiedOutLocals(conditional.Condition, gen);
+                    else if (child is IrExpression expression)
+                        AddVerifiedOutLocals(expression, gen);
                 }
                 transfers[i] = new GenKillSet(gen, new HashSet<int>());
             }
@@ -210,8 +363,14 @@ static class DefiniteAssignment
                             break;
                         case NullCoalescingAssignment assignment:
                             CheckReads(new LoadLocal(assignment.LocalIndex, assignment.LocalType), running);
-                            CheckReads(assignment.Value, running);
+                            var cfgCoalesceSet = new HashSet<int>(running);
+                            CheckReads(assignment.Value, cfgCoalesceSet);
                             running.Add(assignment.LocalIndex);
+                            break;
+                        case NullCoalescingFieldAssignment assignment:
+                            CheckReads(assignment.Instance, running);
+                            var cfgFieldCoalesceSet = new HashSet<int>(running);
+                            CheckReads(assignment.Value, cfgFieldCoalesceSet);
                             break;
                         case DeconstructionAssignment deconstruction:
                             CheckReads(deconstruction.Source, running);
@@ -256,8 +415,14 @@ static class DefiniteAssignment
                     return DefiniteFlow.FallThrough;
                 case NullCoalescingAssignment assignment:
                     CheckReads(new LoadLocal(assignment.LocalIndex, assignment.LocalType), assigned);
-                    CheckReads(assignment.Value, assigned);
+                    var coalesceSet = new HashSet<int>(assigned);
+                    CheckReads(assignment.Value, coalesceSet);
                     assigned.Add(assignment.LocalIndex);
+                    return DefiniteFlow.FallThrough;
+                case NullCoalescingFieldAssignment assignment:
+                    CheckReads(assignment.Instance, assigned);
+                    var fieldCoalesceSet = new HashSet<int>(assigned);
+                    CheckReads(assignment.Value, fieldCoalesceSet);
                     return DefiniteFlow.FallThrough;
                 case DeconstructionAssignment deconstruction:
                     CheckReads(deconstruction.Source, assigned);
