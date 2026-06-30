@@ -147,6 +147,14 @@ fork. The lightweight tracking mechanism:
 - **Re-run the fidelity gates** after any such port; they are the acceptance
   oracle.
 
+**Pinned source.** Copied from `dotnet/runtime` at commit
+[`050adea8fc10`](https://github.com/dotnet/runtime/commit/050adea8fc1016ff3cbde74edc5453e8fdad11be)
+(also recorded in the file headers). The files are near-frozen — `ILReader.cs`
+last changed upstream 2024-07-01, `ILOpcodeHelper.cs` 2021-05-17 — so an
+occasional diff against that path is ample. Our copy is verified to match: the
+opcode size-value table is byte-for-byte identical, and `ILReader` is the same
+post-Spanify `ref struct` over `ReadOnlySpan<byte>`, modulo our divergences.
+
 Our own bug fixes go in directly (the gates are the oracle) and should be
 offered upstream where they apply.
 

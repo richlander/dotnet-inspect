@@ -1,11 +1,12 @@
 // Ported from dotnet/runtime src/coreclr/tools/Common/TypeSystem/IL/ILReader.cs
+// Sourced from runtime @ 050adea8fc1016ff3cbde74edc5453e8fdad11be (verified 2026-06-30);
+// upstream last changed this file 2024-07-01. Retargeted to SRM's ILOpCode.
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 //
-// One-time port (not a live vendor branch). Upstream still receives
-// reliability/perf/security fixes to this reader — periodically diff against the
-// cited path and port them. See docs/design/instruction-substrate.md
-// ("dotnet/runtime heritage").
+// One-time copy, not a live vendor branch. Upstream still receives reliability/
+// perf/security fixes — pull them with a diff against the cited path at a newer
+// commit. See docs/design/instruction-substrate.md ("dotnet/runtime heritage").
 
 using System.Buffers.Binary;
 using System.Diagnostics;
