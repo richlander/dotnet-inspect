@@ -323,24 +323,42 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void Evaluate_BindsConcurrentCollectionsNamespace()
+    public void Evaluate_BindsNamespacesReferencedByTargetBodies()
     {
         var assemblyPath = CompileFixture("""
             using System.Collections.Concurrent;
+            using System.Collections.Frozen;
+            using System.Collections.Generic;
+            using System.Text.RegularExpressions;
 
             public class FrameworkNamespaceFixture
             {
                 public ConcurrentDictionary<string, int> CreateConcurrent()
                     => new ConcurrentDictionary<string, int>();
+
+                public FrozenDictionary<string, int> Freeze(Dictionary<string, int> source)
+                    => source.ToFrozenDictionary();
+
+                public Match MatchS(string input)
+                    => Regex.Match(input, "s");
             }
             """);
         try
         {
             var results = FidelityCheck.Evaluate(assemblyPath);
             AssertCheckable(results, "CreateConcurrent");
+            AssertCheckable(results, "Freeze");
+            AssertCheckable(results, "MatchS");
+
+            Environment.SetEnvironmentVariable("CB_NOGROUP", "1");
+            var perMethodResults = FidelityCheck.Evaluate(assemblyPath);
+            AssertCheckable(perMethodResults, "CreateConcurrent");
+            AssertCheckable(perMethodResults, "Freeze");
+            AssertCheckable(perMethodResults, "MatchS");
         }
         finally
         {
+            Environment.SetEnvironmentVariable("CB_NOGROUP", null);
             DeleteFixture(assemblyPath);
         }
 

@@ -931,17 +931,53 @@ static class FidelityCheck
             catch { continue; }
             if (body is null)
                 continue;
+            var requiredNamespaces = RequiredNamespaces(function);
             PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(reader, method, function, body);
             var original = ILDisassembler.Disassemble(pe, reader, method);
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier, primaryConstructor), fieldInits,
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier, primaryConstructor, requiredNamespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
                 break;
         }
         return (fullType, entries);
+    }
+
+    static IReadOnlySet<string> RequiredNamespaces(IrFunction function)
+    {
+        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
+
+        void Add(TypeRef? type)
+        {
+            switch (type?.Kind)
+            {
+                case TypeRefKind.Definition:
+                    if (type.Namespace.Length > 0)
+                        namespaces.Add(type.Namespace);
+                    break;
+                case TypeRefKind.GenericInstance:
+                    Add(type.ElementType);
+                    foreach (var argument in type.TypeArguments)
+                        Add(argument);
+                    break;
+                case TypeRefKind.SzArray or TypeRefKind.Array
+                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
+                    Add(type.ElementType);
+                    break;
+            }
+        }
+
+        foreach (var node in function.Descendants.Prepend(function))
+        {
+            foreach (var type in node.DirectTypes)
+                Add(type);
+            if (node is IrExpression expression)
+                Add(expression.ResultType);
+        }
+
+        return namespaces;
     }
 
     static bool IsGeneratedType(MetadataReader reader, TypeDefinition typeDef, string fullType)
@@ -1267,8 +1303,8 @@ static class FidelityCheck
     {
         string unit;
         try { unit = timings is null
-            ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility)
-            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility)); }
+            ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces)
+            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces)); }
         catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = timings is null
@@ -1387,8 +1423,8 @@ static class FidelityCheck
         {
             string unit;
             try { unit = timings is null
-                ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include)
-                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, include)); }
+                ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)
+                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)); }
             catch { return null; } // fall back to the whole-module build
 
             var tree = timings is null
@@ -1755,7 +1791,8 @@ static class FidelityCheck
         string Body,
         string? Chain,
         bool RequiresAsync,
-        PrimaryConstructorShape? PrimaryConstructor = null);
+        PrimaryConstructorShape? PrimaryConstructor = null,
+        IReadOnlySet<string>? RequiredNamespaces = null);
 
     public sealed record PrimaryConstructorShape(
         string Parameters,
@@ -1766,11 +1803,13 @@ static class FidelityCheck
         bool targetRequiresAsync,
         PrimaryConstructorShape? targetPrimaryConstructor,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
-        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
+        SignatureAccessibility accessibility,
+        IReadOnlySet<string>? requiredNamespaces = null,
+        IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync, targetPrimaryConstructor) };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
-        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots);
+        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots, requiredNamespaces);
     }
 
     /// <summary>
@@ -1785,7 +1824,8 @@ static class FidelityCheck
     /// </summary>
     static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
+        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
+        IReadOnlySet<string>? isolatedTargetNamespaces = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
@@ -1796,7 +1836,11 @@ static class FidelityCheck
         // whole-module compile. Kept conservative — only widely-assumed, low-
         // collision namespaces — so a body's short name resolves without
         // introducing CS0104 ambiguity.
-        foreach (var ns in SkeletonUsings)
+        var usings = new SortedSet<string>(SkeletonUsings, StringComparer.Ordinal);
+        if (isolatedTargetNamespaces is not null)
+            foreach (var ns in isolatedTargetNamespaces)
+                usings.Add(ns);
+        foreach (var ns in usings)
             sb.AppendLine($"using {ns};");
         foreach (var typeHandle in reader.TypeDefinitions)
         {
