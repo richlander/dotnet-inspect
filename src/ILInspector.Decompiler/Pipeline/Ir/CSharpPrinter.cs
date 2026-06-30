@@ -2391,7 +2391,8 @@ public sealed partial class CSharpPrinter
             return null;
         }
 
-        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{p.PropertyName}: {p.Subpattern}"))} }}";
+        string designation = pattern.PreserveLocalInPropertyPattern ? $" {LocalName(pattern.LocalIndex)}" : "";
+        return $"{TypeTestValueText(pattern.Value)} is {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{p.PropertyName}: {p.Subpattern}"))} }}{designation}";
     }
 
     static void CollectConjuncts(IrExpression expression, List<IrExpression> conjuncts)

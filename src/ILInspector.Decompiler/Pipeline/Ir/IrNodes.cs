@@ -2364,6 +2364,9 @@ public sealed class IsPattern : IrExpression
     /// <summary>The local slot bound by the pattern when the test succeeds.</summary>
     public int LocalIndex { get; }
 
+    /// <summary>When folded into a property pattern, keep the local designation because the guarded scope uses it.</summary>
+    public bool PreserveLocalInPropertyPattern { get; init; }
+
     /// <summary>The value being tested.</summary>
     public IrExpression Value => (IrExpression)Children[0];
 

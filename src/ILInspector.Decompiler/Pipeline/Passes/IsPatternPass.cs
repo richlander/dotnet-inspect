@@ -39,7 +39,7 @@ public sealed class IsPatternPass : IIrPass
 {
     public string Name => "is-pattern";
 
-    sealed record TestSite(IrExpression TestNode, IrNode TrueScope);
+    sealed record TestSite(IrExpression TestNode, IrNode TrueScope, bool PreserveLocalInPropertyPattern = false);
     sealed record RecursivePropertyDeclarationMatch(
         IfStatement NullGuard,
         IfStatement Consumer,
@@ -79,7 +79,8 @@ public sealed class IsPatternPass : IIrPass
                 if (ReferenceOwnership.SubtreeReferencesLocal(asCast.Operand, store.Index) || !IsSideEffectFree(function, asCast.Operand))
                     continue;
 
-                if (FindTest(children[i + 1], store.Index) is not { } site)
+                bool allowStatementConjunction = asCast.Operand is LoadProperty property && IsUnionValueProperty(function, property);
+                if (FindTest(children[i + 1], store.Index, allowStatementConjunction) is not { } site)
                     continue;
 
                 // Soundness: the pattern local must be referenced ONLY by the
@@ -91,7 +92,10 @@ public sealed class IsPatternPass : IIrPass
                     continue;
 
                 var value = (IrExpression)asCast.DetachChildren()[0];
-                var pattern = new IsPattern(value, asCast.Type, store.Index);
+                var pattern = new IsPattern(value, asCast.Type, store.Index)
+                {
+                    PreserveLocalInPropertyPattern = site.PreserveLocalInPropertyPattern
+                };
                 stepper.StepOver("raise as/null-test to is pattern", site.TestNode);
                 site.TestNode.ReplaceWith(pattern);
                 store.Detach();
@@ -374,25 +378,32 @@ public sealed class IsPatternPass : IIrPass
     /// Locates the null test on the pattern local in the statement that follows
     /// the <c>as</c> store, plus the scope that test gates.
     /// </summary>
-    static TestSite? FindTest(IrNode next, int index)
+    static TestSite? FindTest(IrNode next, int index, bool allowStatementConjunction)
     {
+        if (allowStatementConjunction
+            && next is IfStatement { HasElse: false, Condition: LogicalBinary { Kind: LogicalKind.And } condition } andGuard
+            && IsPatternLocalNotNull(LeftmostConjunct(condition), index))
+        {
+            return new TestSite(LeftmostConjunct(condition), andGuard, PreserveLocalInPropertyPattern: true);
+        }
+
         // Short-circuit form: `t != null && rest` — the leading conjunct of the
         // whole && chain is the bare truthy load of the pattern local; the full
         // chain is the scope entered only when the pattern matched.
         foreach (var logical in next.Descendants.OfType<LogicalBinary>())
         {
-            if (logical.Kind == LogicalKind.And
-                && LeftmostConjunct(logical) is LoadLocal andLoad
-                && andLoad.Index == index)
+            if (logical.Kind == LogicalKind.And)
             {
-                return new TestSite(andLoad, logical);
+                var leftmost = LeftmostConjunct(logical);
+                if (IsPatternLocalNotNull(leftmost, index))
+                    return new TestSite(leftmost, logical);
             }
         }
 
         // Statement-guard form: `if (t != null) { ...t... } else { ... }` —
         // only the then-arm is gated by the successful pattern. The caller's
         // LocalReferencesOnlyWithin check rejects any else-arm use of t.
-        if (next is IfStatement { Condition: LoadLocal guardLoad } guard && guardLoad.Index == index)
+        if (next is IfStatement guard && IsPatternLocalNotNull(guard.Condition, index))
             return new TestSite(guard.Condition, guard.Then);
 
         return null;
