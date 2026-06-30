@@ -31,7 +31,7 @@ public static class PrintProjectionOutput
 
         if (options.PrintAll && options.Row is not null)
         {
-            Console.Error.WriteLine("Error: --print-all cannot be combined with -n/--head row selection.");
+            Console.Error.WriteLine("Error: --print-all cannot be combined with --row.");
             return 1;
         }
 
@@ -60,7 +60,7 @@ public static class PrintProjectionOutput
         {
             if (documents.Count != 1)
             {
-                Console.Error.WriteLine($"Error: selected section has {documents.Count} printable rows; use -n N to choose one row or --print-all.");
+                Console.Error.WriteLine($"Error: selected section has {documents.Count} printable rows; use --row N to choose one row or --print-all.");
                 return 1;
             }
 

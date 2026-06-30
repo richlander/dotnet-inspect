@@ -1780,15 +1780,15 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("selected section has 2 printable rows; use -n N to choose one row or --print-all", error);
+        Assert.Contains("selected section has 2 printable rows; use --row N to choose one row or --print-all", error);
     }
 
     [Fact]
-    public async Task Type_SourceFiles_PrintShorthandRowFetchesSelectedSource()
+    public async Task Type_SourceFiles_PrintRowFetchesSelectedSource()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "-2", "--jsonl", "--raw", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "2", "--jsonl", "--raw", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1862,7 +1862,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--print", "-n", "1", "--jsonl", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7002,7 +7002,7 @@ public class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("selected section has 2 printable rows; use -n N to choose one row or --print-all", error);
+            Assert.Contains("selected section has 2 printable rows; use --row N to choose one row or --print-all", error);
         }
         finally
         {
@@ -7020,7 +7020,7 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print", "-n", "2");
+                "project", projectPath, "-S", "Grounding", "--print", "--row", "2");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -7043,7 +7043,7 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print", "-n", "1");
+                "project", projectPath, "-S", "Grounding", "--print", "--row", "1");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);

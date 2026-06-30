@@ -1,13 +1,13 @@
 ---
 id: line-and-result-limiting
 description: Control output size with line limits, table row limits, result limits, row counts, and print row selection
-commands: [-n, --rows, -t, -m, --versions, --count, --print]
+commands: [-n, --rows, -t, -m, --versions, --count, --print, --row]
 areas: [output, limiting, count, agents]
 ---
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` limits output lines (like `head`). `--rows -n N` interprets the same count as table data rows per rendered table. With `--print`, `-n N` chooses the Nth printable row to materialize. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` reduces a selected section/vector to one integer row count, while `--bare` stays a presentation-only modifier for already-selected payloads. These are essential for agents that need compact, predictable output.
+> Control how much output is returned. `-n` limits output lines (like `head`), including printed document content. `--rows -n N` interprets the same count as table data rows per rendered table. With `--print`, `--row N` chooses the Nth printable row to materialize. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` reduces a selected section/vector to one integer row count, while `--bare` stays a presentation-only modifier for already-selected payloads. These are essential for agents that need compact, predictable output.
 
 ## Preconditions
 

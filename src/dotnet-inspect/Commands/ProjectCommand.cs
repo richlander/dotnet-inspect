@@ -150,9 +150,15 @@ public class ProjectCommand
             return false;
         }
 
+        if (options.PrintRow is not null && !options.Print)
+        {
+            Console.Error.WriteLine("Error: --row requires --print.");
+            return false;
+        }
+
         if ((options.Print || options.PrintAll) && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use -n N without --rows to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N to choose a printed row.");
             return false;
         }
 

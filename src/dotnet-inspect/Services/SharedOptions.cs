@@ -36,8 +36,9 @@ public class SharedOptions
     public Option<bool> Rows { get; } = new("--rows") { Description = "Interpret -n/-N as data rows per rendered table instead of output lines" };
     public Option<int?> Tail { get; }
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
-    public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use -n N to choose a row when multiple rows are printable" };
+    public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N to choose a row when multiple rows are printable" };
     public Option<bool> PrintAll { get; } = new("--print-all") { Description = "Print all documents behind rows in the selected printable section, separated by item headers" };
+    public Option<int?> Row { get; } = new("--row") { Description = "With --print, select the Nth printable row" };
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
@@ -196,17 +197,14 @@ public class SharedOptions
     {
         command.Options.Add(Print);
         command.Options.Add(PrintAll);
+        command.Options.Add(Row);
     }
 
     public int? ParseRows(ParseResult parseResult)
         => parseResult.GetValue(Rows) ? parseResult.GetValue(Limit) : null;
 
     public int? ParsePrintRow(ParseResult parseResult)
-        => (parseResult.GetValue(Print) || parseResult.GetValue(PrintAll))
-            && !parseResult.GetValue(Rows)
-            && parseResult.GetResult(Limit) is not null
-                ? ArgumentPreprocessor.HeadLines
-                : null;
+        => parseResult.GetValue(Row);
 
     public PerformanceTriageOptions ParsePerformanceTriageOptions(ParseResult parseResult)
     {

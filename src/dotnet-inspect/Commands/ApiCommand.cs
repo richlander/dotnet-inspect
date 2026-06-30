@@ -108,7 +108,13 @@ public class ApiCommand
 
         if ((options.Print || options.PrintAll) && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use -n N without --rows to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N to choose a printed row.");
+            return (null!, 1);
+        }
+
+        if (options.PrintRow is not null && !options.Print)
+        {
+            Console.Error.WriteLine("Error: --row requires --print.");
             return (null!, 1);
         }
 
@@ -899,7 +905,7 @@ public class ApiCommand
         {
             if (options.PrintRow is null && printableRows.Count != 1)
             {
-                Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use -n N to choose one row or --print-all.");
+                Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N to choose one row or --print-all.");
                 return 1;
             }
 
