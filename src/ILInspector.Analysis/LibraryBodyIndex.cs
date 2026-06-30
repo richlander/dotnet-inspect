@@ -259,6 +259,26 @@ public sealed class LibraryBodyIndex
         }
     }
 
+    static bool IsLinqMaterializer(MemberRef member, out string op)
+    {
+        op = "";
+        if (member.Kind == MemberKind.Unsupported)
+            return false;
+        if (!IsEnumerableDefinition(member.DeclaringType))
+            return false;
+        if (member.ParameterTypes.Length != 1)
+            return false;
+        switch (member.Name)
+        {
+            case "ToArray":
+            case "ToList":
+                op = member.Name;
+                return true;
+            default:
+                return false;
+        }
+    }
+
     // System.Linq.Enumerable across target frameworks: the type lives in System.Linq on
     // .NET 5+ reference assemblies, in System.Core on .NET Framework, and canonicalizes to
     // the core library on netstandard. IsKnownFrameworkType matches all three facades and
@@ -1088,7 +1108,6 @@ public sealed class LibraryBodyIndex
                         if (unsafety.Length > 0)
                             unsafetyOccurrences[caller.MetadataToken] = unsafety;
                         var methodAttributes = methodDef.GetCustomAttributes();
-                        if (caller.Name == "BoxesGenericStruct") System.IO.File.AppendAllText("box_debug.txt", $"typeGen: {typeSourceGenerated} metGen1: {HasGeneratedCodeAttribute(methodAttributes)} metGen2: {HasCompilerGeneratedAttribute(methodAttributes)} blazor: {IsBlazorRenderMethod(caller)}\n");
                         if (!typeSourceGenerated
                             && !HasGeneratedCodeAttribute(methodAttributes)
                             && !HasCompilerGeneratedAttribute(methodAttributes)
@@ -1976,6 +1995,65 @@ public sealed class LibraryBodyIndex
             }
         }
 
+        IReadOnlySet<string>? _asyncStateMachineTypes;
+
+        bool IsAsyncStateMachineType(TypeRef? type)
+        {
+            if (type is null)
+                return false;
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            return AsyncStateMachineTypes().Contains(definition.ToQualifiedDisplayString());
+        }
+
+        IReadOnlySet<string> AsyncStateMachineTypes()
+        {
+            if (_asyncStateMachineTypes is not null)
+                return _asyncStateMachineTypes;
+
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var typeHandle in _reader.TypeDefinitions)
+            {
+                var typeDef = _reader.GetTypeDefinition(typeHandle);
+                var type = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
+                if (!type.Name.Contains(">d__", StringComparison.Ordinal))
+                    continue;
+                foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
+                {
+                    var implementation = _reader.GetInterfaceImplementation(implementationHandle);
+                    var interfaceType = TypeFromEntity(implementation.Interface);
+                    var definition = interfaceType.Kind == TypeRefKind.GenericInstance
+                        ? interfaceType.ElementType ?? interfaceType
+                        : interfaceType;
+                    if (definition.Namespace == "System.Runtime.CompilerServices"
+                        && definition.Name == "IAsyncStateMachine")
+                    {
+                        set.Add(type.ToQualifiedDisplayString());
+                        break;
+                    }
+                }
+            }
+            _asyncStateMachineTypes = set;
+            return set;
+        }
+
+        TypeRef TypeFromEntity(EntityHandle handle)
+        {
+            try
+            {
+                return handle.Kind switch
+                {
+                    HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
+                    HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
+                    HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, new GenericScope([], []), (TypeSpecificationHandle)handle, 0),
+                    _ => TypeRef.Unsupported("interface implementation"),
+                };
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return TypeRef.Unsupported("interface implementation");
+            }
+        }
+
         ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
@@ -2135,6 +2213,27 @@ public sealed class LibraryBodyIndex
                             }
                             pendingDelegateOffset = null;
                         }
+                        if (allocationByOffset.TryGetValue(offset, out var stateMachineAllocation)
+                            && stateMachineAllocation.Kind == AllocationKind.StateMachine
+                            && IsAsyncStateMachineType(stateMachineAllocation.AllocatedType))
+                        {
+                            var inLoop = IsInLoopRegion(offset, loopRegions);
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "async-state-machine",
+                                $"async state-machine allocation ({stateMachineAllocation.Detail ?? "state machine"})",
+                                "Async state machines are intrinsic to async/async-iterator lowering: this usually moves work into a state object rather than eliminating it, and is often once per call/enumeration/subscription rather than per item. Optimize only if profiles show this method creates state machines repeatedly on a hot path.",
+                                inLoop ? "medium" : "low",
+                                inLoop,
+                                offset,
+                                inLoop
+                                    ? "Repeated async state-machine allocation at a loop call site; still verify whether the async operation itself is required."
+                                    : "Amortized async state-machine allocation: often once per call/enumeration/subscription, not per item.",
+                                ColdPath: false)
+                            {
+                                Amortized = !inLoop,
+                            });
+                        }
                         break;
                     }
                     case ILOpCode.Call:
@@ -2186,6 +2285,20 @@ public sealed class LibraryBodyIndex
                                     offset,
                                     "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
                             }
+                        }
+                        else if (IsLinqMaterializer(callee, out var materializeOp)
+                            && TryGetContainingLoop(offset, loopRegions, out var materializeLoop)
+                            && LinqMaterializerSourceIsLoopInvariant(il, GetReachingDefinitions(), offset, materializeLoop, out var sourceEvidence))
+                        {
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "materialize-in-loop",
+                                $"Enumerable.{materializeOp}(...) inside a loop over loop-invariant source ({sourceEvidence})",
+                                "Hoist the ToArray/ToList materialization outside the loop, or cache it before the loop, so each iteration reuses the same snapshot.",
+                                "high",
+                                true,
+                                offset,
+                                "Only valid when the source sequence is unchanged during the loop; this row requires complete reaching-defs and an outside-loop source definition."));
                         }
                         else if (IsLinqMembershipScan(callee, out var scanOp) && IsInLoopRegion(offset, loopRegions))
                         {
@@ -2846,6 +2959,83 @@ public sealed class LibraryBodyIndex
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        static bool TryGetContainingLoop(int offset, IReadOnlyList<(int Start, int End)> loopRegions, out (int Start, int End) loop)
+        {
+            loop = default;
+            var found = false;
+            foreach (var region in loopRegions)
+            {
+                if (offset < region.Start || offset > region.End)
+                    continue;
+                if (!found || region.End - region.Start < loop.End - loop.Start)
+                    loop = region;
+                found = true;
+            }
+            return found;
+        }
+
+        bool LinqMaterializerSourceIsLoopInvariant(
+            byte[] il,
+            ReachingDefinitionsResult reachingDefinitions,
+            int callOffset,
+            (int Start, int End) loop,
+            out string evidence)
+        {
+            evidence = "";
+            if (!reachingDefinitions.IsComplete)
+                return false;
+            if (!TryFindPreviousInstruction(il, callOffset, out int loadOffset, out var loadOpcode, out int operandPosition))
+                return false;
+            if (!TryReadLocalSlot(il, loadOpcode, ref operandPosition, loadOffset, out bool isStore, out bool isArg, out int slot)
+                || isStore)
+            {
+                return false;
+            }
+
+            var use = reachingDefinitions.Uses.FirstOrDefault(candidate =>
+                candidate.Offset == loadOffset
+                && candidate.IsArgument == isArg
+                && candidate.Slot == slot);
+            if (use is null || use.Address || use.ReachingDefinitions.Length == 0)
+                return false;
+            foreach (var definition in use.ReachingDefinitions)
+            {
+                if (definition.Offset >= loop.Start && definition.Offset <= loop.End)
+                    return false;
+            }
+
+            evidence = isArg ? $"arg{slot}" : $"V_{slot}";
+            return true;
+        }
+
+        static bool TryFindPreviousInstruction(byte[] il, int targetOffset, out int previousOffset, out ILOpCode previousOpcode, out int previousOperandPosition)
+        {
+            previousOffset = -1;
+            previousOpcode = default;
+            previousOperandPosition = -1;
+            try
+            {
+                int position = 0;
+                while (position < targetOffset)
+                {
+                    int offset = position;
+                    var opcode = ReadOpcode(il, ref position);
+                    int operandPosition = position;
+                    SkipOperandStatic(il, opcode, ref position, offset);
+                    if (position > targetOffset)
+                        return false;
+                    previousOffset = offset;
+                    previousOpcode = opcode;
+                    previousOperandPosition = operandPosition;
+                }
+                return previousOffset >= 0 && position == targetOffset;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+            {
+                return false;
             }
         }
 
