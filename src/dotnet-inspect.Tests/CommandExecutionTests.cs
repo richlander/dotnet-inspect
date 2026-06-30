@@ -4315,7 +4315,7 @@ public class CommandExecutionTests
 
                 foreach (var section in sections)
                 {
-                    var selectArgs = command.Concat(["-S", section, "--table", "--tips", "q", "-n", "40"]).ToArray();
+                    var selectArgs = BuildDiscoverySelectionArgs(command, section);
                     var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
                     Assert.True(selectExit == 0,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
@@ -4333,6 +4333,15 @@ public class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    private static string[] BuildDiscoverySelectionArgs(string[] command, string section)
+    {
+        List<string> args = [.. command];
+        if (command is ["library", ..] && section == "IL Offset")
+            args.AddRange(["--il-offset", "0x06000041+0x0"]);
+        args.AddRange(["-S", section, "--table", "--tips", "q", "-n", "40"]);
+        return [.. args];
     }
 
     private static bool RequiresRealDataDiscoveryGuard(string[] command)
