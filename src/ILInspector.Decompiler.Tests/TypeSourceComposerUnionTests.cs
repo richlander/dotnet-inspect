@@ -512,6 +512,13 @@ public class TypeSourceComposerUnionTests
                     Cat => 1,
                     Dog => 2,
                 };
+
+                public static string GuardedDefault(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => cat.Name,
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
             }
             """);
 
@@ -529,6 +536,14 @@ public class TypeSourceComposerUnionTests
                 Dog => 2,
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Kind"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Name == "cat" => cat.Name,
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedDefault"));
     }
 
     [Fact]

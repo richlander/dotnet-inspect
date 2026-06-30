@@ -34,6 +34,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var children = block.Children;
         for (int start = 0; start < children.Count; start++)
         {
+            if (TryMatchClassDefaultAt(function, children, start, out var classDefaultSwitch))
+            {
+                match = new Match(start, classDefaultSwitch);
+                return true;
+            }
+
             if (TryMatchClassNullGuardAt(function, children, start, out var guardedSwitch))
             {
                 match = new Match(start, guardedSwitch);
@@ -54,6 +60,54 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchClassDefaultAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 2 != children.Count
+            || children[start] is not IfStatement { HasElse: false } nullGuard
+            || children[start + 1] is not Return { Value: { } defaultValue })
+        {
+            return false;
+        }
+
+        var body = nullGuard.Then.Children;
+        if (body.Count < 2
+            || body[0] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsUnionValueProperty(function, unionValue)
+            || !PlaceIdentity.SameVariable(unionValue.Instance, nullGuard.Condition))
+        {
+            return false;
+        }
+
+        int tempLocal = valueStore.Index;
+        var armNodes = body.Skip(1).ToArray();
+        if (!TryDefaultArms(armNodes, tempLocal, defaultValue, out var arms))
+            return false;
+
+        var allowedTempUses = new List<IrNode> { valueStore };
+        allowedTempUses.AddRange(armNodes);
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, allowedTempUses)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            (IrExpression)defaultValue.Clone());
+        return true;
     }
 
     static bool TryMatchDefaultChainAt(
