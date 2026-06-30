@@ -12,6 +12,8 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using System.Globalization;
+using System.Text;
 
 namespace DotnetInspector.Commands;
 
@@ -360,6 +362,8 @@ public class LibraryCommand
             Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
+        if (rows.Count == 0 && section == "Library Info" && kind == ShapeProjectionKind.Value)
+            return 1;
 
         return ShapeProjectionOutput.Write(
             rows,
@@ -402,6 +406,10 @@ public class LibraryCommand
     {
         if (kind != ShapeProjectionKind.Value)
             return [];
+        var info = new LibraryInspectionView(inspection).AssemblyInfoSection;
+        if (info is null)
+            return [];
+
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
@@ -409,21 +417,60 @@ public class LibraryCommand
             return [];
         }
 
-        string? value = field.ToLowerInvariant() switch
+        var values = GetLibraryInfoValues(info);
+        if (!values.TryGetValue(field, out var value))
         {
-            "name" => inspection.AssemblyInfo?.AssemblyName ?? Path.GetFileNameWithoutExtension(inspection.FileName),
-            "version" => inspection.PlatformVersion ?? inspection.AssemblyInfo?.AssemblyVersion,
-            "tfm" => inspection.Tfm,
-            "source" => inspection.Source,
-            "file" or "filename" => inspection.FileName,
-            "repository" => inspection.RepositoryUrl,
-            "pdb" or "pdb path" or "pdb_path" => inspection.PdbPath,
-            _ => null
+            Console.Error.WriteLine($"Error: field '{field}' was not found in Library Info.");
+            return [];
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Library Info.");
+            return [];
+        }
+
+        return [new ShapeProjectionRow(1, section, value, Label: field)];
+    }
+
+    private static Dictionary<string, string?> GetLibraryInfoValues(LibraryInfoSection info)
+    {
+        Dictionary<string, string?> values = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in typeof(LibraryInfoSection).GetProperties())
+        {
+            var name = ToPascalCaseWords(property.Name);
+            values[name] = FormatLibraryInfoValue(property.GetValue(info));
+        }
+
+        return values;
+    }
+
+    private static string? FormatLibraryInfoValue(object? value)
+        => value switch
+        {
+            null => null,
+            bool b => b ? "Yes" : "No",
+            IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+            _ => value.ToString()
         };
 
-        return string.IsNullOrWhiteSpace(value)
-            ? []
-            : [new ShapeProjectionRow(1, section, value, Label: field)];
+    private static string ToPascalCaseWords(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+
+        var builder = new StringBuilder(value.Length + 8);
+        builder.Append(value[0]);
+        for (var i = 1; i < value.Length; i++)
+        {
+            var current = value[i];
+            var previous = value[i - 1];
+            if (char.IsUpper(current) && (char.IsLower(previous) || char.IsDigit(previous)))
+                builder.Append(' ');
+            builder.Append(current);
+        }
+
+        return builder.ToString();
     }
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
@@ -553,12 +600,40 @@ public class LibraryCommand
                 continue;
             }
 
-            if (section.Items.Length > 0)
+            if (string.Equals(name, "Library Info", StringComparison.OrdinalIgnoreCase))
+            {
+                var renderedLabels = GetRenderedFieldLabels(rendered);
+                var effectiveItems = section.Items
+                    .Where(item => renderedLabels.Contains(item.Name))
+                    .Select(item => item.Name)
+                    .ToArray();
+                filtered.Add(name, section.ItemKind,
+                    effectiveItems.Length > 0 ? effectiveItems : section.Items.Select(i => i.Name).ToArray());
+            }
+            else if (section.Items.Length > 0)
                 filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
             else
                 filtered.AddSection(name);
         }
         return filtered;
+    }
+
+    private static HashSet<string> GetRenderedFieldLabels(string rendered)
+    {
+        HashSet<string> labels = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in rendered.ReplaceLineEndings("\n").Split('\n'))
+        {
+            if (!line.StartsWith('|'))
+                continue;
+
+            var cells = line.Split('|', StringSplitOptions.TrimEntries);
+            if (cells.Length < 3 || cells[1] is "Field" or "---" or "-----")
+                continue;
+
+            labels.Add(cells[1]);
+        }
+
+        return labels;
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,
