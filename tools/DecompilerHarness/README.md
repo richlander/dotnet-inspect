@@ -73,7 +73,9 @@ trends can be compared without scraping logs.
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode diffs include canonical opcode streams, while
 recompile and context failures include the method and diagnostic detail. Use
-`--max-examples` to widen the triage sample when exploring a new assembly set.
+`--max-examples` to widen the triage sample when exploring a new assembly set;
+example headings say whether they show every row or only the first N of the
+bucket.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false

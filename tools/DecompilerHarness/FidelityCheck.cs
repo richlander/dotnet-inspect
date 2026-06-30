@@ -1693,25 +1693,28 @@ static class FidelityCheck
         if (diffExamples.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine("Opcode-diff examples (Full):");
+            Console.WriteLine(ExampleHeading("Opcode-diff examples (Full)", diffExamples.Count, diffCount));
             foreach (var e in diffExamples)
                 Console.WriteLine($"  {e}");
         }
         if (recompileFailExamples.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine("Recompile-fail examples:");
+            Console.WriteLine(ExampleHeading("Recompile-fail examples", recompileFailExamples.Count, recompileFail));
             foreach (var e in recompileFailExamples)
                 Console.WriteLine($"  {e}");
         }
         if (contextFailExamples.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine("Context-fail examples:");
+            Console.WriteLine(ExampleHeading("Context-fail examples", contextFailExamples.Count, contextFail));
             foreach (var e in contextFailExamples)
                 Console.WriteLine($"  {e}");
         }
     }
+
+    static string ExampleHeading(string title, int shown, int total)
+        => shown == total ? $"{title} ({total}):" : $"{title} (showing {shown} of {total}):";
 
     static string FormatFailureExample(CompileBackResult result)
         => string.IsNullOrWhiteSpace(result.Detail)
