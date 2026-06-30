@@ -280,7 +280,10 @@ public class TypeSourceComposerUnionTests
 
             public sealed class Cat { public string Name { get; } = "cat"; }
             public sealed class Dog { public string Name { get; } = "dog"; }
+            public sealed class Bird { public string Name { get; } = "bird"; }
             public union Pet(Cat, Dog);
+            public union Pet3(Cat, Dog, Bird);
+            public union Box<T>(Cat, Dog, T);
 
             public static class Matcher
             {
@@ -305,6 +308,27 @@ public class TypeSourceComposerUnionTests
                         Dog dog => dog.Name.Length + baseValue,
                     };
                 }
+
+                public static string DescribeThree(Pet3 pet) => pet switch
+                {
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                    Bird bird => bird.Name,
+                };
+
+                public static int KindThree(Pet3 pet) => pet switch
+                {
+                    Cat => 1,
+                    Dog => 2,
+                    Bird => 3,
+                };
+
+                public static string Generic(Box<Bird> box) => box switch
+                {
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                    Bird bird => bird.Name,
+                };
             }
             """);
 
@@ -326,6 +350,24 @@ public class TypeSourceComposerUnionTests
         Assert.Contains("int baseValue = offset + 1;", withOffset);
         Assert.Contains("return pet switch", withOffset);
         Assert.Contains("Dog dog => dog.Name.Length + baseValue", withOffset);
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+                Bird bird => bird.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "DescribeThree"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat => 1,
+                Dog => 2,
+                Bird => 3,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "KindThree"));
+        Assert.Contains("return box switch", RenderMember(assembly.Path, "UnionFixtures.Matcher", "Generic"));
+        Assert.Contains("Bird bird => bird.Name", RenderMember(assembly.Path, "UnionFixtures.Matcher", "Generic"));
     }
 
     [Fact]
