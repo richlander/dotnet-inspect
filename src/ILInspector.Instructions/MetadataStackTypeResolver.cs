@@ -68,16 +68,27 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
 
     public StackType Field(int fieldToken)
     {
-        var handle = MetadataTokens.EntityHandle(fieldToken);
-        return handle.Kind switch
+        try
         {
-            HandleKind.FieldDefinition => _reader.GetFieldDefinition((FieldDefinitionHandle)handle).DecodeSignature(_provider, null).Stack,
-            HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).DecodeFieldSignature(_provider, null).Stack,
-            _ => StackType.Unknown,
-        };
+            var handle = MetadataTokens.EntityHandle(fieldToken);
+            return handle.Kind switch
+            {
+                HandleKind.FieldDefinition => _reader.GetFieldDefinition((FieldDefinitionHandle)handle).DecodeSignature(_provider, null).Stack,
+                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).DecodeFieldSignature(_provider, null).Stack,
+                _ => StackType.Unknown,
+            };
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            return StackType.Unknown; // fail closed: malformed/out-of-range token coarsens to Unknown
+        }
     }
 
-    public StackType TypeOfToken(int typeToken) => _provider.Classify(MetadataTokens.EntityHandle(typeToken));
+    public StackType TypeOfToken(int typeToken)
+    {
+        try { return _provider.Classify(MetadataTokens.EntityHandle(typeToken)); }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException) { return StackType.Unknown; }
+    }
 
     public bool TryResolveCall(int methodToken, bool isNewObj, out int popCount, out bool pushes, out StackType pushType)
     {
@@ -85,21 +96,31 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
         pushes = false;
         pushType = StackType.Unknown;
 
-        if (!TryMethodInfo(MetadataTokens.EntityHandle(methodToken), out int paramCount, out bool hasThis, out var returnType, out var declaringType))
-            return false;
-
-        if (isNewObj)
+        try
         {
-            popCount = paramCount;
-            pushes = true;
-            pushType = _provider.Classify(declaringType);
+            if (!TryMethodInfo(MetadataTokens.EntityHandle(methodToken), out int paramCount, out bool hasThis, out var returnType, out var declaringType))
+                return false;
+
+            if (isNewObj)
+            {
+                popCount = paramCount;
+                pushes = true;
+                pushType = _provider.Classify(declaringType);
+                return true;
+            }
+
+            popCount = paramCount + (hasThis ? 1 : 0);
+            pushes = !returnType.IsVoid;
+            pushType = returnType.Stack;
             return true;
         }
-
-        popCount = paramCount + (hasThis ? 1 : 0);
-        pushes = !returnType.IsVoid;
-        pushType = returnType.Stack;
-        return true;
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            popCount = -1;
+            pushes = false;
+            pushType = StackType.Unknown;
+            return false; // fail closed on malformed/out-of-range token
+        }
     }
 
     public bool TryResolveCalli(int signatureToken, out int popCount, out bool pushes, out StackType pushType)
@@ -107,14 +128,24 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
         popCount = -1;
         pushes = false;
         pushType = StackType.Unknown;
-        var handle = MetadataTokens.EntityHandle(signatureToken);
-        if (handle.Kind != HandleKind.StandaloneSignature)
+        try
+        {
+            var handle = MetadataTokens.EntityHandle(signatureToken);
+            if (handle.Kind != HandleKind.StandaloneSignature)
+                return false;
+            var signature = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle).DecodeMethodSignature(_provider, null);
+            popCount = signature.ParameterTypes.Length + (signature.Header.IsInstance && !signature.Header.HasExplicitThis ? 1 : 0);
+            pushes = !signature.ReturnType.IsVoid;
+            pushType = signature.ReturnType.Stack;
+            return true;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            popCount = -1;
+            pushes = false;
+            pushType = StackType.Unknown;
             return false;
-        var signature = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle).DecodeMethodSignature(_provider, null);
-        popCount = signature.ParameterTypes.Length + (signature.Header.IsInstance && !signature.Header.HasExplicitThis ? 1 : 0);
-        pushes = !signature.ReturnType.IsVoid;
-        pushType = signature.ReturnType.Stack;
-        return true;
+        }
     }
 
     bool TryMethodInfo(EntityHandle handle, out int paramCount, out bool hasThis, out SigType returnType, out EntityHandle declaringType)

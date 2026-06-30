@@ -80,7 +80,19 @@ public sealed record MethodInstructions(
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(body);
-        var resolver = MetadataStackTypeResolver.Create(reader, method, body);
-        return InterpretStack(resolver.MethodReturnsValue, resolver);
+        try
+        {
+            var resolver = MetadataStackTypeResolver.Create(reader, method, body);
+            return InterpretStack(resolver.MethodReturnsValue, resolver);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            // Fail closed: a malformed method/local signature yields an incomplete typed stack, never a throw.
+            return new TypedStackResult(
+                Instructions, Blocks,
+                ImmutableDictionary<int, ImmutableArray<StackValue>>.Empty,
+                false,
+                $"metadata signature decode failed: {ex.Message}");
+        }
     }
 }

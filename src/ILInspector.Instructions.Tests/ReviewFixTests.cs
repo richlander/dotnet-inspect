@@ -1,4 +1,6 @@
+using System.IO;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
 
@@ -77,5 +79,31 @@ public class ReviewFixTests
         // switch (1 target = fallthrough) ; ret.
         byte[] sw = [0x45, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A];
         Assert.Equal(OperandKind.InlineSwitch, InstructionDecoder.Decode(sw)[0].Operand);
+    }
+
+    [Fact]
+    public void Typed_stack_resolver_fails_closed_on_out_of_range_tokens()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(ReviewFixTests).Assembly.Location));
+        var reader = pe.GetMetadataReader();
+
+        // Build a resolver from any real method with a body.
+        MethodDefinitionHandle handle = default;
+        MethodBodyBlock body = default!;
+        foreach (var h in reader.MethodDefinitions)
+        {
+            var m = reader.GetMethodDefinition(h);
+            if (m.RelativeVirtualAddress == 0) continue;
+            try { body = pe.GetMethodBody(m.RelativeVirtualAddress); } catch { continue; }
+            handle = h;
+            break;
+        }
+        var resolver = MetadataStackTypeResolver.Create(reader, handle, body);
+
+        // Out-of-range tokens must coarsen / fail closed, not throw BadImageFormatException.
+        Assert.Equal(StackType.Unknown, resolver.Field(0x0400FFFF));
+        Assert.Equal(StackType.Unknown, resolver.TypeOfToken(0x0200FFFF));
+        Assert.False(resolver.TryResolveCall(0x0A00FFFF, isNewObj: false, out _, out _, out _));
+        Assert.False(resolver.TryResolveCalli(0x1100FFFF, out _, out _, out _));
     }
 }
