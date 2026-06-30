@@ -43,6 +43,11 @@ public class TypedStackFidelityTests
                 if (stack.Length > computedMax)
                     computedMax = stack.Length;
 
+            // Ceiling sanity bound, by design — not exact verification. computedMax is the deepest
+            // *block-entry* stack we model; if it ever exceeds the declared MaxStack the interpreter
+            // over-pushed (a real bug). The converse (under-push) is intentionally NOT asserted: we
+            // sample block-entry depths rather than the true mid-block peak, and compilers may pad
+            // MaxStack, so exact equality would be flaky. Over-push is the falsifiable claim here.
             if (computedMax > body.MaxStack)
                 violations.Add($"{reader.GetString(method.Name)}: computed {computedMax} > declared MaxStack {body.MaxStack}");
         }

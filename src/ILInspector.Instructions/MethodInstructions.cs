@@ -24,7 +24,10 @@ public sealed record MethodInstructions(
         ArgumentNullException.ThrowIfNull(il);
         try
         {
-            var instructions = InstructionDecoder.Decode(il);
+            if ((uint)ilLength > (uint)il.Length)
+                throw new BadImageFormatException(
+                    $"Declared IL length {ilLength} exceeds the {il.Length}-byte buffer.");
+            var instructions = InstructionDecoder.Decode(ilLength == il.Length ? il : il[..ilLength]);
             var blocks = BlockGraph.Build(ilLength, instructions, exceptionRegions);
             return new MethodInstructions(instructions, blocks);
         }

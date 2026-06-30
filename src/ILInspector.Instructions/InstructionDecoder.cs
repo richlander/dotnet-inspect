@@ -69,6 +69,12 @@ public static class InstructionDecoder
                 targets, branches, unconditional, exits, fallsThrough, leaves));
         }
 
+        // Fail closed on a dangling prefix: a prefix (tail./constrained./no./...) must be
+        // followed by another instruction, so the stream must not end on one.
+        if (builder.Count > 0 && builder[^1].OpCode.IsPrefix())
+            throw new BadImageFormatException(
+                $"IL ends with a dangling prefix at IL_{builder[^1].Offset:X4}");
+
         return builder.ToImmutable();
     }
 
@@ -142,7 +148,7 @@ public static class InstructionDecoder
             or ILOpCode.Ldloc or ILOpCode.Ldloca or ILOpCode.Stloc
             => OperandKind.InlineVar,
 
-        ILOpCode.Ldc_i4_s or ILOpCode.Unaligned => OperandKind.ShortInlineI,
+        ILOpCode.Ldc_i4_s or ILOpCode.Unaligned or (ILOpCode)0xFE19 => OperandKind.ShortInlineI, // 0xFE19 = no.
         ILOpCode.Ldc_i4 => OperandKind.InlineI,
         ILOpCode.Ldc_i8 => OperandKind.InlineI8,
         ILOpCode.Ldc_r4 => OperandKind.ShortInlineR,
@@ -163,6 +169,10 @@ public static class InstructionDecoder
             or ILOpCode.Constrained or ILOpCode.Sizeof
             => OperandKind.InlineType,
         ILOpCode.Ldtoken => OperandKind.InlineTok,
+
+        ILOpCode.Switch => OperandKind.InlineSwitch,
+        _ when opcode.IsShortBranch() => OperandKind.ShortInlineBrTarget,
+        _ when opcode.IsBranch() => OperandKind.InlineBrTarget,
 
         _ => OperandKind.None,
     };

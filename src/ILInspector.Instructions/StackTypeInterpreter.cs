@@ -57,14 +57,15 @@ public static class StackTypeInterpreter
         if (instructions.IsDefaultOrEmpty)
             return new TypedStackResult(instructions, blocks, stackBefore.ToImmutable(), true, null);
 
-        var instructionsByOffset = instructions.ToDictionary(i => i.Offset);
         var blockEntry = new ImmutableArray<StackValue>?[blocks.Blocks.Length];
         var ehEntryBlocks = ExceptionEntryStacks(blocks);
 
         var worklist = new Queue<int>();
-        // Entry block starts empty; EH entry blocks seed from their handler kind.
+        // Entry block starts empty; EH entry blocks seed from their handler kind. Seed in
+        // ascending block order so the result — and any incomplete reason on malformed IL —
+        // is deterministic, independent of dictionary iteration order (NativeAOT/reproducibility).
         SeedEntry(0, []);
-        foreach (var (blockIndex, entry) in ehEntryBlocks)
+        foreach (var (blockIndex, entry) in ehEntryBlocks.OrderBy(kv => kv.Key))
             SeedEntry(blockIndex, entry);
 
         string? incompleteReason = null;

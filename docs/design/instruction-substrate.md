@@ -94,6 +94,25 @@ The last "not used" row is load-bearing: prior art runs three *separate* typed
 stacks over one shared reader, so we share decode + identity (Layer 0) and let
 each consumer build its own Layer 1.
 
+### Port boundary: what the substrate does and doesn't validate
+
+The ported `ILReader` + size table are faithful — byte-level tiling and
+round-trip hold because the reader sizes every opcode correctly, prefixes
+included. The bugs adversarial review found were all in the *connective tissue we
+hand-roll above the reader* (`InstructionDecoder`, `MethodInstructions`, the
+gated `StackTypeInterpreter`), never in the ported files.
+
+That is the deliberate boundary. The substrate guarantees **structural
+completeness** — the stream tiles `[0, ilLength)`, branch targets land on
+instruction boundaries, blocks are EH-aware, and a *dangling* prefix fails closed
+— but it does **not** perform **semantic IL verification** (e.g. that
+`constrained.` is paired with `callvirt`, or stack-type legality). That is
+verifier/importer work, and the upstream `ILImporter` that owns it is
+intentionally not ported: it is bound to `Internal.TypeSystem`, it is Layer 1,
+and it is the non-shareable layer (above). A consumer that needs real
+verification should port a *targeted* upstream slice on a measured trigger, not
+re-derive it inside the decoder.
+
 ### Tracking upstream improvements
 
 The decode *contract* is ECMA-335-frozen — which opcodes exist and how their

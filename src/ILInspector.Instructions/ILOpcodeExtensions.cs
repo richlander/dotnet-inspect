@@ -67,6 +67,18 @@ internal static class ILOpcodeExtensions
     public static bool IsUnconditionalBranch(this ILOpCode opcode)
         => opcode is ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Leave or ILOpCode.Leave_s;
 
+    /// <summary>Returns true if the opcode is a short-form branch (br.s..blt.un.s, leave.s).</summary>
+    public static bool IsShortBranch(this ILOpCode opcode)
+        => (opcode >= ILOpCode.Br_s && opcode <= ILOpCode.Blt_un_s) || opcode == ILOpCode.Leave_s;
+
+    /// <summary>
+    /// Returns true if the opcode is a prefix that must be followed by another instruction
+    /// (constrained., no., readonly., tail., unaligned., volatile.) — ECMA-335 Partition III.
+    /// </summary>
+    public static bool IsPrefix(this ILOpCode opcode)
+        => opcode is ILOpCode.Constrained or ILOpCode.Readonly or ILOpCode.Tail
+            or ILOpCode.Unaligned or ILOpCode.Volatile or (ILOpCode)0xFE19; // no.
+
     /// <summary>
     /// Maps ILOpCode to a linear index for lookup table access.
     /// Single-byte opcodes (0x00–0xFE) map directly; two-byte opcodes (0xFE00+)
