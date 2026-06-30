@@ -45,7 +45,7 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
         var signature = definition.DecodeSignature(provider, null);
 
         var arguments = ImmutableArray.CreateBuilder<StackType>();
-        if (signature.Header.IsInstance)
+        if (signature.Header.IsInstance && !signature.Header.HasExplicitThis)
             arguments.Add(provider.Classify(definition.GetDeclaringType()) == StackType.ValueType
                 ? StackType.ManagedPointer
                 : StackType.ObjectReference);
@@ -111,7 +111,7 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
         if (handle.Kind != HandleKind.StandaloneSignature)
             return false;
         var signature = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle).DecodeMethodSignature(_provider, null);
-        popCount = signature.ParameterTypes.Length + (signature.Header.IsInstance ? 1 : 0);
+        popCount = signature.ParameterTypes.Length + (signature.Header.IsInstance && !signature.Header.HasExplicitThis ? 1 : 0);
         pushes = !signature.ReturnType.IsVoid;
         pushType = signature.ReturnType.Stack;
         return true;
@@ -131,7 +131,7 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
                 var definition = _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
                 var signature = definition.DecodeSignature(_provider, null);
                 paramCount = signature.ParameterTypes.Length;
-                hasThis = signature.Header.IsInstance;
+                hasThis = signature.Header.IsInstance && !signature.Header.HasExplicitThis;
                 returnType = signature.ReturnType;
                 declaringType = definition.GetDeclaringType();
                 return true;
@@ -141,7 +141,7 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
                 var member = _reader.GetMemberReference((MemberReferenceHandle)handle);
                 var signature = member.DecodeMethodSignature(_provider, null);
                 paramCount = signature.ParameterTypes.Length;
-                hasThis = signature.Header.IsInstance;
+                hasThis = signature.Header.IsInstance && !signature.Header.HasExplicitThis;
                 returnType = signature.ReturnType;
                 declaringType = member.Parent;
                 return true;

@@ -196,9 +196,13 @@ public static class StackTypeInterpreter
         {
             // ---- no stack effect / prefixes ----
             case ILOpCode.Nop or ILOpCode.Break or ILOpCode.Volatile or ILOpCode.Tail
-                or ILOpCode.Unaligned or ILOpCode.Readonly or ILOpCode.Constrained
-                or ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Leave or ILOpCode.Leave_s
-                or ILOpCode.Endfinally or ILOpCode.Jmp:
+                or ILOpCode.Unaligned or ILOpCode.Readonly or ILOpCode.Constrained or (ILOpCode)0xFE19
+                or ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Jmp:
+                return null;
+
+            // ---- leave / endfinally empty the evaluation stack (ECMA-335 III) ----
+            case ILOpCode.Leave or ILOpCode.Leave_s or ILOpCode.Endfinally:
+                stack.Clear();
                 return null;
 
             // ---- constants ----
@@ -388,12 +392,17 @@ public static class StackTypeInterpreter
 
         bool aPtr = a is StackType.ManagedPointer or StackType.UnmanagedPointer;
         bool bPtr = b is StackType.ManagedPointer or StackType.UnmanagedPointer;
+        bool isAdd = op is ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un;
+        bool isSub = op is ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un;
 
-        // Pointer subtraction (& - &) yields a native int; pointer +/- integer yields the pointer type.
+        // ECMA-335 III.1.5: pointer arithmetic is only add/sub. & - & -> native int; ptr +/- int -> ptr;
+        // int + ptr -> ptr (add is commutative); anything else with a pointer operand is invalid.
         if (aPtr && bPtr)
-            return op is ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un ? StackType.NativeInt : StackType.Unknown;
-        if (aPtr) return a;
-        if (bPtr) return b;
+            return isSub ? StackType.NativeInt : StackType.Unknown;
+        if (aPtr)
+            return isAdd || isSub ? a : StackType.Unknown;
+        if (bPtr)
+            return isAdd ? b : StackType.Unknown;
 
         if (a == b) return a; // i4/i4, i8/i8, F/F, I/I
         if ((a == StackType.Int32 && b == StackType.NativeInt) || (a == StackType.NativeInt && b == StackType.Int32))
