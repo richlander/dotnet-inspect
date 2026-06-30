@@ -60,22 +60,22 @@ then broad-cap context in one sentence}.
 
 Run: `{assembly or delta artifact}`, `{method count}` current changed methods.
 
-| Metric | Baseline | PR |
+| Metric (goal) | Baseline | PR |
 | --- | ---: | ---: |
-| Current changed methods | {N} | {N} |
-| Attempted | {N} | {N} |
-| Exact | {count} | {count} |
-| OpcodeDiff Full | {count} | {count} |
-| Not Full | {count} | {count} |
-| RecompileFail | {count} | {count} |
-| ContextFail | {count} | {count} |
+| Current changed methods (context) | {N} | {N} |
+| Attempted (+) | {N} | {N} |
+| Exact (+) | {count} | {count} |
+| OpcodeDiff Full (-) | {count} | {count} |
+| Not Full (-) | {count} | {count} |
+| RecompileFail (-) | {count} | {count} |
+| ContextFail (-) | {count} | {count} |
 
-| Bucket / code | Baseline | PR | Delta | Example |
+| Bucket / code (goal) | Baseline | PR | Delta | Example |
 | --- | ---: | ---: | ---: | --- |
-| Exact | {count} | {count} | {+/-} | `{Type::Method}` |
-| OpcodeDiff | {count} | {count} | {+/-} | `{Type::Method}` |
-| RecompileFail `{CSxxxx}` | {count} | {count} | {+/-} | `{Type::Method}` |
-| ContextFail `{bucket}` | {count} | {count} | {+/-} | `{Type::Method}` |
+| Exact (+) | {count} | {count} | {+/-} | `{Type::Method}` |
+| OpcodeDiff (-) | {count} | {count} | {+/-} | `{Type::Method}` |
+| RecompileFail `{CSxxxx}` (-) | {count} | {count} | {+/-} | `{Type::Method}` |
+| ContextFail `{bucket}` (-) | {count} | {count} | {+/-} | `{Type::Method}` |
 
 ### Broad assembly context
 
