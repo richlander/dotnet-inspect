@@ -186,7 +186,8 @@ static class FidelityCheck
         if (!pe.HasMetadata)
             return names;
         var reader = pe.GetMetadataReader();
-        using var source = MetadataSource.Open(assemblyPath);
+        using var metadata = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var render = Renderer(source, lowered: false);
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -299,7 +300,8 @@ static class FidelityCheck
         if (!pe.HasMetadata)
             return results;
         var reader = pe.GetMetadataReader();
-        using var source = MetadataSource.Open(assemblyPath);
+        using var metadata = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var render = Renderer(source, lowered);
         var references = RuntimeReferences(assemblyPath);
 
@@ -324,6 +326,7 @@ static class FidelityCheck
             nullableContextOptions: NullableContextOptions.Disable);
 
         var results = new List<CompileBackResult>();
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
             var assemblyResults = new List<CompileBackResult>();
@@ -338,7 +341,7 @@ static class FidelityCheck
                     continue;
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
-                try { source = MetadataSource.Open(assemblyPath); }
+                try { source = MetadataSource.Open(assemblyPath, context: metadata); }
                 catch { continue; }
                 using (source)
                 {
@@ -652,6 +655,7 @@ static class FidelityCheck
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable);
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         var pending = targets.ToDictionary(TargetKey, StringComparer.Ordinal);
         var rows = new List<TargetedCompileBackResult>();
         foreach (var assemblyPath in assemblies)
@@ -668,7 +672,7 @@ static class FidelityCheck
                 var portablePath = PortablePath(assemblyPath);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
-                try { source = MetadataSource.Open(assemblyPath); }
+                try { source = MetadataSource.Open(assemblyPath, context: metadata); }
                 catch { continue; }
                 using (source)
                 {
