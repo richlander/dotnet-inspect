@@ -113,6 +113,16 @@ and it is the non-shareable layer (above). A consumer that needs real
 verification should port a *targeted* upstream slice on a measured trigger, not
 re-derive it inside the decoder.
 
+The bar is also genuinely lower than runtime's, because dotnet-inspect only
+*reads* IL — it never JITs, executes, or loads the inspected assembly. runtime
+must verify IL because its output runs with full trust (illegal IL there means
+memory corruption or a security hole); our worst case is a wrong line in a report,
+and we already fail closed on anything we cannot decode. So the contract is
+*robustness* — don't crash, hang, or assert false facts on malformed or hostile
+input — not *soundness*. The security we do care about is hardening the reader
+against malformed input (one reason we track upstream reliability/perf/security
+fixes), not proving the IL is safe to execute.
+
 ### Tracking upstream improvements
 
 The decode *contract* is ECMA-335-frozen — which opcodes exist and how their
