@@ -273,13 +273,56 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionSwitchExpression_RendersTypePatternArms()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static string Describe(Pet pet) => pet switch
+                {
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                };
+
+                public static int Kind(Pet pet) => pet switch
+                {
+                    Cat => 1,
+                    Dog => 2,
+                };
+            }
+            """);
+
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat => 1,
+                Dog => 2,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Kind"));
+    }
+
+    [Fact]
     public void NonUnionValuePropertyTypeTest_KeepsValueAccess()
     {
         using var assembly = Compile("""
             #nullable enable
             namespace UnionFixtures
             {
-                public sealed class Cat { }
+                public sealed class Cat { public string Name { get; } = "cat"; }
+                public sealed class Dog { public string Name { get; } = "dog"; }
 
                 public readonly struct PetLike
                 {
@@ -296,6 +339,13 @@ public class TypeSourceComposerUnionTests
                         Cat cat = pet.Value as Cat;
                         return cat is not null;
                     }
+
+                    public static string Describe(PetLike pet) => pet.Value switch
+                    {
+                        Cat cat => cat.Name,
+                        Dog dog => dog.Name,
+                        _ => "other",
+                    };
                 }
             }
             """);
@@ -303,6 +353,7 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
         Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "HasCat"));
+        Assert.DoesNotContain("return pet switch", RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
     }
 
     [Fact]

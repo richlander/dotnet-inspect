@@ -689,6 +689,48 @@ public sealed class SwitchExpressionArm : IrNode
 }
 
 /// <summary>
+/// A raised type-pattern switch expression over a union receiver:
+/// <c>pet switch { Cat cat =&gt; ..., Dog =&gt; ... }</c>. The value is the
+/// compiler-emitted union <c>Value</c> getter access; the printer uses the
+/// proven union receiver when rendering the switch input.
+/// </summary>
+public sealed class UnionSwitchExpression : IrExpression
+{
+    public UnionSwitchExpression(IrExpression value, IEnumerable<UnionSwitchExpressionArm> arms)
+    {
+        AddChild(value);
+        foreach (var arm in arms)
+            AddChild(arm);
+    }
+
+    public IrExpression Value => (IrExpression)Children[0];
+    public IReadOnlyList<UnionSwitchExpressionArm> Arms => Children.Skip(1).Cast<UnionSwitchExpressionArm>().ToList();
+    public override TypeRef? ResultType => Arms.Select(a => a.Value.ResultType).FirstOrDefault(t => t is not null);
+
+    public override string Describe() => $"UnionSwitchExpression ({Children.Count - 1} arms)";
+}
+
+/// <summary>One type-pattern arm of a <see cref="UnionSwitchExpression"/>.</summary>
+public sealed class UnionSwitchExpressionArm : IrNode
+{
+    public UnionSwitchExpressionArm(TypeRef patternType, int? localIndex, IrExpression value)
+    {
+        PatternType = patternType;
+        LocalIndex = localIndex;
+        AddChild(value);
+    }
+
+    public TypeRef PatternType { get; }
+    public int? LocalIndex { get; }
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override IEnumerable<TypeRef> DirectTypes => [PatternType];
+    public override string Describe() => LocalIndex is { } index
+        ? $"arm {PatternType.ToDisplayString()} V_{index}"
+        : $"arm {PatternType.ToDisplayString()}";
+}
+
+/// <summary>
 /// A raised <c>lock</c> statement. Produced by the lock-sugar pass from the
 /// csc Monitor lowering — <c>Monitor.Enter(obj, ref taken)</c> in a try whose
 /// finally is <c>if (taken) Monitor.Exit(obj)</c>.

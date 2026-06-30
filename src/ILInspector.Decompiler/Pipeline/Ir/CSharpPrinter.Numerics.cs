@@ -993,6 +993,9 @@ public sealed partial class CSharpPrinter
             && target is { } switchTarget
             && CanRenderSwitchExpressionForTarget(switchExpression, switchTarget))
             return SwitchExpressionInline(switchExpression, switchTarget);
+        if (value is UnionSwitchExpression unionSwitchExpression
+            && target is { } unionSwitchTarget)
+            return UnionSwitchExpressionInline(unionSwitchExpression, unionSwitchTarget);
         if (value is Coalesce coalesce
             && target is { } coalesceTarget
             && TryCoalesceTextForTarget(coalesce, coalesceTarget) is { } targetedCoalesce)

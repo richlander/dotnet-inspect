@@ -175,6 +175,15 @@ public sealed partial class CSharpPrinter
         return $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => SwitchArmText(arm, target, labelEnum)))} }}";
     }
 
+    string UnionSwitchExpressionInline(UnionSwitchExpression node, TypeRef? target = null)
+        => $"{UnionSwitchReceiverText(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => UnionSwitchArmText(arm, target)))} }}";
+
+    string UnionSwitchArmText(UnionSwitchExpressionArm arm, TypeRef? target = null)
+        => $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")} => {SwitchArmValueText(arm.Value, target)}";
+
+    string UnionSwitchReceiverText(IrExpression value)
+        => UnionValueReceiverText(value) ?? Operand(value);
+
     string InterpolatedStringText(InterpolatedStringExpression node)
     {
         var sb = new StringBuilder().Append("$\"");
