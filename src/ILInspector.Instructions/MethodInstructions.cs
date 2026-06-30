@@ -4,56 +4,80 @@ using System.Reflection.Metadata;
 namespace ILInspector.Instructions;
 
 /// <summary>
-/// Entry point for the typed-stack substrate: decode a method body to typed instructions,
-/// EH-aware basic blocks, and a per-instruction typed evaluation stack with value provenance.
-/// One decode + one block builder, intended to subsume the copies in <c>ReachingDefinitions</c>
-/// and the decompiler importer. SRM-only; no IrNode, structuring, C#, Roslyn, or assembly loading.
+/// Layer 0 of the substrate: one decode + one EH-aware block builder over a method body, plus
+/// offset-keyed lookup. Metadata-free and cheap — the recall-net surface that broad scans and
+/// the offset join (Research, <c>--il-offset</c>) share, and the de-dup target for the IL-level
+/// block finders. The typed evaluation stack (Layer 1) is <b>opt-in</b> via
+/// <see cref="InterpretStack(bool, IStackTypeResolver?)"/>, so it is never paid for unless a
+/// consumer escalates to it. SRM-only; no IrNode, structuring, C#, Roslyn, or assembly loading.
 /// </summary>
 public sealed record MethodInstructions(
     ImmutableArray<DecodedInstruction> Instructions,
-    BlockGraph Blocks,
-    TypedStackResult TypedStack)
+    BlockGraph Blocks)
 {
-    /// <summary>True when decode, blocks, and the typed stack all completed without falling closed.</summary>
-    public bool IsComplete => Blocks.IsComplete && TypedStack.IsComplete;
+    /// <summary>True when decode + blocks completed (Layer 0). Does not imply a typed stack was computed.</summary>
+    public bool IsComplete => Blocks.IsComplete;
 
-    /// <summary>Decode + block + typed-stack from raw IL and exception regions, with an explicit resolver.</summary>
-    public static MethodInstructions Create(
-        byte[] il,
-        int ilLength,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        bool methodReturnsValue,
-        IStackTypeResolver? resolver = null)
+    /// <summary>Layer 0: decode + EH-aware blocks from raw IL and exception regions. Fail-closed on malformed IL.</summary>
+    public static MethodInstructions Decode(byte[] il, int ilLength, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         ArgumentNullException.ThrowIfNull(il);
         try
         {
             var instructions = InstructionDecoder.Decode(il);
             var blocks = BlockGraph.Build(ilLength, instructions, exceptionRegions);
-            var typedStack = StackTypeInterpreter.Interpret(instructions, blocks, methodReturnsValue, resolver);
-            return new MethodInstructions(instructions, blocks, typedStack);
+            return new MethodInstructions(instructions, blocks);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidProgramException)
         {
-            // Fail closed: malformed IL produces an incomplete result with a reason, never a throw.
-            return Malformed(ex.Message);
+            // Fail closed: malformed IL produces an incomplete Layer 0 with a reason, never a throw.
+            return new MethodInstructions([], new BlockGraph([], [], IsComplete: false, ex.Message));
         }
     }
 
-    static MethodInstructions Malformed(string reason)
+    /// <summary>Layer 0 from a method body.</summary>
+    public static MethodInstructions Decode(MethodBodyBlock body)
     {
-        var blocks = new BlockGraph([], [], IsComplete: false, reason);
-        var typedStack = new TypedStackResult([], blocks, ImmutableDictionary<int, ImmutableArray<StackValue>>.Empty, IsComplete: false, reason);
-        return new MethodInstructions([], blocks, typedStack);
+        ArgumentNullException.ThrowIfNull(body);
+        byte[] il = body.GetILBytes() ?? [];
+        return Decode(il, il.Length, body.ExceptionRegions);
     }
 
-    /// <summary>Decode + block + typed-stack from a method body, wiring an SRM-backed resolver from the reader.</summary>
-    public static MethodInstructions Create(MetadataReader reader, MethodDefinitionHandle method, MethodBodyBlock body)
+    /// <summary>
+    /// The instruction beginning exactly at <paramref name="offset"/>, or null if the offset is not an
+    /// instruction boundary (the validation <c>--il-offset</c> wants before resolving a token/offset).
+    /// </summary>
+    public DecodedInstruction? InstructionAt(int offset)
+    {
+        int lo = 0;
+        int hi = Instructions.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            int start = Instructions[mid].Offset;
+            if (start == offset)
+                return Instructions[mid];
+            if (start < offset)
+                lo = mid + 1;
+            else
+                hi = mid - 1;
+        }
+        return null;
+    }
+
+    /// <summary>The index of the block containing <paramref name="offset"/>, or -1 if out of range.</summary>
+    public int BlockIndexAt(int offset) => Blocks.BlockIndexAt(offset);
+
+    /// <summary>Layer 1 (opt-in): the typed evaluation stack with provenance over this body.</summary>
+    public TypedStackResult InterpretStack(bool methodReturnsValue, IStackTypeResolver? resolver = null)
+        => StackTypeInterpreter.Interpret(Instructions, Blocks, methodReturnsValue, resolver);
+
+    /// <summary>Layer 1 convenience: typed stack wired to an SRM-backed resolver for <paramref name="method"/>.</summary>
+    public TypedStackResult InterpretStack(MetadataReader reader, MethodDefinitionHandle method, MethodBodyBlock body)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(body);
-        byte[] il = body.GetILBytes() ?? [];
         var resolver = MetadataStackTypeResolver.Create(reader, method, body);
-        return Create(il, il.Length, body.ExceptionRegions, resolver.MethodReturnsValue, resolver);
+        return InterpretStack(resolver.MethodReturnsValue, resolver);
     }
 }

@@ -56,6 +56,29 @@ public sealed record BlockGraph(
         return new BlockGraph(blocks, regions, reason is null, reason);
     }
 
+    /// <summary>
+    /// The index of the block whose <c>[Start, End)</c> span contains <paramref name="offset"/>,
+    /// or -1 if out of range. Binary search over block starts (the blocks tile the IL), mirroring
+    /// runtime's <c>FlowGraph.LookupIndex</c> — the offset→block half of the substrate's join key.
+    /// </summary>
+    public int BlockIndexAt(int offset)
+    {
+        int lo = 0;
+        int hi = Blocks.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            var block = Blocks[mid];
+            if (offset < block.Start)
+                hi = mid - 1;
+            else if (offset >= block.End)
+                lo = mid + 1;
+            else
+                return mid;
+        }
+        return -1;
+    }
+
     static ImmutableArray<InstructionBlock> BuildBlocks(
         int ilLength,
         ImmutableArray<DecodedInstruction> instructions,

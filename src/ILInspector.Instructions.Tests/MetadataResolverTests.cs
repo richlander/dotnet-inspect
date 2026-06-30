@@ -45,14 +45,15 @@ public class MetadataResolverTests
     public void Resolves_call_receiver_type_and_provenance()
     {
         var (reader, handle, body) = Open(nameof(Fixtures.StringLengthPlusOne));
-        var mi = MethodInstructions.Create(reader, handle, body);
+        var mi = MethodInstructions.Decode(body);
+        var ts = mi.InterpretStack(reader, handle, body);
 
-        Assert.True(mi.IsComplete, mi.TypedStack.IncompleteReason);
+        Assert.True(ts.IsComplete, ts.IncompleteReason);
 
         // The string.Length call (get_Length, zero arguments): its receiver is the argument string,
         // produced by the ldarg.0 at the method entry — exactly the typed-stack witness.
         var call = mi.Instructions.Single(i => i.OpCode is ILOpCode.Call or ILOpCode.Callvirt);
-        var receiver = mi.TypedStack.ReceiverAt(call.Offset, argumentsBelow: 0);
+        var receiver = ts.ReceiverAt(call.Offset, argumentsBelow: 0);
         Assert.NotNull(receiver);
         Assert.Equal(StackType.ObjectReference, receiver!.Value.Type);
 
@@ -60,22 +61,29 @@ public class MetadataResolverTests
         Assert.Equal(ldarg.Offset, receiver.Value.ProducerOffset);
 
         // get_Length returns int32; the next instruction sees an int32 on top.
-        var afterCall = mi.TypedStack.StackBeforeOffset(call.NextOffset);
+        var afterCall = ts.StackBeforeOffset(call.NextOffset);
         Assert.Equal(StackType.Int32, afterCall[^1].Type);
+
+        // Offset→instruction/block lookup (the join-key surface): the call resolves to itself,
+        // a mid-instruction offset resolves to no boundary, and every offset maps to a block.
+        Assert.Equal(call, mi.InstructionAt(call.Offset));
+        Assert.Null(mi.InstructionAt(call.Offset + 1));
+        Assert.True(mi.BlockIndexAt(call.Offset) >= 0);
     }
 
     [Fact]
     public void Seeds_catch_handler_entry_with_the_exception_object()
     {
         var (reader, handle, body) = Open(nameof(Fixtures.DivideWithCatch));
-        var mi = MethodInstructions.Create(reader, handle, body);
+        var mi = MethodInstructions.Decode(body);
+        var ts = mi.InterpretStack(reader, handle, body);
 
         // A catch handler that discards its exception begins by popping it; the interpreter
         // stays complete only because the handler entry is seeded with the in-flight exception.
-        Assert.True(mi.IsComplete, mi.TypedStack.IncompleteReason);
+        Assert.True(ts.IsComplete, ts.IncompleteReason);
 
         var catchRegion = mi.Blocks.Regions.Single(r => r.Kind == HandlerKind.Catch);
-        var handlerEntry = mi.TypedStack.StackBeforeOffset(catchRegion.HandlerStart);
+        var handlerEntry = ts.StackBeforeOffset(catchRegion.HandlerStart);
         var exception = Assert.Single(handlerEntry);
         Assert.Equal(StackType.ObjectReference, exception.Type);
         Assert.Equal(StackValue.NoProducer, exception.ProducerOffset);

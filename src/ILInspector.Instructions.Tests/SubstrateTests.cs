@@ -109,17 +109,19 @@ public class StackTypeInterpreterTests
     {
         // ldc.i4.1 ; ldc.i4.2 ; add ; ret  (returns int)
         byte[] il = [0x17, 0x18, 0x58, 0x2A];
-        var mi = MethodInstructions.Create(il, il.Length, [], methodReturnsValue: true);
+        var mi = MethodInstructions.Decode(il, il.Length, []);
+        var ts = mi.InterpretStack(methodReturnsValue: true);
 
         Assert.True(mi.IsComplete);
+        Assert.True(ts.IsComplete);
 
-        var beforeAdd = mi.TypedStack.StackBeforeOffset(2);
+        var beforeAdd = ts.StackBeforeOffset(2);
         Assert.Equal(
             [(StackType.Int32, 0), (StackType.Int32, 1)],
             beforeAdd.Select(v => (v.Type, v.ProducerOffset)));
 
         // After the add, ret sees one int32 produced by the add at offset 2.
-        var beforeRet = mi.TypedStack.StackBeforeOffset(3);
+        var beforeRet = ts.StackBeforeOffset(3);
         var top = Assert.Single(beforeRet);
         Assert.Equal((StackType.Int32, 2), (top.Type, top.ProducerOffset));
     }
@@ -129,10 +131,10 @@ public class StackTypeInterpreterTests
     {
         // Two paths push an int32 from different offsets, then join at ret.
         byte[] il = [0x16, 0x2D, 0x03, 0x17, 0x2B, 0x01, 0x18, 0x2A];
-        var mi = MethodInstructions.Create(il, il.Length, [], methodReturnsValue: true);
+        var ts = MethodInstructions.Decode(il, il.Length, []).InterpretStack(methodReturnsValue: true);
 
-        Assert.True(mi.IsComplete);
-        var beforeRet = mi.TypedStack.StackBeforeOffset(7);
+        Assert.True(ts.IsComplete);
+        var beforeRet = ts.StackBeforeOffset(7);
         var merged = Assert.Single(beforeRet);
         Assert.Equal(StackType.Int32, merged.Type);                 // both paths agree on the type
         Assert.Equal(StackValue.NoProducer, merged.ProducerOffset); // but provenance is ambiguous
@@ -143,10 +145,10 @@ public class StackTypeInterpreterTests
     {
         // ldarg.0 ; call <token 06000001> ; ret  — default resolver cannot resolve the call.
         byte[] il = [0x02, 0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
-        var mi = MethodInstructions.Create(il, il.Length, [], methodReturnsValue: false);
+        var ts = MethodInstructions.Decode(il, il.Length, []).InterpretStack(methodReturnsValue: false);
 
-        Assert.False(mi.TypedStack.IsComplete);
-        Assert.Contains("Unresolved", mi.TypedStack.IncompleteReason);
+        Assert.False(ts.IsComplete);
+        Assert.Contains("Unresolved", ts.IncompleteReason);
     }
 
     [Fact]
@@ -154,7 +156,7 @@ public class StackTypeInterpreterTests
     {
         // call (0x28) with a truncated 4-byte token — decode would run off the end.
         byte[] il = [0x28, 0x01, 0x00];
-        var mi = MethodInstructions.Create(il, il.Length, [], methodReturnsValue: false);
+        var mi = MethodInstructions.Decode(il, il.Length, []);
 
         Assert.False(mi.IsComplete);
         Assert.False(mi.Blocks.IsComplete);

@@ -30,7 +30,7 @@ type references coarsen to object-reference and generic parameters to `Unknown`.
 | `StackType` / `StackValue` | The ECMA-335 III stack-type lattice and a slot = (type, producer offset). |
 | `StackTypeInterpreter` | Abstract typed-stack with merge-at-joins and seeded EH handler entries. |
 | `IStackTypeResolver` / `MetadataStackTypeResolver` | Metadata-light token resolution for the few effects that need it. |
-| `MethodInstructions` | Façade: decode + blocks + typed stack, with completeness. |
+| `MethodInstructions` | Layer 0 façade: decode + blocks + offset→instruction/block lookup; typed stack is opt-in via `InterpretStack`. |
 
 The typed stack is **fail-closed**: any unresolved stack effect, height
 disagreement at a join, or underflow degrades the whole method result to
