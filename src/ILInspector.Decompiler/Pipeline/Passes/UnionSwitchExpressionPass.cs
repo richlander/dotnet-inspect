@@ -45,6 +45,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var children = block.Children;
         for (int start = 0; start < children.Count; start++)
         {
+            if (TryMatchSwitchStatementReturnChainAt(function, children, start, out var statementSwitch))
+            {
+                match = new Match(start, statementSwitch);
+                return true;
+            }
+
             if (TryMatchClassDefaultAt(function, children, start, out var classDefaultSwitch))
             {
                 match = new Match(start, classDefaultSwitch);
@@ -77,6 +83,142 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchSwitchStatementReturnChainAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        int current = start;
+        StoreLocal? receiverStore = null;
+        if (current + 4 < children.Count
+            && children[current] is StoreLocal possibleReceiver
+            && children[current + 1] is StoreLocal { Value: LoadProperty possibleUnionValue }
+            && IsLocalReceiver(possibleUnionValue.Instance, possibleReceiver.Index))
+        {
+            receiverStore = possibleReceiver;
+            current++;
+        }
+
+        if (current + 3 >= children.Count
+            || children[current] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsUnionValueProperty(function, unionValue)
+            || children[current + 1] is not StoreLocal { Value: IsInstance firstTest } firstStore
+            || !IsTempTypeTest(firstTest, valueStore.Index)
+            || children[current + 2] is not IfStatement firstIf
+            || !IsNotLocal(firstIf.Condition, firstStore.Index))
+        {
+            return false;
+        }
+
+        if (firstIf.HasElse)
+        {
+            if (current + 4 != children.Count
+                || firstIf.Then.Children is not [IfStatement secondIf]
+                || firstIf.Else?.Children is not [IfStatement guardIf]
+                || children[current + 3] is not Return { Value: { } defaultValue }
+                || guardIf.HasElse
+                || guardIf.Then.Children is not [Return { Value: { } guardedValue }]
+                || !TryReturnArm(secondIf, valueStore.Index, out var secondArm))
+            {
+                return false;
+            }
+
+            var firstArm = new Arm(
+                firstTest.Type,
+                firstStore.Index,
+                guardedValue,
+                [firstStore, firstIf.Condition, guardIf.Condition, guardedValue],
+                guardIf.Condition);
+            return BuildStatementSwitch(function, unionValue, valueStore, firstStore, receiverStore, [firstArm, secondArm], defaultValue, firstIf, out switchExpression);
+        }
+
+        if (current + 4 != children.Count
+            || firstIf.Then.Children is not [IfStatement secondIfNoElse, Return { Value: { } defaultFromThen }]
+            || children[current + 3] is not Return { Value: { } firstValue }
+            || !TryReturnArm(secondIfNoElse, valueStore.Index, out var secondArmNoElse))
+        {
+            return false;
+        }
+
+        var firstArmNoElse = new Arm(
+            firstTest.Type,
+            firstStore.Index,
+            firstValue,
+            [firstStore, firstIf.Condition, firstValue]);
+        return BuildStatementSwitch(function, unionValue, valueStore, firstStore, receiverStore, [firstArmNoElse, secondArmNoElse], defaultFromThen, firstIf, out switchExpression);
+    }
+
+    static bool TryReturnArm(IfStatement armIf, int tempLocal, out Arm arm)
+    {
+        arm = null!;
+        if (armIf.HasElse
+            || !TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots)
+            || armIf.Then.Children is not [Return { Value: { } value }])
+        {
+            return false;
+        }
+
+        var roots = new List<IrNode>(patternRoots) { value };
+        arm = new Arm(patternType, localIndex, value, roots);
+        return true;
+    }
+
+    static bool BuildStatementSwitch(
+        IrFunction function,
+        LoadProperty unionValue,
+        StoreLocal valueStore,
+        StoreLocal firstStore,
+        StoreLocal? receiverStore,
+        IReadOnlyList<Arm> arms,
+        IrExpression defaultValue,
+        IfStatement dispatchRoot,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        var allowedTempUses = new List<IrNode> { valueStore, firstStore, dispatchRoot };
+        if (receiverStore is not null)
+        {
+            allowedTempUses.Add(receiverStore);
+            if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, receiverStore.Index, [receiverStore, valueStore]))
+                return false;
+        }
+
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, allowedTempUses)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || arms.Select(arm => arm.PatternType).Distinct().Count() != arms.Count)
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            UnionValueForSwitch(unionValue, receiverStore),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            (IrExpression)defaultValue.Clone());
+        return true;
+    }
+
+    static bool IsLocalReceiver(IrExpression? expression, int local)
+        => expression is LoadLocal load && load.Index == local
+            || expression is LoadLocalAddress address && address.Index == local;
+
+    static LoadProperty UnionValueForSwitch(LoadProperty unionValue, StoreLocal? receiverStore)
+    {
+        var instance = receiverStore is null
+            ? unionValue.Instance is null ? null : (IrExpression)unionValue.Instance.Clone()
+            : (IrExpression)receiverStore.Value.Clone();
+        return new LoadProperty(
+            unionValue.Accessor,
+            instance,
+            unionValue.IndexArguments.Select(argument => (IrExpression)argument.Clone()).ToArray())
+        { IsVirtual = unionValue.IsVirtual };
     }
 
     static bool TryMatchClassExhaustiveGuardedBlocks(

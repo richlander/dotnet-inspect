@@ -424,6 +424,63 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionSwitchStatementReturnChain_RendersSwitchExpression()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; public int Age { get; } = 5; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static string Statement(Pet pet)
+                {
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            return cat.Name;
+                        case Dog dog:
+                            return dog.Name;
+                    }
+                    return "other";
+                }
+
+                public static string StatementDefault(Pet pet)
+                {
+                    switch (pet)
+                    {
+                        case Cat cat when cat.Age > 3:
+                            return cat.Name;
+                        case Dog dog:
+                            return dog.Name;
+                        default:
+                            return "other";
+                    }
+                }
+            }
+            """);
+
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Statement"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Age > 3 => cat.Name,
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "StatementDefault"));
+    }
+
+    [Fact]
     public async Task UnionSwitchExpression_RendersSameTypeGuardedFallbackArms()
     {
         using var assembly = await CompileWithSdk("""
