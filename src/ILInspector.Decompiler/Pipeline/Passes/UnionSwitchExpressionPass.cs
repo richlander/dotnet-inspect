@@ -124,15 +124,14 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             return false;
         }
 
-        bool fallbackKeepsLocal = ReferencesLocal(firstFallbackStore.Value, firstStore.Index);
-        var firstArms = BuildArms(
+        var firstArms = BuildSplitArms(
             firstTest.Type,
             firstStore.Index,
             [firstStore, firstNullBranch.Condition],
-            [
-                new ArmBody(firstGuardedStore.Value, guardBranch.Condition, [guardBranch.Condition], KeepsLocal: true),
-                new ArmBody(firstFallbackStore.Value, Guard: null, GuardRoots: [], fallbackKeepsLocal),
-            ]);
+            firstGuardedStore.Value,
+            guardBranch.Condition,
+            firstFallbackStore.Value,
+            defaultValue);
         var finalArm = new Arm(finalTest.Type, finalStore.Index, finalValueStore.Value,
             [finalStore, finalValueBranch.Condition, finalValueStore.Value]);
         var arms = firstArms.Append(finalArm).ToArray();
@@ -179,6 +178,41 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static IReadOnlyList<Arm> BuildSplitArms(
+        TypeRef patternType,
+        int localIndex,
+        IReadOnlyList<IrNode> patternRoots,
+        IrExpression guardedValue,
+        IrExpression guard,
+        IrExpression fallbackValue,
+        IrExpression? defaultValue)
+    {
+        if (defaultValue is not null)
+        {
+            if (PlaceIdentity.SameOperand(fallbackValue, defaultValue))
+            {
+                return BuildArms(patternType, localIndex, patternRoots,
+                [
+                    new ArmBody(guardedValue, guard, [guard], KeepsLocal: true),
+                ]);
+            }
+
+            if (PlaceIdentity.SameOperand(guardedValue, defaultValue))
+            {
+                return BuildArms(patternType, localIndex, patternRoots,
+                [
+                    new ArmBody(fallbackValue, Conditions.Negate((IrExpression)guard.Clone()), [guard], ReferencesLocal(fallbackValue, localIndex)),
+                ]);
+            }
+        }
+
+        return BuildArms(patternType, localIndex, patternRoots,
+        [
+            new ArmBody(guardedValue, guard, [guard], KeepsLocal: true),
+            new ArmBody(fallbackValue, Guard: null, GuardRoots: [], ReferencesLocal(fallbackValue, localIndex)),
+        ]);
     }
 
     static bool TryMatchClassDefaultAt(
