@@ -1786,7 +1786,7 @@ public sealed partial class CSharpPrinter
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => Expression(b.Operand),
-        IsInstance i => $"{TypeTestValueText(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
+        IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",

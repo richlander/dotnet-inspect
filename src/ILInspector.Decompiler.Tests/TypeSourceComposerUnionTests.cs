@@ -216,12 +216,16 @@ public class TypeSourceComposerUnionTests
             public static class Matcher
             {
                 public static bool IsCat(Pet pet) => pet is Cat;
+                public static bool IsNotNull(Pet pet) => pet is not null;
                 public static bool IsNull(Pet pet) => pet is null;
+                public static Cat? AsCat(Pet pet) => pet.Value as Cat;
             }
             """);
 
         Assert.Equal("return pet is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet is not null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotNull"));
         Assert.Equal("return pet is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+        Assert.Equal("return pet.Value as Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "AsCat"));
     }
 
     [Fact]

@@ -749,6 +749,8 @@ public sealed partial class CSharpPrinter
             var operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
             if (IsInstanceNullTestText(operand, isNotNull: !isNullTest) is { } typeTest)
                 return typeTest;
+            if (UnionValueReceiverText(operand) is { } unionReceiver)
+                return $"{unionReceiver} is {(isNullTest ? "" : "not ")}null";
 
             return operand.ResultType is { Kind: TypeRefKind.Pointer }
                 ? $"{Operand(operand)} {(isNullTest ? "==" : "!=")} null"
