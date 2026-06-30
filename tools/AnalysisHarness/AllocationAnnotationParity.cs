@@ -11,6 +11,7 @@ public sealed record AllocationAnnotationRow(
     string? Detail);
 
 public sealed record AllocationAnnotationParityResult(
+    string Category,
     IReadOnlyList<AllocationAnnotationRow> Missing,
     IReadOnlyList<AllocationAnnotationRow> Unexpected)
 {
@@ -25,12 +26,13 @@ public static class AllocationAnnotationParity
         Converters = { new JsonStringEnumConverter() },
     };
 
-    public static AllocationAnnotationParityResult CompareJson(string expectedJson, string actualJson)
-        => Compare(Parse(expectedJson), Parse(actualJson));
+    public static AllocationAnnotationParityResult CompareJson(string expectedJson, string actualJson, string category = "Allocation")
+        => Compare(Parse(expectedJson, category), Parse(actualJson, category), category);
 
     public static AllocationAnnotationParityResult Compare(
         IReadOnlyList<AllocationAnnotationRow> expected,
-        IReadOnlyList<AllocationAnnotationRow> actual)
+        IReadOnlyList<AllocationAnnotationRow> actual,
+        string category = "Allocation")
     {
         var expectedCounts = CountRows(expected);
         var actualCounts = CountRows(actual);
@@ -52,10 +54,10 @@ public static class AllocationAnnotationParity
                 unexpected.Add(row);
         }
 
-        return new AllocationAnnotationParityResult(Sort(missing), Sort(unexpected));
+        return new AllocationAnnotationParityResult(category, Sort(missing), Sort(unexpected));
     }
 
-    public static IReadOnlyList<AllocationAnnotationRow> Parse(string annotationJson)
+    public static IReadOnlyList<AllocationAnnotationRow> Parse(string annotationJson, string categoryFilter = "Allocation")
     {
         var rows = new List<AllocationAnnotationRow>();
         using var doc = JsonDocument.Parse(annotationJson);
@@ -66,7 +68,7 @@ public static class AllocationAnnotationParity
         {
             if (!element.TryGetProperty("category", out var category)
                 || category.ValueKind != JsonValueKind.String
-                || !category.ValueEquals("Allocation"))
+                || !category.ValueEquals(categoryFilter))
             {
                 continue;
             }
@@ -90,7 +92,7 @@ public static class AllocationAnnotationParity
     public static string Format(AllocationAnnotationParityResult result)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"ALLOCATION ANNOTATION PARITY: {(result.Passed ? "PASS" : "FAIL")} ({result.Missing.Count} missing, {result.Unexpected.Count} unexpected)");
+        sb.AppendLine($"{result.Category.ToUpperInvariant()} ANNOTATION PARITY: {(result.Passed ? "PASS" : "FAIL")} ({result.Missing.Count} missing, {result.Unexpected.Count} unexpected)");
         if (result.Missing.Count > 0)
         {
             sb.AppendLine("  missing:");

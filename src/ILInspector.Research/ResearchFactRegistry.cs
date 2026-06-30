@@ -28,7 +28,8 @@ public sealed class ResearchFactRegistry
 
     public static ResearchFactRegistry Default { get; } = new(
         new AllocationOccurrenceFactProducer(),
-        new DecompilerHiddenFactProducer());
+        new UnsafetyOccurrenceFactProducer(),
+        new LifetimeOccurrenceFactProducer());
 
     public IReadOnlyList<Annotation> Collect(ResearchFactContext context)
         => [.. _producers.SelectMany(producer => producer.Produce(context)).OrderBy(fact => fact.SourceOffset).ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
@@ -58,14 +59,4 @@ public sealed class ResearchFactRegistry
             result.Add(producer);
         }
     }
-}
-
-sealed class DecompilerHiddenFactProducer : IResearchFactProducer
-{
-    public string Name => "decompiler-hidden-facts";
-    public IReadOnlyList<string> Produces { get; } = ["unsafe.*", "lifetime.*"];
-    public IReadOnlyList<string> DependsOn => [];
-
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
-        => Decompiler.Annotations.AnnotationEngine.Default.ClassifyImported(context.Imported);
 }

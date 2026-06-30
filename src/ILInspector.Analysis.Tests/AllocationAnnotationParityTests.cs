@@ -45,6 +45,30 @@ public class AllocationAnnotationParityTests
     }
 
     [Fact]
+    public void CompareJson_CanCompareUnsafetyRows()
+    {
+        var expected =
+            """
+            [
+              { "id": "alloc.box", "category": "Allocation", "conditionality": "Always", "offset": 1, "detail": "int" },
+              { "id": "unsafe.deref", "category": "Unsafety", "conditionality": "Always", "offset": 12, "detail": "int" }
+            ]
+            """;
+        var actual =
+            """
+            [
+              { "id": "unsafe.deref", "category": "Unsafety", "conditionality": "Always", "offset": 12, "detail": "int" },
+              { "id": "lifetime.stack-bound", "category": "Lifetime", "conditionality": "Always", "offset": 2, "detail": "Span<int>" }
+            ]
+            """;
+
+        var result = AllocationAnnotationParity.CompareJson(expected, actual, "Unsafety");
+
+        Assert.True(result.Passed, AllocationAnnotationParity.Format(result));
+        Assert.Equal("Unsafety", result.Category);
+    }
+
+    [Fact]
     public void Compare_ReportsMissingAndUnexpectedRows()
     {
         var expected = new[]

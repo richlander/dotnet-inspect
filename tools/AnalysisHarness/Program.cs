@@ -31,6 +31,9 @@ const string Usage =
           occurrence-derived projection. The gate is exact on id, IL offset, detail, and
           conditionality; non-allocation annotations are ignored.
 
+      --annotation-parity <category> <expected-annotations.json> <actual-annotations.json> [--json]
+          Compare annotation rows for one category (Allocation, Unsafety, Lifetime).
+
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
 
@@ -53,6 +56,9 @@ string? referenceFile = null;
 string? precisionAssembly = null;
 string? allocationParityExpected = null;
 string? allocationParityActual = null;
+string? annotationParityCategory = null;
+string? annotationParityExpected = null;
+string? annotationParityActual = null;
 int top = 20;
 
 for (int i = 0; i < args.Length; i++)
@@ -82,6 +88,11 @@ for (int i = 0; i < args.Length; i++)
         case "--allocation-parity":
             allocationParityExpected = NextPathValue(args, ref i);
             allocationParityActual = NextPathValue(args, ref i);
+            break;
+        case "--annotation-parity":
+            annotationParityCategory = NextValue(args, ref i);
+            annotationParityExpected = NextPathValue(args, ref i);
+            annotationParityActual = NextPathValue(args, ref i);
             break;
         case "--reference":
             referenceFile = NextValue(args, ref i);
@@ -115,7 +126,10 @@ if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);
 
 if (allocationParityExpected is not null)
-    return RunAllocationParity(allocationParityExpected, allocationParityActual, json);
+    return RunAnnotationParity("Allocation", allocationParityExpected, allocationParityActual, json);
+
+if (annotationParityExpected is not null)
+    return RunAnnotationParity(annotationParityCategory ?? "", annotationParityExpected, annotationParityActual, json);
 
 if (corpusList is not null)
     return RunCorpus(corpusList, diffBaseline, emitSnapshot, json);
@@ -151,11 +165,16 @@ static int RunPrecision(string assembly, int top)
     return 0;
 }
 
-static int RunAllocationParity(string expectedPath, string? actualPath, bool json)
+static int RunAnnotationParity(string category, string expectedPath, string? actualPath, bool json)
 {
+    if (string.IsNullOrWhiteSpace(category))
+    {
+        Console.Error.WriteLine("--annotation-parity requires a category.");
+        return 2;
+    }
     if (actualPath is null)
     {
-        Console.Error.WriteLine("--allocation-parity requires expected and actual annotation JSON files.");
+        Console.Error.WriteLine("annotation parity requires expected and actual annotation JSON files.");
         return 2;
     }
     if (!File.Exists(expectedPath)) { Console.Error.WriteLine($"Expected annotation JSON not found: {expectedPath}"); return 2; }
@@ -163,7 +182,8 @@ static int RunAllocationParity(string expectedPath, string? actualPath, bool jso
 
     var result = AllocationAnnotationParity.CompareJson(
         File.ReadAllText(expectedPath),
-        File.ReadAllText(actualPath));
+        File.ReadAllText(actualPath),
+        category);
     Console.Write(json
         ? AllocationAnnotationParity.ToJson(result)
         : AllocationAnnotationParity.Format(result));

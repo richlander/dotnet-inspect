@@ -22,6 +22,8 @@ public sealed class LibraryBodyIndex
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
         IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> allocationOccurrences,
+        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> unsafetyOccurrences,
+        IReadOnlyDictionary<int, ImmutableArray<LifetimeOccurrence>> lifetimeOccurrences,
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
@@ -38,6 +40,8 @@ public sealed class LibraryBodyIndex
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
         _allocationOccurrences = allocationOccurrences;
+        _unsafetyOccurrences = unsafetyOccurrences;
+        _lifetimeOccurrences = lifetimeOccurrences;
         _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
@@ -448,6 +452,8 @@ public sealed class LibraryBodyIndex
     Dictionary<int, MethodSignals>? _signals;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
+    readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
+    readonly IReadOnlyDictionary<int, ImmutableArray<LifetimeOccurrence>> _lifetimeOccurrences;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
@@ -467,6 +473,10 @@ public sealed class LibraryBodyIndex
 
     /// <summary>Offset-keyed allocation occurrences, grouped by containing method token.</summary>
     public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
+
+    public IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> GetUnsafetyOccurrences() => _unsafetyOccurrences;
+
+    public IReadOnlyDictionary<int, ImmutableArray<LifetimeOccurrence>> GetLifetimeOccurrences() => _lifetimeOccurrences;
 
     IReadOnlySet<string>? _generatedFrameworkTypes;
 
@@ -590,7 +600,7 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.AllocationOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
+            index.BodySignals, index.AllocationOccurrences, index.UnsafetyOccurrences, index.LifetimeOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
             index.NonHeapNewObjOperandTokens);
     }
 
@@ -1027,7 +1037,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<int, ImmutableArray<LifetimeOccurrence>> LifetimeOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -1037,6 +1047,8 @@ public sealed class LibraryBodyIndex
             var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
             var bodySignals = new Dictionary<int, BodySignals>();
             var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
+            var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
+            var lifetimeOccurrences = new Dictionary<int, ImmutableArray<LifetimeOccurrence>>();
             var suppressedOpportunityTokens = new HashSet<int>();
             var exceptionTypeNames = ComputeExceptionTypeNames();
             int none = 0, impl = 0, expl = 0;
@@ -1078,6 +1090,12 @@ public sealed class LibraryBodyIndex
                         var allocations = CollectAllocationOccurrences(il, caller, scope, loopRegions);
                         if (allocations.Length > 0)
                             allocationOccurrences[caller.MetadataToken] = allocations;
+                        var unsafety = CollectUnsafetyOccurrences(il, caller, scope, includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
+                        if (unsafety.Length > 0)
+                            unsafetyOccurrences[caller.MetadataToken] = unsafety;
+                        var lifetime = CollectLifetimeOccurrences(il, caller, scope);
+                        if (lifetime.Length > 0)
+                            lifetimeOccurrences[caller.MetadataToken] = lifetime;
                         var methodAttributes = methodDef.GetCustomAttributes();
                         if (caller.Name == "BoxesGenericStruct") System.IO.File.AppendAllText("box_debug.txt", $"typeGen: {typeSourceGenerated} metGen1: {HasGeneratedCodeAttribute(methodAttributes)} metGen2: {HasCompilerGeneratedAttribute(methodAttributes)} blazor: {IsBlazorRenderMethod(caller)}\n");
                         if (!typeSourceGenerated
@@ -1107,7 +1125,7 @@ public sealed class LibraryBodyIndex
             var directCalls = calls.ToImmutable();
             var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
             return (methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, allocationOccurrences,
+                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, allocationOccurrences, unsafetyOccurrences, lifetimeOccurrences,
                 BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
         }
 
@@ -1723,6 +1741,218 @@ public sealed class LibraryBodyIndex
                 }
             }
             return false;
+        }
+
+        ImmutableArray<UnsafetyOccurrence> CollectUnsafetyOccurrences(
+            byte[] il,
+            MethodIdentity caller,
+            GenericScope scope,
+            bool includeIndirectOpcodes)
+        {
+            var occurrences = ImmutableArray.CreateBuilder<UnsafetyOccurrence>();
+            bool sawLocalloc = false;
+            int position = 0;
+            while (position < il.Length)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                try
+                {
+                    switch (opcode)
+                    {
+                        case ILOpCode.Calli:
+                        {
+                            int token = ReadInt32(il, ref position, offset);
+                            occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.CallIndirect, CalliReturnDetail(token, scope)));
+                            break;
+                        }
+                        case ILOpCode.Localloc:
+                            sawLocalloc = true;
+                            occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.StackAlloc, "byte*"));
+                            break;
+                        case ILOpCode.Cpblk:
+                        case ILOpCode.Initblk:
+                            occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.Deref, null));
+                            break;
+                        case ILOpCode.Newobj:
+                        case ILOpCode.Call:
+                        case ILOpCode.Callvirt:
+                            SkipOperand(il, opcode, ref position, offset);
+                            sawLocalloc = false;
+                            break;
+                        default:
+                            if ((includeIndirectOpcodes || sawLocalloc) && IndirectTypeDetail(opcode) is { } detail)
+                                occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.Deref, detail));
+                            SkipOperand(il, opcode, ref position, offset);
+                            break;
+                    }
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+                {
+                    break;
+                }
+            }
+            return occurrences.ToImmutable();
+        }
+
+        ImmutableArray<LifetimeOccurrence> CollectLifetimeOccurrences(byte[] il, MethodIdentity caller, GenericScope scope)
+        {
+            var occurrences = ImmutableArray.CreateBuilder<LifetimeOccurrence>();
+            var returnType = caller.ReturnType;
+            var returnKind = returnType.Kind == TypeRefKind.ByRef
+                || returnType.Kind == TypeRefKind.Unsupported && returnType.UnsupportedReason.Contains("modreq InAttribute", StringComparison.Ordinal)
+                ? LifetimeKind.RefReturn
+                : returnType.Kind == TypeRefKind.Pointer
+                    ? LifetimeKind.PointerReturn
+                    : IsRefStruct(returnType) ? LifetimeKind.RefStructReturn : (LifetimeKind?)null;
+            string? returnDetail = returnType.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer
+                ? returnType.ElementType?.ToDisplayString()
+                : returnType.Kind == TypeRefKind.Unsupported && returnType.UnsupportedReason.Contains("modreq InAttribute", StringComparison.Ordinal)
+                    ? "int"
+                : returnType.ToDisplayString();
+
+            var stackLocals = new HashSet<int>();
+            bool pendingLocalloc = false;
+            bool loadedStackValue = false;
+            int? lastLoadedLocal = null;
+            int position = 0;
+            while (position < il.Length)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                try
+                {
+                    switch (opcode)
+                    {
+                        case ILOpCode.Localloc:
+                            pendingLocalloc = true;
+                            loadedStackValue = true;
+                            lastLoadedLocal = null;
+                            break;
+                        case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
+                            or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
+                            or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8:
+                        case ILOpCode.Conv_u:
+                        case ILOpCode.Conv_i:
+                        case ILOpCode.Nop:
+                            lastLoadedLocal = null;
+                            break;
+                        case ILOpCode.Ldc_i4_s:
+                            ReadByte(il, ref position, offset);
+                            lastLoadedLocal = null;
+                            break;
+                        case ILOpCode.Ldc_i4:
+                            ReadInt32(il, ref position, offset);
+                            lastLoadedLocal = null;
+                            break;
+                        case ILOpCode.Newobj:
+                        {
+                            int token = ReadInt32(il, ref position, offset);
+                            var ctor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), scope);
+                            if (pendingLocalloc && IsStackBoundSpanType(ctor.DeclaringType))
+                            {
+                                occurrences.Add(new LifetimeOccurrence(
+                                    caller, offset, LifetimeKind.StackBound,
+                                    ctor.DeclaringType.ToDisplayString()));
+                            }
+                            pendingLocalloc = false;
+                            loadedStackValue = false;
+                            lastLoadedLocal = null;
+                            break;
+                        }
+                        case ILOpCode.Ret:
+                            if (returnKind is { } kind)
+                            {
+                                occurrences.Add(new LifetimeOccurrence(caller, offset, kind, returnDetail));
+                                if (kind == LifetimeKind.PointerReturn
+                                    && (loadedStackValue
+                                        || lastLoadedLocal is { } local
+                                        && stackLocals.Contains(local)))
+                                {
+                                    occurrences.Add(new LifetimeOccurrence(caller, offset, LifetimeKind.StackEscape, returnDetail));
+                                }
+                            }
+                            pendingLocalloc = false;
+                            loadedStackValue = false;
+                            lastLoadedLocal = null;
+                            break;
+                        default:
+                            if (TryReadLocalSlot(il, opcode, ref position, offset, out bool isStore, out bool isArg, out int slot))
+                            {
+                                if (!isArg && isStore && loadedStackValue)
+                                    stackLocals.Add(slot);
+                                if (!isArg && !isStore)
+                                {
+                                    lastLoadedLocal = slot;
+                                    loadedStackValue = stackLocals.Contains(slot);
+                                }
+                                else
+                                {
+                                    lastLoadedLocal = null;
+                                    loadedStackValue = false;
+                                }
+                                break;
+                            }
+                            SkipOperand(il, opcode, ref position, offset);
+                            pendingLocalloc = false;
+                            loadedStackValue = false;
+                            lastLoadedLocal = null;
+                            break;
+                    }
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+                {
+                    break;
+                }
+            }
+            return occurrences.ToImmutable();
+        }
+
+        static string? IndirectTypeDetail(ILOpCode opcode) => opcode switch
+        {
+            ILOpCode.Ldind_i1 or ILOpCode.Stind_i1 => "sbyte",
+            ILOpCode.Ldind_u1 => "byte",
+            ILOpCode.Ldind_i2 or ILOpCode.Stind_i2 => "short",
+            ILOpCode.Ldind_u2 => "ushort",
+            ILOpCode.Ldind_i4 or ILOpCode.Stind_i4 => "int",
+            ILOpCode.Ldind_u4 => "uint",
+            ILOpCode.Ldind_i8 or ILOpCode.Stind_i8 => "long",
+            ILOpCode.Ldind_i or ILOpCode.Stind_i => "nint",
+            ILOpCode.Ldind_r4 or ILOpCode.Stind_r4 => "float",
+            ILOpCode.Ldind_r8 or ILOpCode.Stind_r8 => "double",
+            ILOpCode.Ldind_ref or ILOpCode.Stind_ref => "object",
+            _ => null,
+        };
+
+        string? CalliReturnDetail(int token, GenericScope scope)
+        {
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(token);
+                if (handle.Kind != HandleKind.StandaloneSignature)
+                    return null;
+                var signature = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle)
+                    .DecodeMethodSignature(TypeRefDecoder.Instance, scope);
+                return signature.ReturnType.ToDisplayString();
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return null;
+            }
+        }
+
+        static bool IsStackBoundSpanType(TypeRef type)
+        {
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            var name = StripGenericArity(definition.Name);
+            return definition.Namespace == "System" && name is "Span" or "ReadOnlySpan";
+        }
+
+        static bool IsRefStruct(TypeRef type)
+        {
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            var name = StripGenericArity(definition.Name);
+            return definition.Namespace == "System" && name is "Span" or "ReadOnlySpan";
         }
 
         ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)

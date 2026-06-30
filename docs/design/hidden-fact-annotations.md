@@ -47,8 +47,8 @@ family is registering one classifier; the core does not change.
 | Category | Classifier | Example ids |
 | --- | --- | --- |
 | `Allocation` | `ILInspector.Research` allocation occurrence producer | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
-| `Unsafety` | `UnsafetyClassifier` | `unsafe.deref`, `unsafe.stackalloc`, `unsafe.calli` |
-| `Lifetime` | `LifetimeClassifier` | `lifetime.ref-return`, `lifetime.stack-bound`, `lifetime.ref-struct-return`, `lifetime.pointer-return`, `lifetime.stack-escape` |
+| `Unsafety` | `ILInspector.Research` unsafety occurrence producer | `unsafe.deref`, `unsafe.stackalloc`, `unsafe.calli` |
+| `Lifetime` | `ILInspector.Research` lifetime occurrence producer | `lifetime.ref-return`, `lifetime.stack-bound`, `lifetime.ref-struct-return`, `lifetime.pointer-return`, `lifetime.stack-escape` |
 
 ### Surfacing
 

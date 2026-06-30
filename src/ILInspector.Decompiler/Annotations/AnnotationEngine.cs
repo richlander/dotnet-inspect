@@ -23,8 +23,7 @@ public sealed class AnnotationEngine
         => _classifiers = classifiers;
 
     /// <summary>The shipped set of classifiers.</summary>
-    public static AnnotationEngine Default { get; } = new(
-        new UnsafetyClassifier(), new LifetimeClassifier());
+    public static AnnotationEngine Default { get; } = new();
 
     /// <summary>
     /// Classifies the freshly imported tree — call before the raising passes
