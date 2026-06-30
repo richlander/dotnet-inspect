@@ -134,6 +134,39 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public void GlobalIUnionLookalike_StaysLowered()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+            }
+
+            public sealed class Cat { }
+
+            public interface IUnion
+            {
+                object? Value { get; }
+            }
+
+            [System.Runtime.CompilerServices.Union]
+            public struct NotRuntimeUnion : IUnion
+            {
+                public NotRuntimeUnion(Cat value) => Value = value;
+                public object? Value { get; }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "NotRuntimeUnion");
+
+        Assert.Contains("[Union]", source);
+        Assert.Contains("public struct NotRuntimeUnion", source);
+        Assert.DoesNotContain("public union NotRuntimeUnion", source);
+    }
+
+    [Fact]
     public void ByRefLikeUnionMetadata_StaysLowered()
     {
         using var assembly = Compile("""

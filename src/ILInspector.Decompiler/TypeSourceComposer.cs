@@ -506,11 +506,12 @@ public static class TypeSourceComposer
     }
 
     static bool IsUnionInterface(string interfaceName)
-        => interfaceName is "System.Runtime.CompilerServices.IUnion" or "IUnion";
+        => interfaceName == "System.Runtime.CompilerServices.IUnion";
 
     static bool IsUnionValuePropertyName(string propertyName)
         => propertyName == "Value"
-            || propertyName.EndsWith(".Value", StringComparison.Ordinal);
+            || propertyName == "System.Runtime.CompilerServices.IUnion.Value"
+            || propertyName == "IUnion.Value";
 
     static void AddTypeNamespaces(SortedSet<string> namespaces, IEnumerable<string> typeNames)
     {
