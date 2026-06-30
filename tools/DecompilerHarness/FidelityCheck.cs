@@ -2246,6 +2246,7 @@ static class FidelityCheck
         "System",
         "System.Buffers",
         "System.Collections",
+        "System.Collections.Concurrent",
         "System.Collections.Generic",
         "System.Collections.Immutable",
         "System.Globalization",

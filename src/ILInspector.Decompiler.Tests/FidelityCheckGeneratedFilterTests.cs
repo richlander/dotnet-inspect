@@ -322,6 +322,39 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_BindsConcurrentCollectionsNamespace()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Concurrent;
+
+            public class FrameworkNamespaceFixture
+            {
+                public ConcurrentDictionary<string, int> CreateConcurrent()
+                    => new ConcurrentDictionary<string, int>();
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            AssertCheckable(results, "CreateConcurrent");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertCheckable(IReadOnlyList<FidelityCheck.CompileBackResult> results, string method)
+        {
+            var result = Assert.Single(
+                results,
+                result => result.Type == "FrameworkNamespaceFixture" && result.Method == method);
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Detail);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
