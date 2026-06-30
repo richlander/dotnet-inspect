@@ -347,7 +347,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 return true;
             }
 
-            if (localIndex is { } local && !ReferencesLocal(fallbackValue, local))
+            if (localIndex is not { } fallbackLocal || !ReferencesLocal(fallbackValue, fallbackLocal))
             {
                 arms =
                 [
@@ -359,11 +359,23 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         if (nodes is [IfStatement { HasElse: false } invertedGuardIf, Return { Value: { } invertedValue }]
-            && invertedGuardIf.Then.Children is [Return { Value: { } nestedFallback }]
-            && PlaceIdentity.SameOperand(nestedFallback, defaultValue))
+            && invertedGuardIf.Then.Children is [Return { Value: { } nestedFallback }])
         {
-            arms = [new ArmBody(invertedValue, Conditions.Negate((IrExpression)invertedGuardIf.Condition.Clone()), [invertedGuardIf.Condition], KeepsLocal: true)];
-            return true;
+            if (PlaceIdentity.SameOperand(nestedFallback, defaultValue))
+            {
+                arms = [new ArmBody(invertedValue, Conditions.Negate((IrExpression)invertedGuardIf.Condition.Clone()), [invertedGuardIf.Condition], KeepsLocal: true)];
+                return true;
+            }
+
+            if (localIndex is not { } invertedFallbackLocal || !ReferencesLocal(nestedFallback, invertedFallbackLocal))
+            {
+                arms =
+                [
+                    new ArmBody(invertedValue, Conditions.Negate((IrExpression)invertedGuardIf.Condition.Clone()), [invertedGuardIf.Condition], KeepsLocal: true),
+                    new ArmBody(nestedFallback, Guard: null, GuardRoots: [], KeepsLocal: false),
+                ];
+                return true;
+            }
         }
 
         return false;

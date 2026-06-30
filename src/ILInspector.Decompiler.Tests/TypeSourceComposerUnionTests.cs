@@ -442,6 +442,14 @@ public class TypeSourceComposerUnionTests
                     _ => "other",
                 };
 
+                public static string Inverted(Pet pet) => pet switch
+                {
+                    Cat { Age: <= 3 } => "young",
+                    Cat => "old",
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
+
                 public static string Exhaustive(Pet pet) => pet switch
                 {
                     Cat { Name: "cat" } cat => cat.Name,
@@ -460,6 +468,15 @@ public class TypeSourceComposerUnionTests
                 _ => "other",
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Defaulted"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat V_3 when V_3.Age <= 3 => "young",
+                Cat => "old",
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Inverted"));
         Assert.DoesNotContain("return pet switch",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "Exhaustive"));
     }
