@@ -183,6 +183,10 @@ public record LibraryOptions
     /// </summary>
     public bool Count { get; init; }
 
+    public bool Print { get; init; }
+
+    public bool PrintAll { get; init; }
+
     public bool Value { get; init; }
 
     public bool Urls { get; init; }
@@ -190,6 +194,8 @@ public record LibraryOptions
     public bool Paths { get; init; }
 
     public bool JsonArray { get; init; }
+
+    public int? PrintRow { get; init; }
 
     public int? ProjectionRow { get; init; }
 
