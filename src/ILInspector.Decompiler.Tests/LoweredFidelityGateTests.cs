@@ -92,6 +92,19 @@ public class LoweredFidelityGateTests
         // neither). See the sibling FidelityGateTests docket.
         "CharConditionalElementStore",
         "WhileNestedContinueKeepsArmExclusive",
+        // Unmasked by the in/out skeleton-parameter fix (#1931): RecompileFail before
+        // (the reconstructed CfgSampleClass failed to compile on InOperatorVec's
+        // in-parameter operators rendered as illegal `ref`). Now compile-checked,
+        // showing honest pre-existing over-renders. Same set as the sugared docket.
+        "CallOutTarget",
+        "FloatPositionalPattern",
+        "GenericRefKindCallSites",
+        "ManualPositionalPatternLookalike",
+        "MergedReferenceSlot",
+        "MergedTernaryDeclaration",
+        "NullCoalescingAssignStaticProperty",
+        "RefKindCallSites",
+        "set_SlotMergedDateTimeFormat",
     };
 
     /// <summary>

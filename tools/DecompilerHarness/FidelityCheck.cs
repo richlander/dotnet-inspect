@@ -2493,18 +2493,24 @@ static class FidelityCheck
     static string Parameters(MetadataReader reader, MethodDefinition method, MethodSignature<string> sig, bool firstIsExtensionReceiver = false)
     {
         var names = new Dictionary<int, string>();
+        var refKinds = new Dictionary<int, ByRefParameterInfo>();
         foreach (var ph in method.GetParameters())
         {
             var p = reader.GetParameter(ph);
             if (p.SequenceNumber >= 1)
+            {
                 names[p.SequenceNumber - 1] = reader.GetString(p.Name);
+                refKinds[p.SequenceNumber - 1] = new ByRefParameterInfo(
+                    p.Attributes,
+                    HasIsReadOnlyAttribute(reader, p.GetCustomAttributes()));
+            }
         }
         var parts = new List<string>();
         for (int i = 0; i < sig.ParameterTypes.Length; i++)
         {
             string name = names.TryGetValue(i, out var n) && n.Length > 0 ? n : $"arg{i}";
             string modifier = firstIsExtensionReceiver && i == 0 ? "this " : "";
-            parts.Add($"{modifier}{Clean(sig.ParameterTypes[i])} {Identifier(name)}");
+            parts.Add($"{modifier}{ByRefKeyword(sig.ParameterTypes[i], refKinds.GetValueOrDefault(i))} {Identifier(name)}");
         }
         return string.Join(", ", parts);
     }
@@ -2522,6 +2528,41 @@ static class FidelityCheck
     static bool CanSpellExtensionReceiver(string parameterType)
         => !parameterType.StartsWith("ref ", StringComparison.Ordinal)
            && !parameterType.Contains('*', StringComparison.Ordinal);
+
+    /// <summary>
+    /// Renders a parameter type, correcting the signature decoder's bare <c>ref</c>
+    /// for a by-reference parameter to the C# direction keyword the metadata proves:
+    /// <c>out</c> for out-only, <c>in</c> for csc's readonly-ref encoding
+    /// (<see cref="ParameterAttributes.In"/> plus <c>IsReadOnlyAttribute</c>), and
+    /// <c>ref</c> for plain ref or marshal-directional <c>[In]</c>/<c>[In,Out]</c>
+    /// ref parameters.
+    /// </summary>
+    readonly record struct ByRefParameterInfo(ParameterAttributes Attributes, bool IsReadOnly);
+
+    static string ByRefKeyword(string parameterType, ByRefParameterInfo parameter)
+    {
+        string type = Clean(parameterType);
+        if (!type.StartsWith("ref ", StringComparison.Ordinal))
+            return type;
+        string rest = type["ref ".Length..];
+        var attributes = parameter.Attributes;
+        const ParameterAttributes inOut = ParameterAttributes.In | ParameterAttributes.Out;
+        if ((attributes & inOut) == inOut)
+            return type;
+        if ((attributes & ParameterAttributes.Out) != 0)
+            return $"out {rest}";
+        if ((attributes & ParameterAttributes.In) != 0 && parameter.IsReadOnly)
+            return $"in {rest}";
+        return type;
+    }
+
+    static bool HasIsReadOnlyAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var attributeHandle in attributes)
+            if (AttributeTypeFullName(reader, reader.GetCustomAttribute(attributeHandle)) == "System.Runtime.CompilerServices.IsReadOnlyAttribute")
+                return true;
+        return false;
+    }
 
     // ---- Small helpers ----
 

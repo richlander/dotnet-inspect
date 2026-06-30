@@ -102,6 +102,21 @@ public class FidelityGateTests
         // over-render. Pre-existing slow-docket gap surfaced by running the gate
         // locally — the lowered/sugared gates are Speed=Slow (daily only).
         "CharConditionalElementStore",
+        // Unmasked by the in/out skeleton-parameter fix (#1931): these CfgSampleClass
+        // methods were RecompileFail before — the whole reconstructed type failed to
+        // compile because InOperatorVec's in-parameter operators rendered as illegal
+        // `ref`. With the type compiling, they are finally compile-checked and show
+        // honest pre-existing body over-renders (ref/in/out call sites, positional
+        // patterns, slot/ternary merges, null-coalescing assignment).
+        "CallOutTarget",
+        "FloatPositionalPattern",
+        "GenericRefKindCallSites",
+        "ManualPositionalPatternLookalike",
+        "MergedReferenceSlot",
+        "MergedTernaryDeclaration",
+        "NullCoalescingAssignStaticProperty",
+        "RefKindCallSites",
+        "set_SlotMergedDateTimeFormat",
     };
 
     /// <summary>
