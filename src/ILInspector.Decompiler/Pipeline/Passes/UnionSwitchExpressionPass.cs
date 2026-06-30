@@ -301,8 +301,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             && guardIf.Then.Children is [StoreLocal guardedStore, Return guardedReturn]
             && StoreReturnMatch(guardedStore, guardedReturn, resultLocal)
             && StoreReturnMatch(fallbackStore, fallbackReturn, resultLocal)
-            && localIndex is { } local
-            && !ReferencesLocal(fallbackStore.Value, local))
+            && (localIndex is not { } local || !ReferencesLocal(fallbackStore.Value, local)))
         {
             arms =
             [
