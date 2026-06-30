@@ -104,4 +104,66 @@ public class DataflowFactsTests
         var join2 = Assert.Single(facts.Containers).Blocks.Single(b => b.Offset == 0x14);
         Assert.Equal([0], join2.In);  // assigned on every path, so definitely-assigned at the join
     }
+
+    [Fact]
+    public void CollectDataflowFacts_NullCoalescingAssignmentDoesNotLeakOutAssignment()
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var str = TypeRef.CoreLib("System", "String");
+        var helper = TypeRef.Definition("Test", "Synthetic", "Helper");
+        var tryGet = new MethodRef(helper, "TryGet", str, [TypeRef.ByRef(i32)], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, str, new Constant("existing", str)));
+        block.Add(new NullCoalescingAssignment(
+            localIndex: 0,
+            localType: str,
+            value: new Call(tryGet, isVirtual: false, [new LoadLocalAddress(1, i32)])));
+        block.Add(new Return(new LoadLocal(1, i32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(i32, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("CoalesceOut", helper, signature, [str, i32], container);
+
+        var facts = CSharpPrinter.CollectDataflowFacts(function);
+
+        Assert.False(facts.Bailed);
+        Assert.Contains(1, facts.ReadBeforeAssign);
+    }
+
+    [Fact]
+    public void CollectDataflowFacts_FieldNullCoalescingAssignmentDoesNotLeakOutAssignment()
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var str = TypeRef.CoreLib("System", "String");
+        var helper = TypeRef.Definition("Test", "Synthetic", "Helper");
+        var field = new FieldRef(helper, "Cache", str);
+        var tryGet = new MethodRef(helper, "TryGet", str, [TypeRef.ByRef(i32)], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+
+        var block = new Block(0);
+        block.Add(new NullCoalescingFieldAssignment(
+            field,
+            instance: null,
+            value: new Call(tryGet, isVirtual: false, [new LoadLocalAddress(0, i32)])));
+        block.Add(new Return(new LoadLocal(0, i32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(i32, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("FieldCoalesceOut", helper, signature, [i32], container);
+
+        var facts = CSharpPrinter.CollectDataflowFacts(function);
+
+        Assert.False(facts.Bailed);
+        Assert.Contains(0, facts.ReadBeforeAssign);
+    }
 }
