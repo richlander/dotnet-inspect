@@ -295,6 +295,16 @@ public class TypeSourceComposerUnionTests
                     Cat => 1,
                     Dog => 2,
                 };
+
+                public static int KindWithOffset(Pet pet, int offset)
+                {
+                    int baseValue = offset + 1;
+                    return pet switch
+                    {
+                        Cat => baseValue,
+                        Dog dog => dog.Name.Length + baseValue,
+                    };
+                }
             }
             """);
 
@@ -312,6 +322,10 @@ public class TypeSourceComposerUnionTests
                 Dog => 2,
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Kind"));
+        var withOffset = RenderMember(assembly.Path, "UnionFixtures.Matcher", "KindWithOffset");
+        Assert.Contains("int baseValue = offset + 1;", withOffset);
+        Assert.Contains("return pet switch", withOffset);
+        Assert.Contains("Dog dog => dog.Name.Length + baseValue", withOffset);
     }
 
     [Fact]

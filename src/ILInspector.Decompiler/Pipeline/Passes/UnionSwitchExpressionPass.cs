@@ -11,45 +11,67 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     public string Name => "union-switch-expression";
 
     sealed record Arm(TypeRef PatternType, int? LocalIndex, IrExpression Value, IReadOnlyList<IrNode> LocalRoots);
+    sealed record Match(int StartIndex, UnionSwitchExpression SwitchExpression);
 
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (container.Blocks is [var block] && TryMatch(function, block, out var switchExpression))
+            if (container.Blocks is [var block] && TryMatch(function, block, out var match))
             {
-                foreach (var child in block.Children.ToList())
-                    child.Detach();
-                block.Add(new Return(switchExpression));
+                block.SetChild(match.StartIndex, new Return(match.SwitchExpression));
+                for (int i = block.Children.Count - 1; i > match.StartIndex; i--)
+                    block.Children[i].Detach();
                 context.Stepper.StepOver("raise union type-test dispatch to switch expression", block);
-                return;
+                continue;
             }
         }
     }
 
-    static bool TryMatch(IrFunction function, Block block, out UnionSwitchExpression switchExpression)
+    static bool TryMatch(IrFunction function, Block block, out Match match)
+    {
+        match = null!;
+        var children = block.Children;
+        for (int start = 0; start < children.Count; start++)
+        {
+            if (TryMatchAt(function, children, start, out var switchExpression))
+            {
+                match = new Match(start, switchExpression);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryMatchAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
     {
         switchExpression = null!;
-        var children = block.Children;
-        if (children.Count < 4
-            || children[0] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+        if (start + 3 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
             || !IsUnionValueProperty(function, unionValue))
         {
             return false;
         }
 
+        // The switch-expression dispatch is terminal. Prefix statements are OK;
+        // trailing statements would be unreachable or unrelated and stay flat.
         int tempLocal = valueStore.Index;
         Arm firstArm;
-        if (children[1] is StoreLocal { Value: IsInstance firstAs } firstStore)
+        if (children[start + 1] is StoreLocal { Value: IsInstance firstAs } firstStore)
         {
-            if (children.Count != 5
+            if (start + 5 != children.Count
                 || !IsTempTypeTest(firstAs, tempLocal)
-                || children[2] is not IfStatement firstIf
+                || children[start + 2] is not IfStatement firstIf
                 || !IsNotLocal(firstIf.Condition, firstStore.Index))
             {
                 return false;
             }
-            if (!TryStoreReturn(children, 3, out int resultLocal, out var firstValue))
+            if (!TryStoreReturn(children, start + 3, out int resultLocal, out var firstValue))
             {
                 return false;
             }
@@ -57,13 +79,13 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             return TryBuild(function, unionValue, tempLocal, resultLocal, firstIf, firstArm, firstStore, out switchExpression);
         }
 
-        if (children[1] is IfStatement noLocalIf
+        if (children[start + 1] is IfStatement noLocalIf
             && noLocalIf.Condition is LogicalNot { Operand: IsInstance firstTest }
             && IsTempTypeTest(firstTest, tempLocal))
         {
-            if (children.Count != 4)
+            if (start + 4 != children.Count)
                 return false;
-            if (!TryStoreReturn(children, 2, out int resultLocal, out var firstValue))
+            if (!TryStoreReturn(children, start + 2, out int resultLocal, out var firstValue))
                 return false;
             firstArm = new Arm(firstTest.Type, LocalIndex: null, firstValue, []);
             return TryBuild(function, unionValue, tempLocal, resultLocal, noLocalIf, firstArm, extraTempUse: null, out switchExpression);
@@ -126,7 +148,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
         switch (secondIf.Condition)
         {
-            case IsPattern pattern when IsTempLoad(pattern.Value, tempLocal) && ReferencesLocalOnly(value, pattern.LocalIndex):
+            case IsPattern pattern when IsTempLoad(pattern.Value, tempLocal):
                 arm = new Arm(pattern.Type, pattern.LocalIndex, value, [pattern, value]);
                 return true;
             case IsInstance test when IsTempTypeTest(test, tempLocal):
@@ -165,11 +187,6 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
     static bool IsTempLoad(IrExpression expression, int tempLocal)
         => expression is LoadLocal load && load.Index == tempLocal;
-
-    static bool ReferencesLocalOnly(IrExpression expression, int local)
-        => expression.Descendants.Prepend(expression)
-            .OfType<LoadLocal>()
-            .All(load => load.Index == local);
 
     static bool ArmLocalReferencesAreOwned(IrFunction function, Arm arm)
         => arm.LocalIndex is not { } local
