@@ -353,6 +353,12 @@ public class LibraryInspection
     public List<TypeForwarderSummary>? TypeForwarders { get; set; }
 
     /// <summary>
+    /// Types annotated with System.Runtime.CompilerServices.UnionAttribute.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<UnionTypeSummary>? UnionTypes { get; set; }
+
+    /// <summary>
     /// Feature, compatibility, and runtime switches discovered in metadata or IL.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -459,6 +465,10 @@ public class LibraryInspection
     /// <summary>Whether the assembly has type forwarders.</summary>
     [JsonIgnore]
     public bool HasExportedTypeForwarders { get; set; }
+
+    /// <summary>Whether the assembly has types annotated with UnionAttribute.</summary>
+    [JsonIgnore]
+    public bool HasUnionTypes { get; set; }
 
     /// <summary>Whether the assembly has feature, compatibility, or runtime switches.</summary>
     [JsonIgnore]
@@ -607,4 +617,15 @@ public record class TypeForwarderSummary
 {
     public string TypeName { get; init; } = "";
     public string TargetAssembly { get; init; } = "";
+}
+
+/// <summary>
+/// Summary of a C# union-shaped type in a library.
+/// </summary>
+public record class UnionTypeSummary
+{
+    public string TypeName { get; init; } = "";
+    public string Kind { get; init; } = "";
+    public bool ImplementsIUnion { get; init; }
+    public List<string> CaseTypes { get; init; } = [];
 }
