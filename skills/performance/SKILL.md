@@ -50,8 +50,15 @@ curated ranked prefix. Supplying any of those flags selects `Performance Triage`
 automatically on `library`, `type`, and `member`. `--top` narrows the ranked data
 before rendering; `-n N --rows` is a generic rendered-row cap applied afterward.
 Common shapes include `capturing-delegate`, `box-value-type`, `small-array`,
-`linq-scan-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
-`allocation-hotspot`.
+`linq-scan-in-loop`, `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
+that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
+`async-state-machine`, and `allocation-hotspot`.
+
+Not every shape is a pure hot-path win. `async-state-machine` is reported as
+amortized (low confidence) unless the allocation sits in a loop: async lowering
+moves work into a state object rather than eliminating it, often once per
+call/enumeration/subscription. Treat amortized rows as context, and confirm a
+real per-item cost with a profiler before optimizing.
 
 ## Drill a candidate
 
