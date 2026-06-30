@@ -1919,15 +1919,262 @@ static class FidelityCheck
             if (baseDef.GetGenericParameters().Count != 0)
                 return "";
         }
+        else if (typeDef.BaseType.Kind == HandleKind.TypeSpecification)
+        {
+            return GenericBaseClause(reader, typeDef.BaseType);
+        }
         else if (typeDef.BaseType.Kind != HandleKind.TypeReference || BaseTypeName(reader, typeDef.BaseType) is not "System.Exception")
         {
-            return ""; // TypeSpec / most TypeReference bases — not reliably spellable
+            return ""; // most TypeReference bases — not reliably spellable
         }
 
         string baseName = BaseTypeName(reader, typeDef.BaseType);
         if (baseName is "System.Object")
             return "";
         return $" : {Clean(baseName)}";
+    }
+
+    static string GenericBaseClause(MetadataReader reader, EntityHandle handle)
+    {
+        TypeRef type;
+        try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)handle, 0); }
+        catch { return ""; }
+
+        if (type is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Kind: TypeRefKind.Definition
+                } definition
+            }
+            || definition.Assembly != CanonicalAssemblyName(reader)
+            || ContainsGenericParameter(type)
+            || ContainsUnsupportedType(type))
+        {
+            return "";
+        }
+
+        return $" : {Clean(FullyQualifiedTypeName(type))}";
+    }
+
+    static bool ContainsGenericParameter(TypeRef type)
+        => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+           || (type.ElementType is { } element && ContainsGenericParameter(element))
+           || type.TypeArguments.Any(ContainsGenericParameter);
+
+    static bool ContainsUnsupportedType(TypeRef type)
+        => type.Kind == TypeRefKind.Unsupported
+           || (type.ElementType is { } element && ContainsUnsupportedType(element))
+           || type.TypeArguments.Any(ContainsUnsupportedType);
+
+    static string InterfaceClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind, SignatureAccessibility accessibility)
+    {
+        if (kind != TypeKind.Class)
+            return "";
+
+        var interfaces = new List<string>();
+        foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
+        {
+            var implementation = reader.GetInterfaceImplementation(implementationHandle);
+            if (SameAssemblyNonGenericInterfaceName(reader, implementation.Interface) is { } name
+                && IsSafeClassInterfaceName(name)
+                && InterfaceMembersSatisfied(reader, typeDef, implementation.Interface, accessibility))
+            {
+                interfaces.Add(Clean(name));
+                continue;
+            }
+
+            if (ProtobufSelfMessageInterfaceName(reader, typeDef, implementation.Interface) is { } protobufName)
+                interfaces.Add(Clean(protobufName));
+        }
+
+        return interfaces.Count == 0 ? "" : string.Join(", ", interfaces.Distinct(StringComparer.Ordinal));
+    }
+
+    static string CombineInheritance(string baseClause, string interfaceClause)
+    {
+        if (interfaceClause.Length == 0)
+            return baseClause;
+        if (baseClause.Length == 0)
+            return $" : {interfaceClause}";
+        return $"{baseClause}, {interfaceClause}";
+    }
+
+    static bool IsSafeClassInterfaceName(string name)
+        => name == "IResource"
+           || name.EndsWith(".IResource", StringComparison.Ordinal)
+           || name == "Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata";
+
+    static string? SameAssemblyNonGenericInterfaceName(MetadataReader reader, EntityHandle handle)
+    {
+        if (handle.Kind != HandleKind.TypeDefinition)
+            return null;
+        var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+        if ((definition.Attributes & TypeAttributes.Interface) == 0
+            || definition.GetDeclaringType().IsNil == false
+            || definition.GetGenericParameters().Count != 0)
+        {
+            return null;
+        }
+
+        return FullName(reader, definition);
+    }
+
+    static string? ProtobufSelfMessageInterfaceName(MetadataReader reader, TypeDefinition typeDef, EntityHandle handle)
+    {
+        if (handle.Kind != HandleKind.TypeSpecification || !HasProtobufMessageMembers(reader, typeDef))
+            return null;
+
+        TypeRef type;
+        try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)handle, 0); }
+        catch { return null; }
+
+        if (type is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Kind: TypeRefKind.Definition,
+                    Assembly: "Google.Protobuf",
+                    Namespace: "Google.Protobuf",
+                    Name: "IMessage`1"
+                },
+                TypeArguments: [{ } argument]
+            }
+            || !IsThisType(reader, typeDef, argument))
+        {
+            return null;
+        }
+
+        return FullyQualifiedTypeName(type);
+    }
+
+    static bool HasProtobufMessageMembers(MetadataReader reader, TypeDefinition typeDef)
+        => HierarchyHasProperty(reader, typeDef, "Descriptor")
+           && HierarchyHasMethod(reader, typeDef, "WriteTo")
+           && HierarchyHasMethod(reader, typeDef, "CalculateSize")
+           && HierarchyHasMethod(reader, typeDef, "MergeFrom");
+
+    static bool IsThisType(MetadataReader reader, TypeDefinition typeDef, TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+            return false;
+        var expected = TypeDefinitionName(reader, typeDef);
+        return type.Assembly == CanonicalAssemblyName(reader)
+            && type.Namespace == expected.Namespace
+            && type.Name == expected.Name;
+    }
+
+    static (string Namespace, string Name) TypeDefinitionName(MetadataReader reader, TypeDefinition typeDef)
+    {
+        if (!typeDef.IsNested)
+            return (reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+        var declaring = TypeDefinitionName(reader, reader.GetTypeDefinition(typeDef.GetDeclaringType()));
+        return (declaring.Namespace, $"{declaring.Name}+{reader.GetString(typeDef.Name)}");
+    }
+
+    static string CanonicalAssemblyName(MetadataReader reader)
+        => reader.IsAssembly
+            ? TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
+            : "";
+
+    static string FullyQualifiedTypeName(TypeRef type) => type.Kind switch
+    {
+        TypeRefKind.Definition => FullyQualifiedDefinitionName(type),
+        TypeRefKind.GenericInstance => FullyQualifiedGenericName(type),
+        _ => type.ToDisplayString(),
+    };
+
+    static string FullyQualifiedDefinitionName(TypeRef type)
+    {
+        string name = StripArity(type.Name).Replace('+', '.');
+        return type.Namespace.Length == 0 ? name : $"{type.Namespace}.{name}";
+    }
+
+    static string FullyQualifiedGenericName(TypeRef type)
+    {
+        var definition = type.ElementType!;
+        string name = StripArity(definition.Name).Replace('+', '.');
+        string qualified = definition.Namespace.Length == 0 ? name : $"{definition.Namespace}.{name}";
+        return $"{qualified}<{string.Join(", ", type.TypeArguments.Select(FullyQualifiedTypeName))}>";
+    }
+
+    static bool InterfaceMembersSatisfied(MetadataReader reader, TypeDefinition typeDef, EntityHandle interfaceHandle, SignatureAccessibility accessibility)
+    {
+        if (interfaceHandle.Kind != HandleKind.TypeDefinition)
+            return false;
+        var interfaceDef = reader.GetTypeDefinition((TypeDefinitionHandle)interfaceHandle);
+        foreach (var inheritedHandle in interfaceDef.GetInterfaceImplementations())
+        {
+            var inherited = reader.GetInterfaceImplementation(inheritedHandle);
+            if (!InterfaceMembersSatisfied(reader, typeDef, inherited.Interface, accessibility))
+                return false;
+        }
+
+        foreach (var propertyHandle in interfaceDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (!accessibility.CanEmitProperty(reader, property, GenericContext.ForType(reader, interfaceDef)))
+                continue;
+            if (!HierarchyHasProperty(reader, typeDef, reader.GetString(property.Name)))
+                return false;
+        }
+
+        var accessorNames = InterfaceAccessorNames(reader, interfaceDef);
+        foreach (var methodHandle in interfaceDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            string name = reader.GetString(method.Name);
+            if (accessorNames.Contains(name))
+                continue;
+            if (!accessibility.CanEmitMethod(reader, method, GenericContext.ForMethod(reader, interfaceDef, method)))
+                continue;
+            if (name.Contains('.') || !HierarchyHasMethod(reader, typeDef, name))
+                return false;
+        }
+
+        return true;
+    }
+
+    static HashSet<string> InterfaceAccessorNames(MetadataReader reader, TypeDefinition interfaceDef)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var propertyHandle in interfaceDef.GetProperties())
+        {
+            var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+            if (!accessors.Getter.IsNil)
+                names.Add(reader.GetString(reader.GetMethodDefinition(accessors.Getter).Name));
+            if (!accessors.Setter.IsNil)
+                names.Add(reader.GetString(reader.GetMethodDefinition(accessors.Setter).Name));
+        }
+        return names;
+    }
+
+    static bool HierarchyHasProperty(MetadataReader reader, TypeDefinition typeDef, string propertyName)
+    {
+        for (var current = typeDef; ; )
+        {
+            foreach (var propertyHandle in current.GetProperties())
+                if (reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name) == propertyName)
+                    return true;
+            if (current.BaseType.Kind != HandleKind.TypeDefinition)
+                return false;
+            current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
+        }
+    }
+
+    static bool HierarchyHasMethod(MetadataReader reader, TypeDefinition typeDef, string methodName)
+    {
+        for (var current = typeDef; ; )
+        {
+            foreach (var methodHandle in current.GetMethods())
+                if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
+                    return true;
+            if (current.BaseType.Kind != HandleKind.TypeDefinition)
+                return false;
+            current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
+        }
     }
 
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
@@ -1968,6 +2215,10 @@ static class FidelityCheck
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
             : IsStaticClass(typeDef) ? "static class" : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
+        string interfaceClause = InterfaceClause(reader, typeDef, kind, accessibility);
+        string inheritanceClause = CombineInheritance(baseClause, interfaceClause);
+        bool implementsProtobufMessage = interfaceClause.Contains("Google.Protobuf.IMessage<", StringComparison.Ordinal);
+        bool implementsKubernetesStaticMetadata = interfaceClause.Contains("Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata", StringComparison.Ordinal);
         // An [InlineArray(N)] struct must carry the attribute for its span
         // conversions (e.g. `(Span<T>)place`) to bind; the bare reconstructed
         // struct otherwise has no such conversion and the body fails to recompile.
@@ -1980,8 +2231,12 @@ static class FidelityCheck
         var primaryConstructor = primaryConstructorTarget.Value.PrimaryConstructor;
         string primaryParameters = primaryConstructor is null ? "" : $"({primaryConstructor.Parameters})";
         string unsafeModifier = TypeHasAwaitTarget(reader, typeHandle, targets) ? "" : "unsafe ";
-        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{primaryParameters}{baseClause}{whereClauses}");
+        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{primaryParameters}{inheritanceClause}{whereClauses}");
         sb.AppendLine($"{pad}{{");
+        if (implementsProtobufMessage)
+            sb.AppendLine($"{pad}    Google.Protobuf.Reflection.MessageDescriptor Google.Protobuf.IMessage.Descriptor => throw null;");
+        if (implementsKubernetesStaticMetadata)
+            sb.AppendLine($"{pad}    string Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata.ObjectKind => throw null;");
 
         // Field initializers lifted from a target ctor apply to this type's
         // fields only when this is the type that lifted them.
@@ -2098,7 +2353,8 @@ static class FidelityCheck
         string name, string genParams, string whereClauses, SignatureAccessibility accessibility, StringBuilder sb, string pad, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
-        sb.AppendLine($"{pad}public unsafe interface {Identifier(name)}{genParams}{whereClauses}");
+        string interfaceBaseClause = InterfaceBaseClause(reader, typeDef);
+        sb.AppendLine($"{pad}public unsafe interface {Identifier(name)}{genParams}{interfaceBaseClause}{whereClauses}");
         sb.AppendLine($"{pad}{{");
         string inner = pad + "    ";
 
@@ -2150,6 +2406,21 @@ static class FidelityCheck
         }
 
         sb.AppendLine($"{pad}}}");
+    }
+
+    static string InterfaceBaseClause(MetadataReader reader, TypeDefinition typeDef)
+    {
+        var interfaces = new List<string>();
+        foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
+        {
+            var implementation = reader.GetInterfaceImplementation(implementationHandle);
+            if (SameAssemblyNonGenericInterfaceName(reader, implementation.Interface) is { } name)
+                interfaces.Add(Clean(name));
+        }
+
+        return interfaces.Count == 0
+            ? ""
+            : $" : {string.Join(", ", interfaces.Distinct(StringComparer.Ordinal))}";
     }
 
     static readonly IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> NoTargets =
@@ -2690,6 +2961,12 @@ static class FidelityCheck
 
     static string FullName(MetadataReader reader, TypeDefinition t)
     {
+        if (t.IsNested)
+        {
+            var declaring = reader.GetTypeDefinition(t.GetDeclaringType());
+            return $"{FullName(reader, declaring)}.{StripArity(reader.GetString(t.Name))}";
+        }
+
         string ns = reader.GetString(t.Namespace);
         string n = reader.GetString(t.Name);
         return ns.Length == 0 ? n : $"{ns}.{n}";
@@ -2736,6 +3013,7 @@ static class FidelityCheck
             return "";
 
         var clauses = new List<string>();
+        var genericScope = ConstraintGenericScope(reader, handles);
         int index = 0;
         foreach (var handle in handles)
         {
@@ -2753,7 +3031,7 @@ static class FidelityCheck
             foreach (var constraintHandle in parameter.GetConstraints())
             {
                 var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                if (ConstraintTypeName(reader, constraint.Type) is not { Name.Length: > 0 } spelled)
+                if (ConstraintTypeName(reader, constraint.Type, genericScope) is not { Name.Length: > 0 } spelled)
                     continue;
                 // System.ValueType/Object are implied by struct or are the
                 // universal base; an explicit clause is invalid or noise.
@@ -2783,6 +3061,26 @@ static class FidelityCheck
         return clauses.Count == 0 ? "" : " " + string.Join(" ", clauses);
     }
 
+    static GenericScope ConstraintGenericScope(MetadataReader reader, GenericParameterHandleCollection handles)
+    {
+        var names = GenericParameterNames(reader, handles);
+        if (handles.Count == 0)
+            return GenericScope.Empty;
+
+        var parent = reader.GetGenericParameter(handles.First()).Parent;
+        if (parent.Kind != HandleKind.MethodDefinition)
+            return new GenericScope(names, []);
+
+        var method = reader.GetMethodDefinition((MethodDefinitionHandle)parent);
+        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        return new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), names);
+    }
+
+    static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
+        => handles
+            .Select(handle => Identifier(reader.GetString(reader.GetGenericParameter(handle).Name)))
+            .ToImmutableArray();
+
     /// <summary>
     /// A reliably spellable name for a generic-constraint type and whether it is
     /// an interface, or null to skip it. Only a top-level
@@ -2794,7 +3092,7 @@ static class FidelityCheck
     /// constraint types are interfaces, and a base-class constraint there does not
     /// carry the reference-type flag that would make `class, Base` invalid.
     /// </summary>
-    static (string Name, bool IsInterface)? ConstraintTypeName(MetadataReader reader, EntityHandle handle)
+    static (string Name, bool IsInterface)? ConstraintTypeName(MetadataReader reader, EntityHandle handle, GenericScope genericScope)
     {
         switch (handle.Kind)
         {
@@ -2810,10 +3108,31 @@ static class FidelityCheck
                     or HandleKind.ModuleDefinition or HandleKind.ModuleReference
                     ? (FullName(reader, reference), true)
                     : null;
+            case HandleKind.TypeSpecification:
+                TypeRef type;
+                try { type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, genericScope, (TypeSpecificationHandle)handle, 0); }
+                catch { return null; }
+                return IsProtobufIMessageConstraint(type)
+                    ? (Clean(FullyQualifiedTypeName(type)), true)
+                    : null;
             default:
                 return null;
         }
     }
+
+    static bool IsProtobufIMessageConstraint(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType:
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: "Google.Protobuf",
+                Namespace: "Google.Protobuf",
+                Name: "IMessage`1"
+            },
+            TypeArguments.Length: 1
+        };
 
     /// <summary>C# keywords that can appear as IL identifiers get an @ escape.</summary>
     static string Identifier(string name) => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None
@@ -2920,8 +3239,11 @@ static class FidelityCheck
 
     /// <summary>Drops the metadata generic-arity suffix (<c>Foo`1</c> → <c>Foo</c>).</summary>
     static string StripArity(string name)
+        => string.Join("+", name.Split('+').Select(StripSegmentArity));
+
+    static string StripSegmentArity(string name)
     {
-        int tick = name.IndexOf('`');
+        int tick = name.LastIndexOf('`');
         return tick < 0 ? name : name[..tick];
     }
 
@@ -3118,6 +3440,7 @@ static class FidelityCheck
         foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
             Add(path);
+        AddSharedFrameworkReferences("Microsoft.AspNetCore.App", Add);
 
         var dir = Path.GetDirectoryName(Path.GetFullPath(targetPath));
         if (dir is not null && Directory.Exists(dir))
@@ -3139,6 +3462,48 @@ static class FidelityCheck
 
         return new ReferenceSet(builder.ToImmutable(), new SignatureAccessibility(referencePaths));
     }
+
+    static void AddSharedFrameworkReferences(string frameworkName, Action<string> add)
+    {
+        string? runtimeDir = Path.GetDirectoryName(typeof(object).Assembly.Location);
+        if (runtimeDir is null)
+            return;
+        string? sharedRoot = Directory.GetParent(runtimeDir)?.Parent?.FullName;
+        if (sharedRoot is null)
+            return;
+        string frameworkRoot = Path.Combine(sharedRoot, frameworkName);
+        if (!Directory.Exists(frameworkRoot))
+            return;
+
+        if (SelectSharedFrameworkDirectory(frameworkRoot, Path.GetFileName(runtimeDir)) is not { } selected)
+            return;
+        foreach (var path in Directory.EnumerateFiles(selected, "*.dll"))
+            add(path);
+    }
+
+    internal static string? SelectSharedFrameworkDirectory(string frameworkRoot, string runtimeVersion)
+    {
+        string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
+        if (Directory.Exists(exactDirectory))
+            return exactDirectory;
+        if (!Version.TryParse(VersionCore(runtimeVersion), out var runtime))
+            return null;
+
+        return Directory.EnumerateDirectories(frameworkRoot)
+            .Select(directory => new
+            {
+                Directory = directory,
+                Version = Version.TryParse(VersionCore(Path.GetFileName(directory)), out var version) ? version : null,
+            })
+            .Where(candidate => candidate.Version is not null
+                && candidate.Version.Major == runtime.Major
+                && candidate.Version.Minor == runtime.Minor)
+            .OrderByDescending(candidate => candidate.Version)
+            .Select(candidate => candidate.Directory)
+            .FirstOrDefault();
+    }
+
+    static string VersionCore(string version) => version.Split('-', 2)[0];
 
     internal static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
         => PackageDependencyReferencePaths(targetPath, packageRoots: null);
