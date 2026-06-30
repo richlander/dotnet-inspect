@@ -4165,6 +4165,73 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_Value_UsesEffectiveLibraryInfoFieldNames()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Library Info", "--fields", "Assembly Version", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Matches(@"^\d+\.\d+\.\d+\.\d+$", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_Value_RejectsNonDiscoveredFieldName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Library Info", "--fields", "TFM", "--value", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("field 'TFM' not found in section 'Library Info'", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverLibraryInfo_FiltersFieldsToRenderedRows()
+    {
+        var (selectExit, selectOutput, selectError) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Library Info", "--tips", "q");
+        var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "Library Info", "--tips", "q");
+
+        Assert.Equal(0, selectExit);
+        Assert.Equal(0, discoverExit);
+        Assert.Empty(selectError);
+        Assert.Empty(discoverError);
+        Assert.Equal(
+            selectOutput.Contains("| Architecture |", StringComparison.Ordinal),
+            discoverOutput.Contains("| Architecture | field |", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverLibraryInfo_DoesNotKeepSubstringOnlyFields()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Runtime not available: {error}");
+            return;
+        }
+
+        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+            "System.Runtime is not facade-only in this runtime.");
+
+        var (selectExit, selectOutput, selectError) = await RunAppAsync(
+            "library", "System.Runtime", "-S", "Library Info", "--tips", "q");
+        var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
+            "library", "System.Runtime", "-D", "Library Info", "--tips", "q");
+
+        Assert.Equal(0, selectExit);
+        Assert.Equal(0, discoverExit);
+        Assert.Empty(selectError);
+        Assert.Empty(discoverError);
+        Assert.DoesNotContain("| Methods |", selectOutput);
+        Assert.DoesNotContain("| Methods | field |", discoverOutput);
+        Assert.Contains("| Async Methods | field |", discoverOutput);
+        Assert.Contains("| Extension Methods | field |", discoverOutput);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverEffective_RendersMarkdownTable()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D");
