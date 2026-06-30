@@ -68,7 +68,7 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
-    public void RenderedUnionDeclaration_BuildsWithPreviewSdk()
+    public async Task RenderedUnionDeclaration_BuildsWithPreviewSdk()
     {
         using var assembly = Compile("""
             #nullable enable
@@ -100,7 +100,7 @@ public class TypeSourceComposerUnionTests
 
         var source = ComposeType(assembly.Path, "UnionFixtures.Pet");
 
-        AssertSdkPreviewBuilds(source);
+        await AssertSdkPreviewBuilds(source);
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public class TypeSourceComposerUnionTests
         return new TempAssembly(path);
     }
 
-    static void AssertSdkPreviewBuilds(string source)
+    static async Task AssertSdkPreviewBuilds(string source)
     {
         const string caseTypeStubs = """
             namespace Other
@@ -257,13 +257,13 @@ public class TypeSourceComposerUnionTests
         File.WriteAllText(Path.Combine(project.Path, "RenderedUnion.cs"), source);
         File.WriteAllText(Path.Combine(project.Path, "CaseTypes.cs"), caseTypeStubs);
 
-        var result = RunDotnetBuild(project.Path);
+        var result = await RunDotnetBuild(project.Path);
         Assert.True(result.ExitCode == 0,
             "Rendered union source must build with the preview SDK, got exit "
             + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
     }
 
-    static (int ExitCode, string Output) RunDotnetBuild(string workingDirectory)
+    static async Task<(int ExitCode, string Output)> RunDotnetBuild(string workingDirectory)
     {
         var psi = new ProcessStartInfo("dotnet", "build --nologo --verbosity quiet")
         {
@@ -275,9 +275,22 @@ public class TypeSourceComposerUnionTests
         psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true";
 
         using var process = Process.Start(psi)!;
-        string stdout = process.StandardOutput.ReadToEnd();
-        string stderr = process.StandardError.ReadToEnd();
-        Assert.True(process.WaitForExit(30_000), "dotnet build did not complete within 30 seconds.");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        var waitTask = process.WaitForExitAsync();
+        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+        if (await Task.WhenAny(waitTask, timeoutTask) != waitTask)
+        {
+            try { process.Kill(entireProcessTree: true); }
+            catch { }
+            string timedOutOutput = string.Concat(await stdoutTask, await stderrTask);
+            Assert.Fail("dotnet build did not complete within 30 seconds.\n--- output ---\n" + timedOutOutput);
+        }
+
+        await waitTask;
+        string stdout = await stdoutTask;
+        string stderr = await stderrTask;
         return (process.ExitCode, stdout + stderr);
     }
 
