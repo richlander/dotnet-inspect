@@ -3032,6 +3032,8 @@ public sealed class LibraryBodyIndex
                         SkipOperandStatic(il, opcode, ref position, offset);
                     if (position > targetOffset)
                         return false;
+                    if (opcode == ILOpCode.Nop)
+                        continue;
                     previousOffset = offset;
                     previousOpcode = opcode;
                     previousOperandPosition = operandPosition;
