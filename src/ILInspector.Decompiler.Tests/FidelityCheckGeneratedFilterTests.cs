@@ -322,6 +322,50 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_BindsCommonFrameworkCollectionAndRegexTypes()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Concurrent;
+            using System.Collections.Frozen;
+            using System.Collections.Generic;
+            using System.Text.RegularExpressions;
+
+            public class FrameworkNamespaceFixture
+            {
+                public ConcurrentDictionary<string, int> CreateConcurrent()
+                    => new ConcurrentDictionary<string, int>();
+
+                public FrozenDictionary<string, int> Freeze(Dictionary<string, int> source)
+                    => source.ToFrozenDictionary();
+
+                public Match MatchS(string input)
+                    => Regex.Match(input, "s");
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            AssertCheckable(results, "CreateConcurrent");
+            AssertCheckable(results, "Freeze");
+            AssertCheckable(results, "MatchS");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertCheckable(IReadOnlyList<FidelityCheck.CompileBackResult> results, string method)
+        {
+            var result = Assert.Single(
+                results,
+                result => result.Type == "FrameworkNamespaceFixture" && result.Method == method);
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Detail);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");

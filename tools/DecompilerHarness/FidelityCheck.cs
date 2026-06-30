@@ -2246,6 +2246,8 @@ static class FidelityCheck
         "System",
         "System.Buffers",
         "System.Collections",
+        "System.Collections.Concurrent",
+        "System.Collections.Frozen",
         "System.Collections.Generic",
         "System.Collections.Immutable",
         "System.Globalization",
@@ -2258,6 +2260,7 @@ static class FidelityCheck
         "System.Runtime.CompilerServices",
         "System.Runtime.InteropServices",
         "System.Text",
+        "System.Text.RegularExpressions",
         "System.Threading",
         "System.Threading.Tasks",
     ];
