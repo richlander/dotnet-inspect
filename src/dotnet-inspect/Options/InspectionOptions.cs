@@ -104,6 +104,11 @@ public record InspectionOptions
     public bool ShowReadme { get; init; }
 
     /// <summary>
+    /// Print the document behind the selected section's first row.
+    /// </summary>
+    public bool Print { get; init; }
+
+    /// <summary>
     /// Print the contents of files selected by <see cref="PathFilters"/>.
     /// </summary>
     public bool ShowContent { get; init; }
@@ -244,7 +249,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

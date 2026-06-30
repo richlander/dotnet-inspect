@@ -62,6 +62,9 @@ public class PackageCommand
             if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
                 return 1;
 
+            if (options.Print && !ValidatePackagePrintSelection(options.IncludeSections))
+                return 1;
+
             if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
                 return 1;
 
@@ -316,8 +319,8 @@ public class PackageCommand
                     options);
             }
 
-            // Handle --readme mode: print README and exit early
-            if (options.ShowReadme)
+            // Handle --readme/--print mode: print the selected grounding document and exit early
+            if (options.ShowReadme || options.Print)
             {
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
@@ -733,6 +736,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         var multiReadmeFrontmatter = options.ShowReadme && options.ContentScope == PackageFileContentScope.Frontmatter;
         if (options.ShowReadme && !multiReadmeFrontmatter) conflicts.Add("--readme");
+        if (options.Print) conflicts.Add("--print");
         if (multiReadmeFrontmatter && options.JsonOutput) conflicts.Add("--json");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.PackageLibrary != null) conflicts.Add("--library");
@@ -769,15 +773,21 @@ public class PackageCommand
             return false;
         }
 
+        if (options.Print && options.ShowContent)
+        {
+            Console.Error.WriteLine("Error: --print cannot be combined with --content.");
+            return false;
+        }
+
         if (options.ShowContent && !HasPathFilter(options))
         {
             Console.Error.WriteLine("Error: --content requires at least one --path selector.");
             return false;
         }
 
-        if (scopedContent && !options.ShowReadme && !options.ShowContent)
+        if (scopedContent && !options.ShowReadme && !options.Print && !options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme or --content.");
+            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme, --print, or --content.");
             return false;
         }
 
@@ -819,6 +829,15 @@ public class PackageCommand
         }
 
         return true;
+    }
+
+    private static bool ValidatePackagePrintSelection(HashSet<string>? sections)
+    {
+        if (sections is { Count: 1 } && sections.Contains(PackageSections.PackageReadme))
+            return true;
+
+        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        return false;
     }
 
     private static bool ValidatePathMatchMode(InspectionOptions options)
@@ -1202,7 +1221,7 @@ public class PackageCommand
         InspectionOptions options)
     {
         var files = PackageFileLister.ListAll(extractPath, readmeFile);
-        var selectedFiles = options.ShowReadme
+        var selectedFiles = options.ShowReadme || options.Print
             ? PackageFileLister.Filter(files, "@readme")
             : FilterPackageFiles(files, options);
         var contents = selectedFiles
@@ -1576,6 +1595,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
+        if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
@@ -1595,6 +1615,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
+        if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
         if (options.Columns != null) conflicts.Add("--columns");

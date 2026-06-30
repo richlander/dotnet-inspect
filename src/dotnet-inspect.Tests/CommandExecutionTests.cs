@@ -70,7 +70,8 @@ public class CommandExecutionTests
         string id,
         string readmeFile,
         string readmeText,
-        string? agentsText = null)
+        string? agentsText = null,
+        params (string Path, string Content)[] extraFiles)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
@@ -78,6 +79,12 @@ public class CommandExecutionTests
         File.WriteAllText(Path.Combine(packageRoot, readmeFile), readmeText);
         if (agentsText != null)
             File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), agentsText);
+        foreach (var (path, content) in extraFiles)
+        {
+            var fullPath = Path.Combine(packageRoot, path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, content);
+        }
         File.WriteAllText(Path.Combine(packageRoot, $"{id}.nuspec"), $$"""
             <?xml version="1.0" encoding="utf-8"?>
             <package>
@@ -101,7 +108,8 @@ public class CommandExecutionTests
         string Version,
         string ReadmeFile,
         string ReadmeText,
-        string? AgentsText = null);
+        string? AgentsText = null,
+        bool OmitReadme = false);
 
     private static (string ProjectPath, string TempDir) CreateProjectWithPackageDocs(params ProjectDocPackage[] packages)
     {
@@ -124,9 +132,12 @@ public class CommandExecutionTests
             var packageRoot = Path.Combine(tempDir, "packages", package.Id.ToLowerInvariant(), package.Version.ToLowerInvariant());
             Directory.CreateDirectory(packageRoot);
 
-            var readmePath = Path.Combine(packageRoot, package.ReadmeFile.Replace('/', Path.DirectorySeparatorChar));
-            Directory.CreateDirectory(Path.GetDirectoryName(readmePath)!);
-            File.WriteAllText(readmePath, package.ReadmeText);
+            if (!package.OmitReadme)
+            {
+                var readmePath = Path.Combine(packageRoot, package.ReadmeFile.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(readmePath)!);
+                File.WriteAllText(readmePath, package.ReadmeText);
+            }
             if (package.AgentsText != null)
                 File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), package.AgentsText);
 
@@ -5941,14 +5952,37 @@ public class CommandExecutionTests
     [Fact]
     public async Task Package_Print_PrintsBestGroundingContent()
     {
-        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Print.Grounding", "README.md", "readme", "agents");
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Print.Grounding",
+            "README.md",
+            "readme",
+            "agents",
+            ("00-FIRST.txt", "wrong file"));
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--print", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--print", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal("agents\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PrintRequiresSingleSelectedSection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Print.Requires.Select", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--print");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--print requires -S/--select to match exactly one printable section", error);
         }
         finally
         {
@@ -6707,6 +6741,218 @@ public class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Project_GroundingSection_EmitsBestGroundingRows()
+    {
+        var agents = """
+            ---
+            name: Markout guidance
+            description: Prefer Markout tables for structured markdown.
+            ---
+            # Body
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Grounding.Agents", "1.2.3", "README.md", "readme", agents),
+            new ProjectDocPackage("Test.Project.Grounding.Readme", "4.5.6", "README.md", "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--jsonl");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+
+            using var agentsDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Grounding.Agents")));
+            Assert.Equal("Test.Project.Grounding.Agents", agentsDocument.RootElement.GetProperty("package").GetString());
+            Assert.Equal("agents", agentsDocument.RootElement.GetProperty("kind").GetString());
+            Assert.Equal("AGENTS.md", agentsDocument.RootElement.GetProperty("path").GetString());
+            Assert.Equal("Markout guidance", agentsDocument.RootElement.GetProperty("name").GetString());
+            Assert.Equal("Prefer Markout tables for structured markdown.", agentsDocument.RootElement.GetProperty("description").GetString());
+
+            using var readmeDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Grounding.Readme")));
+            Assert.Equal("readme", readmeDocument.RootElement.GetProperty("kind").GetString());
+            Assert.Equal("README.md", readmeDocument.RootElement.GetProperty("path").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingPrint_PrintsFirstGroundingDocument()
+    {
+        var agents = """
+            ---
+            name: selected
+            ---
+            # Agent guidance
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Print", "2.0.0", "README.md", "# README body", agents));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--print", "--body");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("# Agent guidance", output);
+            Assert.DoesNotContain("name: selected", output);
+            Assert.DoesNotContain("# README body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingPrint_SkipsDependenciesWithoutPrintableGrounding()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("A.Project.NoGrounding", "1.0.0", "README.md", "", OmitReadme: true),
+            new ProjectDocPackage("B.Project.HasGrounding", "1.0.0", "README.md", "selected"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--print");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Equal("selected", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingPrint_JsonlIsSingleCompactRecord()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Print.Jsonl", "1.0.0", "README.md", "selected"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--print", "--jsonl");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Single(lines);
+            using var document = JsonDocument.Parse(lines[0]);
+            Assert.Equal("selected", document.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingBare_PrintsFirstGroundingDocument()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Bare", "1.0.0", "README.md", "selected"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--bare");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Equal("selected", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Columns_ReturnsClearUnsupportedError()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "selected"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--columns", "Package");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("project does not currently support --columns or --fields", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_PrintRequiresSingleSelectedSection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Print.Requires.Select", "1.0.0", "README.md", "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--print");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--print requires -S/--select to match exactly one printable section", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_GroundingCount_CountsDirectDependencies()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Count.One", "1.0.0", "README.md", "one"),
+            new ProjectDocPackage("Test.Project.Count.Two", "1.0.0", "README.md", "two"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Grounding", "--count");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Equal("2\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Discover_ListsGroundingSection()
+    {
+        var (exit, output, error) = await RunAppAsync("project", "-D", "Grounding");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Package", output);
+        Assert.Contains("Description", output);
     }
 
     [Fact]
