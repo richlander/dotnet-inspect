@@ -443,6 +443,22 @@ public class TypeSourceComposerUnionTests
                     _ => "other",
                 };
 
+                public static string DefaultedBound(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => cat.Name,
+                    Cat otherCat => otherCat.Name.ToUpperInvariant(),
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
+
+                public static string GuardedValueEqualsDefault(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => "other",
+                    Cat => "z",
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
+
                 public static string Inverted(Pet pet) => pet switch
                 {
                     Cat { Age: <= 3 } => "young",
@@ -455,6 +471,13 @@ public class TypeSourceComposerUnionTests
                 {
                     Cat { Name: "cat" } cat => cat.Name,
                     Cat => "other cat",
+                    Dog dog => dog.Name,
+                };
+
+                public static string ExhaustiveBound(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => cat.Name,
+                    Cat otherCat => otherCat.Name.ToUpperInvariant(),
                     Dog dog => dog.Name,
                 };
 
@@ -479,6 +502,23 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("""
             return pet switch
             {
+                Cat cat when cat.Name == "cat" => cat.Name,
+                Cat cat => cat.Name.ToUpperInvariant(),
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "DefaultedBound"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when !(cat.Name == "cat") => "z",
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedValueEqualsDefault"));
+        Assert.Equal("""
+            return pet switch
+            {
                 Cat V_3 when V_3.Age <= 3 => "young",
                 Cat => "old",
                 Dog dog => dog.Name,
@@ -493,6 +533,14 @@ public class TypeSourceComposerUnionTests
                 Dog dog => dog.Name,
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Exhaustive"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Name == "cat" => cat.Name,
+                Cat cat => cat.Name.ToUpperInvariant(),
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ExhaustiveBound"));
         Assert.Equal("""
             return pet switch
             {
@@ -542,10 +590,33 @@ public class TypeSourceComposerUnionTests
                     _ => "other",
                 };
 
+                public static string GuardedDefaultBound(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => cat.Name,
+                    Cat otherCat => otherCat.Name.ToUpperInvariant(),
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
+
+                public static string GuardedDefaultBoundSameAsDefault(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => cat.Name,
+                    Cat otherCat => "other",
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
+
                 public static string GuardedExhaustive(Pet pet) => pet switch
                 {
                     Cat { Name: "cat" } cat => cat.Name,
                     Cat => "other cat",
+                    Dog dog => dog.Name,
+                };
+
+                public static string GuardedExhaustiveBound(Pet pet) => pet switch
+                {
+                    Cat { Name: "cat" } cat => cat.Name,
+                    Cat otherCat => otherCat.Name.ToUpperInvariant(),
                     Dog dog => dog.Name,
                 };
             }
@@ -577,10 +648,35 @@ public class TypeSourceComposerUnionTests
             return pet switch
             {
                 Cat cat when cat.Name == "cat" => cat.Name,
+                Cat cat => cat.Name.ToUpperInvariant(),
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedDefaultBound"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Name == "cat" => cat.Name,
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedDefaultBoundSameAsDefault"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Name == "cat" => cat.Name,
                 Cat => "other cat",
                 Dog dog => dog.Name,
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedExhaustive"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Name == "cat" => cat.Name,
+                Cat cat => cat.Name.ToUpperInvariant(),
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedExhaustiveBound"));
     }
 
     [Fact]

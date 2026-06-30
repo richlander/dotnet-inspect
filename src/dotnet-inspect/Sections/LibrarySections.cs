@@ -16,6 +16,7 @@ public static class LibrarySections
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
     public const string ScannerResources = "Resources";
     public const string ScannerCustomAttributes = "CustomAttributes";
+    public const string ScannerUnionTypes = "UnionTypes";
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerSymbols = "Symbols";
@@ -64,13 +65,14 @@ public static class LibrarySections
             .Add<AsyncMethods>()
             .Add<Resources>()
             .Add<CustomAttributes>()
+            .Add<UnionTypes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.UnsafeMembers,
                 "P/Invoke Methods",
                 "Switches")
-            .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities"])
+            .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities", "Union Types"])
             .AddCategory("@Switches", "Switches");
     }
 
@@ -86,6 +88,8 @@ public static class LibrarySections
                 ctx.Model.Resources = LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerCustomAttributes, ctx =>
                 LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerUnionTypes, ctx =>
+                ctx.Model.UnionTypes = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTypeForwarders, ctx =>
                 LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerInfoCounts, ctx =>
@@ -448,6 +452,16 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerCustomAttributes;
         public static bool CanRender(LibraryInspection model)
             => model.CustomAttributes is { Count: > 0 } || model.HasAssemblyAttributes;
+    }
+
+    public sealed class UnionTypes : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Union Types";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerUnionTypes;
+        public static bool CanRender(LibraryInspection model)
+            => model.UnionTypes is { Count: > 0 } || model.HasUnionTypes;
     }
 
     public sealed class TypeForwarders : ISectionDescriptor<LibraryInspection>
