@@ -96,6 +96,16 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
+    public bool HasUnionTypes => _data.UnionTypes is { Count: > 0 };
+
+    [MarkoutSection(Name = "Union Types", ShowWhenProperty = nameof(HasUnionTypes))]
+    public List<UnionTypeRow>? UnionTypesSection =>
+        _data.UnionTypes?
+            .OrderBy(t => t.TypeName, StringComparer.OrdinalIgnoreCase)
+            .Select(t => new UnionTypeRow(t.TypeName, t.Kind, t.ImplementsIUnion ? "Yes" : "No", string.Join(", ", t.CaseTypes)))
+            .ToList();
+
+    [MarkoutIgnore]
     public bool UseDependenciesView => _data.UseDependenciesView;
 
     [MarkoutSection(Name = "Dependencies")]
@@ -148,6 +158,7 @@ public class LibraryInspectionView
         TargetFramework = info.TargetFramework,
         TypeForwarders = CountOrZero(_data.TypeForwarders),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
+        UnionTypes = CountOrZero(_data.UnionTypes),
         Version = ResolveVersion(),
     };
 
@@ -819,8 +830,16 @@ public class LibraryInfoSection
     public string? TargetFramework { get; init; }
     public int TypeForwarders { get; init; }
     public string? Types { get; init; }
+    public int UnionTypes { get; init; }
     public string? Version { get; init; }
 }
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+public record UnionTypeRow(
+    string Type,
+    string Kind,
+    [property: MarkoutPropertyName("IUnion")] string IUnion,
+    string Cases);
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]

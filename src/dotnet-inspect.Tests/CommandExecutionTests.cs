@@ -4480,6 +4480,7 @@ public class CommandExecutionTests
                 "Switches",
                 "Top Leverage",
                 "Type Forwarders",
+                "Union Types",
                 "Unsafe Members"
             ],
             optInNames);

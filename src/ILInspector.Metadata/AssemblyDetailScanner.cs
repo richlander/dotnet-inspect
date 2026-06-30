@@ -413,10 +413,15 @@ public static class AssemblyDetailScanner
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             if (flags.HasExtensionTypes && flags.HasPInvokeImports && flags.HasUnsafeCode
+                && flags.HasUnionTypes
                 && flags.HasRuntimeAsync && flags.HasStateMachineAsync && flags.HasMethodBodies)
                 break;
 
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
+
+            if (!flags.HasUnionTypes
+                && AttributeReader.HasAttribute(reader, typeDef.GetCustomAttributes(), KnownAttributeNames.UnionAttribute))
+                flags.HasUnionTypes = true;
 
             // Extension types: static class with [Extension] attribute
             if (!flags.HasExtensionTypes)
@@ -508,6 +513,7 @@ public class PresenceFlags
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
+    public bool HasUnionTypes { get; set; }
     public int IntegrationCount { get; set; }
     public bool HasSwitches { get; set; }
     public int SwitchCount { get; set; }

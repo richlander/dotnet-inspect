@@ -251,7 +251,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(35, pipeline.AllSectionNames.Length);
+        Assert.Equal(36, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -274,6 +274,7 @@ public class SectionPipelineTests
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Performance Triage", pipeline.AllSectionNames);
+        Assert.Contains("Union Types", pipeline.AllSectionNames);
     }
 
     [Theory]
@@ -702,6 +703,15 @@ public class SectionPipelineTests
                 "Switches"
             ],
             sections);
+    }
+
+    [Fact]
+    public void LibraryPipeline_IntegrationsCategory_IncludesUnionTypes()
+    {
+        var categories = LibrarySections.CreatePipeline().GetCategoryMap();
+
+        Assert.True(categories.TryGetValue("@Integrations", out var sections));
+        Assert.Contains("Union Types", sections);
     }
 
     [Fact]
@@ -1313,6 +1323,7 @@ public class SectionPipelineTests
             HasManifestResources = true,
             HasAssemblyAttributes = true,
             HasExportedTypeForwarders = true,
+            HasUnionTypes = true,
             HasAspNetCoreSupport = true,
             HasAspireSupport = true,
             HasOpenTelemetrySupport = true,
