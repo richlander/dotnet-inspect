@@ -127,7 +127,6 @@ public static class TypeSourceComposer
         if (union is not null)
         {
             if (type.IsReadOnly) sb.Append("readonly ");
-            if (type.IsByRefLike) sb.Append("ref ");
             sb.Append("union ");
             sb.Append(DisplayName(type));
             sb.Append('(');
@@ -436,7 +435,7 @@ public static class TypeSourceComposer
 
     static UnionDeclarationInfo? TryUnionDeclaration(MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type)
     {
-        if (type.Kind != "struct")
+        if (type.Kind != "struct" || type.IsByRefLike)
             return null;
 
         var typeDef = reader.GetTypeDefinition(typeHandle);

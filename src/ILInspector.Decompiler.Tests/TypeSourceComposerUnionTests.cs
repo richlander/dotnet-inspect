@@ -36,9 +36,10 @@ public class TypeSourceComposerUnionTests
 
                 public sealed class Cat { }
                 public sealed class Dog { }
+                public interface IMarker { }
 
                 [System.Runtime.CompilerServices.Union]
-                public readonly struct Pet : System.Runtime.CompilerServices.IUnion, IDisposable
+                public readonly struct Pet : System.Runtime.CompilerServices.IUnion, IMarker
                 {
                     public Pet(Cat value) => Value = value;
                     public Pet(Dog value) => Value = value;
@@ -46,7 +47,6 @@ public class TypeSourceComposerUnionTests
 
                     public object? Value { get; }
 
-                    public void Dispose() { }
                     public string Describe() => Value?.ToString() ?? "";
                 }
             }
@@ -55,7 +55,7 @@ public class TypeSourceComposerUnionTests
         var source = ComposeType(assembly.Path, "UnionFixtures.Pet");
 
         Assert.Contains("using Other;", source);
-        Assert.Contains("public readonly union Pet(Cat, Dog, List<Bird>) : IDisposable", source);
+        Assert.Contains("public readonly union Pet(Cat, Dog, List<Bird>) : IMarker", source);
         Assert.DoesNotContain("[Union", source);
         Assert.DoesNotContain("public struct Pet", source);
         Assert.DoesNotContain("IUnion", source);
@@ -63,8 +63,43 @@ public class TypeSourceComposerUnionTests
         Assert.DoesNotContain("public Pet(Dog value)", source);
         Assert.DoesNotContain("public Pet(List<Bird> value)", source);
         Assert.DoesNotContain("public object", source);
-        Assert.Contains("Dispose", source);
         Assert.Contains("Describe", source);
+    }
+
+    [Fact]
+    public void RenderedUnionDeclaration_BindsUnderPreviewWhenEmbeddedRoslynSupportsUnions()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+
+                public interface IUnion
+                {
+                    object? Value { get; }
+                }
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+                public sealed class Dog { }
+
+                [System.Runtime.CompilerServices.Union]
+                public struct Pet : System.Runtime.CompilerServices.IUnion
+                {
+                    public Pet(Cat value) => Value = value;
+                    public Pet(Dog value) => Value = value;
+                    public object? Value { get; }
+                }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "UnionFixtures.Pet");
+
+        AssertPreviewBinds(source);
     }
 
     [Fact]
@@ -98,6 +133,41 @@ public class TypeSourceComposerUnionTests
         Assert.DoesNotContain("public union NotUnion", source);
     }
 
+    [Fact]
+    public void ByRefLikeUnionMetadata_StaysLowered()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+
+                public interface IUnion
+                {
+                    object? Value { get; }
+                }
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+
+                [System.Runtime.CompilerServices.Union]
+                public ref struct RefPet : System.Runtime.CompilerServices.IUnion
+                {
+                    public RefPet(Cat value) => Value = value;
+                    public object? Value { get; }
+                }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "UnionFixtures.RefPet");
+
+        Assert.Contains("public ref struct RefPet", source);
+        Assert.DoesNotContain("public ref union RefPet", source);
+    }
+
     static string ComposeType(string path, string fullName)
     {
         using var pe = new PEReader(File.OpenRead(path));
@@ -122,6 +192,50 @@ public class TypeSourceComposerUnionTests
         var result = compilation.Emit(stream);
         Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
         return new TempAssembly(path);
+    }
+
+    static void AssertPreviewBinds(string source)
+    {
+        const string caseTypeStubs = """
+            namespace Other
+            {
+                public sealed class Bird { }
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+                public sealed class Dog { }
+                public interface IMarker { }
+            }
+            """;
+
+        if (!EmbeddedRoslynSupportsUnionSyntax())
+            throw Xunit.Sdk.SkipException.ForSkip("Embedded Microsoft.CodeAnalysis.CSharp does not parse union syntax yet.");
+
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compilation = CSharpCompilation.Create(
+            "union-bind",
+            [
+                CSharpSyntaxTree.ParseText(source, parseOptions),
+                CSharpSyntaxTree.ParseText(caseTypeStubs, parseOptions)
+            ],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+
+        var errors = compilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToArray();
+        Assert.True(errors.Length == 0,
+            "Rendered union source must bind under LangVersion=preview, got:\n  "
+            + string.Join("\n  ", errors) + "\n--- source ---\n" + source);
+    }
+
+    static bool EmbeddedRoslynSupportsUnionSyntax()
+    {
+        var tree = CSharpSyntaxTree.ParseText("public union U(int);", new CSharpParseOptions(LanguageVersion.Preview));
+        return !tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
     }
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
