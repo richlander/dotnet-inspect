@@ -696,33 +696,53 @@ public sealed class SwitchExpressionArm : IrNode
 /// </summary>
 public sealed class UnionSwitchExpression : IrExpression
 {
-    public UnionSwitchExpression(IrExpression value, IEnumerable<UnionSwitchExpressionArm> arms)
+    readonly bool _hasDefault;
+
+    public UnionSwitchExpression(IrExpression value, IEnumerable<UnionSwitchExpressionArm> arms, IrExpression? defaultValue = null)
     {
         AddChild(value);
         foreach (var arm in arms)
             AddChild(arm);
+        if (defaultValue is not null)
+        {
+            _hasDefault = true;
+            AddChild(defaultValue);
+        }
     }
 
     public IrExpression Value => (IrExpression)Children[0];
-    public IReadOnlyList<UnionSwitchExpressionArm> Arms => Children.Skip(1).Cast<UnionSwitchExpressionArm>().ToList();
-    public override TypeRef? ResultType => Arms.Select(a => a.Value.ResultType).FirstOrDefault(t => t is not null);
+    public bool HasDefault => _hasDefault;
+    public IReadOnlyList<UnionSwitchExpressionArm> Arms
+        => Children.Skip(1).Take(Children.Count - 1 - (_hasDefault ? 1 : 0)).Cast<UnionSwitchExpressionArm>().ToList();
+    public IrExpression? DefaultValue => _hasDefault ? (IrExpression)Children[^1] : null;
+    public override TypeRef? ResultType
+        => Arms.Select(a => a.Value.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
 
-    public override string Describe() => $"UnionSwitchExpression ({Children.Count - 1} arms)";
+    public override string Describe() => $"UnionSwitchExpression ({Arms.Count} arms{(_hasDefault ? " + default" : "")})";
 }
 
 /// <summary>One type-pattern arm of a <see cref="UnionSwitchExpression"/>.</summary>
 public sealed class UnionSwitchExpressionArm : IrNode
 {
-    public UnionSwitchExpressionArm(TypeRef patternType, int? localIndex, IrExpression value)
+    readonly bool _hasGuard;
+
+    public UnionSwitchExpressionArm(TypeRef patternType, int? localIndex, IrExpression value, IrExpression? guard = null)
     {
         PatternType = patternType;
         LocalIndex = localIndex;
+        if (guard is not null)
+        {
+            _hasGuard = true;
+            AddChild(guard);
+        }
         AddChild(value);
     }
 
     public TypeRef PatternType { get; }
     public int? LocalIndex { get; }
-    public IrExpression Value => (IrExpression)Children[0];
+    public bool HasGuard => _hasGuard;
+    public IrExpression? Guard => _hasGuard ? (IrExpression)Children[0] : null;
+    public IrExpression Value => (IrExpression)Children[_hasGuard ? 1 : 0];
 
     public override IEnumerable<TypeRef> DirectTypes => [PatternType];
     public override string Describe() => LocalIndex is { } index

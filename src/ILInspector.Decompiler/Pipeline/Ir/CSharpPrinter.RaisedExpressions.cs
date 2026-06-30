@@ -176,10 +176,15 @@ public sealed partial class CSharpPrinter
     }
 
     string UnionSwitchExpressionInline(UnionSwitchExpression node, TypeRef? target = null)
-        => $"{UnionSwitchReceiverText(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => UnionSwitchArmText(arm, target)))} }}";
+    {
+        var arms = node.Arms.Select(arm => UnionSwitchArmText(arm, target));
+        if (node.DefaultValue is { } defaultValue)
+            arms = arms.Append($"_ => {SwitchArmValueText(defaultValue, target)}");
+        return $"{UnionSwitchReceiverText(node.Value)} switch {{ {string.Join(", ", arms)} }}";
+    }
 
     string UnionSwitchArmText(UnionSwitchExpressionArm arm, TypeRef? target = null)
-        => $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")} => {SwitchArmValueText(arm.Value, target)}";
+        => $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}{(arm.Guard is { } guard ? $" when {Condition(guard)}" : "")} => {SwitchArmValueText(arm.Value, target)}";
 
     string UnionSwitchReceiverText(IrExpression value)
         => UnionValueReceiverText(value) ?? Operand(value);

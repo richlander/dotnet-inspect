@@ -10,7 +10,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 {
     public string Name => "union-switch-expression";
 
-    sealed record Arm(TypeRef PatternType, int? LocalIndex, IrExpression Value, IReadOnlyList<IrNode> LocalRoots);
+    sealed record Arm(TypeRef PatternType, int? LocalIndex, IrExpression Value, IReadOnlyList<IrNode> LocalRoots, IrExpression? Guard = null);
     sealed record Match(int StartIndex, UnionSwitchExpression SwitchExpression);
 
     public void Run(IrFunction function, PassContext context)
@@ -40,6 +40,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 return true;
             }
 
+            if (TryMatchDefaultChainAt(function, children, start, out var defaultSwitch))
+            {
+                match = new Match(start, defaultSwitch);
+                return true;
+            }
+
             if (TryMatchAt(function, children, start, out var switchExpression))
             {
                 match = new Match(start, switchExpression);
@@ -48,6 +54,78 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchDefaultChainAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 2 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsUnionValueProperty(function, unionValue))
+        {
+            return false;
+        }
+
+        IrExpression defaultValue;
+        IReadOnlyList<IrNode> armNodes;
+        if (TryFinalFallbackDefault(children, start + 1, out var finalDefault))
+        {
+            defaultValue = finalDefault;
+            armNodes = children.Skip(start + 1).ToArray();
+        }
+        else if (children[^1] is Return { Value: { } trailingDefault })
+        {
+            defaultValue = trailingDefault;
+            armNodes = children.Skip(start + 1).Take(children.Count - start - 2).ToArray();
+        }
+        else
+        {
+            return false;
+        }
+
+        int tempLocal = valueStore.Index;
+        if (!TryDefaultArms(armNodes, tempLocal, defaultValue, out var arms))
+            return false;
+
+        var allowedTempUses = new List<IrNode> { valueStore };
+        allowedTempUses.AddRange(armNodes);
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, allowedTempUses)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || arms.Select(arm => arm.PatternType).Distinct().Count() != arms.Count)
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            (IrExpression)defaultValue.Clone());
+        return true;
+    }
+
+    static bool TryFinalFallbackDefault(IReadOnlyList<IrNode> children, int armStart, out IrExpression defaultValue)
+    {
+        defaultValue = null!;
+        if (children.Count - armStart < 3
+            || children[^3] is not StoreLocal { Value: IsInstance }
+            || children[^2] is not IfStatement nullGuard
+            || nullGuard.HasElse
+            || nullGuard.Then.Children is not [Return { Value: { } fallback }]
+            || children[^1] is not Return)
+        {
+            return false;
+        }
+
+        defaultValue = fallback;
+        return true;
     }
 
     static bool TryMatchClassNullGuardAt(
@@ -192,8 +270,94 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
         switchExpression = new UnionSwitchExpression(
             (IrExpression)unionValue.Clone(),
-            arms.Select(arm => new UnionSwitchExpressionArm(arm.PatternType, arm.LocalIndex, (IrExpression)arm.Value.Clone())));
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())));
         return true;
+    }
+
+    static bool TryDefaultArm(IfStatement armIf, int tempLocal, IrExpression defaultValue, out Arm arm)
+    {
+        arm = null!;
+        if (armIf.HasElse)
+            return false;
+
+        if (TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots)
+            && TryArmBody(armIf.Then.Children, localIndex, defaultValue, out var value, out var guard, out var guardRoots))
+        {
+            var localRoots = new List<IrNode>(patternRoots) { value };
+            localRoots.AddRange(guardRoots);
+            arm = new Arm(patternType, localIndex, value, localRoots, guard);
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool TryArmPattern(IrExpression condition, int tempLocal, out TypeRef patternType, out int? localIndex, out IReadOnlyList<IrNode> roots)
+    {
+        switch (condition)
+        {
+            case IsPattern pattern when IsTempLoad(pattern.Value, tempLocal):
+                patternType = pattern.Type;
+                localIndex = pattern.LocalIndex;
+                roots = [pattern];
+                return true;
+            case IsInstance test when IsTempTypeTest(test, tempLocal):
+                patternType = test.Type;
+                localIndex = null;
+                roots = [];
+                return true;
+            default:
+                patternType = null!;
+                localIndex = null;
+                roots = [];
+                return false;
+        }
+    }
+
+    static bool TryArmBody(
+        IReadOnlyList<IrNode> nodes,
+        int? localIndex,
+        IrExpression defaultValue,
+        out IrExpression value,
+        out IrExpression? guard,
+        out IReadOnlyList<IrNode> guardRoots)
+    {
+        value = null!;
+        guard = null;
+        guardRoots = [];
+
+        if (nodes is [Return { Value: { } direct }])
+        {
+            value = direct;
+            return true;
+        }
+
+        if (nodes is [IfStatement { HasElse: false } guardIf, Return fallback]
+            && fallback.Value is { } fallbackValue
+            && PlaceIdentity.SameOperand(fallbackValue, defaultValue)
+            && guardIf.Then.Children is [Return { Value: { } guardedValue }])
+        {
+            value = guardedValue;
+            guard = guardIf.Condition;
+            guardRoots = [guardIf.Condition];
+            return true;
+        }
+
+        if (nodes is [IfStatement { HasElse: false } invertedGuardIf, Return { Value: { } invertedValue }]
+            && invertedGuardIf.Then.Children is [Return { Value: { } nestedFallback }]
+            && PlaceIdentity.SameOperand(nestedFallback, defaultValue))
+        {
+            value = invertedValue;
+            guard = Conditions.Negate((IrExpression)invertedGuardIf.Condition.Clone());
+            guardRoots = [invertedGuardIf.Condition];
+            return true;
+        }
+
+        return false;
     }
 
     static bool TryInnerArms(IEnumerable<IrNode> nodes, int tempLocal, int resultLocal, out IReadOnlyList<Arm> arms)
@@ -207,6 +371,41 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 return false;
             }
             builder.Add(arm);
+        }
+
+        arms = builder;
+        return arms.Count > 0;
+    }
+
+    static bool TryDefaultArms(IReadOnlyList<IrNode> nodes, int tempLocal, IrExpression defaultValue, out IReadOnlyList<Arm> arms)
+    {
+        var builder = new List<Arm>();
+        for (int i = 0; i < nodes.Count;)
+        {
+            if (nodes[i] is IfStatement armIf && TryDefaultArm(armIf, tempLocal, defaultValue, out var arm))
+            {
+                builder.Add(arm);
+                i++;
+                continue;
+            }
+
+            if (i + 2 < nodes.Count
+                && nodes[i] is StoreLocal { Value: IsInstance asCast } store
+                && IsTempTypeTest(asCast, tempLocal)
+                && nodes[i + 1] is IfStatement nullGuard
+                && !nullGuard.HasElse
+                && IsNotLocal(nullGuard.Condition, store.Index)
+                && nullGuard.Then.Children is [Return { Value: { } fallback }]
+                && PlaceIdentity.SameOperand(fallback, defaultValue)
+                && nodes[i + 2] is Return { Value: { } value })
+            {
+                builder.Add(new Arm(asCast.Type, store.Index, value, [store, nullGuard.Condition, value]));
+                i += 3;
+                continue;
+            }
+
+            arms = [];
+            return false;
         }
 
         arms = builder;

@@ -243,6 +243,10 @@ public static class IrPasses
         // formed; expression inlining leaves these temps standing because it
         // refuses to move a value across a leave/region edge.
         new ReturnSinkingPass(),
+        // Re-run after return-sinking: union switch expressions with default
+        // arms normalize from store/return accumulator blocks to direct returns,
+        // the shape this deliberately narrow pass recognizes.
+        new UnionSwitchExpressionPass(),
         // Raise the csc reference-type using lowering (resource local +
         // try/finally with an IDisposable.Dispose null guard) back into a
         // using statement. Runs after return sinking so a `return` from inside
