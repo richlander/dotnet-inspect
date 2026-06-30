@@ -95,7 +95,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         allowedTempUses.AddRange(armNodes);
         if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, allowedTempUses)
             || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
-            || arms.Select(arm => arm.PatternType).Distinct().Count() != arms.Count)
+            || !DuplicateTypesAreGuarded(arms))
         {
             return false;
         }
@@ -278,23 +278,28 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         return true;
     }
 
-    static bool TryDefaultArm(IfStatement armIf, int tempLocal, IrExpression defaultValue, out Arm arm)
+    static bool TryDefaultArm(IfStatement armIf, int tempLocal, IrExpression defaultValue, out IReadOnlyList<Arm> arms)
     {
-        arm = null!;
+        arms = [];
         if (armIf.HasElse)
             return false;
 
         if (TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots)
-            && TryArmBody(armIf.Then.Children, localIndex, defaultValue, out var value, out var guard, out var guardRoots))
+            && TryArmBody(armIf.Then.Children, localIndex, defaultValue, out var matchedArms))
         {
-            var localRoots = new List<IrNode>(patternRoots) { value };
-            localRoots.AddRange(guardRoots);
-            arm = new Arm(patternType, localIndex, value, localRoots, guard);
+            arms = matchedArms.Select(arm =>
+            {
+                var localRoots = new List<IrNode>(patternRoots) { arm.Value };
+                localRoots.AddRange(arm.GuardRoots);
+                return new Arm(patternType, arm.KeepsLocal ? localIndex : null, arm.Value, localRoots, arm.Guard);
+            }).ToArray();
             return true;
         }
 
         return false;
     }
+
+    sealed record ArmBody(IrExpression Value, IrExpression? Guard, IReadOnlyList<IrNode> GuardRoots, bool KeepsLocal);
 
     static bool TryArmPattern(IrExpression condition, int tempLocal, out TypeRef patternType, out int? localIndex, out IReadOnlyList<IrNode> roots)
     {
@@ -322,43 +327,62 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         IReadOnlyList<IrNode> nodes,
         int? localIndex,
         IrExpression defaultValue,
-        out IrExpression value,
-        out IrExpression? guard,
-        out IReadOnlyList<IrNode> guardRoots)
+        out IReadOnlyList<ArmBody> arms)
     {
-        value = null!;
-        guard = null;
-        guardRoots = [];
+        arms = [];
 
         if (nodes is [Return { Value: { } direct }])
         {
-            value = direct;
+            arms = [new ArmBody(direct, Guard: null, GuardRoots: [], KeepsLocal: localIndex is not null && ReferencesLocal(direct, localIndex.Value))];
             return true;
         }
 
         if (nodes is [IfStatement { HasElse: false } guardIf, Return fallback]
             && fallback.Value is { } fallbackValue
-            && PlaceIdentity.SameOperand(fallbackValue, defaultValue)
             && guardIf.Then.Children is [Return { Value: { } guardedValue }])
         {
-            value = guardedValue;
-            guard = guardIf.Condition;
-            guardRoots = [guardIf.Condition];
-            return true;
+            if (PlaceIdentity.SameOperand(fallbackValue, defaultValue))
+            {
+                arms = [new ArmBody(guardedValue, guardIf.Condition, [guardIf.Condition], KeepsLocal: true)];
+                return true;
+            }
+
+            if (localIndex is not { } fallbackLocal || !ReferencesLocal(fallbackValue, fallbackLocal))
+            {
+                arms =
+                [
+                    new ArmBody(guardedValue, guardIf.Condition, [guardIf.Condition], KeepsLocal: true),
+                    new ArmBody(fallbackValue, Guard: null, GuardRoots: [], KeepsLocal: false),
+                ];
+                return true;
+            }
         }
 
         if (nodes is [IfStatement { HasElse: false } invertedGuardIf, Return { Value: { } invertedValue }]
-            && invertedGuardIf.Then.Children is [Return { Value: { } nestedFallback }]
-            && PlaceIdentity.SameOperand(nestedFallback, defaultValue))
+            && invertedGuardIf.Then.Children is [Return { Value: { } nestedFallback }])
         {
-            value = invertedValue;
-            guard = Conditions.Negate((IrExpression)invertedGuardIf.Condition.Clone());
-            guardRoots = [invertedGuardIf.Condition];
-            return true;
+            if (PlaceIdentity.SameOperand(nestedFallback, defaultValue))
+            {
+                arms = [new ArmBody(invertedValue, Conditions.Negate((IrExpression)invertedGuardIf.Condition.Clone()), [invertedGuardIf.Condition], KeepsLocal: true)];
+                return true;
+            }
+
+            if (localIndex is not { } invertedFallbackLocal || !ReferencesLocal(nestedFallback, invertedFallbackLocal))
+            {
+                arms =
+                [
+                    new ArmBody(invertedValue, Conditions.Negate((IrExpression)invertedGuardIf.Condition.Clone()), [invertedGuardIf.Condition], KeepsLocal: true),
+                    new ArmBody(nestedFallback, Guard: null, GuardRoots: [], KeepsLocal: false),
+                ];
+                return true;
+            }
         }
 
         return false;
     }
+
+    static bool ReferencesLocal(IrExpression expression, int local)
+        => ReferenceOwnership.SubtreeReferencesLocal(expression, local);
 
     static bool TryInnerArms(IEnumerable<IrNode> nodes, int tempLocal, int resultLocal, out IReadOnlyList<Arm> arms)
     {
@@ -384,7 +408,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         {
             if (nodes[i] is IfStatement armIf && TryDefaultArm(armIf, tempLocal, defaultValue, out var arm))
             {
-                builder.Add(arm);
+                builder.AddRange(arm);
                 i++;
                 continue;
             }
@@ -528,6 +552,22 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     static bool ArmLocalReferencesAreOwned(IrFunction function, Arm arm)
         => arm.LocalIndex is not { } local
             || ReferenceOwnership.LocalReferencesOnlyWithin(function, local, arm.LocalRoots);
+
+    static bool DuplicateTypesAreGuarded(IReadOnlyList<Arm> arms)
+    {
+        for (int i = 0; i < arms.Count; i++)
+        {
+            for (int j = i + 1; j < arms.Count; j++)
+            {
+                if (arms[i].PatternType.Equals(arms[j].PatternType)
+                    && arms[i].Guard is null)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 
     static bool IsThrowSwitchExpression(ExpressionStatement statement)
         => statement.Expression is Call
