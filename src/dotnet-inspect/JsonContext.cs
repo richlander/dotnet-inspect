@@ -158,14 +158,6 @@ internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
 [JsonSerializable(typeof(TypeFindResult))]
 internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
 
-// SourceLink point-query JSON contexts
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(ILOffsetResult))]
-internal partial class SourceJsonContext : JsonSerializerContext { }
-
 static class JsonOutputHelper
 {
     public static void Write<T>(T data, JsonTypeInfo<T> indented, JsonTypeInfo<T> compact, bool useCompact)

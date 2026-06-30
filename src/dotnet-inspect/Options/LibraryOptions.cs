@@ -67,7 +67,7 @@ public record LibraryOptions
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// MethodDef token + IL offset parameter from the IL Offset section selector.
+    /// MethodDef token + IL offset parameter for the IL Offset section.
     /// </summary>
     public string? ILOffsetParameter { get; init; }
 

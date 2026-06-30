@@ -4536,11 +4536,11 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetSectionSelector_ResolvesSourceLocation()
+    public async Task LibraryCommand_IlOffsetFlag_ImplicitlySelectsSection()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "IL Offset:0x06000001+0x0", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4550,14 +4550,62 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetSectionSelector_RequiresParameter()
+    public async Task LibraryCommand_IlOffsetSectionSelector_UsesFlagParameter()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## IL Offset", output);
+        Assert.Contains("| System.HexConverter.FromChar | 0x6000001 | 0x0 |", output);
+        Assert.Contains("HexConverter.cs", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetSectionSelector_RequiresFlagParameter()
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
             "-S", "IL Offset", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("IL Offset requires a token+offset parameter", error);
+        Assert.Contains("IL Offset requires --il-offset", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetParameterizedSectionSelector_IsRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "IL Offset:0x06000001+0x0", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("IL Offset parameters belong in --il-offset", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetWildcardSelectionWithoutValue_DoesNotRequireFlag()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "*", "-n", "8", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("IL Offset requires", error);
+        Assert.Contains("##", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetFlag_ErrorsWhenSelectedSectionsExcludeILOffset()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "Library Info", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--il-offset requires the IL Offset section", error);
     }
 
     [Fact]

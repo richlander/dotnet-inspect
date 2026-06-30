@@ -74,16 +74,26 @@ public class LibraryCommand
             if (selectResult.Sections.Contains(SectionNames.ILOffset)
                 && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
-                if (SelectResolver.IsAllSelector(options.Select))
+                if (!HasExactILOffsetSelection(options.Select))
+                {
                     selectResult.Sections.Remove(SectionNames.ILOffset);
+                }
                 else if (options.Discover == null)
                 {
-                    Console.Error.WriteLine("Error: IL Offset requires a token+offset parameter. Use -S \"IL Offset:0x06000001+0x5\".");
+                    Console.Error.WriteLine("Error: IL Offset requires --il-offset <token>+<offset>.");
                     return 1;
                 }
             }
 
             options = options with { IncludeSections = selectResult.Sections };
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
+            && options.IncludeSections is { Count: > 0 }
+            && !options.IncludeSections.Contains(SectionNames.ILOffset))
+        {
+            Console.Error.WriteLine("Error: --il-offset requires the IL Offset section. Omit -S or include -S \"IL Offset\".");
+            return 1;
         }
 
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
@@ -287,6 +297,8 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (options.Value || options.Urls || options.Paths)
+                    return WriteLibraryShapeProjection(inspections[0], options);
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
@@ -334,6 +346,8 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (options.Value || options.Urls || options.Paths)
+                    return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
@@ -371,29 +385,18 @@ public class LibraryCommand
     {
         var select = options.Select?.ToList() ?? [];
         string? ilOffset = options.ILOffsetParameter;
+        bool hasExplicitSelect = select.Count > 0;
 
         for (var i = 0; i < select.Count; i++)
         {
             var value = select[i].Trim();
-            if (!value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var parameter = value["IL Offset:".Length..].Trim();
-            if (string.IsNullOrWhiteSpace(parameter))
-                return (options, "Error: IL Offset selector requires a token+offset parameter, for example -S \"IL Offset:0x06000001+0x5\".");
-
-            if (!string.IsNullOrWhiteSpace(ilOffset)
-                && !string.Equals(ilOffset, parameter, StringComparison.OrdinalIgnoreCase))
-                return (options, "Error: specify only one IL Offset token+offset parameter.");
-
-            ilOffset = parameter;
-            select[i] = SectionNames.ILOffset;
+            if (value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase))
+                return (options, "Error: IL Offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"IL Offset\".");
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
             && options.Discover == null
-            && !select.Any(s => s.Equals(SectionNames.ILOffset, StringComparison.OrdinalIgnoreCase))
-            && !select.Any(s => s.Equals(SelectResolver.AllSelector, StringComparison.OrdinalIgnoreCase)))
+            && !hasExplicitSelect)
         {
             select.Add(SectionNames.ILOffset);
         }
@@ -403,6 +406,22 @@ public class LibraryCommand
             ILOffsetParameter = ilOffset,
             Select = select.Count == 0 ? null : [.. select]
         }, null);
+    }
+
+    private static bool HasExactILOffsetSelection(string[]? select)
+    {
+        if (select is not { Length: > 0 })
+            return false;
+
+        foreach (var value in select)
+        {
+            if (value.StartsWith('@'))
+                continue;
+            if (value.Equals(SectionNames.ILOffset, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     private static async Task<int> PopulateILOffsetIfRequestedAsync(
@@ -436,10 +455,11 @@ public class LibraryCommand
         {
             "Source Files" => ProjectLibrarySourceFiles(inspection, section, kind, options),
             "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
+            SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             _ => []
         };
 
-        if (rows.Count == 0 && section is not ("Source Files" or "Library Info"))
+        if (rows.Count == 0 && section is not ("Source Files" or "Library Info") && section != SectionNames.ILOffset)
         {
             Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
@@ -481,6 +501,44 @@ public class LibraryCommand
             "type" => row.Type,
             "url" => row.Url,
             _ => row.Url
+        };
+    }
+
+    private static List<ShapeProjectionRow> ProjectLibraryILOffset(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (inspection.ILOffset is not { } result)
+            return [];
+
+        var value = kind switch
+        {
+            ShapeProjectionKind.Urls => result.Url,
+            ShapeProjectionKind.Paths => result.File,
+            ShapeProjectionKind.Value => SelectLibraryILOffsetValue(result, options),
+            _ => null
+        };
+
+        return string.IsNullOrWhiteSpace(value)
+            ? []
+            : [new ShapeProjectionRow(1, section, value, Label: result.Method, Url: result.Url, Path: result.File)];
+    }
+
+    private static string? SelectLibraryILOffsetValue(ILOffsetResult result, LibraryOptions options)
+    {
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        return field?.ToLowerInvariant() switch
+        {
+            "method" => result.Method,
+            "token" => result.Token,
+            "il offset" or "iloffset" => result.ILOffset,
+            "matched offset" or "matchedoffset" => result.MatchedOffset,
+            "file" or "path" => result.File,
+            "line" => result.Line?.ToString(CultureInfo.InvariantCulture),
+            "url" or "source" => result.Url,
+            _ => result.Url
         };
     }
 

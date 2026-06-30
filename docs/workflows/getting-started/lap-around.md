@@ -232,7 +232,7 @@ public static partial class JsonSerializer
 For stack-trace style diagnostics, the `IL Offset` library section maps a MethodDef token plus IL offset to source.
 
 ```bash
-dotnet-inspect library --platform System.Text.Json -S "IL Offset:0x06000001+0x0" --json
+dotnet-inspect library --platform System.Text.Json --il-offset 0x06000001+0x0 --json
 ```
 
 ```expect
