@@ -27,8 +27,12 @@ public class ResearchFactRegistryTests
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
         var il = ResearchViews.ProjectAnnotatedIl(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
+        var imported = IrImporter.Import(source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt))
+            ?? throw new InvalidOperationException("fixture method has no IL body");
+        var headerFacts = registry.CollectHeaderFacts(new ResearchFactContext(source, imported));
 
         Assert.Empty(facts);
+        Assert.Empty(headerFacts);
         Assert.DoesNotContain("alloc.", annotated);
         Assert.DoesNotContain("alloc.", il);
     }
@@ -58,6 +62,97 @@ public class ResearchFactRegistryTests
         Assert.Contains("alloc.box(registered)", il);
     }
 
+    [Fact]
+    public void CostOverlay_AnnotatesHighValueCalleeAtCallSite()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsAllocInLoopCallee)).Output;
+
+        Assert.Contains("AllocInLoopCallee", overlay);
+        Assert.Contains("cost.callee", overlay);
+        Assert.Contains("alloc-loop", overlay);
+    }
+
+    [Fact]
+    public void CostOverlay_DoesNotAnnotateLowSignalCallee()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsLowSignalCallee)).Output;
+
+        Assert.Contains("LowSignalCallee", overlay);
+        Assert.DoesNotContain("cost.callee", overlay);
+    }
+
+    [Fact]
+    public void CostOverlay_DoesNotAnnotateExceptionOnlyCallee()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsExceptionOnlyCallee)).Output;
+
+        Assert.Contains("ExceptionOnlyCallee", overlay);
+        Assert.DoesNotContain("cost.callee", overlay);
+        Assert.DoesNotContain("FormatException", overlay);
+    }
+
+    [Fact]
+    public void CostOverlay_RendersMethodHeaderLeverage()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.HighLoopLeverageCallee));
+
+        var fact = Assert.Single(overlay.HeaderFacts);
+        Assert.Equal("cost.method", fact.Descriptor.Id);
+        Assert.Contains("direct-callers 20", fact.Detail);
+        Assert.DoesNotContain("cost.method", overlay.Body.Output);
+    }
+
+    [Fact]
+    public void CostOverlay_KeepsMethodHeaderLeverageOutOfBodyText()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.HighLoopLeverageCallee));
+
+        Assert.NotEmpty(overlay.HeaderFacts);
+        Assert.DoesNotContain("cost.method", overlay.Body.Output);
+        Assert.StartsWith("return value + 1;", overlay.Body.Output);
+    }
+
+    [Fact]
+    public void CostOverlay_DoesNotAnnotateDirectCallerOnlyCallee()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.LoopCaller01)).Output;
+
+        Assert.Contains("HighLoopLeverageCallee", overlay);
+        Assert.DoesNotContain("cost.callee", overlay);
+        Assert.DoesNotContain("root-reach 1", overlay);
+        Assert.DoesNotContain("direct-callers 1", overlay);
+    }
+
+    [Fact]
+    public void AnnotatedSource_DoesNotIncludeCostOverlayByDefault()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var annotated = ResearchViews.RenderAnnotatedSource(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsAllocInLoopCallee)).Output;
+
+        Assert.DoesNotContain("cost.callee", annotated);
+        Assert.DoesNotContain("cost.method", annotated);
+    }
+
     sealed class TestProducer(
         string name,
         IReadOnlyList<string>? dependsOn = null,
@@ -74,4 +169,56 @@ public class ResearchFactRegistryTests
 public static class ResearchFixture
 {
     public static object BoxInt(int value) => value;
+
+    public static int CallsAllocInLoopCallee(int count) => AllocInLoopCallee(count);
+
+    public static int AllocInLoopCallee(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+            total += new object().GetHashCode();
+        return total;
+    }
+
+    public static int CallsLowSignalCallee(int value) => LowSignalCallee(value);
+
+    public static int LowSignalCallee(int value) => value + 1;
+
+    public static int CallsExceptionOnlyCallee(string value) => ExceptionOnlyCallee(value);
+
+    public static int ExceptionOnlyCallee(string value)
+    {
+        if (value.Length == 0)
+            throw new FormatException();
+        return value.Length;
+    }
+
+    public static int SharedLeverageCallee(int value) => value + 1;
+
+    public static int LeverageCallerA(int value) => SharedLeverageCallee(value);
+
+    public static int LeverageCallerB(int value) => SharedLeverageCallee(value + 1);
+
+    public static int HighLoopLeverageCallee(int value) => value + 1;
+
+    public static int LoopCaller01(int count) { int total = 1; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller02(int count) { int total = 2; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller03(int count) { int total = 3; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller04(int count) { int total = 4; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller05(int count) { int total = 5; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller06(int count) { int total = 6; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller07(int count) { int total = 7; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller08(int count) { int total = 8; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller09(int count) { int total = 9; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller10(int count) { int total = 10; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller11(int count) { int total = 11; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller12(int count) { int total = 12; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller13(int count) { int total = 13; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller14(int count) { int total = 14; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller15(int count) { int total = 15; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller16(int count) { int total = 16; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller17(int count) { int total = 17; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller18(int count) { int total = 18; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller19(int count) { int total = 19; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+    public static int LoopCaller20(int count) { int total = 20; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
 }

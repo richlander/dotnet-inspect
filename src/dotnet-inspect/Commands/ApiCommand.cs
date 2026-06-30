@@ -818,6 +818,7 @@ public class ApiCommand
         {
             SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
+            SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
             SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),

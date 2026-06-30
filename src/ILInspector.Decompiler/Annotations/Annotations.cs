@@ -37,6 +37,9 @@ public enum AnnotationCategory
 
     /// <summary>Ref-safety lifetime contracts — ref structs, <c>scoped</c>/<c>[UnscopedRef]</c>, ref returns, byref parameters.</summary>
     Lifetime,
+
+    /// <summary>Whole-assembly cost facts — call-site callee cost and method leverage overlays.</summary>
+    Cost,
 }
 
 /// <summary>

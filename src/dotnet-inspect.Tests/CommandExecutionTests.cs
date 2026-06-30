@@ -2312,6 +2312,70 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectCostOverlay_RendersExplicitCostFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Cost Overlay", output);
+        Assert.Contains("cost.callee", output);
+        Assert.Contains("alloc-loop", output);
+        Assert.DoesNotContain("cost.method(root-reach 1", output);
+    }
+
+    [Fact]
+    public async Task Member_CostOverlay_IsExplicitOnly_NotShownAtDetailed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Cost Overlay", output);
+        Assert.DoesNotContain("cost.callee", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_CostOverlay_BareRendersPayload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Cost Overlay", output);
+        Assert.Contains("cost.callee", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DiscoveryListsCostOverlayAsOptIn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Cost Overlay        section (opt-in)", output);
+    }
+
+    [Fact]
+    public async Task Type_Discovery_DoesNotListCostOverlay()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath, "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Cost Overlay", output);
+    }
+
+    [Fact]
     public async Task Member_Facts_IsExplicitOnly_NotShownAtDetailed()
     {
         var options = new MemberOptions
@@ -3904,6 +3968,7 @@ public class CommandExecutionTests
         Assert.DoesNotContain("Top Leverage", sections);
         Assert.DoesNotContain("Performance Triage", sections);
         Assert.DoesNotContain("Facts", sections);
+        Assert.DoesNotContain("Cost Overlay", sections);
         Assert.DoesNotContain("IL", sections);
         Assert.DoesNotContain("Source Files", sections);
     }
@@ -3914,6 +3979,7 @@ public class CommandExecutionTests
         "Custom Attributes",
         "Decompiled Source",
         "Annotated Source",
+        "Cost Overlay",
         "Original Source",
         "Calls",
         "Callers",
@@ -7157,4 +7223,21 @@ public class CommandExecutionTests
 
 public interface EmptyDiscoveryFixture
 {
+}
+
+public static class CostOverlayFixture
+{
+    public static int Caller(int count) => HotCallee(count);
+
+    public static int LowSignal(int value) => value + 1;
+
+    public static int CallsLowSignal(int value) => LowSignal(value);
+
+    public static int HotCallee(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+            total += new object().GetHashCode();
+        return total;
+    }
 }

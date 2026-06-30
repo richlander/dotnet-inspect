@@ -329,6 +329,7 @@ public class SectionPipelineTests
         Assert.DoesNotContain(SectionNames.TopLeverage, discoverable);
         Assert.DoesNotContain(SectionNames.PerformanceTriage, discoverable);
         Assert.DoesNotContain(SectionNames.Facts, discoverable);
+        Assert.DoesNotContain(SectionNames.CostOverlay, discoverable);
         Assert.DoesNotContain(SectionNames.IL, discoverable);
         Assert.DoesNotContain(SectionNames.SourceFiles, discoverable);
     }
@@ -339,6 +340,7 @@ public class SectionPipelineTests
         SectionNames.CustomAttributes,
         SectionNames.DecompiledSource,
         SectionNames.AnnotatedSource,
+        SectionNames.CostOverlay,
         SectionNames.OriginalSource,
         SectionNames.Calls,
         SectionNames.Callers,

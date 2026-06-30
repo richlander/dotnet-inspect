@@ -1,4 +1,5 @@
 using System.Text;
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -7,6 +8,10 @@ namespace ILInspector.Research;
 
 public static class ResearchViews
 {
+    public sealed record CostOverlayResult(
+        DecompilerResult Body,
+        IReadOnlyList<ResearchHeaderFact> HeaderFacts);
+
     public static IReadOnlyList<Annotation> CollectFacts(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
@@ -19,6 +24,44 @@ public static class ResearchViews
     public static IReadOnlyList<Annotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)
         => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported));
+
+    public static DecompilerResult RenderCostOverlay(
+        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
+        ResearchFactRegistry? registry = null)
+        => RenderCostOverlayWithHeaderFacts(source, type, method, overloadIndex, publicOnly, registry).Body;
+
+    public static CostOverlayResult RenderCostOverlayWithHeaderFacts(
+        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
+        ResearchFactRegistry? registry = null)
+    {
+        IReadOnlyList<ResearchHeaderFact> headerFacts = [];
+        var body = Run(() =>
+        {
+            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+                ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
+            var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
+            if (result.Output is not { } output)
+                return "";
+            if (imported.AssemblyPath is not { Length: > 0 } path)
+                return output;
+
+            var context = new ResearchFactContext(
+                source,
+                imported,
+                ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path)));
+            var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
+            var annotations = effectiveRegistry.Collect(context)
+                .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
+                .ToList();
+            headerFacts = effectiveRegistry.CollectHeaderFacts(context)
+                .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
+                .ToList();
+            if (annotations.Count > 0)
+                output = AddTrailingComments(imported, output, statementLines, annotations);
+            return output;
+        }, emptyOutputIsFailure: true);
+        return new CostOverlayResult(body, headerFacts);
+    }
 
     public static DecompilerResult RenderAnnotatedSource(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
