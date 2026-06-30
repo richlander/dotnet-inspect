@@ -5,6 +5,7 @@ using System.Linq;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -66,7 +67,7 @@ public class UnsafeEmitterTests
         var source = MetadataSource.Open(typeof(NewFixtures).Assembly.Location);
         var function = IrImporter.Import(source, typeof(NewFixtures).FullName!, method);
         Assert.NotNull(function);
-        return (function!, AnnotationEngine.Default.ClassifyImported(function!));
+        return (function!, ResearchViews.CollectFacts(source, function!));
     }
 
     /// <summary>The body of the first <c>unsafe { }</c> block, by brace matching.</summary>

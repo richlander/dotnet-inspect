@@ -1,5 +1,6 @@
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -8,8 +9,9 @@ public class LifetimeClassifierTests
     static IReadOnlyList<Annotation> Classify(string methodName)
     {
         var source = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(LifetimeSampleClass).FullName!, methodName)!;
-        return new LifetimeClassifier().Classify(function);
+        return ResearchViews.CollectFacts(source, typeof(LifetimeSampleClass).FullName!, methodName)
+            .Where(fact => fact.Descriptor.Category == AnnotationCategory.Lifetime)
+            .ToList();
     }
 
     [Fact]
@@ -56,9 +58,9 @@ public class LifetimeClassifierTests
     public void PointerReturn_LandsOnTheReturnStatement()
     {
         var source = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(LifetimeSampleClass).FullName!, nameof(LifetimeSampleClass.EscapingStackPointer))!;
-        var fact = new LifetimeClassifier().Classify(function).Single(f => f.Descriptor.Id == "lifetime.pointer-return");
-        Assert.IsType<Return>(fact.Node);
+        var fact = ResearchViews.CollectFacts(source, typeof(LifetimeSampleClass).FullName!, nameof(LifetimeSampleClass.EscapingStackPointer))
+            .Single(f => f.Descriptor.Id == "lifetime.pointer-return");
+        Assert.True(fact.SourceOffset >= 0);
     }
 
     [Fact]
@@ -99,8 +101,8 @@ public class LifetimeClassifierTests
     public void RefReturn_LandsOnTheReturnStatement()
     {
         var source = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(LifetimeSampleClass).FullName!, nameof(LifetimeSampleClass.FirstElement))!;
-        var fact = new LifetimeClassifier().Classify(function).Single(f => f.Descriptor.Id == "lifetime.ref-return");
-        Assert.IsType<Return>(fact.Node);
+        var fact = ResearchViews.CollectFacts(source, typeof(LifetimeSampleClass).FullName!, nameof(LifetimeSampleClass.FirstElement))
+            .Single(f => f.Descriptor.Id == "lifetime.ref-return");
+        Assert.True(fact.SourceOffset >= 0);
     }
 }

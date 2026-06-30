@@ -1,15 +1,17 @@
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
-public class UnsafetyClassifierTests
+public class UnsafetyOccurrenceFactTests
 {
     static IReadOnlyList<Annotation> Classify(string methodName)
     {
         var source = MetadataSource.Open(typeof(UnsafeSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(UnsafeSampleClass).FullName!, methodName)!;
-        return new UnsafetyClassifier().Classify(function);
+        return ResearchViews.CollectFacts(source, typeof(UnsafeSampleClass).FullName!, methodName)
+            .Where(fact => fact.Descriptor.Category == AnnotationCategory.Unsafety)
+            .ToList();
     }
 
     [Fact]
