@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection.PortableExecutable;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -202,6 +203,92 @@ public class TypeSourceComposerUnionTests
         Assert.DoesNotContain("public ref union RefPet", source);
     }
 
+    [Fact]
+    public async Task UnionMatchingTypeAndNullTests_RenderAgainstUnion()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { }
+            public sealed class Dog { }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static bool IsCat(Pet pet) => pet is Cat;
+                public static bool IsNotNull(Pet pet) => pet is not null;
+                public static bool IsNull(Pet pet) => pet is null;
+                public static Cat? AsCat(Pet pet) => pet.Value as Cat;
+            }
+            """);
+
+        Assert.Equal("return pet is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet is not null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotNull"));
+        Assert.Equal("return pet is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+        Assert.Equal("return pet.Value as Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "AsCat"));
+    }
+
+    [Fact]
+    public void NonUnionValuePropertyTypeTest_KeepsValueAccess()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+
+                public readonly struct PetLike
+                {
+                    public PetLike(Cat value) => Value = value;
+                    public object? Value { get; }
+                }
+
+                public static class Matcher
+                {
+                    public static bool IsCat(PetLike pet) => pet.Value is Cat;
+                    public static bool IsNull(PetLike pet) => pet.Value is null;
+                }
+            }
+            """);
+
+        Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+    }
+
+    [Fact]
+    public void UnionAttributeWithoutRuntimeIUnionMatching_KeepsValueAccess()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+
+                [System.Runtime.CompilerServices.Union]
+                public readonly struct PetLike
+                {
+                    public PetLike(Cat value) => Value = value;
+                    public object? Value { get; }
+                }
+
+                public static class Matcher
+                {
+                    public static bool IsCat(PetLike pet) => pet.Value is Cat;
+                    public static bool IsNull(PetLike pet) => pet.Value is null;
+                }
+            }
+            """);
+
+        Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+    }
+
     static string ComposeType(string path, string fullName)
     {
         using var pe = new PEReader(File.OpenRead(path));
@@ -226,6 +313,40 @@ public class TypeSourceComposerUnionTests
         var result = compilation.Emit(stream);
         Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
         return new TempAssembly(path);
+    }
+
+    static async Task<TempAssembly> CompileWithSdk(string source)
+    {
+        var project = TempDirectory.Create();
+        File.WriteAllText(Path.Combine(project.Path, "union-fixture.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net11.0</TargetFramework>
+                <LangVersion>preview</LangVersion>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(project.Path, "Fixture.cs"), source);
+
+        var result = await RunDotnetBuild(project.Path);
+        Assert.True(result.ExitCode == 0,
+            "Union fixture must build with the preview SDK, got exit "
+            + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
+
+        string dll = Path.Combine(project.Path, "bin", "Debug", "net11.0", "union-fixture.dll");
+        return new TempAssembly(dll, project);
+    }
+
+    static string RenderMember(string assemblyPath, string typeName, string methodName)
+    {
+        using var source = MetadataSource.Open(assemblyPath);
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function);
+        Assert.NotNull(result.Output);
+        return result.Output!.Trim();
     }
 
     static async Task AssertSdkPreviewBuilds(string source)
@@ -307,12 +428,17 @@ public class TypeSourceComposerUnionTests
         return references.ToImmutable();
     }
 
-    sealed class TempAssembly(string path) : IDisposable
+    sealed class TempAssembly(string path, TempDirectory? directory = null) : IDisposable
     {
         public string Path { get; } = path;
 
         public void Dispose()
         {
+            if (directory is not null)
+            {
+                directory.Dispose();
+                return;
+            }
             try { File.Delete(Path); }
             catch { }
         }
