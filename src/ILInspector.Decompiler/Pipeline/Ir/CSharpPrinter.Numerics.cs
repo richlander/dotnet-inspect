@@ -713,6 +713,12 @@ public sealed partial class CSharpPrinter
             var operand = right is Constant { Value: null } ? left : right;
             if (IsInstanceNullTestText(operand, isNotNull: kind == ComparisonKind.NotEqual) is { } typeTest)
                 return typeTest;
+            if (UnionValueReceiverText(operand) is { } unionReceiver)
+            {
+                return kind == ComparisonKind.Equal
+                    ? $"{unionReceiver} is null"
+                    : $"{unionReceiver} is not null";
+            }
 
             return kind == ComparisonKind.Equal
                 ? $"{Operand(operand)} is null"
@@ -743,6 +749,8 @@ public sealed partial class CSharpPrinter
             var operand = kind is ComparisonKind.GreaterThan or ComparisonKind.LessThanOrEqual ? left : right;
             if (IsInstanceNullTestText(operand, isNotNull: !isNullTest) is { } typeTest)
                 return typeTest;
+            if (UnionValueReceiverText(operand) is { } unionReceiver)
+                return $"{unionReceiver} is {(isNullTest ? "" : "not ")}null";
 
             return operand.ResultType is { Kind: TypeRefKind.Pointer }
                 ? $"{Operand(operand)} {(isNullTest ? "==" : "!=")} null"
@@ -813,8 +821,8 @@ public sealed partial class CSharpPrinter
         if (operand is not IsInstance ii)
             return null;
 
-        string test = $"{Operand(ii.Operand)} is {TypeText(ii.Type)}";
-        return isNotNull ? test : $"{Operand(ii.Operand)} is not {TypeText(ii.Type)}";
+        string test = $"{TypeTestValueText(ii.Operand)} is {TypeText(ii.Type)}";
+        return isNotNull ? test : $"{TypeTestValueText(ii.Operand)} is not {TypeText(ii.Type)}";
     }
 
     static bool IsFloatComparison(IrExpression left, IrExpression right)

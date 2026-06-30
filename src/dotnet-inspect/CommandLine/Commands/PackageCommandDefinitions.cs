@@ -25,7 +25,6 @@ public static class PackageCommandDefinitions
 
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show transitive package dependency tree (tip: use 'depends --package' instead)" };
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
-        layoutOption.Aliases.Add("--tree");
         var pathOption = new Option<string[]>("--path")
         {
             Description = "List package files with sizes (the Files section), scoped to a file, directory, glob, @readme (AGENTS.md > README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",

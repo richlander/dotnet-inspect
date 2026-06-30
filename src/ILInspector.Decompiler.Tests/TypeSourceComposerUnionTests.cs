@@ -1,0 +1,461 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Reflection.PortableExecutable;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ILInspector.Decompiler.Tests;
+
+public class TypeSourceComposerUnionTests
+{
+    [Fact]
+    public void LoweredUnionDeclaration_RendersUnionHeaderAndHidesBasicPattern()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+
+                public interface IUnion
+                {
+                    object? Value { get; }
+                }
+            }
+
+            namespace Other
+            {
+                public sealed class Bird { }
+            }
+
+            namespace UnionFixtures
+            {
+                using System;
+                using System.Collections.Generic;
+
+                public sealed class Cat { }
+                public sealed class Dog { }
+                public interface IMarker { }
+
+                [System.Runtime.CompilerServices.Union]
+                public readonly struct Pet : System.Runtime.CompilerServices.IUnion, IMarker
+                {
+                    public Pet(Cat value) => Value = value;
+                    public Pet(Dog value) => Value = value;
+                    public Pet(List<Other.Bird> value) => Value = value;
+
+                    public object? Value { get; }
+
+                    public string Describe() => Value?.ToString() ?? "";
+                }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "UnionFixtures.Pet");
+
+        Assert.Contains("using Other;", source);
+        Assert.Contains("public readonly union Pet(Cat, Dog, List<Bird>) : IMarker", source);
+        Assert.DoesNotContain("[Union", source);
+        Assert.DoesNotContain("public struct Pet", source);
+        Assert.DoesNotContain("IUnion", source);
+        Assert.DoesNotContain("public Pet(Cat value)", source);
+        Assert.DoesNotContain("public Pet(Dog value)", source);
+        Assert.DoesNotContain("public Pet(List<Bird> value)", source);
+        Assert.DoesNotContain("public object", source);
+        Assert.Contains("Describe", source);
+    }
+
+    [Fact]
+    public async Task RenderedUnionDeclaration_BuildsWithPreviewSdk()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+
+                public interface IUnion
+                {
+                    object? Value { get; }
+                }
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+                public sealed class Dog { }
+
+                [System.Runtime.CompilerServices.Union]
+                public struct Pet : System.Runtime.CompilerServices.IUnion
+                {
+                    public Pet(Cat value) => Value = value;
+                    public Pet(Dog value) => Value = value;
+                    public object? Value { get; }
+                }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "UnionFixtures.Pet");
+
+        await AssertSdkPreviewBuilds(source);
+    }
+
+    [Fact]
+    public void UnionAttributeWithoutIUnion_StaysLowered()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+
+                [System.Runtime.CompilerServices.Union]
+                public struct NotUnion
+                {
+                    public NotUnion(Cat value) => Value = value;
+                    public object? Value { get; }
+                }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "UnionFixtures.NotUnion");
+
+        Assert.Contains("[Union]", source);
+        Assert.Contains("public struct NotUnion", source);
+        Assert.DoesNotContain("public union NotUnion", source);
+    }
+
+    [Fact]
+    public void GlobalIUnionLookalike_StaysLowered()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+            }
+
+            public sealed class Cat { }
+
+            public interface IUnion
+            {
+                object? Value { get; }
+            }
+
+            [System.Runtime.CompilerServices.Union]
+            public struct NotRuntimeUnion : IUnion
+            {
+                public NotRuntimeUnion(Cat value) => Value = value;
+                public object? Value { get; }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "NotRuntimeUnion");
+
+        Assert.Contains("[Union]", source);
+        Assert.Contains("public struct NotRuntimeUnion", source);
+        Assert.DoesNotContain("public union NotRuntimeUnion", source);
+    }
+
+    [Fact]
+    public void ByRefLikeUnionMetadata_StaysLowered()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+
+                public interface IUnion
+                {
+                    object? Value { get; }
+                }
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+
+                [System.Runtime.CompilerServices.Union]
+                public ref struct RefPet : System.Runtime.CompilerServices.IUnion
+                {
+                    public RefPet(Cat value) => Value = value;
+                    public object? Value { get; }
+                }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "UnionFixtures.RefPet");
+
+        Assert.Contains("public ref struct RefPet", source);
+        Assert.DoesNotContain("public ref union RefPet", source);
+    }
+
+    [Fact]
+    public async Task UnionMatchingTypeAndNullTests_RenderAgainstUnion()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { }
+            public sealed class Dog { }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static bool IsCat(Pet pet) => pet is Cat;
+                public static bool IsNotNull(Pet pet) => pet is not null;
+                public static bool IsNull(Pet pet) => pet is null;
+                public static Cat? AsCat(Pet pet) => pet.Value as Cat;
+            }
+            """);
+
+        Assert.Equal("return pet is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet is not null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotNull"));
+        Assert.Equal("return pet is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+        Assert.Equal("return pet.Value as Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "AsCat"));
+    }
+
+    [Fact]
+    public void NonUnionValuePropertyTypeTest_KeepsValueAccess()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+
+                public readonly struct PetLike
+                {
+                    public PetLike(Cat value) => Value = value;
+                    public object? Value { get; }
+                }
+
+                public static class Matcher
+                {
+                    public static bool IsCat(PetLike pet) => pet.Value is Cat;
+                    public static bool IsNull(PetLike pet) => pet.Value is null;
+                }
+            }
+            """);
+
+        Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+    }
+
+    [Fact]
+    public void UnionAttributeWithoutRuntimeIUnionMatching_KeepsValueAccess()
+    {
+        using var assembly = Compile("""
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+
+                [System.Runtime.CompilerServices.Union]
+                public readonly struct PetLike
+                {
+                    public PetLike(Cat value) => Value = value;
+                    public object? Value { get; }
+                }
+
+                public static class Matcher
+                {
+                    public static bool IsCat(PetLike pet) => pet.Value is Cat;
+                    public static bool IsNull(PetLike pet) => pet.Value is null;
+                }
+            }
+            """);
+
+        Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet.Value is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+    }
+
+    static string ComposeType(string path, string fullName)
+    {
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(surface.Types, t => t.FullName == fullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+        return source!;
+    }
+
+    static TempAssembly Compile(string source)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-union-{Guid.NewGuid():N}.dll");
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            Path.GetFileNameWithoutExtension(path),
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+
+        using var stream = File.Create(path);
+        var result = compilation.Emit(stream);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        return new TempAssembly(path);
+    }
+
+    static async Task<TempAssembly> CompileWithSdk(string source)
+    {
+        var project = TempDirectory.Create();
+        File.WriteAllText(Path.Combine(project.Path, "union-fixture.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net11.0</TargetFramework>
+                <LangVersion>preview</LangVersion>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(project.Path, "Fixture.cs"), source);
+
+        var result = await RunDotnetBuild(project.Path);
+        Assert.True(result.ExitCode == 0,
+            "Union fixture must build with the preview SDK, got exit "
+            + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
+
+        string dll = Path.Combine(project.Path, "bin", "Debug", "net11.0", "union-fixture.dll");
+        return new TempAssembly(dll, project);
+    }
+
+    static string RenderMember(string assemblyPath, string typeName, string methodName)
+    {
+        using var source = MetadataSource.Open(assemblyPath);
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function);
+        Assert.NotNull(result.Output);
+        return result.Output!.Trim();
+    }
+
+    static async Task AssertSdkPreviewBuilds(string source)
+    {
+        const string caseTypeStubs = """
+            namespace Other
+            {
+                public sealed class Bird { }
+            }
+
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+                public sealed class Dog { }
+                public interface IMarker { }
+            }
+            """;
+
+        using var project = TempDirectory.Create();
+        File.WriteAllText(Path.Combine(project.Path, "union-bind.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net11.0</TargetFramework>
+                <LangVersion>preview</LangVersion>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(project.Path, "RenderedUnion.cs"), source);
+        File.WriteAllText(Path.Combine(project.Path, "CaseTypes.cs"), caseTypeStubs);
+
+        var result = await RunDotnetBuild(project.Path);
+        Assert.True(result.ExitCode == 0,
+            "Rendered union source must build with the preview SDK, got exit "
+            + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
+    }
+
+    static async Task<(int ExitCode, string Output)> RunDotnetBuild(string workingDirectory)
+    {
+        var psi = new ProcessStartInfo("dotnet", "build --nologo --verbosity quiet")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true";
+
+        using var process = Process.Start(psi)!;
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        var waitTask = process.WaitForExitAsync();
+        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+        if (await Task.WhenAny(waitTask, timeoutTask) != waitTask)
+        {
+            try { process.Kill(entireProcessTree: true); }
+            catch { }
+            string timedOutOutput = string.Concat(await stdoutTask, await stderrTask);
+            Assert.Fail("dotnet build did not complete within 30 seconds.\n--- output ---\n" + timedOutOutput);
+        }
+
+        await waitTask;
+        string stdout = await stdoutTask;
+        string stderr = await stderrTask;
+        return (process.ExitCode, stdout + stderr);
+    }
+
+    static ImmutableArray<MetadataReference> RuntimeReferences()
+    {
+        var references = ImmutableArray.CreateBuilder<MetadataReference>();
+        foreach (string path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                continue;
+            references.Add(MetadataReference.CreateFromFile(path));
+        }
+        return references.ToImmutable();
+    }
+
+    sealed class TempAssembly(string path, TempDirectory? directory = null) : IDisposable
+    {
+        public string Path { get; } = path;
+
+        public void Dispose()
+        {
+            if (directory is not null)
+            {
+                directory.Dispose();
+                return;
+            }
+            try { File.Delete(Path); }
+            catch { }
+        }
+    }
+
+    sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dotnet-inspect-union-bind-{Guid.NewGuid():N}");
+
+        TempDirectory() => Directory.CreateDirectory(Path);
+
+        public static TempDirectory Create() => new();
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); }
+            catch { }
+        }
+    }
+}

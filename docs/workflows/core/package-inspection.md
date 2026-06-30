@@ -188,12 +188,12 @@ netstandard2.0
 wc -l | tr -d ' '
 ```
 
-## 6. View package README
+## 6. View package grounding
 
-> Goal: Read the embedded README.md from inside the nupkg.
+> Goal: Read the best grounding document from inside the nupkg.
 
 ```bash
-dotnet-inspect package System.CommandLine --readme -n 10
+dotnet-inspect package System.CommandLine -S Grounding --print -n 10
 ```
 
 ```expect
@@ -206,7 +206,9 @@ or body:
 
 ```bash
 dotnet-inspect package Markout -S "Grounding"
-dotnet-inspect package Markout --print
+dotnet-inspect package Markout -S "Grounding" --print
+dotnet-inspect project ./src/App -S "Grounding"
+dotnet-inspect project ./src/App -S "Grounding" --print
 dotnet-inspect package Markout -S "Markdown Files"
 dotnet-inspect package Markout --path @agents --content --frontmatter
 dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl

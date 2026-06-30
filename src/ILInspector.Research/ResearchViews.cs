@@ -48,7 +48,7 @@ public static class ResearchViews
             var context = new ResearchFactContext(
                 source,
                 imported,
-                ResearchAssemblyContext.Create(LibraryBodyIndex.Open(path)));
+                ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path)));
             var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
             var annotations = effectiveRegistry.Collect(context)
                 .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)

@@ -46,6 +46,9 @@ internal static class MethodDefinitionFacts
     internal static bool HasInlineArrayAttribute(MetadataReader reader, TypeDefinition type)
         => HasAttribute(reader, type.GetCustomAttributes(), "System.Runtime.CompilerServices", "InlineArrayAttribute");
 
+    internal static bool HasUnionAttribute(MetadataReader reader, TypeDefinition type)
+        => HasAttribute(reader, type.GetCustomAttributes(), "System.Runtime.CompilerServices", "UnionAttribute");
+
     // The compiler stamps ExtensionAttribute on an extension method (and on its
     // declaring class and module). The method-level mark is the precise signal.
     internal static bool HasExtensionAttribute(MetadataReader reader, MethodDefinition method)

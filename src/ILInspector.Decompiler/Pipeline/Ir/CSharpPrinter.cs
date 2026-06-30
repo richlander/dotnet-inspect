@@ -828,7 +828,18 @@ public sealed partial class CSharpPrinter
                     seenSlots.Add(slotStore.Slot);
                     if (entryStatements.Contains(slotStore) && slotStore.Value.ResultType is not null
                         && slotStoreCounts[slotStore.Slot] == 1)
+                    {
                         _declaringStores.Add(slotStore);
+                    }
+                    else if (StackSlotTargetType(slotStore) is { Kind: TypeRefKind.ByRef }
+                        && StackSlotReferencesStayInBlockAfterStore(function, slotStore))
+                    {
+                        // A ref stack-slot temp cannot be declared bare up front
+                        // (CS8174), and synthesizing Unsafe.NullRef<T>() adds IL.
+                        // If every reference stays in the assignment block after
+                        // the first store, declare at that ref assignment instead.
+                        _declaringStores.Add(slotStore);
+                    }
                     break;
                 case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;
             }
@@ -914,6 +925,29 @@ public sealed partial class CSharpPrinter
         return true;
     }
 
+    bool StackSlotReferencesStayInBlockAfterStore(IrFunction function, StoreStackSlot store)
+    {
+        if (store.Parent is not Block block || store.ChildIndex < 0)
+            return false;
+        if (ReferencesStackSlot(store.Value, store.Slot))
+            return false;
+        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+        if (HasBranchTargetAfterStatement(store))
+            return false;
+        bool sawLoad = false;
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        {
+            if (node is StoreStackSlot s && s.Slot == store.Slot
+                || node is LoadStackSlot l && l.Slot == store.Slot)
+            {
+                if (!allowed.Any(statement => IsDescendantOrSelf(node, statement)))
+                    return false;
+                sawLoad |= node is LoadStackSlot;
+            }
+        }
+        return sawLoad;
+    }
+
     static bool StoreValueReferencesLocal(StoreLocal store)
         => ReferencesLocal(store.Value, store.Index);
 
@@ -933,9 +967,20 @@ public sealed partial class CSharpPrinter
         return DescendantsOutsideNestedFunctions(node).Any(n => IsLocalReference(n, index));
     }
 
+    static bool ReferencesStackSlot(IrNode node, int slot)
+    {
+        if (IsStackSlotReference(node, slot))
+            return true;
+        return DescendantsOutsideNestedFunctions(node).Any(n => IsStackSlotReference(n, slot));
+    }
+
     static bool IsLocalReference(IrNode node, int index)
         => node is LoadLocal load && load.Index == index
             || node is LoadLocalAddress address && address.Index == index;
+
+    static bool IsStackSlotReference(IrNode node, int slot)
+        => node is LoadStackSlot load && load.Slot == slot
+            || node is StoreStackSlot store && store.Slot == slot;
 
     static bool IsDescendantOrSelf(IrNode node, IrNode ancestor)
     {
@@ -1824,6 +1869,36 @@ public sealed partial class CSharpPrinter
     string InvertedUserTruthiness(IrExpression value)
         => $"({OperatorOperand(value)} ? false : true)";
 
+    string TypeTestValueText(IrExpression value)
+        => UnionValueReceiverText(value) ?? Operand(value);
+
+    string? UnionValueReceiverText(IrExpression value)
+        => value is LoadProperty property ? UnionValueReceiverText(property) : null;
+
+    string? UnionValueReceiverText(LoadProperty property)
+    {
+        if (property.PropertyName != "Value"
+            || property.IndexArguments.Count != 0
+            || !_function.UnionTypes.Contains(NamedDefinition(property.Accessor.DeclaringType)))
+        {
+            return null;
+        }
+
+        return property.Instance switch
+        {
+            LoadArgumentAddress argument => CSharpNaming.EscapeIdentifier(argument.Name),
+            LoadArgument argument => CSharpNaming.EscapeIdentifier(argument.Name),
+            LoadLocalAddress local => LocalName(local.Index),
+            LoadLocal local => LocalName(local.Index),
+            LoadFieldAddress field => FieldTarget(field.Field, field.Instance),
+            LoadField field => FieldTarget(field.Field, field.Instance),
+            _ => null,
+        };
+    }
+
+    static TypeRef NamedDefinition(TypeRef type)
+        => type is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition } ? definition : type;
+
     /// <summary>
     /// Spellings for a non-bool branch operand: <c>!= 0</c> for integers and
     /// enums, <c>is null</c>/<c>is not null</c> for reference shapes. The
@@ -1847,7 +1922,7 @@ public sealed partial class CSharpPrinter
         // in `!= 0` would be `bool != int` (CS0019); the inverse negates it.
         if (operand is IsInstance ii)
         {
-            string test = $"{Operand(ii.Operand)} is {TypeText(ii.Type)}";
+            string test = $"{TypeTestValueText(ii.Operand)} is {TypeText(ii.Type)}";
             return (test, $"!({test})");
         }
 

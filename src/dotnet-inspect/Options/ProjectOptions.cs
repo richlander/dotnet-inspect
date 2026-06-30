@@ -10,6 +10,8 @@ public record ProjectOptions
 
     public string? ReadmePackageId { get; init; }
 
+    public bool Print { get; init; }
+
     public string? Tfm { get; init; }
 
     public PackageFileContentScope ContentScope { get; init; } = PackageFileContentScope.Full;
@@ -29,6 +31,22 @@ public record ProjectOptions
     public bool Jsonl { get; init; }
 
     public bool NoHeader { get; init; }
+
+    public bool Bare { get; init; }
+
+    public string[]? Discover { get; init; }
+
+    public bool Tree { get; init; }
+
+    public bool Schema { get; init; }
+
+    public string[]? Select { get; init; }
+
+    public string[]? Columns { get; init; }
+
+    public string[]? Fields { get; init; }
+
+    public bool Count { get; init; }
 
     public bool Verbose { get; init; }
 

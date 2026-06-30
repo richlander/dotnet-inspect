@@ -325,6 +325,14 @@ public sealed class IrFunction : IrNode
     public IReadOnlySet<TypeRef> CollectionInitializerTypes { get; set; }
         = ImmutableHashSet<TypeRef>.Empty;
 
+    /// <summary>
+    /// Same-assembly types proven to carry <c>UnionAttribute</c>. Used by the
+    /// metadata-free printer to spell compiler-lowered <c>union.Value is T</c>
+    /// tests back as union matching without guessing from member names alone.
+    /// </summary>
+    public IReadOnlySet<TypeRef> UnionTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)

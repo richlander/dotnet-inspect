@@ -138,6 +138,12 @@ if (CommandLineBuilder.TailLines is int tailLines)
 // Create and invoke command
 var rootCommand = CommandLineBuilder.CreateRootCommand();
 var result = rootCommand.Parse(args);
+if (result.Errors.Count > 0)
+{
+    foreach (var error in result.Errors)
+        Console.Error.WriteLine(FormatParseError(error.Message));
+    return 1;
+}
 int exitCode;
 try
 {
@@ -177,6 +183,54 @@ if (showInfo)
 
     Console.Error.WriteLine();
     MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
+}
+
+static string FormatParseError(string message)
+{
+    if (message.StartsWith("Cannot parse argument '", StringComparison.Ordinal)
+        && TryParseCannotParseArgument(message, out var value, out var option, out var type))
+    {
+        var expected = type switch
+        {
+            "System.Int32" or "System.Nullable`1[System.Int32]" => "an integer",
+            _ => "a valid value",
+        };
+        return $"Error: Cannot parse value '{value}' for option '{option}' as {expected}.";
+    }
+
+    return message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
+        ? message
+        : $"Error: {message}";
+}
+
+static bool TryParseCannotParseArgument(string message, out string value, out string option, out string type)
+{
+    value = "";
+    option = "";
+    type = "";
+    const string prefix = "Cannot parse argument '";
+    int valueStart = prefix.Length;
+    int valueEnd = message.IndexOf('\'', valueStart);
+    const string middle = " for option '";
+    if (valueEnd < 0 || !message.AsSpan(valueEnd + 1).StartsWith(middle, StringComparison.Ordinal))
+        return false;
+
+    int optionStart = valueEnd + 1 + middle.Length;
+    int optionEnd = message.IndexOf('\'', optionStart);
+    const string typeMarker = " as expected type '";
+    int typeStart = message.IndexOf(typeMarker, optionEnd + 1, StringComparison.Ordinal);
+    if (optionEnd < 0 || typeStart < 0)
+        return false;
+
+    typeStart += typeMarker.Length;
+    int typeEnd = message.IndexOf('\'', typeStart);
+    if (typeEnd < 0)
+        return false;
+
+    value = message[valueStart..valueEnd];
+    option = message[optionStart..optionEnd];
+    type = message[typeStart..typeEnd];
+    return true;
 }
 
 if (traceMermaid != null)

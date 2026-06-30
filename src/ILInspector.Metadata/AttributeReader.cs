@@ -283,7 +283,8 @@ public static class AttributeReader
     /// rendered is skipped rather than emitted wrong.
     /// </summary>
     public static List<string> RenderAttributes(
-        MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null)
+        MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null,
+        Func<string, bool>? skipAttribute = null)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -291,6 +292,8 @@ public static class AttributeReader
             var attr = reader.GetCustomAttribute(attrHandle);
             var typeName = GetAttributeTypeName(reader, attr.Constructor);
             if (typeName is null || IsReEmittedAttribute(typeName))
+                continue;
+            if (skipAttribute?.Invoke(typeName) == true)
                 continue;
             if (TryRenderAttribute(reader, attr) is not { } rendered)
                 continue;

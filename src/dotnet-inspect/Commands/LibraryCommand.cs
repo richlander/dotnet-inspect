@@ -326,7 +326,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v8";
+    private const string EffectiveCategory = "effective-v9";
 
     static LibraryCommand()
     {
@@ -427,14 +427,7 @@ public class LibraryCommand
                 continue;
             }
 
-            var effectiveItems = section.Items
-                .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
-                .Select(item => item.Name)
-                .ToArray();
-
-            if (effectiveItems.Length > 0)
-                filtered.Add(name, section.ItemKind, effectiveItems);
-            else if (section.Items.Length > 0)
+            if (section.Items.Length > 0)
                 filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
             else
                 filtered.AddSection(name);

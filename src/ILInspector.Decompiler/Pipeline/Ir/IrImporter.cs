@@ -405,6 +405,7 @@ public static class IrImporter
         Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? enums = null;
         Dictionary<TypeRef, TypeRef>? enumUnderlyingTypes = null;
         var collectionInitializerTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
+        var unionTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
 
         void Consider(TypeRef? type)
         {
@@ -427,6 +428,8 @@ public static class IrImporter
                 return;
             var shape = source.ResolveShape(type);
             shapes[type] = shape;
+            if (source.IsUnionType(type))
+                unionTypes.Add(type);
             if (shape == TypeShape.Enum && source.ResolveEnumMembers(type) is { } members)
             {
                 enums ??= [];
@@ -475,6 +478,8 @@ public static class IrImporter
             function.EnumUnderlyingTypes = enumUnderlyingTypes;
         if (collectionInitializerTypes.Count > 0)
             function.CollectionInitializerTypes = collectionInitializerTypes.ToImmutable();
+        if (unionTypes.Count > 0)
+            function.UnionTypes = unionTypes.ToImmutable();
     }
 
     /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>
