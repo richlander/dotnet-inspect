@@ -4054,6 +4054,36 @@ public class CommandExecutionTests
         Assert.Contains("\"token\": \"0x6000001\"", output);
         Assert.Contains("\"line\": 527", output);
         Assert.Contains("HexConverter.cs", output);
+        // PDB-free substrate call-site naming runs alongside source resolution.
+        Assert.Contains("\"instruction\": \"ldarg.0\"", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffset_WithoutPdb_NamesCallSite()
+    {
+        // Copy the test assembly's DLL without its PDB so source resolution is impossible,
+        // proving the substrate-derived call-site naming is PDB-free.
+        var tempDir = Path.Combine(Path.GetTempPath(), "il-offset-nopdb-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllOnly = Path.Combine(tempDir, Path.GetFileName(TestAssemblyPath));
+            File.Copy(TestAssemblyPath, dllOnly);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", dllOnly, "--il-offset", "0x06000001+0x0", "--json", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("\"instruction\":", output);
+            Assert.Contains("\"method\":", output);
+            // No PDB next to the DLL: no source fields.
+            Assert.DoesNotContain("\"file\":", output);
+            Assert.DoesNotContain("\"line\":", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
