@@ -12,6 +12,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
     sealed record Arm(TypeRef PatternType, int? LocalIndex, IrExpression Value, IReadOnlyList<IrNode> LocalRoots, IrExpression? Guard = null);
     sealed record Match(int StartIndex, UnionSwitchExpression SwitchExpression);
+    sealed record BoolMatch(int StartIndex, IrExpression Expression);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -35,6 +36,14 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                     block.Children[i].Detach();
                 context.Stepper.StepOver("raise union type-test dispatch to switch expression", block);
                 continue;
+            }
+
+            if (container.Blocks is [var boolBlock] && TryMatchUnionBoolTypeTest(function, boolBlock, out var boolMatch))
+            {
+                boolBlock.SetChild(boolMatch.StartIndex, new Return(boolMatch.Expression));
+                for (int i = boolBlock.Children.Count - 1; i > boolMatch.StartIndex; i--)
+                    boolBlock.Children[i].Detach();
+                context.Stepper.StepOver("raise union type-test bool dispatch", boolBlock);
             }
         }
     }
@@ -84,6 +93,92 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
         return false;
     }
+
+    static bool TryMatchUnionBoolTypeTest(IrFunction function, Block block, out BoolMatch match)
+    {
+        match = null!;
+        var children = block.Children;
+        for (int start = 0; start + 2 < children.Count; start++)
+        {
+            if (start + 3 != children.Count
+                || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+                || !IsUnionValueProperty(function, unionValue)
+                || children[start + 1] is not IfStatement ifStatement
+                || ifStatement.Then.Children is not [StoreLocal thenStore]
+                || ifStatement.Else?.Children is not [StoreLocal elseStore]
+                || children[start + 2] is not Return ret
+                || !StoreReturnMatch(thenStore, ret, thenStore.Index)
+                || elseStore.Index != thenStore.Index
+                || !TryBoolConstants(thenStore.Value, elseStore.Value, out bool conditionIsTrueArm)
+                || !TryRewriteTempTypeTestCondition(ifStatement.Condition, valueStore.Index, unionValue, out var condition))
+            {
+                continue;
+            }
+
+            if (!conditionIsTrueArm)
+                condition = Conditions.Negate(condition);
+
+            if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, ifStatement.Condition])
+                || !ReferenceOwnership.LocalReferencesOnlyWithin(function, thenStore.Index, [thenStore, elseStore, ret.Value!]))
+            {
+                continue;
+            }
+
+            match = new BoolMatch(start, condition);
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool TryRewriteTempTypeTestCondition(IrExpression expression, int tempLocal, LoadProperty unionValue, out IrExpression rewritten)
+    {
+        switch (expression)
+        {
+            case IsInstance test when IsTempTypeTest(test, tempLocal):
+                rewritten = new IsInstance(test.Type, (IrExpression)unionValue.Clone());
+                return true;
+            case LogicalBinary logical:
+            {
+                if (!TryRewriteTempTypeTestCondition(logical.Left, tempLocal, unionValue, out var left)
+                    || !TryRewriteTempTypeTestCondition(logical.Right, tempLocal, unionValue, out var right))
+                {
+                    rewritten = null!;
+                    return false;
+                }
+
+                rewritten = new LogicalBinary(logical.Kind, left, right);
+                return true;
+            }
+            default:
+                rewritten = null!;
+                return false;
+        }
+    }
+
+    static bool TryBoolConstants(IrExpression whenTrue, IrExpression whenFalse, out bool conditionIsTrueArm)
+    {
+        if (IsTrueConstant(whenTrue) && IsFalseConstant(whenFalse))
+        {
+            conditionIsTrueArm = true;
+            return true;
+        }
+
+        if (IsFalseConstant(whenTrue) && IsTrueConstant(whenFalse))
+        {
+            conditionIsTrueArm = false;
+            return true;
+        }
+
+        conditionIsTrueArm = false;
+        return false;
+    }
+
+    static bool IsTrueConstant(IrExpression expression)
+        => expression is Constant { Value: true } or Constant { Value: 1 };
+
+    static bool IsFalseConstant(IrExpression expression)
+        => expression is Constant { Value: false } or Constant { Value: 0 };
 
     static bool TryMatchSwitchStatementReturnChainAt(
         IrFunction function,
