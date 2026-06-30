@@ -297,16 +297,18 @@ public static class ApiSurfaceExtractor
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
 
+                var propertySignature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll);
                 var member = new ApiMember
                 {
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
-                    Signature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll),
+                    Signature = propertySignature,
                     IsStatic = isStaticProperty,
                     IsVirtual = isVirtualProperty,
                     IsAbstract = isAbstractProperty,
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
+                    IsUnsafe = HasUnsafeSignature(propertySignature),
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
