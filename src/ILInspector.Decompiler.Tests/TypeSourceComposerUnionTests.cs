@@ -771,6 +771,10 @@ public class TypeSourceComposerUnionTests
                     Cat otherCat => otherCat.Name.ToUpperInvariant(),
                     Dog dog => dog.Name,
                 };
+
+                public static string Ternary(Pet pet) => pet is Cat cat ? cat.Name : "other";
+
+                public static string TernaryGuard(Pet pet) => pet is Cat cat && cat.Name == "cat" ? cat.Name : "other";
             }
             """);
 
@@ -829,6 +833,10 @@ public class TypeSourceComposerUnionTests
                 Dog dog => dog.Name,
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedExhaustiveBound"));
+        Assert.Equal("return pet is Cat cat ? cat.Name : \"other\";",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "Ternary"));
+        Assert.Equal("return pet is Cat cat && cat.Name == \"cat\" ? cat.Name : \"other\";",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
     }
 
     [Fact]

@@ -59,6 +59,7 @@ public sealed class IsPatternPass : IIrPass
     {
         while (TransformOne(function, context.Stepper)
             || FoldConditionalReturnOne(function, context.Stepper)
+            || FoldClassUnionNullConditionalReturnOne(function, context.Stepper)
             || TransformRecursivePropertyDeclaration(function, context.Stepper)
             || FoldPositionalPatternReturnOne(function, context.Stepper))
         {
@@ -192,6 +193,62 @@ public sealed class IsPatternPass : IIrPass
             => load.Index == localIndex,
         _ => false,
     };
+
+    static bool FoldClassUnionNullConditionalReturnOne(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i + 1 < children.Count; i++)
+            {
+                if (children[i] is not IfStatement outer
+                    || outer.HasElse
+                    || outer.Then.Children is not [IfStatement inner]
+                    || inner.HasElse
+                    || inner.Then.Children is not [Return { Value: { } whenTrue }]
+                    || children[i + 1] is not Return { Value: { } whenFalse }
+                    || !TryClassUnionConditionalPattern(function, outer.Condition, inner.Condition, out var pattern))
+                {
+                    continue;
+                }
+
+                if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, pattern.LocalIndex, [inner.Condition, whenTrue]))
+                    continue;
+
+                var conditional = new Conditional((IrExpression)inner.Condition.Clone(), (IrExpression)whenTrue.Clone(), (IrExpression)whenFalse.Clone())
+                {
+                    MergedType = whenTrue.ResultType ?? whenFalse.ResultType
+                };
+                stepper.StepOver("raise class union null-guard return chain to conditional", outer);
+                children[i + 1].ReplaceWith(new Return(conditional));
+                outer.Detach();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryClassUnionConditionalPattern(
+        IrFunction function,
+        IrExpression receiver,
+        IrExpression condition,
+        out IsPattern pattern)
+    {
+        pattern = null!;
+        foreach (var candidate in condition.Descendants.Prepend(condition).OfType<IsPattern>())
+        {
+            if (candidate.Value is LoadProperty property
+                && IsUnionValueProperty(function, property)
+                && PlaceIdentity.SameVariable(property.Instance, receiver))
+            {
+                pattern = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     static bool TransformRecursivePropertyDeclaration(IrFunction function, Stepper stepper)
     {
