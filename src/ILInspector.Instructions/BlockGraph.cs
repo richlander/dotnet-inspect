@@ -129,31 +129,38 @@ public sealed record BlockGraph(
         var leavesByBlock = new bool[starts.Length];
         var lastByBlock = new DecodedInstruction?[starts.Length];
 
+        // Single O(n) pass: each instruction belongs to the block whose start it falls in; the last
+        // instruction seen in a block is its terminator. Starts are sorted and instructions are in
+        // offset order, so a forward block cursor suffices (vs an O(blocks*n) per-block rescan).
+        int cursor = 0;
+        foreach (var instruction in instructions)
+        {
+            while (cursor + 1 < starts.Length && instruction.Offset >= starts[cursor + 1])
+                cursor++;
+            lastByBlock[cursor] = instruction;
+        }
+
         for (int i = 0; i < starts.Length; i++)
         {
-            int start = starts[i];
-            int end = i + 1 < starts.Length ? starts[i + 1] : ilLength;
-            var last = instructions.LastOrDefault(instruction => instruction.Offset >= start && instruction.Offset < end);
             var successors = new List<int>();
             var external = new List<int>();
-            if (last is not null)
+            if (lastByBlock[i] is { } terminator)
             {
-                foreach (int target in last.BranchTargets)
+                foreach (int target in terminator.BranchTargets)
                 {
                     if (offsetToBlock.TryGetValue(target, out int targetBlock))
                         successors.Add(targetBlock);
                     else
                         external.Add(target);
                 }
-                if (last.FallsThrough && i + 1 < starts.Length)
+                if (terminator.FallsThrough && i + 1 < starts.Length)
                     successors.Add(i + 1);
             }
 
             successorsByBlock[i] = successors;
             externalByBlock[i] = external;
-            exitsByBlock[i] = last?.Exits ?? false;
-            leavesByBlock[i] = last?.LeavesRegion ?? false;
-            lastByBlock[i] = last;
+            exitsByBlock[i] = lastByBlock[i]?.Exits ?? false;
+            leavesByBlock[i] = lastByBlock[i]?.LeavesRegion ?? false;
         }
 
         AddExceptionEdges(regions, instructions, starts, offsetToBlock, successorsByBlock, externalByBlock, lastByBlock);
