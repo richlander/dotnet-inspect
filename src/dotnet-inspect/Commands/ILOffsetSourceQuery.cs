@@ -3,9 +3,13 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspector.Commands;
 
@@ -27,6 +31,10 @@ internal static class ILOffsetSourceQuery
             return 1;
         }
 
+        // Substrate-derived call-site naming. PDB-free: needs only the assembly's own metadata and IL,
+        // so it works whether or not a PDB is available.
+        var callSite = ResolveCallSite(dllPath, methodToken, ilOffset);
+
         using var service = SourceLinkService.Open(dllPath, logger.Log);
         var pdbContext = service.Context;
 
@@ -44,37 +52,53 @@ internal static class ILOffsetSourceQuery
             isPlatformAssembly,
             logger.Log);
 
-        if (!pdbContext.HasPdb)
+        // Source resolution requires a Portable PDB with sequence points; the call-site naming above does not.
+        SourceLinkResolver.ILOffsetSourceInfo? result = null;
+        if (pdbContext.HasPdb)
         {
-            WritePdbWarning(pdbContext);
+            if (!service.HasSourceLink)
+                logger.Log("Warning: No SourceLink information found. URLs will not be available.");
+            result = service.ResolveByILOffset(methodToken, ilOffset);
+        }
+
+        // Nothing resolved at all (invalid token / no body and no PDB sequence points): preserve the hard error.
+        if (callSite is null && result is null)
+        {
+            Console.Error.WriteLine($"Error: Could not resolve token 0x{methodToken:X}+0x{ilOffset:X}.");
+            Console.Error.WriteLine("The method token may be invalid, the method may have no body, or the PDB may not contain sequence points for it.");
             return 1;
         }
 
-        if (!service.HasSourceLink)
-            logger.Log("Warning: No SourceLink information found. URLs will not be available.");
-
-        var result = service.ResolveByILOffset(methodToken, ilOffset);
-        if (result == null)
-        {
-            Console.Error.WriteLine($"Error: Could not resolve source location for token 0x{methodToken:X}+0x{ilOffset:X}.");
-            Console.Error.WriteLine("The method token may be invalid or the PDB may not contain sequence points for this method.");
-            return 1;
-        }
-
-        string? url = options.BrowsableUrls ? result.GitHubBrowseUrl : result.SourceUrl;
+        string? url = result is not null
+            ? (options.BrowsableUrls ? result.GitHubBrowseUrl : result.SourceUrl)
+            : null;
         if (url != null)
-            url += $"#L{result.Line}";
+            url += $"#L{result!.Line}";
+
+        string token = $"0x{methodToken:X}";
+        string ilOffsetHex = $"0x{ilOffset:X}";
+        string methodName = result?.MethodName ?? callSite?.MethodName ?? token;
+        string? instruction = callSite?.Instruction;
+        string? calling = callSite?.Callee is { } callee
+            ? (callSite.IsReturnAddress ? $"{callee} (return address)" : callee)
+            : null;
+        string? matchedOffset = result is not null && result.MatchedOffset != ilOffset
+            ? $"0x{result.MatchedOffset:X}"
+            : null;
 
         if (options.JsonOutput)
         {
             var jsonResult = new ILOffsetResult
             {
-                Method = result.MethodName,
-                Token = $"0x{methodToken:X}",
-                ILOffset = $"0x{ilOffset:X}",
-                MatchedOffset = $"0x{result.MatchedOffset:X}",
-                File = result.FilePath,
-                Line = result.Line,
+                Method = methodName,
+                Token = token,
+                ILOffset = ilOffsetHex,
+                MatchedOffset = result is not null ? $"0x{result.MatchedOffset:X}" : null,
+                Instruction = instruction,
+                Callee = callSite?.Callee,
+                IsReturnAddress = callSite?.IsReturnAddress ?? false,
+                File = result?.FilePath,
+                Line = result?.Line,
                 Url = url
             };
             Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(jsonResult, SourceJsonContext.Default.ILOffsetResult));
@@ -82,26 +106,35 @@ internal static class ILOffsetSourceQuery
         }
 
         bool showSections = options.Verbosity >= Verbosity.Minimal;
-        bool showSource = options.Verbosity >= Verbosity.Normal;
-        string token = $"0x{methodToken:X}";
-        string ilOffsetHex = $"0x{ilOffset:X}";
-        string? matchedOffset = result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null;
+        bool showSource = options.Verbosity >= Verbosity.Normal && result is not null;
 
         var view = new SourceILOffsetView
         {
-            Title = result.MethodName ?? token,
+            Title = methodName,
             Token = showSections ? null : token,
             ILOffset = showSections ? null : ilOffsetHex,
             MatchedOffset = showSections ? null : matchedOffset,
+            Calling = showSections ? null : calling,
             Offset = showSections
-                ? new ILOffsetInfoSection { Token = token, ILOffset = ilOffsetHex, MatchedOffset = matchedOffset }
+                ? new ILOffsetInfoSection
+                {
+                    Token = token,
+                    ILOffset = ilOffsetHex,
+                    MatchedOffset = matchedOffset,
+                    Instruction = instruction,
+                    Calling = calling,
+                }
                 : null,
-            Location = showSource ? [new ILOffsetSourceRow(result.FilePath, result.Line, url)] : null,
+            Location = showSource ? [new ILOffsetSourceRow(result!.FilePath, result.Line, url)] : null,
         };
 
         if (options.OneLine && !options.JsonOutput)
         {
-            Console.WriteLine(url ?? $"{result.FilePath}:{result.Line}");
+            string oneLine = url
+                ?? (result is not null ? $"{result.FilePath}:{result.Line}"
+                    : calling is not null ? $"calling {calling}"
+                    : $"{token}+{ilOffsetHex}");
+            Console.WriteLine(oneLine);
             return 0;
         }
 
@@ -115,6 +148,16 @@ internal static class ILOffsetSourceQuery
         {
             OutputFormatter.WriteLimitedMarkdown(Console.Out,
                 MarkoutSerializer.Serialize(view, SourceViewContext.Default, writerOpts), options.Rows);
+        }
+
+        // When source is unavailable, say why; the call-site naming above is still a useful metadata-only result.
+        if (result is null)
+        {
+            string reason = !pdbContext.HasPdb
+                ? (pdbContext.WindowsPdbDetected ? "Windows PDB format is not supported" : "no PDB available")
+                : "no sequence point covers this offset";
+            Console.WriteLine();
+            Console.WriteLine($"Source unavailable: {reason} (metadata-only result).");
         }
 
         return 0;
@@ -149,22 +192,77 @@ internal static class ILOffsetSourceQuery
         return int.TryParse(value[2..], System.Globalization.NumberStyles.HexNumber, null, out result);
     }
 
-    private static void WritePdbWarning(PdbContext pdbContext)
+    /// <summary>
+    /// Resolves the decoded instruction at <paramref name="ilOffset"/> in the given method, and—when that
+    /// instruction (or the one whose return address it is) is a call—the resolved callee. PDB-free: uses only
+    /// the assembly's own metadata + IL via the <c>ILInspector.Instructions</c> substrate. Returns null when the
+    /// token is not a method definition or the body cannot be read/decoded.
+    /// </summary>
+    private static CallSiteInfo? ResolveCallSite(string dllPath, int methodToken, int ilOffset)
     {
-        Console.Error.WriteLine();
-        if (pdbContext.WindowsPdbDetected)
+        try
         {
-            Console.Error.WriteLine("Error: PDB is Windows format (not supported).");
-            Console.Error.WriteLine("       Only Portable PDBs are supported.");
+            using var stream = File.OpenRead(dllPath);
+            using var pe = new PEReader(stream);
+            if (!pe.HasMetadata)
+                return null;
+
+            var reader = pe.GetMetadataReader();
+            var handle = MetadataTokens.EntityHandle(methodToken);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return null;
+
+            string methodName = ILTokenResolver.ResolveMethod(reader, methodToken);
+
+            var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+            if (method.RelativeVirtualAddress == 0)
+                return new CallSiteInfo(methodName, null, null, IsReturnAddress: false);
+
+            var body = pe.GetMethodBody(method.RelativeVirtualAddress);
+            var instructions = MethodInstructions.Decode(body);
+
+            // The instruction starting exactly at the offset; else the instruction whose return address is the
+            // offset (call sites are commonly reported as the address of the following instruction).
+            DecodedInstruction? at = instructions.InstructionAt(ilOffset);
+            DecodedInstruction? call = at is not null && IsCall(at.OpCode) ? at : null;
+            bool isReturnAddress = false;
+            if (call is null)
+            {
+                DecodedInstruction? prev = instructions.Instructions.FirstOrDefault(i => i.NextOffset == ilOffset);
+                if (prev is not null && IsCall(prev.OpCode))
+                {
+                    call = prev;
+                    isReturnAddress = true;
+                }
+            }
+
+            if (call is not null)
+            {
+                string callee = call.OpCode == ILOpCode.Calli
+                    ? "(indirect call site)"
+                    : ILTokenResolver.ResolveMethod(reader, (int)call.OperandValue);
+                return new CallSiteInfo(methodName, OpName(call.OpCode), callee, isReturnAddress);
+            }
+
+            return at is not null
+                ? new CallSiteInfo(methodName, OpName(at.OpCode), null, IsReturnAddress: false)
+                : new CallSiteInfo(methodName, null, null, IsReturnAddress: false);
         }
-        else
+        catch
         {
-            Console.Error.WriteLine("Error: No readable PDB found.");
+            return null;
         }
-        Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink Availability\"' for full source reachability.");
-        Console.Error.WriteLine();
     }
+
+    private static bool IsCall(ILOpCode op) =>
+        op is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Calli;
+
+    private static string OpName(ILOpCode op) =>
+        op.ToString().Replace('_', '.').ToLowerInvariant();
 }
+
+/// <summary>Substrate-derived call-site facts for an IL offset (PDB-free).</summary>
+internal sealed record CallSiteInfo(string? MethodName, string? Instruction, string? Callee, bool IsReturnAddress);
 
 public class ILOffsetResult
 {
@@ -172,6 +270,9 @@ public class ILOffsetResult
     public string? Token { get; init; }
     public string? ILOffset { get; init; }
     public string? MatchedOffset { get; init; }
+    public string? Instruction { get; init; }
+    public string? Callee { get; init; }
+    public bool IsReturnAddress { get; init; }
     public string? File { get; init; }
     public int? Line { get; init; }
     public string? Url { get; init; }

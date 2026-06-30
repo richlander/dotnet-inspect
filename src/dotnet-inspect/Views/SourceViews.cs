@@ -31,6 +31,12 @@ public class ILOffsetInfoSection
 
     [MarkoutPropertyName("Matched Offset")]
     public string? MatchedOffset { get; init; }
+
+    // Substrate-derived (PDB-free): the decoded instruction at the offset and, if it is a call site,
+    // the resolved callee.
+    public string? Instruction { get; init; }
+
+    public string? Calling { get; init; }
 }
 
 /// <summary>
@@ -56,6 +62,8 @@ public class SourceILOffsetView
     [MarkoutSkipNull]
     [MarkoutPropertyName("Matched Offset")]
     public string? MatchedOffset { get; set; }
+
+    [MarkoutSkipNull] public string? Calling { get; set; }
 
     // Offset section (-v:m+): token + requested/matched offsets.
     [MarkoutSection(Name = "Offset")]
