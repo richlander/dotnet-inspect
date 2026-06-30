@@ -106,6 +106,44 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task UnionDeclaration_WithNonPublicExplicitConstructors_KeepsConstructorsOutOfCases()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures
+            {
+                public union Result(int, bool)
+                {
+                    internal Result(string message, int code)
+                        : this(code)
+                    {
+                    }
+
+                    private Result(double value)
+                        : this((int)value)
+                    {
+                    }
+
+                    public Result()
+                        : this(true)
+                    {
+                    }
+                }
+            }
+            """);
+
+        var source = ComposeType(assembly.Path, "UnionFixtures.Result");
+
+        Assert.Contains("public union Result(int, bool)", source);
+        Assert.DoesNotContain("Result(int, bool, string", source);
+        Assert.DoesNotContain("Result(int, bool, double", source);
+        Assert.Contains("internal Result(string message, int code)", source);
+        Assert.Contains("private Result(double value)", source);
+        Assert.Contains("public Result() : this(true)", source);
+        await AssertSdkPreviewBuilds(source);
+    }
+
+    [Fact]
     public void UnionAttributeWithoutIUnion_StaysLowered()
     {
         using var assembly = Compile("""
@@ -229,6 +267,42 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("return pet is not null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotNull"));
         Assert.Equal("return pet is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
         Assert.Equal("return pet.Value as Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "AsCat"));
+    }
+
+    [Fact]
+    public async Task DirectUnionValuePattern_RendersPreferredUnionPattern()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures
+            {
+                public sealed class Cat { }
+                public sealed class Dog { }
+                public union Pet(Cat, Dog);
+
+                public static class Matcher
+                {
+                    public static bool IsCat(Pet pet) => pet.Value is Cat;
+                    public static bool IsNull(Pet pet) => pet.Value is null;
+                    public static string Describe(Pet pet) => pet.Value switch
+                    {
+                        Cat => "cat",
+                        Dog => "dog",
+                        _ => "other",
+                    };
+                }
+            }
+            """);
+
+        Assert.Equal("return pet is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet is null;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNull"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat => "cat",
+                Dog => "dog",
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
     }
 
     [Fact]

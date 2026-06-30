@@ -122,7 +122,10 @@ public static class TypeSourceComposer
         }
     }
 
-    sealed record UnionDeclarationInfo(IReadOnlyList<string> CaseTypes, HashSet<int> HiddenMethodTokens);
+    sealed record UnionDeclarationInfo(
+        IReadOnlyList<string> CaseTypes,
+        HashSet<int> HiddenMethodTokens,
+        IReadOnlyList<ApiMember> ExplicitConstructors);
 
     static string TypeDeclaration(ApiType type, UnionDeclarationInfo? union = null)
     {
@@ -357,10 +360,23 @@ public static class TypeSourceComposer
         var overloadIndex = new Dictionary<string, int>(StringComparer.Ordinal);
         bool first = true;
 
-        foreach (var member in type.Members)
+        var members = union is { ExplicitConstructors.Count: > 0 }
+            ? type.Members.Concat(union.ExplicitConstructors)
+                .OrderBy(member => member.MetadataToken ?? int.MaxValue)
+                .ToList()
+            : type.Members;
+
+        foreach (var member in members)
         {
             if (union is not null && IsHiddenUnionMember(member, union))
+            {
+                // Hidden union case constructors still occupy metadata overload
+                // slots. Keep fallback overload counting aligned for any
+                // original public members that are not synthesized below.
+                if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation")
+                    overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
                 continue;
+            }
 
             switch (member.Kind)
             {
@@ -474,7 +490,9 @@ public static class TypeSourceComposer
     }
 
     static bool IsHiddenUnionMember(ApiMember member, UnionDeclarationInfo union)
-        => member.MetadataToken is { } token && union.HiddenMethodTokens.Contains(token)
+        => member.MetadataToken is { } token
+            && union.HiddenMethodTokens.Contains(token)
+            && member.DeclaringOverloadIndex is null
             || member.Kind == "property" && IsUnionValuePropertyName(member.Name);
 
     static UnionDeclarationInfo? TryUnionDeclaration(MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type)
@@ -517,16 +535,18 @@ public static class TypeSourceComposer
 
         var caseTypes = new List<string>();
         var hiddenMethodTokens = new HashSet<int>();
+        var explicitConstructors = new List<ApiMember>();
+        int constructorIndex = 0;
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (reader.GetString(method.Name) != ".ctor")
                 continue;
-            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
-                continue;
             if ((method.Attributes & MethodAttributes.Static) != 0)
                 continue;
 
+            constructorIndex++;
+            var access = method.Attributes & MethodAttributes.MemberAccessMask;
             MethodSignature<string> signature;
             try
             {
@@ -536,18 +556,80 @@ public static class TypeSourceComposer
             {
                 return null;
             }
-            if (signature.ParameterTypes.Length != 1)
-                continue;
-
-            caseTypes.Add(signature.ParameterTypes[0]);
-            hiddenMethodTokens.Add(MetadataTokens.GetToken(methodHandle));
+            int token = MetadataTokens.GetToken(methodHandle);
+            if (access == MethodAttributes.Public && signature.ParameterTypes.Length == 1)
+            {
+                caseTypes.Add(signature.ParameterTypes[0]);
+                hiddenMethodTokens.Add(token);
+            }
+            else if (Accessibility(access) is { } accessibility)
+            {
+                explicitConstructors.Add(new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    Signature = ConstructorSignature(reader, method, signature),
+                    MetadataToken = token,
+                    Accessibility = accessibility,
+                    DeclaringOverloadIndex = constructorIndex
+                });
+            }
+            else
+            {
+                hiddenMethodTokens.Add(token);
+                explicitConstructors.Add(new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    Signature = ConstructorSignature(reader, method, signature),
+                    MetadataToken = token,
+                    DeclaringOverloadIndex = constructorIndex
+                });
+            }
         }
 
         if (caseTypes.Count == 0)
             return null;
 
-        return new UnionDeclarationInfo(caseTypes, hiddenMethodTokens);
+        return new UnionDeclarationInfo(caseTypes, hiddenMethodTokens, explicitConstructors);
     }
+
+    static string ConstructorSignature(
+        MetadataReader reader,
+        MethodDefinition method,
+        MethodSignature<string> signature)
+    {
+        var parameterHandles = method.GetParameters();
+        var parameters = new List<string>();
+        for (int i = 0; i < signature.ParameterTypes.Length; i++)
+        {
+            string? name = null;
+            foreach (var parameterHandle in parameterHandles)
+            {
+                var parameter = reader.GetParameter(parameterHandle);
+                if (parameter.SequenceNumber == i + 1)
+                {
+                    name = reader.GetString(parameter.Name);
+                    break;
+                }
+            }
+
+            parameters.Add($"{signature.ParameterTypes[i]} {EscapeIdentifier(string.IsNullOrEmpty(name) ? $"arg{i}" : name)}");
+        }
+
+        return $"{signature.ReturnType} .ctor({string.Join(", ", parameters)})";
+    }
+
+    static string? Accessibility(MethodAttributes access) => access switch
+    {
+        MethodAttributes.Private => "private",
+        MethodAttributes.FamANDAssem => "private protected",
+        MethodAttributes.Assembly => "internal",
+        MethodAttributes.Family => "protected",
+        MethodAttributes.FamORAssem => "protected internal",
+        MethodAttributes.Public => null,
+        _ => null
+    };
 
     static bool IsUnionInterface(string interfaceName)
         => interfaceName == "System.Runtime.CompilerServices.IUnion";
@@ -621,7 +703,7 @@ public static class TypeSourceComposer
         {
             if (signature.StartsWith("void ", StringComparison.Ordinal))
                 signature = signature[5..];
-            return $"public {unsafeModifier}{signature.Replace(".ctor", ctorName)}";
+            return $"{member.Accessibility ?? "public"} {unsafeModifier}{signature.Replace(".ctor", ctorName)}";
         }
         if (member.Kind == "operator")
             return OperatorDeclaration(member, type.TypeParameters, isUnsafe);
@@ -1035,7 +1117,10 @@ public static class TypeSourceComposer
         // implementations (non-public by nature) — matching the API surface
         // ordering the running index is built from.
         => DecompileMethod(pipelineSource, member.DeclaringType ?? typeFullName, member.Name, overloadIndex,
-            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+            publicOnly: member.Kind != "explicit-interface-implementation"
+                && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
+                && member.Accessibility is null,
+            bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
 
     static string? DecompileAccessor(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string accessorName,
