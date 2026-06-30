@@ -49,6 +49,7 @@ family is registering one classifier; the core does not change.
 | `Allocation` | `ILInspector.Research` allocation occurrence producer | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
 | `Unsafety` | `ILInspector.Research` unsafety occurrence producer | `unsafe.deref`, `unsafe.stackalloc`, `unsafe.calli` |
 | `Lifetime` | `LifetimeClassifier` | `lifetime.ref-return`, `lifetime.stack-bound`, `lifetime.ref-struct-return`, `lifetime.pointer-return`, `lifetime.stack-escape` |
+| `Semantics` | `ILInspector.Research` call-site semantics producer | `semantics.callee`, `safety.callee` |
 
 ### Surfacing
 
@@ -61,6 +62,13 @@ Three projections share one classification pass:
 - **Facts** — the structured table (id, category, detail, conditionality, IL
   offset), the agent-facing dual. `ExplicitOnly`: never auto-renders, requested
   via `-S "Facts"` / `--tsv`.
+
+Whole-assembly overlays stay explicit-only while their precision and usefulness
+settle:
+
+- **Cost Overlay** — inter-method cost facts over the decompiled body.
+- **Semantics Overlay** — inter-method behavior/safety facts, such as callees
+  with known exception paths or unsafe implementation evidence.
 
 ## Validation: the oracle problem
 

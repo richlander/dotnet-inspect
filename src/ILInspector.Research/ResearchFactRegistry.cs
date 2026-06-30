@@ -64,6 +64,7 @@ public sealed class ResearchFactRegistry
         new AllocationOccurrenceFactProducer(),
         new UnsafetyOccurrenceFactProducer(),
         new CallSiteCostFactProducer(),
+        new CallSiteSemanticsFactProducer(),
         new MethodHeaderLeverageFactProducer(),
         new DecompilerLifetimeFactProducer());
 

@@ -63,6 +63,33 @@ public static class ResearchViews
         return new CostOverlayResult(body, headerFacts);
     }
 
+    public static DecompilerResult RenderSemanticsOverlay(
+        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
+        ResearchFactRegistry? registry = null)
+    {
+        return Run(() =>
+        {
+            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+                ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
+            var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
+            if (result.Output is not { } output)
+                return "";
+            if (imported.AssemblyPath is not { Length: > 0 } path)
+                return output;
+
+            var context = new ResearchFactContext(
+                source,
+                imported,
+                ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path)));
+            var annotations = (registry ?? ResearchFactRegistry.Default).Collect(context)
+                .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
+                .ToList();
+            return annotations.Count == 0
+                ? output
+                : AddTrailingComments(imported, output, statementLines, annotations);
+        }, emptyOutputIsFailure: true);
+    }
+
     public static DecompilerResult RenderAnnotatedSource(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)

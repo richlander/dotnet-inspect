@@ -1044,6 +1044,7 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
+            SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
@@ -1256,7 +1257,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.IL || request.Attributes || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false))
@@ -1342,6 +1343,28 @@ public static class ApiOutputFormatter
             {
                 EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 memberCode.CostOverlayCode = new CodeSection("csharp", costDiagnostic);
+                hasCode = true;
+            }
+
+            if (code.SemanticsOverlayBody is { } semanticsOverlay)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                string source;
+                try
+                {
+                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, semanticsOverlay);
+                }
+                catch (Exception ex)
+                {
+                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
+                }
+                memberCode.SemanticsOverlayCode = new CodeSection("csharp", source);
+                hasCode = true;
+            }
+            else if (code.SemanticsOverlayDiagnostic is { } semanticsDiagnostic)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                memberCode.SemanticsOverlayCode = new CodeSection("csharp", semanticsDiagnostic);
                 hasCode = true;
             }
 

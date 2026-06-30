@@ -153,6 +153,46 @@ public class ResearchFactRegistryTests
         Assert.DoesNotContain("cost.method", annotated);
     }
 
+    [Fact]
+    public void SemanticsOverlay_AnnotatesExceptionCalleeAtCallSite()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderSemanticsOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsExceptionOnlyCallee)).Output;
+
+        Assert.Contains("ExceptionOnlyCallee", overlay);
+        Assert.Contains("semantics.callee", overlay);
+        Assert.Contains("may-throw FormatException", overlay);
+        Assert.DoesNotContain("cost.callee", overlay);
+    }
+
+    [Fact]
+    public void SemanticsOverlay_AnnotatesUnsafeCalleeAtCallSite()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderSemanticsOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsStackallocCallee)).Output;
+
+        Assert.Contains("StackallocCallee", overlay);
+        Assert.Contains("safety.callee", overlay);
+        Assert.Contains("unsafe", overlay);
+        Assert.Contains("stackalloc", overlay);
+    }
+
+    [Fact]
+    public void AnnotatedSource_DoesNotIncludeSemanticsOverlayByDefault()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var annotated = ResearchViews.RenderAnnotatedSource(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsExceptionOnlyCallee)).Output;
+
+        Assert.DoesNotContain("semantics.callee", annotated);
+        Assert.DoesNotContain("safety.callee", annotated);
+    }
+
     sealed class TestProducer(
         string name,
         IReadOnlyList<string>? dependsOn = null,
@@ -191,6 +231,15 @@ public static class ResearchFixture
         if (value.Length == 0)
             throw new FormatException();
         return value.Length;
+    }
+
+    public static int CallsStackallocCallee(int value) => StackallocCallee(value);
+
+    public static int StackallocCallee(int value)
+    {
+        Span<int> values = stackalloc int[1];
+        values[0] = value;
+        return values[0];
     }
 
     public static int SharedLeverageCallee(int value) => value + 1;

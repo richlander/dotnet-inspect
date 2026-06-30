@@ -40,6 +40,9 @@ public enum AnnotationCategory
 
     /// <summary>Whole-assembly cost facts — call-site callee cost and method leverage overlays.</summary>
     Cost,
+
+    /// <summary>Behavioral semantics and safety facts — exception paths and unsafe callee contracts.</summary>
+    Semantics,
 }
 
 /// <summary>
