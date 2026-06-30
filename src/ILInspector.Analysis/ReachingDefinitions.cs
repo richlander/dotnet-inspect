@@ -42,6 +42,23 @@ public static class ReachingDefinitions
         return AnalyzeCore(body.GetILBytes() ?? [], argumentSlotCount, body.ExceptionRegions);
     }
 
+    /// <summary>
+    /// Test/parity hook: the basic-block start offsets this decoder+block-builder produces, used by
+    /// the <c>ILInspector.Instructions</c> substrate's directional differential to prove its block
+    /// builder is a regression-free replacement for this one. Not part of the product surface.
+    /// </summary>
+    internal static ImmutableArray<int> BlockStartsForParity(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+    {
+        ArgumentNullException.ThrowIfNull(il);
+        ArgumentNullException.ThrowIfNull(exceptionRegions);
+        if (il.Length == 0)
+            return [];
+        var instructions = DecodeInstructions(il);
+        var regionModels = BuildRegionModels(il.Length, instructions, exceptionRegions, out _);
+        var blocks = BuildBlocks(il.Length, instructions, regionModels);
+        return [.. blocks.Select(block => block.Start)];
+    }
+
     static ReachingDefinitionsResult AnalyzeCore(byte[] il, int argumentSlotCount, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         ArgumentNullException.ThrowIfNull(il);
