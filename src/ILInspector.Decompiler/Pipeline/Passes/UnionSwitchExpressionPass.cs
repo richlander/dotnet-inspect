@@ -46,6 +46,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 return true;
             }
 
+            if (TryMatchExhaustiveGuardedChainAt(function, children, start, out var exhaustiveGuardedSwitch))
+            {
+                match = new Match(start, exhaustiveGuardedSwitch);
+                return true;
+            }
+
             if (TryMatchAt(function, children, start, out var switchExpression))
             {
                 match = new Match(start, switchExpression);
@@ -214,6 +220,145 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
         return false;
     }
+
+    static bool TryMatchExhaustiveGuardedChainAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 5 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsUnionValueProperty(function, unionValue)
+            || !TryFinalThrowArm(children, start + 1, out int resultLocal, out var finalArm, out var finalNodes))
+        {
+            return false;
+        }
+
+        int tempLocal = valueStore.Index;
+        if (!IsTempLocal(finalArm, tempLocal))
+            return false;
+
+        var leadingNodes = children.Skip(start + 1).Take(children.Count - start - 1 - finalNodes.Count).ToArray();
+        if (!TryExhaustiveGuardedArms(leadingNodes, tempLocal, resultLocal, out var leadingArms))
+            return false;
+
+        var arms = leadingArms.Append(finalArm).ToArray();
+        var allowedTempUses = new List<IrNode> { valueStore };
+        allowedTempUses.AddRange(leadingNodes);
+        allowedTempUses.AddRange(finalNodes);
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, allowedTempUses)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())));
+        return true;
+    }
+
+    static bool TryExhaustiveGuardedArms(IReadOnlyList<IrNode> nodes, int tempLocal, int resultLocal, out IReadOnlyList<Arm> arms)
+    {
+        var builder = new List<Arm>();
+        foreach (var node in nodes)
+        {
+            if (node is not IfStatement armIf
+                || !TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots)
+                || !TryExhaustiveArmBody(armIf.Then.Children, localIndex, resultLocal, out var matchedArms))
+            {
+                arms = [];
+                return false;
+            }
+
+            foreach (var body in matchedArms)
+            {
+                var localRoots = new List<IrNode>(patternRoots) { body.Value };
+                localRoots.AddRange(body.GuardRoots);
+                builder.Add(new Arm(patternType, body.KeepsLocal ? localIndex : null, body.Value, localRoots, body.Guard));
+            }
+        }
+
+        arms = builder;
+        return arms.Count > 0;
+    }
+
+    static bool TryExhaustiveArmBody(
+        IReadOnlyList<IrNode> nodes,
+        int? localIndex,
+        int resultLocal,
+        out IReadOnlyList<ArmBody> arms)
+    {
+        arms = [];
+        if (nodes is [IfStatement { HasElse: false } guardIf, StoreLocal fallbackStore, Return fallbackReturn]
+            && guardIf.Then.Children is [StoreLocal guardedStore, Return guardedReturn]
+            && StoreReturnMatch(guardedStore, guardedReturn, resultLocal)
+            && StoreReturnMatch(fallbackStore, fallbackReturn, resultLocal)
+            && localIndex is { } local
+            && !ReferencesLocal(fallbackStore.Value, local))
+        {
+            arms =
+            [
+                new ArmBody(guardedStore.Value, guardIf.Condition, [guardIf.Condition], KeepsLocal: true),
+                new ArmBody(fallbackStore.Value, Guard: null, GuardRoots: [], KeepsLocal: false),
+            ];
+            return true;
+        }
+
+        if (nodes is [StoreLocal store, Return ret]
+            && StoreReturnMatch(store, ret, resultLocal))
+        {
+            arms = [new ArmBody(store.Value, Guard: null, GuardRoots: [], KeepsLocal: localIndex is { } armLocal && ReferencesLocal(store.Value, armLocal))];
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool TryFinalThrowArm(
+        IReadOnlyList<IrNode> children,
+        int armStart,
+        out int resultLocal,
+        out Arm arm,
+        out IReadOnlyList<IrNode> consumed)
+    {
+        resultLocal = -1;
+        arm = null!;
+        consumed = [];
+        if (children.Count - armStart < 4
+            || children[^4] is not StoreLocal { Value: IsInstance test } store
+            || children[^3] is not IfStatement nullGuard
+            || nullGuard.HasElse
+            || !IsNotLocal(nullGuard.Condition, store.Index)
+            || nullGuard.Then.Children is not [ExpressionStatement throwStatement, Return throwReturn]
+            || !IsThrowSwitchExpression(throwStatement)
+            || children[^2] is not StoreLocal valueStore
+            || children[^1] is not Return valueReturn
+            || !StoreReturnMatch(valueStore, valueReturn, valueStore.Index)
+            || !ReturnsLocal(throwReturn, valueStore.Index))
+        {
+            return false;
+        }
+
+        resultLocal = valueStore.Index;
+        arm = new Arm(test.Type, store.Index, valueStore.Value, [store, nullGuard.Condition, valueStore.Value]);
+        consumed = [children[^4], children[^3], children[^2], children[^1]];
+        return true;
+    }
+
+    static bool StoreReturnMatch(StoreLocal store, Return ret, int local)
+        => store.Index == local && ReturnsLocal(ret, local);
+
+    static bool IsTempLocal(Arm arm, int tempLocal)
+        => arm.LocalRoots.OfType<StoreLocal>().FirstOrDefault()?.Value is IsInstance test
+            && IsTempTypeTest(test, tempLocal);
 
     static bool TryBuild(
         IrFunction function,

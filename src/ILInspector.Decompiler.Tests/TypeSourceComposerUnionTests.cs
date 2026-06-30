@@ -477,8 +477,14 @@ public class TypeSourceComposerUnionTests
                 _ => "other",
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Inverted"));
-        Assert.DoesNotContain("return pet switch",
-            RenderMember(assembly.Path, "UnionFixtures.Matcher", "Exhaustive"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Name == "cat" => cat.Name,
+                Cat => "other cat",
+                Dog dog => dog.Name,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Exhaustive"));
     }
 
     [Fact]
