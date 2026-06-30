@@ -107,7 +107,7 @@
   "Source Locations"` / `member -S "Original Source"` for member-level source
   evidence.
 - Adds `library --il-offset` for MethodDef token + IL offset source
-  symbolication.
+  symbolication through the `IL Offset` section.
 - Adds `--blob` as the GitHub browser URL toggle for SourceLink URL sections.
 - Adds `-t` type filtering to `package`/`library -S "Source Files"`.
 
@@ -295,7 +295,7 @@
 
 ### Highlights
 
-- `source --il-offset` maps MethodDef token + IL offset pairs to source file locations, with Markdown, table/TSV, and JSON output.
+- The `source` command maps MethodDef token + IL offset pairs to source file locations, with Markdown, table/TSV, and JSON output.
 - `--count` returns a single integer row count when exactly one table section is selected.
 - `library -S "Async*"` lists async methods and classifies them as runtime async or classic state-machine async.
 - Platform assembly resolution is SemVer/prerelease-aware and resolves runtime-only assemblies such as `System.Private.CoreLib`.

@@ -57,12 +57,44 @@ public class LibraryCommand
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
+        var normalized = NormalizeILOffsetSelection(options);
+        if (normalized.Error is not null)
+        {
+            Console.Error.WriteLine(normalized.Error);
+            return 1;
+        }
+        options = normalized.Options;
+
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
+        {
+            if (selectResult.Sections.Contains(SectionNames.ILOffset)
+                && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
+            {
+                if (!HasExactILOffsetSelection(options.Select))
+                {
+                    selectResult.Sections.Remove(SectionNames.ILOffset);
+                }
+                else if (options.Discover == null)
+                {
+                    Console.Error.WriteLine("Error: IL Offset requires --il-offset <token>+<offset>.");
+                    return 1;
+                }
+            }
+
             options = options with { IncludeSections = selectResult.Sections };
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
+            && options.IncludeSections is { Count: > 0 }
+            && !options.IncludeSections.Contains(SectionNames.ILOffset))
+        {
+            Console.Error.WriteLine("Error: --il-offset requires the IL Offset section. Omit -S or include -S \"IL Offset\".");
+            return 1;
+        }
 
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
@@ -196,13 +228,12 @@ public class LibraryCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
-                if (!string.IsNullOrEmpty(options.ILOffset))
-                    return await ILOffsetSourceQuery.ExecuteAsync(
-                        resolvedPath!, null, null, isPlatformAssembly: true,
-                        options, context.HttpClient, logger);
-
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity);
+                var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
+                    inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
+                if (ilOffsetExitCode != 0)
+                    return ilOffsetExitCode;
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
@@ -225,11 +256,6 @@ public class LibraryCommand
                 tempDir = extractTempDir;
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
-
-                if (!string.IsNullOrEmpty(options.ILOffset))
-                    return await ILOffsetSourceQuery.ExecuteAsync(
-                        assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
-                        options, context.HttpClient, logger);
 
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
@@ -266,6 +292,13 @@ public class LibraryCommand
 
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity);
+                var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
+                    inspections[0], assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
+                    options, context.HttpClient, logger);
+                if (ilOffsetExitCode != 0)
+                    return ilOffsetExitCode;
+                if (options.Value || options.Urls || options.Paths)
+                    return WriteLibraryShapeProjection(inspections[0], options);
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
@@ -306,13 +339,15 @@ public class LibraryCommand
 
                 inspection.Source = SourceKind.File;
 
-                if (!string.IsNullOrEmpty(options.ILOffset))
-                    return await ILOffsetSourceQuery.ExecuteAsync(
-                        assemblyPath!, null, null, isPlatformAssembly: false,
-                        options, context.HttpClient, logger);
-
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity);
+                var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
+                    inspection, assemblyPath!, null, null, isPlatformAssembly: false,
+                    options, context.HttpClient, logger);
+                if (ilOffsetExitCode != 0)
+                    return ilOffsetExitCode;
+                if (options.Value || options.Urls || options.Paths)
+                    return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
@@ -346,6 +381,72 @@ public class LibraryCommand
         return inspections.Any(insp => insp.SourceIntegrityMismatches is { Count: > 0 }) ? 1 : 0;
     }
 
+    private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)
+    {
+        var select = options.Select?.ToList() ?? [];
+        string? ilOffset = options.ILOffsetParameter;
+        bool hasExplicitSelect = select.Count > 0;
+
+        for (var i = 0; i < select.Count; i++)
+        {
+            var value = select[i].Trim();
+            if (value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase))
+                return (options, "Error: IL Offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"IL Offset\".");
+        }
+
+        if (!string.IsNullOrWhiteSpace(ilOffset)
+            && options.Discover == null
+            && !hasExplicitSelect)
+        {
+            select.Add(SectionNames.ILOffset);
+        }
+
+        return (options with
+        {
+            ILOffsetParameter = ilOffset,
+            Select = select.Count == 0 ? null : [.. select]
+        }, null);
+    }
+
+    private static bool HasExactILOffsetSelection(string[]? select)
+    {
+        if (select is not { Length: > 0 })
+            return false;
+
+        foreach (var value in select)
+        {
+            if (value.StartsWith('@'))
+                continue;
+            if (value.Equals(SectionNames.ILOffset, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static async Task<int> PopulateILOffsetIfRequestedAsync(
+        LibraryInspection inspection,
+        string assemblyPath,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(options.ILOffsetParameter)
+            || options.IncludeSections?.Contains(SectionNames.ILOffset) != true)
+            return 0;
+
+        var resolved = await ILOffsetSourceQuery.ResolveAsync(
+            assemblyPath, packageName, packageVersion, isPlatformAssembly, options, httpClient, logger);
+        if (resolved.ExitCode != 0)
+            return resolved.ExitCode;
+
+        inspection.ILOffset = resolved.Result;
+        return 0;
+    }
+
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {
         var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
@@ -354,10 +455,11 @@ public class LibraryCommand
         {
             "Source Files" => ProjectLibrarySourceFiles(inspection, section, kind, options),
             "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
+            SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             _ => []
         };
 
-        if (rows.Count == 0 && section is not ("Source Files" or "Library Info"))
+        if (rows.Count == 0 && section is not ("Source Files" or "Library Info") && section != SectionNames.ILOffset)
         {
             Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
@@ -399,6 +501,44 @@ public class LibraryCommand
             "type" => row.Type,
             "url" => row.Url,
             _ => row.Url
+        };
+    }
+
+    private static List<ShapeProjectionRow> ProjectLibraryILOffset(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (inspection.ILOffset is not { } result)
+            return [];
+
+        var value = kind switch
+        {
+            ShapeProjectionKind.Urls => result.Url,
+            ShapeProjectionKind.Paths => result.File,
+            ShapeProjectionKind.Value => SelectLibraryILOffsetValue(result, options),
+            _ => null
+        };
+
+        return string.IsNullOrWhiteSpace(value)
+            ? []
+            : [new ShapeProjectionRow(1, section, value, Label: result.Method, Url: result.Url, Path: result.File)];
+    }
+
+    private static string? SelectLibraryILOffsetValue(ILOffsetResult result, LibraryOptions options)
+    {
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        return field?.ToLowerInvariant() switch
+        {
+            "method" => result.Method,
+            "token" => result.Token,
+            "il offset" or "iloffset" => result.ILOffset,
+            "matched offset" or "matchedoffset" => result.MatchedOffset,
+            "file" or "path" => result.File,
+            "line" => result.Line?.ToString(CultureInfo.InvariantCulture),
+            "url" or "source" => result.Url,
+            _ => result.Url
         };
     }
 
@@ -499,7 +639,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v9";
+    private const string EffectiveCategory = "effective-v10";
 
     static LibraryCommand()
     {

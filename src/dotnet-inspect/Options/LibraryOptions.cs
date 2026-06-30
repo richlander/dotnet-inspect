@@ -67,9 +67,9 @@ public record LibraryOptions
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// MethodDef token + IL offset to map to a SourceLink source location.
+    /// MethodDef token + IL offset parameter for the IL Offset section.
     /// </summary>
-    public string? ILOffset { get; init; }
+    public string? ILOffsetParameter { get; init; }
 
     /// <summary>
     /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
@@ -238,5 +238,5 @@ public record LibraryOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths || ILOffset != null;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
 }

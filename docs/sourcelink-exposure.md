@@ -20,12 +20,12 @@ SourceLink answers three related questions:
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
 | Which source files map to this target? | `Source Files` sections on `library` / `package` / `type` |
 | Where do these member signatures live in source? | A dedicated member `Source Locations` section for file/URL/line when a verified PDB is available |
-| What is the source for this exact member or IL offset? | selected `member` source sections, or `library --il-offset` for MethodDef token + IL offset point queries |
+| What is the source for this exact member or IL offset? | selected `member` source sections, or `library --il-offset <token>+<offset>` for MethodDef token + IL offset point queries |
 
 The command model should prefer sections over new flags. SourceLink URL listings
 are document sections, not standalone verbs. Point queries, such as method-token
-plus IL offset symbolication, are the exception because they do not naturally
-produce a section-shaped inventory.
+plus IL offset symbolication, use flags to supply query input while section
+selection controls rendering.
 
 ## Current product surfaces
 
@@ -90,7 +90,8 @@ records the removal path: source inventories became `Source Files` sections,
 source-body retrieval follows selected-member `Original Source` / package
 content patterns, availability checks live in `SourceLink Integrity` and
 `SourceLink Availability`, URL shape is selected with `--blob`, and IL offset
-symbolication is now `library --il-offset`.
+symbolication is now `library --il-offset <token>+<offset>`, which supplies the
+value for the `IL Offset` section.
 
 Sample URLs are less direct: they should be URL rows from real package or
 documentation metadata rather than calculated links, because some sample URL

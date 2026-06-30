@@ -473,6 +473,7 @@ public record PackageSourceFileRow(
 [MarkoutContext(typeof(TargetFrameworkRow))]
 [MarkoutContext(typeof(PackageFileRow))]
 [MarkoutContext(typeof(PackageSourceFileRow))]
+[MarkoutContext(typeof(ILOffsetRow))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
 [MarkoutContext(typeof(EmptyDepsView))]
