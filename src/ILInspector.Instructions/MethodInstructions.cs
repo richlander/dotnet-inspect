@@ -68,6 +68,33 @@ public sealed record MethodInstructions(
         return null;
     }
 
+    /// <summary>
+    /// The instruction whose <see cref="DecodedInstruction.NextOffset"/> equals <paramref name="offset"/> —
+    /// i.e. the instruction that <paramref name="offset"/> is the <b>return address</b> of (a call site reported
+    /// by the offset following it). Null when <paramref name="offset"/> is 0 or not an instruction boundary.
+    /// Relies on the contiguous tiling of the decoded stream.
+    /// </summary>
+    public DecodedInstruction? InstructionBefore(int offset)
+    {
+        int lo = 0;
+        int hi = Instructions.Length - 1;
+        int candidate = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (Instructions[mid].Offset < offset)
+            {
+                candidate = mid;
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
+        }
+        return candidate >= 0 && Instructions[candidate].NextOffset == offset ? Instructions[candidate] : null;
+    }
+
     /// <summary>The index of the block containing <paramref name="offset"/>, or -1 if out of range.</summary>
     public int BlockIndexAt(int offset) => Blocks.BlockIndexAt(offset);
 

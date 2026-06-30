@@ -69,6 +69,11 @@ public class MetadataResolverTests
         Assert.Equal(call, mi.InstructionAt(call.Offset));
         Assert.Null(mi.InstructionAt(call.Offset + 1));
         Assert.True(mi.BlockIndexAt(call.Offset) >= 0);
+
+        // Return-address lookup: the call is the instruction whose return address is its NextOffset.
+        Assert.Equal(call, mi.InstructionBefore(call.NextOffset));
+        Assert.Null(mi.InstructionBefore(0));                // nothing before the method entry
+        Assert.Null(mi.InstructionBefore(call.Offset + 1));  // mid-instruction is not a boundary
     }
 
     [Fact]
