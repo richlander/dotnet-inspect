@@ -424,6 +424,109 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionSwitchStatementReturnChain_RendersSwitchExpression()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; public int Age { get; } = 5; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+            public sealed class Bird { public string Name { get; } = "bird"; }
+            public union Pet(Cat, Dog);
+            public union Pet3(Cat, Dog, Bird);
+
+            public static class Matcher
+            {
+                public static string Statement(Pet pet)
+                {
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            return cat.Name;
+                        case Dog dog:
+                            return dog.Name;
+                    }
+                    return "other";
+                }
+
+                public static string StatementDefault(Pet pet)
+                {
+                    switch (pet)
+                    {
+                        case Cat cat when cat.Age > 3:
+                            return cat.Name;
+                        case Dog dog:
+                            return dog.Name;
+                        default:
+                            return "other";
+                    }
+                }
+
+                public static string StatementDefaultSwapped(Pet pet)
+                {
+                    switch (pet)
+                    {
+                        case Dog dog:
+                            return dog.Name;
+                        case Cat cat when cat.Age > 3:
+                            return cat.Name;
+                        default:
+                            return "other";
+                    }
+                }
+
+                public static string StatementThree(Pet3 pet)
+                {
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            return cat.Name;
+                        case Dog dog:
+                            return dog.Name;
+                        case Bird bird:
+                            return bird.Name;
+                    }
+                    return "other";
+                }
+            }
+            """);
+
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Statement"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat when cat.Age > 3 => cat.Name,
+                Dog dog => dog.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "StatementDefault"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Dog dog => dog.Name,
+                Cat cat when cat.Age > 3 => cat.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "StatementDefaultSwapped"));
+        Assert.Equal("""
+            return pet switch
+            {
+                Cat cat => cat.Name,
+                Dog dog => dog.Name,
+                Bird bird => bird.Name,
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "StatementThree"));
+    }
+
+    [Fact]
     public async Task UnionSwitchExpression_RendersSameTypeGuardedFallbackArms()
     {
         using var assembly = await CompileWithSdk("""
