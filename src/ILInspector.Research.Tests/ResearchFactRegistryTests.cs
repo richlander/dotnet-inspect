@@ -58,6 +58,55 @@ public class ResearchFactRegistryTests
         Assert.Contains("alloc.box(registered)", il);
     }
 
+    [Fact]
+    public void CostOverlay_AnnotatesHighValueCalleeAtCallSite()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsAllocInLoopCallee)).Output;
+
+        Assert.Contains("AllocInLoopCallee", overlay);
+        Assert.Contains("cost.callee", overlay);
+        Assert.Contains("alloc-loop", overlay);
+    }
+
+    [Fact]
+    public void CostOverlay_DoesNotAnnotateLowSignalCallee()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsLowSignalCallee)).Output;
+
+        Assert.Contains("LowSignalCallee", overlay);
+        Assert.DoesNotContain("cost.callee", overlay);
+    }
+
+    [Fact]
+    public void CostOverlay_RendersMethodHeaderLeverage()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = ResearchViews.RenderCostOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.SharedLeverageCallee)).Output;
+
+        Assert.Contains("cost.method", overlay);
+        Assert.Contains("direct-callers 2", overlay);
+    }
+
+    [Fact]
+    public void AnnotatedSource_DoesNotIncludeCostOverlayByDefault()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var annotated = ResearchViews.RenderAnnotatedSource(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsAllocInLoopCallee)).Output;
+
+        Assert.DoesNotContain("cost.callee", annotated);
+        Assert.DoesNotContain("cost.method", annotated);
+    }
+
     sealed class TestProducer(
         string name,
         IReadOnlyList<string>? dependsOn = null,
@@ -74,4 +123,24 @@ public class ResearchFactRegistryTests
 public static class ResearchFixture
 {
     public static object BoxInt(int value) => value;
+
+    public static int CallsAllocInLoopCallee(int count) => AllocInLoopCallee(count);
+
+    public static int AllocInLoopCallee(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+            total += new object().GetHashCode();
+        return total;
+    }
+
+    public static int CallsLowSignalCallee(int value) => LowSignalCallee(value);
+
+    public static int LowSignalCallee(int value) => value + 1;
+
+    public static int SharedLeverageCallee(int value) => value + 1;
+
+    public static int LeverageCallerA(int value) => SharedLeverageCallee(value);
+
+    public static int LeverageCallerB(int value) => SharedLeverageCallee(value + 1);
 }

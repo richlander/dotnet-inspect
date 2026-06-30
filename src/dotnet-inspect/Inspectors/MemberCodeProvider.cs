@@ -16,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -29,6 +29,8 @@ internal static class MemberCodeProvider
         IReadOnlyList<string>? MethodGenericParameters,
         string? AnnotatedBody,
         string? AnnotatedDiagnostic,
+        string? CostOverlayBody,
+        string? CostOverlayDiagnostic,
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
@@ -129,6 +131,18 @@ internal static class MemberCodeProvider
                     annotatedDiagnostic = DiagnosticComment(result);
             }
 
+            string? costOverlayBody = null, costOverlayDiagnostic = null;
+            if (request.CostOverlay && pipelineSource is not null)
+            {
+                var result = ILInspector.Research.ResearchViews.RenderCostOverlay(
+                    pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
+                decompileTrace = result.Trace;
+                if (result.Output is { } costOverlay)
+                    costOverlayBody = costOverlay.TrimEnd();
+                else
+                    costOverlayDiagnostic = DiagnosticComment(result);
+            }
+
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
             {
@@ -160,6 +174,8 @@ internal static class MemberCodeProvider
                 methodGenericParameters,
                 annotatedBody,
                 annotatedDiagnostic,
+                costOverlayBody,
+                costOverlayDiagnostic,
                 ilText,
                 ilDiagnostic,
                 attributes,
@@ -239,7 +255,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.Facts)
             return null;
         try
         {

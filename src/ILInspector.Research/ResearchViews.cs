@@ -1,4 +1,5 @@
 using System.Text;
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -19,6 +20,37 @@ public static class ResearchViews
     public static IReadOnlyList<Annotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)
         => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported));
+
+    public static DecompilerResult RenderCostOverlay(
+        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
+        ResearchFactRegistry? registry = null)
+    {
+        return Run(() =>
+        {
+            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+                ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
+            var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
+            if (result.Output is not { } output)
+                return "";
+            if (imported.AssemblyPath is not { Length: > 0 } path)
+                return output;
+
+            var context = new ResearchFactContext(
+                source,
+                imported,
+                ResearchAssemblyContext.Create(LibraryBodyIndex.Open(path)));
+            var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
+            var annotations = effectiveRegistry.Collect(context)
+                .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
+                .ToList();
+            var headerFacts = effectiveRegistry.CollectHeaderFacts(context)
+                .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
+                .ToList();
+            if (annotations.Count > 0)
+                output = AddTrailingComments(imported, output, statementLines, annotations);
+            return AddHeaderFacts(output, headerFacts);
+        }, emptyOutputIsFailure: true);
+    }
 
     public static DecompilerResult RenderAnnotatedSource(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
@@ -152,6 +184,19 @@ public static class ResearchViews
         for (int i = 0; i < lines.Length; i++)
             if (commentByLine.TryGetValue(i, out var comment))
                 lines[i] = $"{lines[i].TrimEnd()}  // {comment}";
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    static string AddHeaderFacts(string output, IReadOnlyList<ResearchHeaderFact> facts)
+    {
+        if (facts.Count == 0)
+            return output;
+        var lines = output.Replace("\r\n", "\n").Split('\n').ToList();
+        int headerLine = lines.FindIndex(line => line.Contains('(') && !line.TrimStart().StartsWith("//", StringComparison.Ordinal));
+        if (headerLine < 0)
+            headerLine = 0;
+        var annotations = facts.Select(fact => new Annotation(fact.Descriptor, SourceOffset: -1, fact.Detail)).ToArray();
+        lines.Insert(headerLine, $"// {AnnotationText.Format(annotations)}");
         return string.Join(Environment.NewLine, lines);
     }
 
