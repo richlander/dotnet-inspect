@@ -13,8 +13,8 @@ It is built for both humans and agents. Markdown is the default output because h
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
 - `src/DotnetInspector.Services/` contains shared services such as platform/package resolution, dependency resolution, signatures, source fetching, and nuspec parsing.
-- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and annotated IL from method bodies.
-- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and renders the annotated source/IL/Facts views used by `member`.
+- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
+- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
 
 ## Agent contract
 
