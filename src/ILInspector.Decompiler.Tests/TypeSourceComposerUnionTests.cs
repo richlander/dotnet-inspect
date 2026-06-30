@@ -297,6 +297,16 @@ public class TypeSourceComposerUnionTests
                 public static string Ternary(Pet pet) => pet is Cat cat ? cat.Name : "other";
                 public static string TernaryGuard(Pet pet) => pet is Cat cat && cat.Age > 3 ? cat.Name : "other";
                 public static int ConditionalNumber(Pet pet) => pet is Cat cat ? cat.Age : -1;
+
+                public static string ManualFallbackUsesLocal(Pet pet)
+                {
+                    Cat cat = pet.Value as Cat;
+                    if (cat is null)
+                        return FormatNull(cat);
+                    return cat.Name;
+                }
+
+                static string FormatNull(Cat? cat) => cat?.Name ?? "null";
             }
             """);
 
@@ -306,6 +316,10 @@ public class TypeSourceComposerUnionTests
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
         Assert.Equal("return pet is Cat cat ? cat.Age : -1;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "ConditionalNumber"));
+        var manual = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ManualFallbackUsesLocal");
+        Assert.Contains("Cat cat = pet.Value as Cat;", manual);
+        Assert.Contains("FormatNull(cat)", manual);
+        Assert.DoesNotContain("pet is Cat cat ? cat.Name : FormatNull(cat)", manual);
     }
 
     [Fact]

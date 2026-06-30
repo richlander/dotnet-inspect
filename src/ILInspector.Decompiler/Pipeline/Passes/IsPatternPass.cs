@@ -123,7 +123,7 @@ public sealed class IsPatternPass : IIrPass
 
                 if (ReferenceOwnership.SubtreeReferencesLocal(asCast.Operand, store.Index)
                     || !IsSideEffectFree(function, asCast.Operand)
-                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, guard.Condition, guard, whenTrue]))
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, guard.Condition, whenTrue]))
                 {
                     continue;
                 }
