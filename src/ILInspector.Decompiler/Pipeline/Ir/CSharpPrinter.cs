@@ -1190,6 +1190,8 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("{");
             foreach (var arm in unionSwitch.Arms)
                 sb.Append(inner).Append(UnionSwitchArmText(arm, _function.Signature.ReturnType)).AppendLine(",");
+            if (unionSwitch.DefaultValue is { } defaultValue)
+                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(defaultValue, _function.Signature.ReturnType)).AppendLine(",");
             sb.Append(pad).AppendLine("};");
             return;
         }
