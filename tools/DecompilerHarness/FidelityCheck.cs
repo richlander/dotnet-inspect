@@ -1899,37 +1899,6 @@ static class FidelityCheck
         return $" : {Clean(baseName)}";
     }
 
-    static string InterfaceClause(MetadataReader reader, TypeDefinitionHandle typeHandle, TypeKind kind, string baseClause)
-    {
-        if (kind is not TypeKind.Class)
-            return "";
-        var interfaces = new List<string>();
-        foreach (var handle in reader.GetTypeDefinition(typeHandle).GetInterfaceImplementations())
-        {
-            var impl = reader.GetInterfaceImplementation(handle);
-            if (SimpleInterfaceName(reader, impl.Interface) is { } iface)
-                interfaces.Add(iface);
-        }
-        if (interfaces.Count == 0)
-            return "";
-        string prefix = baseClause.Length == 0 ? " : " : ", ";
-        return prefix + string.Join(", ", interfaces.Distinct(StringComparer.Ordinal));
-    }
-
-    static string? SimpleInterfaceName(MetadataReader reader, EntityHandle handle)
-    {
-        switch (handle.Kind)
-        {
-            case HandleKind.TypeDefinition:
-                var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
-                if (!definition.GetDeclaringType().IsNil || definition.GetGenericParameters().Count != 0)
-                    return null;
-                return FullName(reader, definition);
-            default:
-                return null;
-        }
-    }
-
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
@@ -1968,7 +1937,6 @@ static class FidelityCheck
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
             : IsStaticClass(typeDef) ? "static class" : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
-        string interfaceClause = InterfaceClause(reader, typeHandle, kind, baseClause);
         // An [InlineArray(N)] struct must carry the attribute for its span
         // conversions (e.g. `(Span<T>)place`) to bind; the bare reconstructed
         // struct otherwise has no such conversion and the body fails to recompile.
@@ -1981,7 +1949,7 @@ static class FidelityCheck
         var primaryConstructor = primaryConstructorTarget.Value.PrimaryConstructor;
         string primaryParameters = primaryConstructor is null ? "" : $"({primaryConstructor.Parameters})";
         string unsafeModifier = TypeHasAwaitTarget(reader, typeHandle, targets) ? "" : "unsafe ";
-        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{primaryParameters}{baseClause}{interfaceClause}{whereClauses}");
+        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{primaryParameters}{baseClause}{whereClauses}");
         sb.AppendLine($"{pad}{{");
 
         // Field initializers lifted from a target ctor apply to this type's
