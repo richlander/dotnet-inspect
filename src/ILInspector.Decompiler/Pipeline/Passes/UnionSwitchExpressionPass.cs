@@ -1,8 +1,8 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises the two-arm union switch-expression lowering Roslyn currently emits:
-/// one cached <c>union.Value</c>, two ordered type tests, value arms, and the
+/// Raises the union switch-expression lowering Roslyn currently emits:
+/// one cached <c>union.Value</c>, ordered type tests, value arms, and the
 /// compiler's unreachable <c>ThrowSwitchExpressionException</c> fallback. This is
 /// deliberately narrower than general pattern-switch reconstruction.
 /// </summary>
@@ -106,10 +106,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     {
         switchExpression = null!;
         if (firstIf.HasElse
-            || firstIf.Then.Children is not [IfStatement secondIf, ExpressionStatement throwStatement, Return throwReturn]
+            || firstIf.Then.Children.Count < 3
+            || firstIf.Then.Children[^2] is not ExpressionStatement throwStatement
+            || firstIf.Then.Children[^1] is not Return throwReturn
             || !IsThrowSwitchExpression(throwStatement)
             || !ReturnsLocal(throwReturn, resultLocal)
-            || !TrySecondArm(secondIf, tempLocal, resultLocal, out var secondArm))
+            || !TryInnerArms(firstIf.Then.Children.Take(firstIf.Then.Children.Count - 2), tempLocal, resultLocal, out var innerArms))
         {
             return false;
         }
@@ -120,33 +122,51 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             : [unionValue.Parent!, extraTempUse, firstIf];
         if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, allowedTempUses)
             || !ArmLocalReferencesAreOwned(function, firstArm)
-            || !ArmLocalReferencesAreOwned(function, secondArm))
+            || innerArms.Any(arm => !ArmLocalReferencesAreOwned(function, arm)))
         {
             return false;
         }
+
+        var arms = new[] { firstArm }.Concat(innerArms).ToArray();
+        if (arms.Select(arm => arm.PatternType).Distinct().Count() != arms.Length)
+            return false;
 
         switchExpression = new UnionSwitchExpression(
             (IrExpression)unionValue.Clone(),
-            [
-                new UnionSwitchExpressionArm(firstArm.PatternType, firstArm.LocalIndex, (IrExpression)firstArm.Value.Clone()),
-                new UnionSwitchExpressionArm(secondArm.PatternType, secondArm.LocalIndex, (IrExpression)secondArm.Value.Clone()),
-            ]);
+            arms.Select(arm => new UnionSwitchExpressionArm(arm.PatternType, arm.LocalIndex, (IrExpression)arm.Value.Clone())));
         return true;
     }
 
-    static bool TrySecondArm(IfStatement secondIf, int tempLocal, int resultLocal, out Arm arm)
+    static bool TryInnerArms(IEnumerable<IrNode> nodes, int tempLocal, int resultLocal, out IReadOnlyList<Arm> arms)
+    {
+        var builder = new List<Arm>();
+        foreach (var node in nodes)
+        {
+            if (node is not IfStatement armIf || !TryArm(armIf, tempLocal, resultLocal, out var arm))
+            {
+                arms = [];
+                return false;
+            }
+            builder.Add(arm);
+        }
+
+        arms = builder;
+        return arms.Count > 0;
+    }
+
+    static bool TryArm(IfStatement armIf, int tempLocal, int resultLocal, out Arm arm)
     {
         arm = null!;
-        if (secondIf.HasElse || secondIf.Then.Children.Count != 2)
+        if (armIf.HasElse || armIf.Then.Children.Count != 2)
             return false;
 
-        if (!TryStoreReturn(secondIf.Then.Children, 0, out int secondResultLocal, out var value)
-            || secondResultLocal != resultLocal)
+        if (!TryStoreReturn(armIf.Then.Children, 0, out int armResultLocal, out var value)
+            || armResultLocal != resultLocal)
         {
             return false;
         }
 
-        switch (secondIf.Condition)
+        switch (armIf.Condition)
         {
             case IsPattern pattern when IsTempLoad(pattern.Value, tempLocal):
                 arm = new Arm(pattern.Type, pattern.LocalIndex, value, [pattern, value]);
