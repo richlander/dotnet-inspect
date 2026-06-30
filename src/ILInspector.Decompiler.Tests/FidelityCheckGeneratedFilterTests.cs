@@ -126,6 +126,47 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void Evaluate_RoundTripsStructAutoProperties()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct StructAutoPropertyPairFixture
+            {
+                public StructAutoPropertyPairFixture(double left, double right)
+                {
+                    Left = left;
+                    Right = right;
+                }
+
+                public double Left { get; }
+                public double Right { get; }
+
+                public double Sum() => this.Left + this.Right;
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            var ctor = Assert.Single(
+                results,
+                result => result.Type == "StructAutoPropertyPairFixture" && result.Method == ".ctor");
+            var getter = Assert.Single(
+                results,
+                result => result.Type == "StructAutoPropertyPairFixture" && result.Method == "get_Left");
+            var sum = Assert.Single(
+                results,
+                result => result.Type == "StructAutoPropertyPairFixture" && result.Method == "Sum");
+
+            Assert.True(ctor.Status == FidelityCheck.CompileBackStatus.Exact, ctor.Detail);
+            Assert.True(getter.Status == FidelityCheck.CompileBackStatus.Exact, getter.Detail);
+            Assert.True(sum.Status == FidelityCheck.CompileBackStatus.Exact, sum.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_RoundTripsStructObjectToStringDispatch()
     {
         var assemblyPath = CompileFixture("""

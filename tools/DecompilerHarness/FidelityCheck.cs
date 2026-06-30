@@ -1911,12 +1911,14 @@ static class FidelityCheck
         // binds — the dominant cluster bail (CS1061) once namespace + ctor stubs
         // land. A property whose accessor is a target is left to the method loop
         // unchanged, so the target's own emission and opcode comparison are
-        // untouched; the replaced accessor handles are skipped below. Classes only:
-        // a readonly-struct member accessed through a readonly receiver would take a
-        // defensive copy against a mutable stub, changing the target's opcodes.
+        // untouched; the replaced accessor handles are skipped below. Structs are
+        // restricted to compiler auto-properties: a non-auto mutable stub on a
+        // readonly receiver can introduce a defensive copy and change opcodes, but
+        // an auto-property preserves the field-backed accessor shape.
         var stubPropertyAccessors = new HashSet<MethodDefinitionHandle>();
-        if (kind == TypeKind.Class)
-            EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors, sb, pad + "    ");
+        if (kind is TypeKind.Class or TypeKind.Struct)
+            EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors, sb, pad + "    ",
+                requireAutoProperty: kind == TypeKind.Struct);
 
         foreach (var mh in typeDef.GetMethods())
         {
@@ -2086,7 +2088,8 @@ static class FidelityCheck
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         SignatureAccessibility accessibility, IReadOnlyList<(string Field, string Value)> fieldInits,
-        HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad)
+        HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad,
+        bool requireAutoProperty = false)
     {
         var typeContext = GenericContext.ForType(reader, typeDef);
         foreach (var ph in typeDef.GetProperties())
@@ -2127,6 +2130,8 @@ static class FidelityCheck
                 bool isAutoProperty = hasGet
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
+                if (requireAutoProperty && !isAutoProperty)
+                    continue;
                 bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
                     || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
