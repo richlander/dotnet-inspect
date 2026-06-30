@@ -416,6 +416,47 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_RetainsExceptionBaseClause()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public class CustomException : Exception
+            {
+                public CustomException(string message)
+                    : base(message)
+                {
+                }
+            }
+
+            public static class BaseAndInterfaceFixture
+            {
+                public static void ThrowCustom()
+                    => throw new CustomException("bad");
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            AssertCheckable(results, "ThrowCustom");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertCheckable(IReadOnlyList<FidelityCheck.CompileBackResult> results, string method)
+        {
+            var result = Assert.Single(
+                results,
+                result => result.Type == "BaseAndInterfaceFixture" && result.Method == method);
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Detail);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");

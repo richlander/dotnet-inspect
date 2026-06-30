@@ -1882,15 +1882,21 @@ static class FidelityCheck
     {
         if (kind != TypeKind.Class || typeDef.BaseType.IsNil)
             return "";
-        if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
-            return ""; // TypeReference (out of assembly) / TypeSpec (generic) — not reliably spellable
-        var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
-        if (baseDef.GetGenericParameters().Count != 0)
-            return "";
+        if (typeDef.BaseType.Kind == HandleKind.TypeDefinition)
+        {
+            var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
+            if (baseDef.GetGenericParameters().Count != 0)
+                return "";
+        }
+        else if (typeDef.BaseType.Kind != HandleKind.TypeReference || BaseTypeName(reader, typeDef.BaseType) is not "System.Exception")
+        {
+            return ""; // TypeSpec / most TypeReference bases — not reliably spellable
+        }
+
         string baseName = BaseTypeName(reader, typeDef.BaseType);
         if (baseName is "System.Object")
             return "";
-        return $" : {baseName}";
+        return $" : {Clean(baseName)}";
     }
 
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
