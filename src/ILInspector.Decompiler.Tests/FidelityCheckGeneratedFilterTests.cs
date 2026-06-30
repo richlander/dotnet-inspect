@@ -416,6 +416,71 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
+    [Fact]
+    public void Evaluate_RetainsSimpleBaseAndInterfaceClauses()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public class CustomException : Exception
+            {
+                public CustomException(string message)
+                    : base(message)
+                {
+                }
+            }
+
+            public interface ILeft
+            {
+                string Transform(string input);
+            }
+
+            public interface IRight
+            {
+                string Format(string input);
+            }
+
+            public class BothTransformers : ILeft, IRight
+            {
+                public string Transform(string input) => input;
+                public string Format(string input) => input;
+            }
+
+            public static class BaseAndInterfaceFixture
+            {
+                public static void ThrowCustom()
+                    => throw new CustomException("bad");
+
+                public static ILeft CreateLeft()
+                    => new BothTransformers();
+
+                public static IRight CreateRight()
+                    => new BothTransformers();
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            AssertCheckable(results, "ThrowCustom");
+            AssertCheckable(results, "CreateLeft");
+            AssertCheckable(results, "CreateRight");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertCheckable(IReadOnlyList<FidelityCheck.CompileBackResult> results, string method)
+        {
+            var result = Assert.Single(
+                results,
+                result => result.Type == "BaseAndInterfaceFixture" && result.Method == method);
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Detail);
+        }
+    }
+
     static string CompileFixture(string source)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
