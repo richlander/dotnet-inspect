@@ -19,12 +19,13 @@ dnx dotnet-inspect -y -- <command>
 
 `-S "Source Files"` maps types to their SourceLink URLs (on `type`, `library`,
 or `package`); `-S "Source Locations"` gives per-member file and line URLs
-without fetching the bodies.
+without fetching the bodies. Use `--urls` for a clean URL list and `--paths` for
+source path rows.
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files"
-dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files"
-dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations"
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
+dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
 ```
 
 ## Fetch the original source
@@ -44,13 +45,14 @@ dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Sou
 ## URL forms
 
 PDBs *carry* SourceLink data; they are not SourceLink themselves. SourceLink URL
-rows default to raw/fetchable form; add `--blob` for browser URLs. Use `--bare`
-to extract a clean URL list for scripting; use `--print` when you want the
-referenced source body.
+rows default to raw/fetchable form; add `--blob` for browser URLs. Prefer
+`--urls` when you want URL payloads, `--paths` for file paths, and `--print` when
+you want the referenced source body. `--bare` remains a raw selected-payload
+escape hatch.
 
 ```bash
-dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --bare
-dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files" --blob
+dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --jsonl
+dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files" --urls --blob
 ```
 
 To check *whether* SourceLink is present and valid (rather than fetch source),
