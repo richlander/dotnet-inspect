@@ -292,7 +292,7 @@ internal static class MemberCodeProvider
                 IncludeAspNetCoreSharedFramework = false,
                 PreferImplementationAssemblies = true,
             });
-            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath, resolver.ToAssemblyLocator());
+            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath, resolver);
         }
         catch
         {

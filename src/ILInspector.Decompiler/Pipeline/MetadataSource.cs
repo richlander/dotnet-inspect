@@ -17,7 +17,7 @@ public sealed class MetadataSource : IDisposable
 {
     static readonly TypeRef s_enumerable = TypeRef.CoreLib("System.Collections", "IEnumerable");
 
-    readonly FileStream _stream;
+    readonly Stream _stream;
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
     bool _pdbProbed;
@@ -25,12 +25,13 @@ public sealed class MetadataSource : IDisposable
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
     readonly AssemblyLocator _locator;
+    readonly IAssemblyReferenceResolver _resolver;
     readonly MetadataContext? _suppliedContext;
     MetadataContext? _crossContext;
     bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
 
-    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator, MetadataContext? context)
+    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator, IAssemblyReferenceResolver resolver, MetadataContext? context)
     {
         Path = path;
         _stream = stream;
@@ -40,6 +41,7 @@ public sealed class MetadataSource : IDisposable
         _externalPdbPath = externalPdbPath;
         _readSymbols = readSymbols;
         _locator = locator;
+        _resolver = resolver;
         _suppliedContext = context;
     }
 
@@ -87,7 +89,13 @@ public sealed class MetadataSource : IDisposable
     /// borrowed — the caller owns its disposal.
     /// </summary>
     public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true, locator, context);
+        => OpenCore(path, externalPdbPath, readSymbols: true, locator, resolver: null, context);
+
+    public static MetadataSource Open(string path, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true, locator: null, resolver, context);
+
+    public static MetadataSource Open(ResolvedAssemblyReference assembly, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(assembly, externalPdbPath, readSymbols: true, resolver, context);
 
     /// <summary>
     /// Opens an assembly without consulting any portable PDB, so local names are
@@ -96,7 +104,13 @@ public sealed class MetadataSource : IDisposable
     /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
     /// </summary>
     public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, context);
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, resolver: null, context);
+
+    public static MetadataSource OpenWithoutSymbols(string path, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator: null, resolver, context);
+
+    public static MetadataSource OpenWithoutSymbols(ResolvedAssemblyReference assembly, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(assembly, externalPdbPath: null, readSymbols: false, resolver, context);
 
     /// <summary>
     /// Default referenced-assembly probing policy for callers that need to share a
@@ -105,7 +119,7 @@ public sealed class MetadataSource : IDisposable
     /// </summary>
     public static AssemblyLocator DefaultAssemblyLocator(string path) => SiblingLocator(path);
 
-    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, MetadataContext? context)
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, IAssemblyReferenceResolver? resolver, MetadataContext? context)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -118,7 +132,33 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, locator ?? DefaultAssemblyLocator(path), context);
+            var effectiveLocator = locator ?? DefaultAssemblyLocator(path);
+            var effectiveResolver = resolver ?? effectiveLocator.ToAssemblyReferenceResolver();
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, effectiveLocator, effectiveResolver, context);
+        }
+        catch
+        {
+            peReader?.Dispose();
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    static MetadataSource OpenCore(ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
+    {
+        var stream = assembly.OpenRead();
+        PEReader? peReader = null;
+        try
+        {
+            peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                throw new BadImageFormatException($"No managed metadata: {assembly.Identity.Name}");
+            var reader = peReader.GetMetadataReader();
+            string assemblyName = reader.IsAssembly
+                ? reader.GetString(reader.GetAssemblyDefinition().Name)
+                : assembly.Identity.Name;
+            string path = assembly.Path ?? assembly.Identity.Name;
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, resolver.ToAssemblyLocator(), resolver, context);
         }
         catch
         {
@@ -172,7 +212,7 @@ public sealed class MetadataSource : IDisposable
         {
             if (_crossContext is null)
             {
-                _crossContext = _suppliedContext ?? new MetadataContext(_locator);
+                _crossContext = _suppliedContext ?? new MetadataContext(_resolver);
                 _ownsCrossContext = _suppliedContext is null;
             }
             return _crossContext;

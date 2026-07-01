@@ -19,30 +19,55 @@ public static class TypeSourceComposer
 {
     public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
     {
+        locateAssembly ??= SiblingLocator(dllPath);
+        return ComposeCore(
+            type,
+            dllPath,
+            pdbPath,
+            () => TypeForwardResolver.LocateType(dllPath, type.FullName, locateAssembly),
+            (location, ctx) => location.AssemblyPath is { } path
+                ? Pipeline.MetadataSource.Open(path, pdbPath, locateAssembly, ctx)
+                : Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, locateAssembly.ToAssemblyReferenceResolver(), ctx),
+            context);
+    }
+
+    public static string? Compose(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    {
+        var start = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+            dllPath,
+            () => File.OpenRead(dllPath),
+            Provenance: "StartAssembly");
+        return ComposeCore(
+            type,
+            dllPath,
+            pdbPath,
+            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
+            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            context);
+    }
+
+    static string? ComposeCore(
+        ApiType type,
+        string dllPath,
+        string? pdbPath,
+        Func<TypeLocation?> locateType,
+        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Pipeline.MetadataContext? context)
+    {
         if (type.Kind is "delegate")
             return null;
 
         try
         {
-            // Follow type forwarders (ref/facade assemblies) to the assembly
-            // that actually defines the type. Default policy: implementations
-            // sit alongside the starting assembly.
-            locateAssembly ??= (name, scope) =>
-            {
-                if (scope == AssemblyResolutionScope.Platform)
-                    return null;
-
-                string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
-                return File.Exists(sibling) ? sibling : null;
-            };
-            if (TypeForwardResolver.LocateType(dllPath, type.FullName, locateAssembly) is not { } location)
+            if (locateType() is not { } location)
                 return null;
 
-            FileStream? stream = null;
+            Stream? stream = null;
             PEReader? peReader = null;
             try
             {
-                stream = File.OpenRead(location.AssemblyPath);
+                stream = location.OpenRead();
                 peReader = new PEReader(stream);
                 MetadataReader reader = peReader.GetMetadataReader();
 
@@ -58,58 +83,58 @@ public static class TypeSourceComposer
                 if (typeHandle.IsNil)
                     return null;
 
-            // Bodies are decompiled from the same on-disk assembly the
-            // forwarder resolved to. The same locator resolves cross-assembly
-            // type facts (value-type-ness of a bare token) during import. A
-            // shared context (when a batch caller supplies one) opens each
-            // referenced assembly once across many composed types.
-            using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath, locator: locateAssembly, context: context);
-            var union = TryUnionDeclaration(reader, typeHandle, type);
+                    // Bodies are decompiled from the same on-disk assembly the
+                    // forwarder resolved to. The same resolver resolves cross-assembly
+                    // type facts (value-type-ness of a bare token) during import. A
+                    // shared context (when a batch caller supplies one) opens each
+                    // referenced assembly once across many composed types.
+                    using var pipelineSource = openPipelineSource(location, context);
+                    var union = TryUnionDeclaration(reader, typeHandle, type);
 
-            var sb = new StringBuilder();
-            if (!string.IsNullOrEmpty(type.Namespace))
-            {
-                sb.AppendLine($"namespace {type.Namespace};");
-                sb.AppendLine();
-            }
+                    var sb = new StringBuilder();
+                    if (!string.IsNullOrEmpty(type.Namespace))
+                    {
+                        sb.AppendLine($"namespace {type.Namespace};");
+                        sb.AppendLine();
+                    }
 
-            // The printer renders every type with its simple name, so there is
-            // no namespace prefix for HoistUsings to strip into a directive. The
-            // bodies' namespaces are collected straight from the typed IR
-            // instead and seeded into the using block; attribute namespaces
-            // join them so the short attribute names resolve.
-            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                    // The printer renders every type with its simple name, so there is
+                    // no namespace prefix for HoistUsings to strip into a directive. The
+                    // bodies' namespaces are collected straight from the typed IR
+                    // instead and seeded into the using block; attribute namespaces
+                    // join them so the short attribute names resolve.
+                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
 
-            if (union is not null)
-                AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
+                    if (union is not null)
+                        AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
 
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
-                sb.AppendLine($"[{attribute}]");
+                    var typeDef = reader.GetTypeDefinition(typeHandle);
+                    foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
+                        sb.AppendLine($"[{attribute}]");
 
-            foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
-                         union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
-                sb.AppendLine($"[{attribute}]");
+                    foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
+                                 union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
+                        sb.AppendLine($"[{attribute}]");
 
-            sb.AppendLine(TypeDeclaration(type, union));
-            sb.AppendLine("{");
+                    sb.AppendLine(TypeDeclaration(type, union));
+                    sb.AppendLine("{");
 
-            bool any = union is not null;
-            if (type.Kind == "enum")
-            {
-                ComposeEnumValues(sb, type, ref any);
-            }
-            else
-            {
-                ComposeFields(sb, reader, typeHandle, bodyNamespaces,
-                    CollectFieldInitializers(pipelineSource, type.FullName, reader, typeHandle), ref any);
-                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any);
-            }
+                    bool any = union is not null;
+                    if (type.Kind == "enum")
+                    {
+                        ComposeEnumValues(sb, type, ref any);
+                    }
+                    else
+                    {
+                        ComposeFields(sb, reader, typeHandle, bodyNamespaces,
+                            CollectFieldInitializers(pipelineSource, type.FullName, reader, typeHandle), ref any);
+                        ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any);
+                    }
 
-            sb.AppendLine("}");
-            if (!any)
-                return null;
-            return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace, bodyNamespaces);
+                    sb.AppendLine("}");
+                    if (!any)
+                        return null;
+                    return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace, bodyNamespaces);
             }
             finally
             {
@@ -124,6 +149,15 @@ public static class TypeSourceComposer
             return $"// {DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
+
+    static AssemblyLocator SiblingLocator(string dllPath) => (name, scope) =>
+    {
+        if (scope == AssemblyResolutionScope.Platform)
+            return null;
+
+        string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
+        return File.Exists(sibling) ? sibling : null;
+    };
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,
