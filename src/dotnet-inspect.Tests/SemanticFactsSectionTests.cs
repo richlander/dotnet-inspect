@@ -130,6 +130,31 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    public async Task LibraryIlOffsetSafetyContext_DoesNotFlagSafeSpanOfUnsafeNamedType()
+    {
+        var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.SafeSpanOfUnsafeNamedType))!;
+        var index = LibraryBodyIndex.Open(TestAssemblyPath);
+        var call = Assert.Single(index.DirectCalls, call =>
+            call.Caller.MetadataToken == method.MetadataToken
+            && call.Callee.Name == nameof(Span<int>.Slice));
+
+        var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
+        {
+            AssemblyName = TestAssemblyPath,
+            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{call.ILOffset:X}",
+            IncludeSections = [SectionNames.SafetyContext],
+            Select = [SectionNames.SafetyContext],
+            Verbosity = Verbosity.Minimal,
+            Markdown = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("## Safety Context", result.Output);
+    }
+
+
+    [Fact]
     public async Task EffectiveDiscovery_ListsSemanticFactSectionsAsOptIn()
     {
         var result = await RunMemberAsync(
@@ -178,6 +203,9 @@ public static class SemanticFactsFixture
     }
 
     public static int SafeSpan(Span<int> values) => values.Slice(0).Length;
+
+    public static int SafeSpanOfUnsafeNamedType(Span<System.Runtime.CompilerServices.UnsafeAccessorAttribute> values)
+        => values.Slice(0).Length;
 
     public static uint UnsafeAs(ref int value)
         => System.Runtime.CompilerServices.Unsafe.As<int, uint>(ref value);
