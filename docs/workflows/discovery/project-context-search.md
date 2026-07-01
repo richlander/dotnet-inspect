@@ -1,13 +1,22 @@
 ---
 id: project-context-search
-description: Search for types in project dependencies and build output
-commands: [find]
-areas: [find, project, bin, dependencies]
+description: Search and inspect APIs in restored project dependencies and build output
+commands: [find, type, member]
+areas: [find, type, member, project, bin, dependencies]
 ---
 
-# Project Context Search
+# Project Context
 
-> Search for types within the scope of a project's dependencies (`--project`) or build output (`--bin`). Unlike `--platform` or `--package` which search known sources, these options search exactly what a project depends on — matching the developer's local context.
+> Search or inspect APIs within the scope of a project's restored dependencies
+> (`--project`) or build output (`--bin`). `--project` means an existing
+> `project.assets.json` restored-assets context; passing a `.csproj` or project
+> directory only locates that file. dotnet-inspect does not restore, build, or
+> evaluate MSBuild for this mode. If the assets file is missing, source
+> resolution reports an error instead of falling back to another source.
+
+Use `--project` when you want package/framework APIs that are available to a
+project. Use `--bin` when you want DLLs copied into a build output directory,
+including project output assemblies.
 
 ## Preconditions
 
@@ -64,7 +73,42 @@ ILoggerProvider
 Microsoft.Extensions.Logging
 ```
 
-## 2. Search build output
+## 2. Inspect APIs from project assets
+
+> Goal: Resolve a type/member from the restored dependency graph the project
+> actually uses.
+
+### 2a. Inspect a type
+
+```bash
+dotnet-inspect type Command --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -v:q
+```
+
+```expect
+System.CommandLine.Command
+```
+
+### 2b. Inspect members
+
+```bash
+dotnet-inspect member Command --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj --show-index -n 12
+```
+
+```expect
+Member Index
+```
+
+### 2c. Missing assets are an error
+
+```bash
+dotnet-inspect type Command --project /tmp/find-project-workflow/FindDemo/Missing.csproj
+```
+
+```expect
+Error: project.assets.json not found
+```
+
+## 3. Search build output
 
 > Goal: Find types in the compiled output directory — includes the project's own types and all copied dependencies.
 
@@ -97,7 +141,7 @@ Microsoft.Extensions.Logging
 grep -oE 'Matches: [0-9]+'
 ```
 
-## 3. Compare project vs bin results
+## 4. Compare project vs bin results
 
 > Goal: Both `--project` and `--bin` search the same dependency set, but `--project` shows source attribution (package@version) while `--bin` shows local file context.
 

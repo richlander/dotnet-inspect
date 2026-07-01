@@ -15,6 +15,7 @@ internal sealed record ApiSourceResult(
     string? ApiSource,
     string? ApiVersion,
     string? SelectedTfm,
+    string? ProjectAssetsPath,
     string? TempDir,
     string? TypeName,
     CommandContext Context);
@@ -34,6 +35,7 @@ internal static class ApiSourceResolver
         string? packageVersion = null;
         string? apiSource = null;
         string? apiVersion = null;
+        string? projectAssetsPath = null;
         var typeName = options.TypeName;
 
         if (!string.IsNullOrEmpty(options.PackagePath))
@@ -96,6 +98,45 @@ internal static class ApiSourceResolver
             }
             searchPath = options.AssemblyPath;
             apiSource = SourceKind.Library;
+        }
+        else if (!string.IsNullOrEmpty(options.ProjectPath))
+        {
+            projectAssetsPath = ProjectAssetsParser.FindAssets(options.ProjectPath);
+            if (projectAssetsPath is null)
+            {
+                Console.Error.WriteLine($"Error: project.assets.json not found for '{options.ProjectPath}'. Run 'dotnet restore'.");
+                return (null!, 1);
+            }
+
+            if (string.IsNullOrWhiteSpace(typeName))
+            {
+                Console.Error.WriteLine("Error: --project requires a type name for type/member resolution.");
+                return (null!, 1);
+            }
+
+            logger.Log($"Using assets: {projectAssetsPath}");
+            var assemblies = ProjectAssetsParser.Parse(projectAssetsPath, options.Tfm, logger.Log);
+            foreach (var (asmPath, projectPackageName, projectPackageVersion) in assemblies)
+            {
+                var (apiType, _, dllPath, _) = ApiServices.FindType(typeName, asmPath, logger, options.IncludeAll);
+                if (apiType is null || dllPath is null)
+                    continue;
+
+                searchPath = dllPath;
+                packageName = projectPackageName;
+                packageVersion = projectPackageVersion;
+                apiSource = SourceKind.Project;
+                apiVersion = projectPackageVersion;
+                selectedTfm = options.Tfm;
+                logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)} from {projectPackageName} {projectPackageVersion}");
+                goto ProjectResolved;
+            }
+
+            Console.Error.WriteLine($"Error: Type '{typeName}' not found in project assets '{projectAssetsPath}'.");
+            return (null!, 1);
+
+        ProjectResolved:
+            ;
         }
         else if (!string.IsNullOrEmpty(options.PlatformAssembly))
         {
@@ -248,6 +289,6 @@ internal static class ApiSourceResolver
         }
 
         return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion,
-            apiSource, apiVersion, selectedTfm, tempDir, typeName, context), null);
+            apiSource, apiVersion, selectedTfm, projectAssetsPath, tempDir, typeName, context), null);
     }
 }

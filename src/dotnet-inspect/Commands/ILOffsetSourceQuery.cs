@@ -5,6 +5,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Commands;
 
@@ -69,6 +70,19 @@ internal static class ILOffsetSourceQuery
         {
             Console.Error.WriteLine($"Error: {returnAddressError}");
             return (1, null);
+        }
+
+        List<ILOffsetAllocationContext>? allocationContext = null;
+        List<ILOffsetSafetyContext>? safetyContext = null;
+        List<ILOffsetCostContext>? costContext = null;
+        if (RequiresSemanticContext(options))
+        {
+            if (RequiresAllocationContext(options))
+                allocationContext = BuildAllocationContext(instructionContext);
+            if (RequiresSafetyContext(options))
+                safetyContext = BuildSafetyContext(instructionContext);
+            if (RequiresCostContext(options))
+                costContext = BuildCostContext(instructionContext);
         }
 
         SourceLinkResolver.ILOffsetSourceInfo? result = null;
@@ -173,7 +187,10 @@ internal static class ILOffsetSourceQuery
                 CallKind = returnAddressContext.CallKind,
                 Callee = returnAddressContext.Callee,
                 OperandToken = returnAddressContext.OperandToken
-            }
+            },
+            AllocationContext = allocationContext,
+            SafetyContext = safetyContext,
+            CostContext = costContext
         };
 
         return (0, resolved);
@@ -194,9 +211,154 @@ internal static class ILOffsetSourceQuery
     private static bool RequiresReturnAddressContext(LibraryOptions options)
         => options.IncludeSections?.Contains(SectionNames.ReturnAddressContext) == true;
 
+    private static bool RequiresAllocationContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.AllocationContext) == true;
+
+    private static bool RequiresSafetyContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.SafetyContext) == true;
+
+    private static bool RequiresCostContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.CostContext) == true;
+
+    private static bool RequiresSemanticContext(LibraryOptions options)
+        => RequiresAllocationContext(options) || RequiresSafetyContext(options) || RequiresCostContext(options);
+
     private static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
 
     private static string FormatILOffset(int offset) => $"IL_{offset:X4}";
+
+    private static List<ILOffsetAllocationContext> BuildAllocationContext(ILOffsetInstructionContextInfo? instruction)
+    {
+        if (instruction is null)
+            return [];
+
+        var opcode = instruction.Opcode;
+        string? kind = opcode switch
+        {
+            "newarr" => "array",
+            "box" => "box",
+            "newobj" => "object",
+            _ => null
+        };
+        if (kind is null)
+            return [];
+
+        return
+        [
+            new ILOffsetAllocationContext
+            {
+                ILOffset = FormatILOffset(instruction.ILOffset),
+                AllocationKind = kind,
+                AllocatedType = instruction.Operand,
+                CountedAsHeap = opcode == "newobj" ? "Unknown" : "Yes",
+                Frequency = "always",
+                Escape = "unknown",
+                InLoop = "Unknown",
+                Evidence = opcode
+            }
+        ];
+    }
+
+    private static List<ILOffsetSafetyContext> BuildSafetyContext(ILOffsetInstructionContextInfo? instruction)
+    {
+        if (instruction is null)
+            return [];
+
+        var opcode = instruction.Opcode;
+        string? kind = opcode switch
+        {
+            "localloc" => "stackalloc",
+            "calli" => "calli",
+            "cpblk" or "initblk" => "unsafe block operation",
+            "ldind.i1" or "ldind.u1" or "ldind.i2" or "ldind.u2" or "ldind.i4" or "ldind.u4"
+                or "ldind.i8" or "ldind.i" or "ldind.r4" or "ldind.r8" or "ldind.ref" => "dereference",
+            "stind.i1" or "stind.i2" or "stind.i4" or "stind.i8" or "stind.i"
+                or "stind.r4" or "stind.r8" or "stind.ref" => "dereference",
+            "call" or "callvirt" or "newobj" when IsUnsafeOperation(instruction.Operand) => "unsafe call",
+            _ => null
+        };
+        if (kind is null)
+            return [];
+
+        return
+        [
+            new ILOffsetSafetyContext
+            {
+                ILOffset = FormatILOffset(instruction.ILOffset),
+                SafetyKind = kind,
+                Operation = instruction.Operand ?? opcode,
+                Requirement = "requires unsafe",
+                Evidence = opcode
+            }
+        ];
+    }
+
+    private static bool IsUnsafeOperation(string? operand)
+        => operand?.Contains("System.Runtime.CompilerServices.Unsafe::", StringComparison.Ordinal) == true
+            || operand?.Contains("System.Runtime.CompilerServices.Unsafe.", StringComparison.Ordinal) == true
+            || operand?.Contains("void*", StringComparison.Ordinal) == true;
+
+    private static List<ILOffsetCostContext> BuildCostContext(ILOffsetInstructionContextInfo? instruction)
+    {
+        if (instruction is null)
+            return [];
+
+        var opcode = instruction.Opcode;
+        string? kind = opcode switch
+        {
+            "callvirt" => "virtual dispatch",
+            "ldftn" or "ldvirtftn" => "delegate/function pointer",
+            "calli" => "function pointer call",
+            _ => null
+        };
+        if (kind is null)
+            return [];
+
+        return
+        [
+            new ILOffsetCostContext
+            {
+                ILOffset = FormatILOffset(instruction.ILOffset),
+                CostKind = kind,
+                Operation = instruction.Operand ?? opcode,
+                InLoop = "Unknown",
+                Evidence = opcode
+            }
+        ];
+    }
+
+    private static ILOffsetAllocationContext ToILOffsetAllocationContext(Analysis.AllocationFact fact)
+        => new()
+        {
+            ILOffset = FormatILOffset(fact.ILOffset),
+            AllocationKind = fact.AllocationKind,
+            AllocatedType = fact.AllocatedType,
+            CountedAsHeap = fact.CountedAsHeap ? "Yes" : "No",
+            Frequency = fact.Frequency,
+            Escape = fact.Escape,
+            InLoop = fact.InLoop ? "Yes" : "No",
+            Evidence = fact.Evidence
+        };
+
+    private static ILOffsetSafetyContext ToILOffsetSafetyContext(Analysis.SafetyFact fact)
+        => new()
+        {
+            ILOffset = fact.ILOffset is { } offset ? FormatILOffset(offset) : null,
+            SafetyKind = fact.SafetyKind,
+            Operation = fact.Operation,
+            Requirement = fact.Requirement,
+            Evidence = fact.Evidence
+        };
+
+    private static ILOffsetCostContext ToILOffsetCostContext(Analysis.CostFact fact)
+        => new()
+        {
+            ILOffset = FormatILOffset(fact.ILOffset),
+            CostKind = fact.CostKind,
+            Operation = fact.Operation,
+            InLoop = fact.InLoop ? "Yes" : "No",
+            Evidence = fact.Evidence
+        };
 
     public static bool TryParse(string value, out int methodToken, out int ilOffset)
     {
@@ -242,4 +404,5 @@ internal static class ILOffsetSourceQuery
         Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink Availability\"' for full source reachability.");
         Console.Error.WriteLine();
     }
+
 }

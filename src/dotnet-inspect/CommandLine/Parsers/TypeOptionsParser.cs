@@ -21,6 +21,7 @@ public static class TypeOptionsParser
         Option<string?> PackageOption,
         Option<string?> AssemblyOption,
         Option<string?> PlatformOption,
+        Option<string?> ProjectOption,
         Option<string?> FrameworkOption,
         Option<string?> TfmOption,
         Option<bool> AllOption,
@@ -78,14 +79,20 @@ public static class TypeOptionsParser
     {
         var sourceInputs = SharedParsers.ReadSourceSelectionInputs(
             parseResult, args.ArgsArg, args.PackageOption, args.AssemblyOption, args.PlatformOption);
+        var projectPath = parseResult.GetValue(args.ProjectOption);
+        bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
+        bool hasNonProjectSource = sourceInputs.HasExplicitSource;
 
         // Handle projection discovery or help
-        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource)
+        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && !hasProjectSource)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
         }
+
+        if (hasProjectSource && hasNonProjectSource)
+            return new VersionError("Error: --project cannot be combined with --package, --library, or --platform.");
 
         // Check for unrecognized options in positional args
         var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
@@ -93,9 +100,31 @@ public static class TypeOptionsParser
             return new UnrecognizedOption(badOption);
 
         // Resolve source
-        var sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-            sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
-        var source = sourceSelection.Source;
+        SharedParsers.SourceSelection sourceSelection;
+        SourceResolver.ResolvedSource source;
+        if (hasProjectSource)
+        {
+            source = new SourceResolver.ResolvedSource(
+                PackagePath: null,
+                AssemblyPath: null,
+                PlatformAssembly: null,
+                FrameworkOverride: null,
+                TypeName: sourceInputs.Args.FirstOrDefault());
+            sourceSelection = new SharedParsers.SourceSelection(
+                sourceInputs.Args,
+                sourceInputs.ExplicitPackage,
+                sourceInputs.ExplicitAssembly,
+                sourceInputs.ExplicitPlatform,
+                sourceInputs.IsLibrarySelector,
+                HasExplicitSource: true,
+                source);
+        }
+        else
+        {
+            sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
+                sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+            source = sourceSelection.Source;
+        }
 
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
@@ -111,7 +140,7 @@ public static class TypeOptionsParser
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
         var routePolicy = TypeRoutePolicy.Resolve(sourceSelection.Args, sourceSelection.HasExplicitSource, source);
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
-        if (!PerformanceTriageOptions.TryValidateShapes(performanceTriage, out var triageShapeError))
+        if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
         var select = opts.ParseSelect(parseResult);
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
@@ -123,6 +152,7 @@ public static class TypeOptionsParser
             PackagePath = source.PackagePath,
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
+            ProjectPath = projectPath,
             PlatformFramework = source.FrameworkOverride ?? parseResult.GetValue(args.FrameworkOption),
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
