@@ -900,6 +900,13 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
 {
     var observed = candidates.Where(c => c.RuntimeHits > 0).ToArray();
+    var cold = result.Candidates.Where(c => c.RuntimeHits == 0).ToArray();
+    var counterObservations = result.DiagnosticInputs
+        .Where(static i => string.Equals(i.Kind, "counters", StringComparison.OrdinalIgnoreCase))
+        .SelectMany(static i => i.Observations)
+        .Where(static o => o.Contains("allocated/sec", StringComparison.OrdinalIgnoreCase)
+            || o.Contains("GC collections/sec", StringComparison.OrdinalIgnoreCase))
+        .ToArray();
     var observedGroups = observed
         .GroupBy(c => c.Method, StringComparer.Ordinal)
         .Select(g => new
@@ -936,9 +943,11 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     else
     {
         var top = observedGroups[0];
-        Console.WriteLine($"The hottest confirmed candidate is `{top.Method}`. Runtime samples put this method on-stack with weight {top.Weight.ToString("0.##", CultureInfo.InvariantCulture)}, and static IL triage found {top.Rows.ToString(CultureInfo.InvariantCulture)} `{top.Shapes}` row(s){(top.InLoop ? " inside loops" : "")}.");
+        Console.WriteLine($"The hottest observed candidate is `{top.Method}`. Runtime samples put this method on-stack with weight {top.Weight.ToString("0.##", CultureInfo.InvariantCulture)}, and static IL triage found {top.Rows.ToString(CultureInfo.InvariantCulture)} `{top.Shapes}` row(s){(top.InLoop ? " inside loops" : "")}.");
         if (!string.IsNullOrWhiteSpace(top.Fix))
             Console.WriteLine($"Recommended first fix: {top.Fix}");
+        if (counterObservations.Length > 0)
+            Console.WriteLine($"Runtime context: {string.Join("; ", counterObservations)}.");
         Console.WriteLine();
         Console.WriteLine(top.Exact
             ? "The runtime artifact matched at exact token+IL offset for at least one row."
@@ -982,9 +991,26 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     }
 
     Console.WriteLine();
-    Console.WriteLine("## Candidate rows");
+    Console.WriteLine("## Observed candidate rows");
     Console.WriteLine();
-    RenderTable(candidates, markdown: true);
+    RenderTable(observed.Length > 0 ? observed : candidates, markdown: true);
+    if (cold.Length > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("## Not exercised by this workload");
+        Console.WriteLine();
+        Console.WriteLine($"{cold.Length.ToString(CultureInfo.InvariantCulture)} static candidate row(s) were not observed in the supplied runtime artifacts. That is useful negative evidence for this workload, not a global dismissal.");
+        Console.WriteLine();
+        Console.WriteLine("| Shape | Rows |");
+        Console.WriteLine("| ----- | ---: |");
+        foreach (var shape in cold.GroupBy(static c => c.AllocationKind, StringComparer.Ordinal)
+                     .OrderByDescending(static g => g.Count())
+                     .ThenBy(static g => g.Key, StringComparer.Ordinal)
+                     .Take(8))
+        {
+            Console.WriteLine($"| {Escape(shape.Key)} | {shape.Count().ToString(CultureInfo.InvariantCulture)} |");
+        }
+    }
     Console.WriteLine();
     Console.WriteLine("## Reading this report");
     Console.WriteLine();
