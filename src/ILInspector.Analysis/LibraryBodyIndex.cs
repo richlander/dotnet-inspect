@@ -3112,9 +3112,9 @@ public sealed class LibraryBodyIndex
                         or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
                         or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 or ILOpCode.Ldstr
                         or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-                        or ILOpCode.Ldloc_s or ILOpCode.Ldloc
+                        or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
                         or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-                        or ILOpCode.Ldarg_s or ILOpCode.Ldarg:
+                        or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga:
                         stackValuesAbove++;
                         continue;
                     case ILOpCode.Pop:

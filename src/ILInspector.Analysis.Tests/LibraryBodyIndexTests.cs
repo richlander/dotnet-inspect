@@ -1138,6 +1138,27 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void AllocationOccurrences_ArrayLongAddressLoadsDoNotTerminateTrackedArray()
+    {
+        var (path, directory) = BuildLongAddressLoadArrayFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.Equal(
+                AllocationEscape.Escapes,
+                SingleAllocationOccurrence(index, "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdloca", AllocationKind.Array).Escape);
+            Assert.Equal(
+                AllocationEscape.Escapes,
+                SingleAllocationOccurrence(index, "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdarga", AllocationKind.Array).Escape);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_DoesNotFlagListToArrayAsCopy()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1652,9 +1673,12 @@ public class LibraryBodyIndexTests
             .Select(o => o.Shape);
 
     static AllocationOccurrence SingleAllocationOccurrence(LibraryBodyIndex index, string methodName, AllocationKind kind)
+        => SingleAllocationOccurrence(index, nameof(OptimizationOpportunityFixtures), methodName, kind);
+
+    static AllocationOccurrence SingleAllocationOccurrence(LibraryBodyIndex index, string typeName, string methodName, AllocationKind kind)
     {
         var method = Assert.Single(index.Methods.Where(m =>
-            m.DeclaringType.Name == nameof(OptimizationOpportunityFixtures)
+            m.DeclaringType.Name == typeName
             && m.Name == methodName));
         Assert.True(index.GetAllocationOccurrences().TryGetValue(method.MetadataToken, out var occurrences));
         return Assert.Single(occurrences.Where(occurrence =>
@@ -1701,6 +1725,64 @@ public class LibraryBodyIndexTests
         type.CreateType();
         assembly.Save(path);
         return (path, directory);
+    }
+
+    static (string Path, string Directory) BuildLongAddressLoadArrayFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-long-address-load-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "LongAddressLoadArrayFixture.dll");
+
+        var assemblyName = new AssemblyName("LongAddressLoadArrayFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("LongAddressLoadArrayFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+        DefineLdlocaMethod(type);
+        DefineLdargaMethod(type);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
+
+        static void DefineLdlocaMethod(TypeBuilder type)
+        {
+            var method = type.DefineMethod(
+                "ArrayReturnedAfterLongLdloca",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int[]),
+                Type.EmptyTypes);
+            var il = method.GetILGenerator();
+            var array = il.DeclareLocal(typeof(int[]));
+            var marker = il.DeclareLocal(typeof(int));
+
+            il.Emit(OpCodes.Ldc_I4_4);
+            il.Emit(OpCodes.Newarr, typeof(int));
+            il.Emit(OpCodes.Stloc, array);
+            il.Emit(OpCodes.Ldloc, array);
+            il.Emit(OpCodes.Ldloca, marker);
+            il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Ret);
+        }
+
+        static void DefineLdargaMethod(TypeBuilder type)
+        {
+            var method = type.DefineMethod(
+                "ArrayReturnedAfterLongLdarga",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int[]),
+                [typeof(int)]);
+            var il = method.GetILGenerator();
+            var array = il.DeclareLocal(typeof(int[]));
+
+            il.Emit(OpCodes.Ldc_I4_4);
+            il.Emit(OpCodes.Newarr, typeof(int));
+            il.Emit(OpCodes.Stloc, array);
+            il.Emit(OpCodes.Ldloc, array);
+            il.Emit(OpCodes.Ldarga, (short)0);
+            il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Ret);
+        }
     }
 
     static (string Path, string Directory) BuildSpanToArrayLocalFixture()
