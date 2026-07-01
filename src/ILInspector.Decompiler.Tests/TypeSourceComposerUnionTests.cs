@@ -901,6 +901,159 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionSwitchStatementStoreThenUse_RendersSwitchExpressionAssignment()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; public int Age { get; } = 5; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+            public sealed class Bird { public string Name { get; } = "bird"; }
+            public union Pet(Cat, Dog, Bird);
+
+            public static class Matcher
+            {
+                public static string AssignThenUse(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string AssignThenUseThree(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        case Bird bird:
+                            result = bird.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string AssignThenMutate(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    result += "!";
+                    return result;
+                }
+
+                public static string GuardedStaysFlat(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat { Age: > 3 } cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+            }
+            """);
+
+        Assert.Equal("""
+            string result = pet switch { Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenUse"));
+        Assert.Equal("""
+            string result = pet switch { Cat cat => cat.Name, Dog dog => dog.Name, Bird bird => bird.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenUseThree"));
+        Assert.Equal("""
+            string result = pet switch { Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
+            result = string.Concat(result, "!");
+            return result;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenMutate"));
+
+        var guarded = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedStaysFlat");
+        Assert.DoesNotContain("pet switch", guarded);
+        Assert.Contains("cat.Age > 3", guarded);
+    }
+
+    [Fact]
+    public async Task ClassUnionValueSwitchStoreThenUse_PreservesValueReceiver()
+    {
+        using var assembly = await CompileWithSdk("""
+            using System.Runtime.CompilerServices;
+            namespace UnionFixtures;
+
+            [Union]
+            public sealed class Result : IUnion
+            {
+                public Result(int value) => Value = value;
+                public Result(string value) => Value = value;
+                public object? Value { get; }
+            }
+
+            public static class Matcher
+            {
+                public static string AssignThenUse(Result result)
+                {
+                    string text;
+                    switch (result.Value)
+                    {
+                        case int value:
+                            text = value.ToString();
+                            break;
+                        case string message:
+                            text = message;
+                            break;
+                        default:
+                            text = "other";
+                            break;
+                    }
+                    return text.ToUpperInvariant();
+                }
+            }
+            """);
+
+        var source = RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenUse");
+
+        Assert.Contains("result.Value", source);
+        Assert.DoesNotContain("result switch", source);
+    }
+
+    [Fact]
     public async Task UnionSwitchExpression_RendersSameTypeGuardedFallbackArms()
     {
         using var assembly = await CompileWithSdk("""
