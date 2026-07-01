@@ -1,7 +1,10 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+
+using ILInspector.Instructions;
 
 namespace ILInspector.Metadata;
 
@@ -50,16 +53,13 @@ public static class ILDisassembler
         }
 
         var ilBytes = body.GetILContent().ToArray();
-        List<ILInstruction> instructions = [];
-        int position = 0;
+        var decoded = InstructionDecoder.Decode(ilBytes);
 
-        while (position < ilBytes.Length)
+        var instructions = new List<ILInstruction>(decoded.Length);
+        foreach (var instruction in decoded)
         {
-            int offset = position;
-            var opCode = DecodeOpCode(ilBytes, ref position);
-            string? operand = DecodeOperand(opCode, ilBytes, ref position, reader, syntax);
-
-            instructions.Add(new ILInstruction(offset, GetDisplayName(opCode), operand));
+            instructions.Add(new ILInstruction(
+                instruction.Offset, GetDisplayName(instruction.OpCode), FormatOperand(instruction, reader, syntax)));
         }
 
         return instructions;
@@ -116,148 +116,46 @@ public static class ILDisassembler
         return null;
     }
 
-    static ILOpCode DecodeOpCode(byte[] ilBytes, ref int position)
-    {
-        byte first = ilBytes[position++];
-        if (first == 0xFE && position < ilBytes.Length)
-        {
-            byte second = ilBytes[position++];
-            return (ILOpCode)(0xFE00 | second);
-        }
-        return (ILOpCode)first;
-    }
-
-    static string? DecodeOperand(ILOpCode opCode, byte[] ilBytes, ref int position, MetadataReader reader, ILSyntax syntax = ILSyntax.Display)
+    static string? FormatOperand(DecodedInstruction instruction, MetadataReader reader, ILSyntax syntax)
     {
         bool canonical = syntax == ILSyntax.Canonical;
-        return GetOperandType(opCode) switch
+        int token = (int)instruction.OperandValue;
+        return instruction.Operand switch
         {
             OperandKind.None => null,
-            OperandKind.ShortBrTarget => FormatBranchTarget(ReadSByte(ilBytes, ref position), position),
-            OperandKind.BrTarget => FormatBranchTarget(ReadInt32(ilBytes, ref position), position),
-            OperandKind.ShortI => ReadSByte(ilBytes, ref position).ToString(),
-            OperandKind.I => ReadInt32(ilBytes, ref position).ToString(),
-            OperandKind.I8 => ReadInt64(ilBytes, ref position).ToString(),
+            OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget => $"IL_{instruction.BranchTargets[0]:X4}",
+            OperandKind.ShortInlineI => ((sbyte)instruction.OperandValue).ToString(),
+            OperandKind.InlineI => ((int)instruction.OperandValue).ToString(),
+            OperandKind.InlineI8 => instruction.OperandValue.ToString(),
             // Canonical: bit-exact, culture-free ilasm forms (float32/float64 take
             // the raw bits); display keeps the human-readable decimal rendering.
-            OperandKind.ShortR => canonical
-                ? $"float32(0x{BitConverter.SingleToInt32Bits(ReadSingle(ilBytes, ref position)):X8})"
-                : ReadSingle(ilBytes, ref position).ToString(),
-            OperandKind.R => canonical
-                ? $"float64(0x{BitConverter.DoubleToInt64Bits(ReadDouble(ilBytes, ref position)):X16})"
-                : ReadDouble(ilBytes, ref position).ToString(),
-            OperandKind.ShortVariable => ReadByte(ilBytes, ref position).ToString(),
-            OperandKind.Variable => ReadUInt16(ilBytes, ref position).ToString(),
-            OperandKind.String => canonical
-                ? CanonicalIL.ResolveString(reader, ReadInt32(ilBytes, ref position))
-                : ILTokenResolver.ResolveString(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Type => canonical
-                ? CanonicalIL.ResolveType(reader, ReadInt32(ilBytes, ref position))
-                : ILTokenResolver.ResolveType(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Method => canonical
-                ? CanonicalIL.ResolveMethod(reader, ReadInt32(ilBytes, ref position))
-                : ILTokenResolver.ResolveMethod(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Field => canonical
-                ? CanonicalIL.ResolveField(reader, ReadInt32(ilBytes, ref position))
-                : ILTokenResolver.ResolveField(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Tok => canonical
-                ? CanonicalIL.ResolveToken(reader, ReadInt32(ilBytes, ref position))
-                : ILTokenResolver.ResolveToken(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Sig => $"0x{ReadInt32(ilBytes, ref position):X8}",
-            OperandKind.Switch => DecodeSwitch(ilBytes, ref position),
+            OperandKind.ShortInlineR => canonical
+                ? $"float32(0x{(int)instruction.OperandValue:X8})"
+                : BitConverter.Int32BitsToSingle((int)instruction.OperandValue).ToString(),
+            OperandKind.InlineR => canonical
+                ? $"float64(0x{instruction.OperandValue:X16})"
+                : BitConverter.Int64BitsToDouble(instruction.OperandValue).ToString(),
+            OperandKind.ShortInlineVar => ((byte)instruction.OperandValue).ToString(),
+            OperandKind.InlineVar => ((ushort)instruction.OperandValue).ToString(),
+            OperandKind.InlineString => canonical
+                ? CanonicalIL.ResolveString(reader, token)
+                : ILTokenResolver.ResolveString(reader, token),
+            OperandKind.InlineType => canonical
+                ? CanonicalIL.ResolveType(reader, token)
+                : ILTokenResolver.ResolveType(reader, token),
+            OperandKind.InlineMethod => canonical
+                ? CanonicalIL.ResolveMethod(reader, token)
+                : ILTokenResolver.ResolveMethod(reader, token),
+            OperandKind.InlineField => canonical
+                ? CanonicalIL.ResolveField(reader, token)
+                : ILTokenResolver.ResolveField(reader, token),
+            OperandKind.InlineTok => canonical
+                ? CanonicalIL.ResolveToken(reader, token)
+                : ILTokenResolver.ResolveToken(reader, token),
+            OperandKind.InlineSig => $"0x{token:X8}",
+            OperandKind.InlineSwitch => $"({string.Join(", ", instruction.BranchTargets.Select(t => $"IL_{t:X4}"))})",
             _ => null
         };
-    }
-
-    static string FormatBranchTarget(int delta, int positionAfterOperand)
-    {
-        int target = positionAfterOperand + delta;
-        return $"IL_{target:X4}";
-    }
-
-    static string DecodeSwitch(byte[] ilBytes, ref int position)
-    {
-        int count = ReadInt32(ilBytes, ref position);
-        int baseOffset = position + count * 4;
-        List<string> targets = [];
-        for (int i = 0; i < count; i++)
-        {
-            int delta = ReadInt32(ilBytes, ref position);
-            targets.Add($"IL_{(baseOffset + delta):X4}");
-        }
-        return $"({string.Join(", ", targets)})";
-    }
-
-    // Primitive readers
-
-    static byte ReadByte(byte[] bytes, ref int pos) => bytes[pos++];
-    static sbyte ReadSByte(byte[] bytes, ref int pos) => (sbyte)bytes[pos++];
-
-    static ushort ReadUInt16(byte[] bytes, ref int pos)
-    {
-        var val = BitConverter.ToUInt16(bytes, pos);
-        pos += 2;
-        return val;
-    }
-
-    static int ReadInt32(byte[] bytes, ref int pos)
-    {
-        var val = BitConverter.ToInt32(bytes, pos);
-        pos += 4;
-        return val;
-    }
-
-    static long ReadInt64(byte[] bytes, ref int pos)
-    {
-        var val = BitConverter.ToInt64(bytes, pos);
-        pos += 8;
-        return val;
-    }
-
-    static float ReadSingle(byte[] bytes, ref int pos)
-    {
-        var val = BitConverter.ToSingle(bytes, pos);
-        pos += 4;
-        return val;
-    }
-
-    static double ReadDouble(byte[] bytes, ref int pos)
-    {
-        var val = BitConverter.ToDouble(bytes, pos);
-        pos += 8;
-        return val;
-    }
-
-    // Operand type lookup table and display names from ILSpy (MIT license, Daniel Grunwald).
-    // Index computation: ((opCode & 0x200) >> 1) | (opCode & 0xFF)
-
-    enum OperandKind : byte
-    {
-        BrTarget,
-        Field,
-        I,
-        I8,
-        Method,
-        None,
-        R = 7,
-        Sig = 9,
-        String,
-        Switch,
-        Tok,
-        Type,
-        Variable,
-        ShortBrTarget,
-        ShortI,
-        ShortR,
-        ShortVariable
-    }
-
-    static OperandKind GetOperandType(ILOpCode opCode)
-    {
-        ushort index = (ushort)((((int)opCode & 0x200) >> 1) | ((int)opCode & 0xFF));
-        if (index >= s_operandTypes.Length)
-            return OperandKind.None;
-        return (OperandKind)s_operandTypes[index];
     }
 
     static string GetDisplayName(ILOpCode opCode)
@@ -268,45 +166,6 @@ public static class ILDisassembler
         string name = s_displayNames[index];
         return string.IsNullOrEmpty(name) ? opCode.ToString() : name;
     }
-
-    static readonly byte[] s_operandTypes = [
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.ShortVariable, (byte)OperandKind.ShortVariable,
-        (byte)OperandKind.ShortVariable, (byte)OperandKind.ShortVariable, (byte)OperandKind.ShortVariable, (byte)OperandKind.ShortVariable, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.ShortI,
-        (byte)OperandKind.I, (byte)OperandKind.I8, (byte)OperandKind.ShortR, (byte)OperandKind.R, 255, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.Method,
-        (byte)OperandKind.Method, (byte)OperandKind.Sig, (byte)OperandKind.None, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget,
-        (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.ShortBrTarget,
-        (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget,
-        (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.BrTarget, (byte)OperandKind.Switch, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.Method,
-        (byte)OperandKind.Type, (byte)OperandKind.Type, (byte)OperandKind.String, (byte)OperandKind.Method, (byte)OperandKind.Type, (byte)OperandKind.Type, (byte)OperandKind.None, 255,
-        255, (byte)OperandKind.Type, (byte)OperandKind.None, (byte)OperandKind.Field, (byte)OperandKind.Field, (byte)OperandKind.Field, (byte)OperandKind.Field, (byte)OperandKind.Field,
-        (byte)OperandKind.Field, (byte)OperandKind.Type, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.Type, (byte)OperandKind.Type, (byte)OperandKind.None, (byte)OperandKind.Type,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.Type, (byte)OperandKind.Type, (byte)OperandKind.Type, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, 255, 255, 255, 255, 255,
-        255, 255, (byte)OperandKind.Type, (byte)OperandKind.None, 255, 255, (byte)OperandKind.Type, 255,
-        255, 255, 255, 255, 255, 255, 255, 255,
-        (byte)OperandKind.Tok, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.BrTarget, (byte)OperandKind.ShortBrTarget, (byte)OperandKind.None,
-        (byte)OperandKind.None, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None,
-        (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.Method, (byte)OperandKind.Method,
-        255, (byte)OperandKind.Variable, (byte)OperandKind.Variable, (byte)OperandKind.Variable, (byte)OperandKind.Variable, (byte)OperandKind.Variable, (byte)OperandKind.Variable, (byte)OperandKind.None,
-        255, (byte)OperandKind.None, (byte)OperandKind.ShortI, (byte)OperandKind.None, (byte)OperandKind.None, (byte)OperandKind.Type, (byte)OperandKind.Type, (byte)OperandKind.None,
-        (byte)OperandKind.None, 255, (byte)OperandKind.None, 255, (byte)OperandKind.Type, (byte)OperandKind.None, (byte)OperandKind.None,
-    ];
 
     static readonly string[] s_displayNames = [
         "nop", "break", "ldarg.0", "ldarg.1", "ldarg.2", "ldarg.3", "ldloc.0", "ldloc.1",
