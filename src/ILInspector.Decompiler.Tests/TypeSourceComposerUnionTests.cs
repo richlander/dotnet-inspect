@@ -632,6 +632,94 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionSwitchExpression_RendersValueTypeCaseArms()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public union Result<T>(T, string);
+            public union Result2(string, int);
+
+            public static class Matcher
+            {
+                public static string Describe(Result<int> result) => result switch
+                {
+                    int value => value.ToString(),
+                    string message => message,
+                    null => "null",
+                };
+
+                public static string DescribeFinalValueType(Result2 result) => result switch
+                {
+                    string message => message,
+                    int value => value.ToString(),
+                    null => "null",
+                };
+            }
+            """);
+
+        Assert.Equal("""
+            return result switch
+            {
+                null => "null",
+                int value => value.ToString(),
+                string message => message,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
+        Assert.Equal("""
+            return result switch
+            {
+                null => "null",
+                string message => message,
+                int value => value.ToString(),
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "DescribeFinalValueType"));
+    }
+
+    [Fact]
+    public async Task UnionPatterns_RenderInAndByRefReceiverCanaries()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public int Age { get; } = 5; }
+            public sealed class Dog { }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static bool InReceiver(in Pet pet) => pet is Cat { Age: > 3 };
+                public static bool InValueReceiver(in Pet pet) => pet.Value is Cat { Age: > 3 };
+                public static int InReceiverMixed(in Pet pet) => pet is Cat { Age: > 3 } ? pet.GetHashCode() : 0;
+
+                public static bool RefLocalReceiver(Pet pet)
+                {
+                    ref readonly var alias = ref pet;
+                    return alias is Dog;
+                }
+            }
+            """);
+
+        Assert.Equal("return pet is Cat { Age: > 3 };",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "InReceiver"));
+        Assert.Equal("return pet is Cat { Age: > 3 };",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "InValueReceiver"));
+        Assert.Equal("""
+            Pet V_0 = pet;
+            if (V_0 is not Cat { Age: > 3 })
+            {
+                return 0;
+            }
+            V_0 = pet;
+            return V_0.GetHashCode();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "InReceiverMixed"));
+        Assert.Equal("""
+            Pet V_0 = pet;
+            return V_0 is Dog;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "RefLocalReceiver"));
+    }
+
+    [Fact]
     public async Task UnionSwitchExpression_RendersGuardedPropertyPatternArms()
     {
         using var assembly = await CompileWithSdk("""
