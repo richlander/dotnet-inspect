@@ -14,6 +14,7 @@ public class MemberCallsSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Calls", result.Output);
+        Assert.Contains("| IL Offset | Opcode | Call Kind | Callee | Operand Token | Return Address |", result.Output);
         Assert.Equal(2, CountOccurrences(result.Output, "`System.Console.WriteLine(string)`"));
         Assert.Contains("`IL_", result.Output);
         Assert.Contains("`0x0A", result.Output);
@@ -26,7 +27,7 @@ public class MemberCallsSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("`System.Collections.Generic.IList<int>.get_Item(int)`", result.Output);
-        Assert.Contains("| callvirt |", result.Output);
+        Assert.Contains("| callvirt | virtual |", result.Output);
     }
 
     [Fact]
@@ -45,7 +46,7 @@ public class MemberCallsSectionTests
         var result = await RunMemberCallsAsync(nameof(MemberCallsFixture.CallsWriteLineTwice), tsv: true);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.StartsWith("callee\tkind\til\ttoken", result.Output);
+        Assert.StartsWith("il_offset\topcode\tcall_kind\tcallee\toperand_token\treturn_address", result.Output);
         Assert.DoesNotContain('`', result.Output);
         Assert.Equal(2, CountOccurrences(result.Output, "System.Console.WriteLine(string)"));
     }
