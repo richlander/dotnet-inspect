@@ -1784,9 +1784,12 @@ public static class ApiOutputFormatter
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null)
     {
-        var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
-        if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
-            declaration = AddAsyncModifier(declaration);
+        var declaration = FormatMemberDeclaration(
+            type,
+            member,
+            abbreviate: false,
+            methodGenericParameters,
+            forceAsync: requiresAsyncDeclaration);
         var body = lowered.TrimEnd();
 
         // A constructor's base/this initializer is surfaced by the renderer as a
@@ -1820,277 +1823,23 @@ public static class ApiOutputFormatter
         return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }
 
-    private static string AddAsyncModifier(string declaration)
-    {
-        var parts = declaration.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-        if (parts.Contains("async"))
-            return declaration;
-        int insert = 0;
-        while (insert < parts.Count && parts[insert] is
-               "public" or "private" or "protected" or "internal" or "static" or
-               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern" or "unsafe")
-        {
-            insert++;
-        }
-        parts.Insert(insert, "async");
-        return string.Join(" ", parts);
-    }
-
     private static string FormatMemberDeclaration(
         ApiType type,
         ApiMember member,
         bool abbreviate,
-        IReadOnlyList<string>? methodParameters = null)
-    {
-        var signature = member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType)
-            ? $"{member.ReturnType} {member.Name}"
-            : member.Signature ?? member.ReturnType ?? "";
-        if (string.IsNullOrWhiteSpace(signature))
-        {
-            if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
-                signature = $"{member.ReturnType} {member.Name}";
-            else
-                return "";
-        }
-
-        if (abbreviate)
-            signature = SignatureParser.AbbreviateSignature(signature);
-
-        if (member.Kind == "constructor")
-        {
-            var typeName = FormatConstructorTypeName(type.Name);
-            signature = $"{typeName}{SignatureParser.FormatConstructorCall(signature)}";
-        }
-        else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
-        {
-            signature = FormatOperatorSignature(signature, member.Name);
-        }
-        else if (member.Kind is "method" or "extension-method")
-        {
-            if (methodParameters is { Count: > 0 })
-                signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
-            if (member.IsExtension)
-                signature = AddExtensionThisModifier(signature);
-            signature = EscapeMemberNameInSignature(signature, member.Name);
-        }
-        else if (member.Kind == "event" && !signature.StartsWith("event ", StringComparison.Ordinal))
-        {
-            signature = $"event {signature}";
-        }
-
-        signature = EscapeQualifiedKeywordSegments(signature);
-
-        List<string> parts = [];
-        if (member.IsObsolete)
-            parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
-
-        List<string> modifiers = [];
-        if (member.Kind != "explicit-interface-implementation")
-        {
-            modifiers.Add(member.Accessibility ?? "public");
-            if (member.IsConst)
-                modifiers.Add("const");
-            else if (member.IsStatic)
-                modifiers.Add("static");
-            if (!member.IsConst && member.IsReadOnly)
-                modifiers.Add("readonly");
-            if (member.IsSealed)
-                modifiers.Add("sealed");
-            if (member.IsAbstract)
-                modifiers.Add("abstract");
-            if (member.IsOverride)
-                modifiers.Add("override");
-            else if (!member.IsAbstract && member.IsVirtual && !member.IsStatic)
-                modifiers.Add("virtual");
-            if (member.IsUnsafe)
-                modifiers.Add("unsafe");
-        }
-
-        if (modifiers.Count > 0)
-            parts.Add(string.Join(" ", modifiers));
-        parts.Add(signature);
-
-        return string.Join(" ", parts);
-    }
-
-    private static string FormatObsoleteAttribute(string? message)
-        => string.IsNullOrWhiteSpace(message)
-            ? "[Obsolete]"
-            : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
-
-    private static string EscapeCSharpString(string value)
-        => value
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("\"", "\\\"", StringComparison.Ordinal)
-            .Replace("\r", "\\r", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal)
-            .Replace("\t", "\\t", StringComparison.Ordinal);
-
-    private static string FormatOperatorSignature(string signature, string methodName)
-    {
-        var parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return signature;
-
-        var returnType = signature[..nameIndex].TrimEnd();
-        var parameters = signature[parenStart..];
-
-        if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
-            && OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..]) is { } checkedSymbol)
-            return $"{returnType} operator checked {checkedSymbol}{parameters}";
-
-        return methodName switch
-        {
-            "op_Implicit" => $"implicit operator {returnType}{parameters}",
-            "op_Explicit" => $"explicit operator {returnType}{parameters}",
-            "op_CheckedExplicit" => $"explicit operator checked {returnType}{parameters}",
-            _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
-        };
-    }
-
-    private static string FormatConstructorTypeName(string name)
-    {
-        var arityIndex = name.IndexOf('`');
-        var typeName = arityIndex < 0 ? name : name[..arityIndex];
-        return EscapeCSharpIdentifier(typeName);
-    }
-
-    private static string EscapeMemberNameInSignature(string signature, string memberName)
-    {
-        if (string.IsNullOrEmpty(memberName))
-            return signature;
-
-        int parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        int nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return signature;
-
-        string escaped = EscapeCSharpIdentifier(memberName);
-        return escaped == memberName
-            ? signature
-            : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
-    }
-
-    private static string EscapeQualifiedKeywordSegments(string signature)
-    {
-        var sb = new StringBuilder(signature.Length);
-        bool inString = false;
-        bool inChar = false;
-        bool escapedChar = false;
-        for (int i = 0; i < signature.Length; i++)
-        {
-            char c = signature[i];
-            sb.Append(c);
-            if (inString || inChar)
+        IReadOnlyList<string>? methodParameters = null,
+        bool forceAsync = false,
+        bool forceUnsafe = false)
+        => CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            new CSharpDeclarationOptions
             {
-                if (escapedChar)
-                {
-                    escapedChar = false;
-                    continue;
-                }
-                if (c == '\\')
-                {
-                    escapedChar = true;
-                    continue;
-                }
-                if (inString && c == '"')
-                    inString = false;
-                else if (inChar && c == '\'')
-                    inChar = false;
-                continue;
-            }
-            if (c == '"')
-            {
-                inString = true;
-                continue;
-            }
-            if (c == '\'')
-            {
-                inChar = true;
-                continue;
-            }
-            if (c != '.' || i + 1 >= signature.Length || signature[i + 1] == '@' || !IsIdentifierStart(signature[i + 1]))
-                continue;
-
-            int start = i + 1;
-            int end = start + 1;
-            while (end < signature.Length && IsIdentifierPart(signature[end]))
-                end++;
-
-            string segment = signature[start..end];
-            string escaped = EscapeCSharpIdentifier(segment);
-            if (escaped != segment)
-            {
-                sb.Append(escaped);
-                i = end - 1;
-            }
-        }
-        return sb.ToString();
-    }
-
-    private static string EscapeCSharpIdentifier(string name)
-        => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
-
-    private static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
-
-    private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
-
-    static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
-    };
-
-    private static string AddMethodGenericParameters(string signature, string methodName, IReadOnlyList<string> methodParameters)
-    {
-        if (methodParameters.Count == 0 || string.IsNullOrEmpty(methodName))
-            return signature;
-
-        var parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return signature;
-
-        var insertAt = nameIndex + methodName.Length;
-        if (insertAt < parenStart && signature[insertAt] == '<')
-            return signature;
-
-        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters)}>");
-    }
-
-    private static string AddExtensionThisModifier(string signature)
-    {
-        var parenStart = signature.IndexOf('(');
-        var parenEnd = signature.LastIndexOf(')');
-        if (parenStart < 0 || parenEnd <= parenStart + 1)
-            return signature;
-
-        var firstParameterStart = parenStart + 1;
-        while (firstParameterStart < signature.Length && char.IsWhiteSpace(signature[firstParameterStart]))
-            firstParameterStart++;
-
-        if (signature.AsSpan(firstParameterStart).StartsWith("this ".AsSpan(), StringComparison.Ordinal))
-            return signature;
-
-        return signature.Insert(firstParameterStart, "this ");
-    }
+                AbbreviateSignature = abbreviate,
+                ForceAsync = forceAsync,
+                ForceUnsafe = forceUnsafe
+            },
+            methodParameters);
 
     // ===== Helper Methods =====
 
