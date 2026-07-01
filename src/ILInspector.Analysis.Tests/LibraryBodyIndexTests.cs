@@ -1163,6 +1163,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath)]
     [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine)]
     public void AllocationOccurrences_IncludeRuntimeTypeAndPathContext(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1194,11 +1195,35 @@ public class LibraryBodyIndexTests
                 occurrence => occurrence.Method.Name == "SwitchAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.SwitchArm);
+            var switchAllocations = index.GetAllocationOccurrences().Values
+                .SelectMany(occurrences => occurrences)
+                .Where(occurrence => occurrence.Method.Name == "SwitchAllocation" && occurrence.Kind == AllocationKind.Object)
+                .ToArray();
+            Assert.Equal(3, switchAllocations.Length);
+            Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathContext.SwitchArm, occurrence.PathContext));
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "AfterIfJoinAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine);
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void AllocationOccurrences_NestedGenericRuntimeTypeKeepsNestedName()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(
+            index,
+            nameof(OptimizationOpportunityFixtures.ReturnsNestedGenericObject),
+            AllocationKind.Object);
+
+        Assert.Contains("+Inner", occurrence.RuntimeAllocationType, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1859,6 +1884,7 @@ public class LibraryBodyIndexTests
 
         DefineBranchAllocation(type, ctor);
         DefineSwitchAllocation(type, ctor);
+        DefineAfterIfJoinAllocation(type, ctor);
 
         type.CreateType();
         assembly.Save(path);
@@ -1904,6 +1930,23 @@ public class LibraryBodyIndexTests
             EmitNewPlainObject(il, ctor, 1);
             il.MarkLabel(case1);
             EmitNewPlainObject(il, ctor, 2);
+        }
+
+        static void DefineAfterIfJoinAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "AfterIfJoinAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var join = il.DefineLabel();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brfalse_S, join);
+            il.Emit(OpCodes.Nop);
+            il.Emit(OpCodes.Br_S, join);
+            il.MarkLabel(join);
+            EmitNewPlainObject(il, ctor, 1);
         }
     }
 
@@ -3086,6 +3129,21 @@ public class OptimizationOpportunityFixtures
         throw exception;
     }
 
+    public static void FinallyAllocates()
+    {
+        try
+        {
+            ConsumeObject(null);
+        }
+        finally
+        {
+            ConsumeObject(new PlainObject(1));
+        }
+    }
+
+    public static object ReturnsNestedGenericObject()
+        => new AllocationMetadataOuter<int>.Inner<string>();
+
     // --- String accumulation (string-build-in-loop) ---
 
     // `s += x` inside a foreach: String.Concat(s, x) stored back to the same local each
@@ -3934,6 +3992,13 @@ public sealed class PlainObject
     public PlainObject(int value) => Value = value;
 
     public int Value { get; }
+}
+
+public sealed class AllocationMetadataOuter<T>
+{
+    public sealed class Inner<U>
+    {
+    }
 }
 
 // An in-assembly value type: `new PlainValue(...)` does not allocate on the heap, so it must

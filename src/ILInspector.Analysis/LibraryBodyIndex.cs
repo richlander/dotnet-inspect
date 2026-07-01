@@ -1058,11 +1058,13 @@ public sealed class LibraryBodyIndex
                 for (int i = 0; i < instructions.Length; i++)
                     _instructionIndexByOffset[instructions[i].Offset] = i;
                 LoopRegions = CollectLoopRegions();
+                PathContexts = AllocationPathContextIndex.Create(this);
             }
 
             public ImmutableArray<DecodedInstruction> Instructions { get; }
             public BlockGraph BlockGraph { get; }
             public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
+            public AllocationPathContextIndex PathContexts { get; }
 
             public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
             {
@@ -1120,6 +1122,145 @@ public sealed class LibraryBodyIndex
                     }
                 }
                 return regions;
+            }
+        }
+
+        sealed class AllocationPathContextIndex
+        {
+            readonly bool[] _branchBlocks;
+            readonly bool[] _switchArmBlocks;
+            readonly bool[] _errorPathBlocks;
+
+            AllocationPathContextIndex(bool[] branchBlocks, bool[] switchArmBlocks, bool[] errorPathBlocks)
+            {
+                _branchBlocks = branchBlocks;
+                _switchArmBlocks = switchArmBlocks;
+                _errorPathBlocks = errorPathBlocks;
+            }
+
+            public static AllocationPathContextIndex Create(DecodedBody decodedBody)
+            {
+                var blockGraph = decodedBody.BlockGraph;
+                var branchBlocks = new bool[blockGraph.Blocks.Length];
+                var switchArmBlocks = new bool[blockGraph.Blocks.Length];
+                var errorPathBlocks = new bool[blockGraph.Blocks.Length];
+                var lastByBlock = LastInstructionsByBlock(decodedBody);
+                var predecessorCounts = PredecessorCounts(blockGraph);
+
+                foreach (var region in blockGraph.Regions)
+                {
+                    switch (region.Kind)
+                    {
+                        case HandlerKind.Catch:
+                        case HandlerKind.Fault:
+                            MarkBlocksInRange(blockGraph, errorPathBlocks, region.HandlerStart, region.HandlerEnd);
+                            break;
+                        case HandlerKind.Filter:
+                            MarkBlocksInRange(blockGraph, errorPathBlocks, region.FilterStart, region.FilterEnd);
+                            MarkBlocksInRange(blockGraph, errorPathBlocks, region.HandlerStart, region.HandlerEnd);
+                            break;
+                    }
+                }
+
+                for (int blockIndex = 0; blockIndex < lastByBlock.Length; blockIndex++)
+                {
+                    var terminator = lastByBlock[blockIndex];
+                    if (terminator is null || !terminator.Branches)
+                        continue;
+
+                    if (terminator.OpCode == ILOpCode.Switch)
+                    {
+                        foreach (int target in terminator.BranchTargets)
+                            MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, target);
+                        if (terminator.FallsThrough)
+                        {
+                            int defaultBlock = blockGraph.BlockIndexAt(terminator.NextOffset);
+                            MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, terminator.NextOffset);
+                            if (defaultBlock >= 0
+                                && lastByBlock[defaultBlock] is { IsUnconditionalBranch: true, BranchTargets.Length: 1 } redirect)
+                            {
+                                MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, redirect.BranchTargets[0]);
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (terminator.IsUnconditionalBranch)
+                        continue;
+
+                    foreach (int target in terminator.BranchTargets)
+                        MarkBranchArm(blockGraph, branchBlocks, predecessorCounts, target);
+                    if (terminator.FallsThrough)
+                        MarkBranchArm(blockGraph, branchBlocks, predecessorCounts, terminator.NextOffset);
+                }
+
+                return new AllocationPathContextIndex(branchBlocks, switchArmBlocks, errorPathBlocks);
+            }
+
+            public AllocationPathContext ContextFor(int blockIndex)
+            {
+                if ((uint)blockIndex >= (uint)_branchBlocks.Length)
+                    return AllocationPathContext.StraightLine;
+                if (_errorPathBlocks[blockIndex])
+                    return AllocationPathContext.ErrorPath;
+                if (_switchArmBlocks[blockIndex])
+                    return AllocationPathContext.SwitchArm;
+                if (_branchBlocks[blockIndex])
+                    return AllocationPathContext.Branch;
+                return AllocationPathContext.StraightLine;
+            }
+
+            static DecodedInstruction?[] LastInstructionsByBlock(DecodedBody decodedBody)
+            {
+                var lastByBlock = new DecodedInstruction?[decodedBody.BlockGraph.Blocks.Length];
+                int cursor = 0;
+                foreach (var instruction in decodedBody.Instructions)
+                {
+                    while (cursor + 1 < decodedBody.BlockGraph.Blocks.Length
+                        && instruction.Offset >= decodedBody.BlockGraph.Blocks[cursor + 1].Start)
+                    {
+                        cursor++;
+                    }
+                    if ((uint)cursor < (uint)lastByBlock.Length)
+                        lastByBlock[cursor] = instruction;
+                }
+                return lastByBlock;
+            }
+
+            static int[] PredecessorCounts(BlockGraph blockGraph)
+            {
+                var counts = new int[blockGraph.Blocks.Length];
+                foreach (var block in blockGraph.Blocks)
+                {
+                    foreach (int successor in block.Edges.Successors)
+                        if ((uint)successor < (uint)counts.Length)
+                            counts[successor]++;
+                }
+                return counts;
+            }
+
+            static void MarkBlocksInRange(BlockGraph blockGraph, bool[] targets, int start, int end)
+            {
+                for (int i = 0; i < blockGraph.Blocks.Length; i++)
+                {
+                    var block = blockGraph.Blocks[i];
+                    if (block.Start < end && block.End > start)
+                        targets[i] = true;
+                }
+            }
+
+            static void MarkSwitchArm(BlockGraph blockGraph, bool[] switchArmBlocks, int[] predecessorCounts, int offset)
+            {
+                int blockIndex = blockGraph.BlockIndexAt(offset);
+                if ((uint)blockIndex < (uint)switchArmBlocks.Length && predecessorCounts[blockIndex] <= 1)
+                    switchArmBlocks[blockIndex] = true;
+            }
+
+            static void MarkBranchArm(BlockGraph blockGraph, bool[] branchBlocks, int[] predecessorCounts, int offset)
+            {
+                int blockIndex = blockGraph.BlockIndexAt(offset);
+                if ((uint)blockIndex < (uint)branchBlocks.Length && predecessorCounts[blockIndex] <= 1)
+                    branchBlocks[blockIndex] = true;
             }
         }
 
@@ -2975,7 +3116,7 @@ public sealed class LibraryBodyIndex
         static string RuntimeTypeName(TypeRef type)
             => type.Kind switch
             {
-                TypeRefKind.Definition => type.Namespace.Length == 0 ? StripGenericArity(type.Name) : $"{type.Namespace}.{StripGenericArity(type.Name)}",
+                TypeRefKind.Definition => type.Namespace.Length == 0 ? StripMetadataGenericArity(type.Name) : $"{type.Namespace}.{StripMetadataGenericArity(type.Name)}",
                 TypeRefKind.GenericInstance => $"{RuntimeTypeName(type.ElementType ?? type)}<{string.Join(", ", type.TypeArguments.Select(RuntimeTypeName))}>",
                 TypeRefKind.SzArray => $"{RuntimeTypeName(type.ElementType!)}[]",
                 TypeRefKind.Array => $"{RuntimeTypeName(type.ElementType!)}[{new string(',', type.Rank - 1)}]",
@@ -2983,6 +3124,17 @@ public sealed class LibraryBodyIndex
                 TypeRefKind.Pointer => $"{RuntimeTypeName(type.ElementType!)}*",
                 _ => type.ToQualifiedDisplayString(),
             };
+
+        static string StripMetadataGenericArity(string name)
+        {
+            if (!name.Contains('`', StringComparison.Ordinal))
+                return name;
+            return string.Join("+", name.Split('+').Select(segment =>
+            {
+                int tick = segment.IndexOf('`');
+                return tick < 0 ? segment : segment[..tick];
+            }));
+        }
 
         public static string FormatPathContext(AllocationPathContext context)
             => context switch
@@ -3000,70 +3152,13 @@ public sealed class LibraryBodyIndex
             IReadOnlyList<(int Start, int End)> loopRegions,
             AllocationEscape escape)
         {
-            if (escape == AllocationEscape.ThrowPath || decodedBody.BlockGraph.Regions.Any(region => region.ContainsHandler(offset) || region.ContainsFilter(offset)))
+            if (escape == AllocationEscape.ThrowPath)
                 return AllocationPathContext.ErrorPath;
             if (IsInLoopRegion(offset, loopRegions))
                 return AllocationPathContext.LoopBody;
 
             int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
-            if (blockIndex < 0)
-                return AllocationPathContext.StraightLine;
-
-            var switchTargets = new HashSet<int>();
-            var branchTargets = new HashSet<int>();
-            foreach (var instruction in decodedBody.Instructions)
-            {
-                if (instruction.BranchTargets.Length == 0)
-                    continue;
-                foreach (int target in instruction.BranchTargets)
-                {
-                    int targetBlock = decodedBody.BlockGraph.BlockIndexAt(target);
-                    if (targetBlock < 0)
-                        continue;
-                    branchTargets.Add(targetBlock);
-                    if (instruction.OpCode == ILOpCode.Switch)
-                        switchTargets.Add(targetBlock);
-                }
-            }
-
-            if (switchTargets.Contains(blockIndex))
-                return AllocationPathContext.SwitchArm;
-            if (branchTargets.Contains(blockIndex) || blockIndex > 0 && HasBranchingPredecessor(decodedBody, blockIndex))
-                return AllocationPathContext.Branch;
-            return AllocationPathContext.StraightLine;
-        }
-
-        static bool HasBranchingPredecessor(DecodedBody decodedBody, int blockIndex)
-        {
-            for (int i = 0; i < decodedBody.BlockGraph.Blocks.Length; i++)
-            {
-                if (!decodedBody.BlockGraph.Blocks[i].Edges.Successors.Contains(blockIndex))
-                    continue;
-                if (LastInstructionInBlock(decodedBody, i) is { } predecessor
-                    && predecessor.Branches
-                    && !predecessor.IsUnconditionalBranch)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        static DecodedInstruction? LastInstructionInBlock(DecodedBody decodedBody, int blockIndex)
-        {
-            if ((uint)blockIndex >= (uint)decodedBody.BlockGraph.Blocks.Length)
-                return null;
-            var block = decodedBody.BlockGraph.Blocks[blockIndex];
-            DecodedInstruction? last = null;
-            foreach (var instruction in decodedBody.Instructions)
-            {
-                if (instruction.Offset < block.Start)
-                    continue;
-                if (instruction.Offset >= block.End)
-                    break;
-                last = instruction;
-            }
-            return last;
+            return decodedBody.PathContexts.ContextFor(blockIndex);
         }
 
         // Conservative, sound local-escape check for a freshly created array. Returns true
