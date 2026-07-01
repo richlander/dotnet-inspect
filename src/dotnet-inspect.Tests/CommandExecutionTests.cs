@@ -375,6 +375,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceTriageOrderBy_AcceptsHumanColumnNames()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Path Confidence=dominates-return",
+            "--order-by", "Root Reach desc",
+            "--top", "1",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var rows = output.TrimEnd().Split('\n');
+        Assert.Single(rows.Skip(1));
+    }
+
+    [Fact]
     public async Task PerformanceTriageCount_AppliesWhereBeforeTop()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -404,6 +422,22 @@ public class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("Field 'Allocaton' is not filterable", error);
         Assert.Contains("Allocation", error);
+    }
+
+    [Theory]
+    [InlineData("RootReach>=abc", "expects an integer")]
+    [InlineData("Confidence>=bogus", "expects one of low, medium, high")]
+    public async Task PerformanceTriageWhere_InvalidValuesReportDiagnostics(string predicate, string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--where", predicate,
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
     }
 
     [Fact]

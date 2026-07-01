@@ -109,39 +109,33 @@ public sealed record PerformanceTriageOptions
         var terms = new List<OrderTerm>();
         foreach (var raw in OrderBy.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var parts = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (parts.Length is < 1 or > 2)
-            {
-                orderTerms = [];
-                error = $"Error: Invalid --order-by term '{raw}'. Use forms like 'RootReach desc' or 'Confidence desc,RootReach desc'.";
-                return false;
-            }
+            var (fieldText, directionText) = SplitOrderTerm(raw);
 
-            var field = NormalizeField(parts[0], SortableFields);
+            var field = NormalizeField(fieldText, SortableFields);
             if (field is null)
             {
                 orderTerms = [];
-                error = UnknownFieldError(parts[0], "sortable", SortableFields);
+                error = UnknownFieldError(fieldText, "sortable", SortableFields);
                 return false;
             }
 
             bool descending = false;
-            if (parts.Length == 2)
+            if (directionText is { Length: > 0 })
             {
-                if (parts[1].Equals("desc", StringComparison.OrdinalIgnoreCase)
-                    || parts[1].Equals("descending", StringComparison.OrdinalIgnoreCase))
+                if (directionText.Equals("desc", StringComparison.OrdinalIgnoreCase)
+                    || directionText.Equals("descending", StringComparison.OrdinalIgnoreCase))
                 {
                     descending = true;
                 }
-                else if (parts[1].Equals("asc", StringComparison.OrdinalIgnoreCase)
-                    || parts[1].Equals("ascending", StringComparison.OrdinalIgnoreCase))
+                else if (directionText.Equals("asc", StringComparison.OrdinalIgnoreCase)
+                    || directionText.Equals("ascending", StringComparison.OrdinalIgnoreCase))
                 {
                     descending = false;
                 }
                 else
                 {
                     orderTerms = [];
-                    error = $"Error: Invalid --order-by direction '{parts[1]}'. Valid directions: asc, desc.";
+                    error = $"Error: Invalid --order-by direction '{directionText}'. Valid directions: asc, desc.";
                     return false;
                 }
             }
@@ -157,6 +151,25 @@ public sealed record PerformanceTriageOptions
         }
         error = "";
         return true;
+    }
+
+    static (string Field, string? Direction) SplitOrderTerm(string raw)
+    {
+        raw = raw.Trim();
+        int lastSpace = raw.LastIndexOf(' ');
+        if (lastSpace < 0)
+            return (raw, null);
+
+        var maybeDirection = raw[(lastSpace + 1)..].Trim();
+        if (maybeDirection.Equals("asc", StringComparison.OrdinalIgnoreCase)
+            || maybeDirection.Equals("ascending", StringComparison.OrdinalIgnoreCase)
+            || maybeDirection.Equals("desc", StringComparison.OrdinalIgnoreCase)
+            || maybeDirection.Equals("descending", StringComparison.OrdinalIgnoreCase))
+        {
+            return (raw[..lastSpace].Trim(), maybeDirection);
+        }
+
+        return (raw, null);
     }
 
     public static bool TryValidateShapes(PerformanceTriageOptions options, out string error)
@@ -195,17 +208,10 @@ public sealed record PerformanceTriageOptions
             return false;
         }
 
-        foreach (var (token, op) in new[]
+        var match = FindPredicateOperator(expression);
+        if (match is { } found)
         {
-            (">=", RowOperator.GreaterOrEqual),
-            ("<=", RowOperator.LessOrEqual),
-            ("!=", RowOperator.NotEquals),
-            ("=", RowOperator.Equals),
-        })
-        {
-            int index = expression.IndexOf(token, StringComparison.Ordinal);
-            if (index <= 0)
-                continue;
+            var (index, token, op) = found;
 
             var field = NormalizeField(expression[..index].Trim(), FilterableFields);
             if (field is null)
@@ -227,6 +233,16 @@ public sealed record PerformanceTriageOptions
                 error = $"Error: Field '{field}' supports only = and != predicates.";
                 return false;
             }
+            if (field == "RootReach" && !int.TryParse(value, out _))
+            {
+                error = $"Error: Field 'RootReach' expects an integer value in --where predicate '{expression}'.";
+                return false;
+            }
+            if (field == "Confidence" && !IsKnownConfidence(value))
+            {
+                error = $"Error: Field 'Confidence' expects one of low, medium, high in --where predicate '{expression}'.";
+                return false;
+            }
 
             predicate = new RowPredicate(field, op, value);
             error = "";
@@ -236,6 +252,35 @@ public sealed record PerformanceTriageOptions
         error = $"Error: Invalid --where predicate '{expression}'. Use forms like 'Field=value', 'Field!=value', 'RootReach>=10', or 'Confidence>=medium'.";
         return false;
     }
+
+    static (int Index, string Token, RowOperator Operator)? FindPredicateOperator(string expression)
+    {
+        (int Index, string Token, RowOperator Operator)? best = null;
+        foreach (var candidate in new[]
+        {
+            (Token: ">=", Operator: RowOperator.GreaterOrEqual),
+            (Token: "<=", Operator: RowOperator.LessOrEqual),
+            (Token: "!=", Operator: RowOperator.NotEquals),
+            (Token: "=", Operator: RowOperator.Equals),
+        })
+        {
+            int index = expression.IndexOf(candidate.Token, StringComparison.Ordinal);
+            if (index <= 0)
+                continue;
+            if (best is null
+                || index < best.Value.Index
+                || index == best.Value.Index && candidate.Token.Length > best.Value.Token.Length)
+            {
+                best = (index, candidate.Token, candidate.Operator);
+            }
+        }
+        return best;
+    }
+
+    static bool IsKnownConfidence(string value)
+        => value.Equals("low", StringComparison.OrdinalIgnoreCase)
+           || value.Equals("medium", StringComparison.OrdinalIgnoreCase)
+           || value.Equals("high", StringComparison.OrdinalIgnoreCase);
 
     static string? NormalizeField(string field, IReadOnlyList<string> knownFields)
     {

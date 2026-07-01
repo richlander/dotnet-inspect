@@ -365,6 +365,33 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void FilterAndOrderTriageOpportunities_AllowsOperatorsInsidePredicateValues()
+    {
+        var opportunities = new[]
+        {
+            Opp("ComparisonEvidence", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with
+            {
+                Evidence = "value >= threshold",
+            },
+            Opp("OtherEvidence", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with
+            {
+                Evidence = "plain value",
+            },
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    Where = ["Evidence=*>=*"],
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["ComparisonEvidence"], filtered);
+    }
+
+    [Fact]
     public void FilterAndOrderTriageOpportunities_AppliesExplicitOrderBeforeTop()
     {
         var opportunities = new[]
