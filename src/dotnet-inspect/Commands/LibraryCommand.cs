@@ -300,6 +300,9 @@ public class LibraryCommand
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
 
+                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                    return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
                 {
@@ -332,9 +335,6 @@ public class LibraryCommand
 
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
-
-                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-                    return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0], assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
@@ -453,7 +453,7 @@ public class LibraryCommand
             return 1;
         }
 
-        if (!TryReadILCoordinates(options.ILOffsetsPath!, out var coordinates, out var error))
+        if (!TryReadILCoordinates(options.ILOffsetsPath!, out var coordinates, out var readErrors, out var error))
         {
             Console.Error.WriteLine(error);
             return 1;
@@ -463,7 +463,10 @@ public class LibraryCommand
             ? [.. options.IncludeSections]
             : [.. BatchCoordinateSections];
 
-        var rows = new List<ILCoordinateBatchRow>();
+        var rows = readErrors
+            .Select(errorRow => new ILCoordinateBatchRow(null, errorRow.Label, null, null, "error", errorRow.Error))
+            .ToList();
+        using var service = SourceLinkService.Open(assemblyPath, logger.Log);
         foreach (var coordinate in coordinates)
         {
             var queryOptions = options with
@@ -479,8 +482,8 @@ public class LibraryCommand
                 Urls = false,
                 Paths = false
             };
-            var resolved = await ILOffsetSourceQuery.ResolveAsync(
-                assemblyPath,
+            var resolved = await ILOffsetSourceQuery.ResolveBatchAsync(
+                service,
                 packageName,
                 packageVersion,
                 isPlatformAssembly,
@@ -489,7 +492,7 @@ public class LibraryCommand
                 logger);
             rows.Add(resolved.Result is { } result
                 ? BuildILCoordinateBatchRow(coordinate, result)
-                : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", "could not resolve"));
+                : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
         }
 
         WriteILCoordinateBatchRows(rows, options);
@@ -508,9 +511,10 @@ public class LibraryCommand
         SectionNames.CostContext
     ];
 
-    private static bool TryReadILCoordinates(string path, out List<ILCoordinateInput> coordinates, out string? error)
+    private static bool TryReadILCoordinates(string path, out List<ILCoordinateInput> coordinates, out List<ILCoordinateReadError> readErrors, out string? error)
     {
         coordinates = [];
+        readErrors = [];
         error = null;
         var lineNumber = 0;
         foreach (var rawLine in File.ReadLines(path))
@@ -523,8 +527,8 @@ public class LibraryCommand
             var coordinateIndex = Array.FindIndex(tokens, token => ILOffsetSourceQuery.TryParse(token, out _, out _));
             if (coordinateIndex < 0)
             {
-                error = $"Error: {path}:{lineNumber}: expected a MethodDef token + IL offset coordinate like 0x06000001+0x5.";
-                return false;
+                readErrors.Add(new ILCoordinateReadError($"{path}:{lineNumber}", "expected a MethodDef token + IL offset coordinate"));
+                continue;
             }
 
             var labelTokens = tokens
@@ -535,7 +539,7 @@ public class LibraryCommand
                 labelTokens.Length == 0 ? null : string.Join(' ', labelTokens)));
         }
 
-        if (coordinates.Count == 0)
+        if (coordinates.Count == 0 && readErrors.Count == 0)
         {
             error = $"Error: {path} did not contain any IL coordinates.";
             return false;
@@ -560,8 +564,6 @@ public class LibraryCommand
     {
         if (result.ReturnAddressContext is { } returnAddress)
             return ("return address", $"call at {returnAddress.CallOffset} to {returnAddress.Callee}");
-        if (result.CallsiteContext is { } callsite)
-            return ("callsite", $"{callsite.Opcode} {callsite.Callee}");
         if (result.AllocationContext is { Count: > 0 } allocations)
         {
             var allocation = allocations[0];
@@ -577,6 +579,8 @@ public class LibraryCommand
             var cost = costFacts[0];
             return ("cost", $"{cost.CostKind} {cost.Operation}".Trim());
         }
+        if (result.CallsiteContext is { } callsite)
+            return ("callsite", $"{callsite.Opcode} {callsite.Callee}");
         if (result.ExceptionContext is { Count: > 0 } exceptions)
             return ("exception", string.Join(", ", exceptions.Select(e => $"{e.Context} {e.Clause}".Trim())));
         if (result.InstructionContext is { } instruction)
@@ -601,7 +605,7 @@ public class LibraryCommand
     {
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(rows, ILCoordinateBatchJsonContext.Default.ListILCoordinateBatchRow));
+            Console.WriteLine(JsonSerializer.Serialize(new ILCoordinateBatchResult(rows), ILCoordinateBatchJsonContext.Default.ILCoordinateBatchResult));
             return;
         }
 
@@ -620,7 +624,7 @@ public class LibraryCommand
                 ["coordinate", "label", "member", "il_offset", "meaning", "evidence"],
                 rows.Select(row => new[]
                 {
-                    row.Coordinate,
+                    row.Coordinate ?? "",
                     row.Label ?? "",
                     row.Member ?? "",
                     row.ILOffset ?? "",
@@ -1764,9 +1768,13 @@ public class LibraryCommand
 
 internal sealed record ILCoordinateInput(string Coordinate, string? Label);
 
+internal sealed record ILCoordinateReadError(string Label, string Error);
+
+internal sealed record ILCoordinateBatchResult(List<ILCoordinateBatchRow> Rows);
+
 [MarkoutSerializable]
 internal sealed record ILCoordinateBatchRow(
-    string Coordinate,
+    [property: MarkoutSkipNull] string? Coordinate,
     [property: MarkoutSkipNull] string? Label,
     [property: MarkoutSkipNull] string? Member,
     [property: MarkoutPropertyName("IL Offset")]
@@ -1774,7 +1782,8 @@ internal sealed record ILCoordinateBatchRow(
     string Meaning,
     string Evidence);
 
-[JsonSerializable(typeof(List<ILCoordinateBatchRow>))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+[JsonSerializable(typeof(ILCoordinateBatchResult))]
 internal partial class ILCoordinateBatchJsonContext : JsonSerializerContext
 {
 }

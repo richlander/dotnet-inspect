@@ -18,13 +18,12 @@ summary:
 dotnet-inspect library My.dll --il-offsets coords.txt
 ```
 
-```md
+```text
 ## IL Coordinates
 
-| Coordinate | Label | Member | IL Offset | Meaning | Evidence |
-| ---------- | ----- | ------ | --------- | ------- | -------- |
-| 0x06000042+0x2F | profiler-sample | My.Type.M1 | IL_002F | return address | call at IL_002A to M2 |
-| 0x06000051+0x10 | debugger-frame | My.Type.M2 | IL_0010 | allocation | array int[] |
+Coordinate      Label            Member      IL Offset  Meaning         Evidence
+0x06000042+0x2F profiler-sample  My.Type.M1  IL_002F    return address  call at IL_002A to M2
+0x06000051+0x10 debugger-frame   My.Type.M2  IL_0010    allocation      array int[]
 ```
 
 ## Prototype producer workflows
@@ -39,6 +38,8 @@ likely the collection and normalization step, not the `dotnet-inspect` query.
 2. Normalize frames to `0x06000000+0x0` coordinates in a text file.
 3. Run `library --il-offsets` to explain return addresses, callsites, exception
    regions, and semantic context rows.
+4. Malformed lines are kept as `error` rows so partially-clean artifacts can
+   still produce a useful summary.
 
 ### Profiler / trace workflow
 
