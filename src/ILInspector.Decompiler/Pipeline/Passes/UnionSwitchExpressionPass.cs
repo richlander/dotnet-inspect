@@ -13,6 +13,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     sealed record Arm(TypeRef PatternType, int? LocalIndex, IrExpression Value, IReadOnlyList<IrNode> LocalRoots, IrExpression? Guard = null);
     sealed record Match(int StartIndex, UnionSwitchExpression SwitchExpression);
     sealed record BoolMatch(int StartIndex, IrExpression Expression);
+    sealed record StoreTailMatch(int StartIndex, StoreLocal SwitchStore, IReadOnlyList<IrNode> Tail);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -46,6 +47,18 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 for (int i = block.Children.Count - 1; i > match.StartIndex; i--)
                     block.Children[i].Detach();
                 context.Stepper.StepOver("raise union type-test dispatch to switch expression", block);
+                continue;
+            }
+
+            if (container.Blocks is [var storeBlock] && TryMatchStoreTail(function, storeBlock, out var storeMatch))
+            {
+                var oldChildren = storeBlock.DetachChildren();
+                for (int i = 0; i < storeMatch.StartIndex; i++)
+                    storeBlock.Add(oldChildren[i]);
+                storeBlock.Add(storeMatch.SwitchStore);
+                foreach (var tail in storeMatch.Tail)
+                    storeBlock.Add(tail);
+                context.Stepper.StepOver("raise union type-test store dispatch to switch expression", storeBlock);
                 continue;
             }
 
@@ -127,6 +140,200 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool TryMatchStoreTail(IrFunction function, Block block, out StoreTailMatch match)
+    {
+        match = null!;
+        var children = block.Children;
+        for (int start = 0; start < children.Count; start++)
+        {
+            if (TryMatchStoreTailAt(function, children, start, out match))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool TryMatchStoreTailAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out StoreTailMatch match)
+    {
+        match = null!;
+        if (start + 4 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsValueTypeUnionValueProperty(function, unionValue)
+            || children[start + 1] is not StoreLocal { Value: IsInstance firstTest } firstStore
+            || !IsTempTypeTest(firstTest, valueStore.Index)
+            || children[start + 2] is not IfStatement firstIf
+            || firstIf.HasElse
+            || !IsNotLocal(firstIf.Condition, firstStore.Index)
+            || children[start + 3] is not StoreLocal firstResultStore)
+        {
+            return false;
+        }
+
+        var tail = children.Skip(start + 4).ToArray();
+        if (tail.Length == 0 || !TailShapeIsMovable(tail))
+            return false;
+
+        if (!TryStoreTailArmsWithDefault(firstIf.Then.Children, valueStore.Index, firstResultStore.Index, tail, out var innerArms, out var defaultValue))
+            return false;
+
+        var firstArm = new Arm(
+            firstTest.Type,
+            firstStore.Index,
+            firstResultStore.Value,
+            [firstStore, firstIf.Condition, firstResultStore.Value]);
+        var arms = new[] { firstArm }.Concat(innerArms).ToArray();
+        var consumedNodes = children.Skip(start).ToArray();
+
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, firstStore, firstIf])
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, firstResultStore.Index, consumedNodes)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || arms.Select(arm => arm.PatternType).Distinct().Count() != arms.Length)
+        {
+            return false;
+        }
+
+        var switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            (IrExpression)defaultValue.Clone());
+        var switchStore = new StoreLocal(firstResultStore.Index, firstResultStore.Type, switchExpression);
+        match = new StoreTailMatch(start, switchStore, tail.Select(node => node.Clone()).ToArray());
+        return true;
+    }
+
+    static bool TailShapeIsMovable(IReadOnlyList<IrNode> tail)
+        => tail.Count > 0
+        && tail[^1] is Return
+        && !tail.Take(tail.Count - 1).Any(node => node is Return)
+        && tail.All(node => node is StoreLocal or Return or ExpressionStatement);
+
+    static bool TryStoreTailArmsWithDefault(
+        IReadOnlyList<IrNode> nodes,
+        int tempLocal,
+        int resultLocal,
+        IReadOnlyList<IrNode> tail,
+        out IReadOnlyList<Arm> arms,
+        out IrExpression defaultValue)
+    {
+        var builder = new List<Arm>();
+        int i = 0;
+        while (i < nodes.Count)
+        {
+            if (nodes[i] is IfStatement armIf
+                && TryStoreTailArm(armIf, tempLocal, resultLocal, tail, out var arm))
+            {
+                builder.Add(arm);
+                i++;
+                continue;
+            }
+
+            if (nodes[i] is StoreLocal defaultStore
+                && defaultStore.Index == resultLocal
+                && TailMatches(nodes, i + 1, tail))
+            {
+                arms = builder;
+                defaultValue = defaultStore.Value;
+                return arms.Count > 0;
+            }
+
+            break;
+        }
+
+        arms = [];
+        defaultValue = null!;
+        return false;
+    }
+
+    static bool TryStoreTailArm(IfStatement armIf, int tempLocal, int resultLocal, IReadOnlyList<IrNode> tail, out Arm arm)
+    {
+        arm = null!;
+        if (armIf.HasElse
+            || !TryArmPattern(armIf.Condition, tempLocal, out var patternType, out var localIndex, out var patternRoots)
+            || armIf.Then.Children is not [StoreLocal store, ..]
+            || store.Index != resultLocal
+            || !TailMatches(armIf.Then.Children, 1, tail))
+        {
+            return false;
+        }
+
+        var roots = new List<IrNode>(patternRoots) { store.Value };
+        arm = new Arm(patternType, localIndex, store.Value, roots);
+        return true;
+    }
+
+    static bool TailMatches(IReadOnlyList<IrNode> nodes, int start, IReadOnlyList<IrNode> tail)
+    {
+        if (nodes.Count - start != tail.Count)
+            return false;
+
+        for (int i = 0; i < tail.Count; i++)
+        {
+            if (!SameTailNode(nodes[start + i], tail[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool SameTailNode(IrNode left, IrNode right) => (left, right) switch
+    {
+        (Return { Value: var a }, Return { Value: var b }) => SameTailExpression(a, b),
+        (StoreLocal a, StoreLocal b) => a.Index == b.Index && a.Type.Equals(b.Type) && SameTailExpression(a.Value, b.Value),
+        (ExpressionStatement a, ExpressionStatement b) => SameTailExpression(a.Expression, b.Expression),
+        _ => false,
+    };
+
+    static bool SameTailExpression(IrExpression? left, IrExpression? right)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        return (left, right) switch
+        {
+            (Constant a, Constant b) => a.Type.Equals(b.Type) && Equals(a.Value, b.Value),
+            (LoadLocal a, LoadLocal b) => a.Index == b.Index && a.Type.Equals(b.Type),
+            (LoadLocalAddress a, LoadLocalAddress b) => a.Index == b.Index && a.Type.Equals(b.Type),
+            (LoadArgument a, LoadArgument b) => a.Index == b.Index && a.Type.Equals(b.Type),
+            (LoadArgumentAddress a, LoadArgumentAddress b) => a.Index == b.Index && a.Type.Equals(b.Type),
+            (LoadProperty a, LoadProperty b) => a.Accessor.Equals(b.Accessor)
+                && a.IsVirtual == b.IsVirtual
+                && SameTailExpression(a.Instance, b.Instance)
+                && SameTailExpressions(a.IndexArguments, b.IndexArguments),
+            (Call a, Call b) => a.Callee.Equals(b.Callee)
+                && a.IsVirtual == b.IsVirtual
+                && Equals(a.ConstrainedTo, b.ConstrainedTo)
+                && SameTailExpressions(a.Arguments, b.Arguments),
+            (CastClass a, CastClass b) => a.Type.Equals(b.Type) && SameTailExpression(a.Operand, b.Operand),
+            (Convert a, Convert b) => a.Target.Equals(b.Target)
+                && a.IsChecked == b.IsChecked
+                && a.IsUnsigned == b.IsUnsigned
+                && SameTailExpression(a.Operand, b.Operand),
+            (Box a, Box b) => SameTailExpression(a.Operand, b.Operand),
+            (UnboxAny a, UnboxAny b) => a.Type.Equals(b.Type) && SameTailExpression(a.Operand, b.Operand),
+            _ => false,
+        };
+    }
+
+    static bool SameTailExpressions(IReadOnlyList<IrExpression> left, IReadOnlyList<IrExpression> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+
+        for (int i = 0; i < left.Count; i++)
+            if (!SameTailExpression(left[i], right[i]))
+                return false;
+
+        return true;
     }
 
     static bool TryMatchReferencePrefixValueTypeTailNullArmSwitchAt(
