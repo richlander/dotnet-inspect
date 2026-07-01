@@ -802,6 +802,7 @@ public record AllocationFactRow(
     [property: MarkoutPropertyName("Allocation Kind")] string AllocationKind,
     [property: MarkoutPropertyName("Allocated Type")] string? AllocatedType,
     [property: MarkoutPropertyName("Counted As Heap")] string CountedAsHeap,
+    string Frequency,
     string Escape,
     [property: MarkoutPropertyName("In Loop")] string InLoop,
     string Evidence);
@@ -809,7 +810,8 @@ public record AllocationFactRow(
 [MarkoutSerializable]
 public record SafetyFactRow(
     [property: MarkoutSkipNull] string? Member,
-    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    [property: MarkoutPropertyName("IL Offset")]
+    [property: MarkoutSkipNull] string? ILOffset,
     [property: MarkoutPropertyName("Safety Kind")] string SafetyKind,
     string Operation,
     string Requirement,

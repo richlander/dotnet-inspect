@@ -56,6 +56,8 @@ public sealed class LibraryBodyIndex
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
+    IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
+    IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
 
     /// <summary>
     /// Source/IL optimization opportunities, each enriched with the containing method's
@@ -542,6 +544,16 @@ public sealed class LibraryBodyIndex
     public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
 
     public IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> GetUnsafetyOccurrences() => _unsafetyOccurrences;
+
+    public IReadOnlyDictionary<int, ImmutableArray<DirectCall>> GetDirectCallsByCaller()
+        => _directCallsByCaller ??= DirectCalls
+            .GroupBy(call => call.Caller.MetadataToken)
+            .ToDictionary(group => group.Key, group => group.ToImmutableArray());
+
+    public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
+        => _unsafeEvidenceByMember ??= UnsafeEvidence
+            .GroupBy(evidence => evidence.Member.MetadataToken)
+            .ToDictionary(group => group.Key, group => group.ToImmutableArray());
 
     IReadOnlySet<string>? _generatedFrameworkTypes;
 

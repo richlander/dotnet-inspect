@@ -579,6 +579,7 @@ public class ILOffsetAllocationContext
     public string? AllocationKind { get; init; }
     public string? AllocatedType { get; init; }
     public string? CountedAsHeap { get; init; }
+    public string? Frequency { get; init; }
     public string? Escape { get; init; }
     public string? InLoop { get; init; }
     public string? Evidence { get; init; }

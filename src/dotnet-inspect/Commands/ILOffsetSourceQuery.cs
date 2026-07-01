@@ -11,10 +11,6 @@ namespace DotnetInspector.Commands;
 
 internal static class ILOffsetSourceQuery
 {
-    const int MaxCachedIndexes = 4;
-    static readonly object s_indexLock = new();
-    static readonly Dictionary<string, Analysis.LibraryBodyIndex> s_indexes = new(PathComparer());
-
     public static async Task<(int ExitCode, ILOffsetResult? Result)> ResolveAsync(
         string dllPath,
         string? packageName,
@@ -81,19 +77,12 @@ internal static class ILOffsetSourceQuery
         List<ILOffsetCostContext>? costContext = null;
         if (RequiresSemanticContext(options))
         {
-            var index = GetLibraryIndex(dllPath);
             if (RequiresAllocationContext(options))
-                allocationContext = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodToken, ilOffset)
-                    .Select(ToILOffsetAllocationContext)
-                    .ToList();
+                allocationContext = BuildAllocationContext(instructionContext);
             if (RequiresSafetyContext(options))
-                safetyContext = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodToken, ilOffset)
-                    .Select(ToILOffsetSafetyContext)
-                    .ToList();
+                safetyContext = BuildSafetyContext(instructionContext);
             if (RequiresCostContext(options))
-                costContext = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodToken, ilOffset)
-                    .Select(ToILOffsetCostContext)
-                    .ToList();
+                costContext = BuildCostContext(instructionContext);
         }
 
         SourceLinkResolver.ILOffsetSourceInfo? result = null;
@@ -238,6 +227,96 @@ internal static class ILOffsetSourceQuery
 
     private static string FormatILOffset(int offset) => $"IL_{offset:X4}";
 
+    private static List<ILOffsetAllocationContext> BuildAllocationContext(ILOffsetInstructionContextInfo? instruction)
+    {
+        if (instruction is null)
+            return [];
+
+        var opcode = instruction.Opcode;
+        string? kind = opcode switch
+        {
+            "newarr" => "array",
+            "box" => "box",
+            "newobj" => "object",
+            _ => null
+        };
+        if (kind is null)
+            return [];
+
+        return
+        [
+            new ILOffsetAllocationContext
+            {
+                ILOffset = FormatILOffset(instruction.ILOffset),
+                AllocationKind = kind,
+                AllocatedType = instruction.Operand,
+                CountedAsHeap = opcode == "newobj" ? "Unknown" : "Yes",
+                Frequency = "always",
+                Escape = "unknown",
+                InLoop = "Unknown",
+                Evidence = opcode
+            }
+        ];
+    }
+
+    private static List<ILOffsetSafetyContext> BuildSafetyContext(ILOffsetInstructionContextInfo? instruction)
+    {
+        if (instruction is null)
+            return [];
+
+        var opcode = instruction.Opcode;
+        string? kind = opcode switch
+        {
+            "localloc" => "stackalloc",
+            "calli" => "calli",
+            "cpblk" or "initblk" => "unsafe block operation",
+            _ => null
+        };
+        if (kind is null)
+            return [];
+
+        return
+        [
+            new ILOffsetSafetyContext
+            {
+                ILOffset = FormatILOffset(instruction.ILOffset),
+                SafetyKind = kind,
+                Operation = instruction.Operand ?? opcode,
+                Requirement = "requires unsafe",
+                Evidence = opcode
+            }
+        ];
+    }
+
+    private static List<ILOffsetCostContext> BuildCostContext(ILOffsetInstructionContextInfo? instruction)
+    {
+        if (instruction is null)
+            return [];
+
+        var opcode = instruction.Opcode;
+        string? kind = opcode switch
+        {
+            "callvirt" => "virtual dispatch",
+            "ldftn" or "ldvirtftn" => "delegate/function pointer",
+            "calli" => "function pointer call",
+            _ => null
+        };
+        if (kind is null)
+            return [];
+
+        return
+        [
+            new ILOffsetCostContext
+            {
+                ILOffset = FormatILOffset(instruction.ILOffset),
+                CostKind = kind,
+                Operation = instruction.Operand ?? opcode,
+                InLoop = "Unknown",
+                Evidence = opcode
+            }
+        ];
+    }
+
     private static ILOffsetAllocationContext ToILOffsetAllocationContext(Analysis.AllocationFact fact)
         => new()
         {
@@ -245,6 +324,7 @@ internal static class ILOffsetSourceQuery
             AllocationKind = fact.AllocationKind,
             AllocatedType = fact.AllocatedType,
             CountedAsHeap = fact.CountedAsHeap ? "Yes" : "No",
+            Frequency = fact.Frequency,
             Escape = fact.Escape,
             InLoop = fact.InLoop ? "Yes" : "No",
             Evidence = fact.Evidence
@@ -253,7 +333,7 @@ internal static class ILOffsetSourceQuery
     private static ILOffsetSafetyContext ToILOffsetSafetyContext(Analysis.SafetyFact fact)
         => new()
         {
-            ILOffset = FormatILOffset(fact.ILOffset),
+            ILOffset = fact.ILOffset is { } offset ? FormatILOffset(offset) : null,
             SafetyKind = fact.SafetyKind,
             Operation = fact.Operation,
             Requirement = fact.Requirement,
@@ -315,23 +395,4 @@ internal static class ILOffsetSourceQuery
         Console.Error.WriteLine();
     }
 
-    private static Analysis.LibraryBodyIndex GetLibraryIndex(string path)
-    {
-        var fullPath = Path.GetFullPath(path);
-        lock (s_indexLock)
-        {
-            if (s_indexes.TryGetValue(fullPath, out var index))
-                return index;
-            if (s_indexes.Count >= MaxCachedIndexes)
-                s_indexes.Clear();
-            index = Analysis.LibraryBodyIndex.Open(fullPath);
-            s_indexes[fullPath] = index;
-            return index;
-        }
-    }
-
-    private static StringComparer PathComparer()
-        => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
 }

@@ -1912,6 +1912,7 @@ public static class ApiOutputFormatter
             fact.AllocationKind,
             fact.AllocatedType is { } allocated ? MarkoutInline.Code(allocated) : null,
             fact.CountedAsHeap ? "Yes" : "No",
+            fact.Frequency,
             fact.Escape,
             fact.InLoop ? "Yes" : "No",
             fact.Evidence);
@@ -1919,7 +1920,7 @@ public static class ApiOutputFormatter
     static SafetyFactRow ToSafetyFactRow(Analysis.SafetyFact fact, bool includeMember)
         => new(
             includeMember ? MarkoutInline.Code(FormatMethod(fact.Method)) : null,
-            MarkoutInline.Code($"IL_{fact.ILOffset:X4}"),
+            fact.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
             fact.SafetyKind,
             MarkoutInline.Code(fact.Operation),
             fact.Requirement,

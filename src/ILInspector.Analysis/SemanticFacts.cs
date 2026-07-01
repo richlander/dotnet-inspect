@@ -15,7 +15,7 @@ public sealed record AllocationFact(
 
 public sealed record SafetyFact(
     MethodIdentity Method,
-    int ILOffset,
+    int? ILOffset,
     string SafetyKind,
     string Operation,
     string Requirement,
@@ -68,12 +68,12 @@ public static class SemanticFactProjection
                 occurrence.Detail ?? FormatSource(occurrence.Source)))];
 
     public static ImmutableArray<SafetyFact> SafetyFacts(
-        ImmutableArray<UnsafeEvidence> unsafeEvidence,
+        IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> unsafeEvidence,
         IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> occurrences,
         int methodToken,
         int? ilOffset = null)
         => SafetyFacts(
-            unsafeEvidence.Where(evidence => evidence.Member.MetadataToken == methodToken),
+            unsafeEvidence.TryGetValue(methodToken, out var methodEvidence) ? methodEvidence : [],
             occurrences.TryGetValue(methodToken, out var methodOccurrences) ? methodOccurrences : [],
             ilOffset);
 
@@ -104,16 +104,17 @@ public static class SemanticFactProjection
                 FormatUnsafetyKind(occurrence.Kind)));
 
         var coveredOperations = operationRows
+            .Where(row => row.ILOffset is not null)
             .Select(row => (row.Method.MetadataToken, row.ILOffset))
             .ToHashSet();
 
         var unsafeCallRows = unsafeEvidence
-            .Where(evidence => evidence.ILOffset is not null)
             .Where(evidence => ilOffset is null || evidence.ILOffset == ilOffset)
-            .Where(evidence => !coveredOperations.Contains((evidence.Member.MetadataToken, evidence.ILOffset!.Value)))
+            .Where(evidence => evidence.ILOffset is null
+                || !coveredOperations.Contains((evidence.Member.MetadataToken, evidence.ILOffset.Value)))
             .Select(evidence => new SafetyFact(
                 evidence.Member,
-                evidence.ILOffset!.Value,
+                evidence.ILOffset,
                 evidence.Reason,
                 evidence.Detail,
                 "requires unsafe",
@@ -126,11 +127,11 @@ public static class SemanticFactProjection
     }
 
     public static ImmutableArray<CostFact> CostFacts(
-        ImmutableArray<DirectCall> directCalls,
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> directCalls,
         int methodToken,
         int? ilOffset = null)
         => ProjectCostFacts(
-            directCalls.Where(call => call.Caller.MetadataToken == methodToken),
+            directCalls.TryGetValue(methodToken, out var methodCalls) ? methodCalls : [],
             ilOffset);
 
     public static ImmutableArray<CostFact> CostFacts(
