@@ -1755,6 +1755,7 @@ public sealed partial class CSharpPrinter
             Conditions.Inverse(c.Kind),
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
+        LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
         LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
@@ -2389,6 +2390,9 @@ public sealed partial class CSharpPrinter
     }
 
     string? TryPropertyPatternText(LogicalBinary logical)
+        => TryPropertyPatternText(logical, negated: false);
+
+    string? TryPropertyPatternText(LogicalBinary logical, bool negated)
     {
         if (logical.Kind != LogicalKind.And)
         {
@@ -2413,8 +2417,12 @@ public sealed partial class CSharpPrinter
             return null;
         }
 
+        if (negated && pattern.PreserveLocalInPropertyPattern)
+            return null;
+
         string designation = pattern.PreserveLocalInPropertyPattern ? $" {LocalName(pattern.LocalIndex)}" : "";
-        return $"{TypeTestValueText(pattern.Value)} is {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{p.PropertyName}: {p.Subpattern}"))} }}{designation}";
+        string not = negated ? " not" : "";
+        return $"{TypeTestValueText(pattern.Value)} is{not} {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{p.PropertyName}: {p.Subpattern}"))} }}{designation}";
     }
 
     static void CollectConjuncts(IrExpression expression, List<IrExpression> conjuncts)
