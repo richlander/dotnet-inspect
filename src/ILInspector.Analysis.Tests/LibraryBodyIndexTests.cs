@@ -1164,6 +1164,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath)]
     [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody)]
     [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath)]
     public void AllocationOccurrences_IncludeRuntimeTypeAndPathContext(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -3141,6 +3142,30 @@ public class OptimizationOpportunityFixtures
         {
             ConsumeObject(new PlainObject(1));
         }
+    }
+
+    public static int CatchAllocatesInLoop(int count)
+    {
+        var total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            try
+            {
+                MaybeThrow(i);
+            }
+            catch (InvalidOperationException)
+            {
+                ConsumeObject(new PlainObject(i));
+                total--;
+            }
+        }
+        return total;
+    }
+
+    static void MaybeThrow(int value)
+    {
+        if (value < 0)
+            throw new InvalidOperationException();
     }
 
     public static object ReturnsNestedGenericObject()

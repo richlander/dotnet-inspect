@@ -3174,11 +3174,14 @@ public sealed class LibraryBodyIndex
         {
             if (escape == AllocationEscape.ThrowPath)
                 return AllocationPathContext.ErrorPath;
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            var blockContext = decodedBody.PathContexts.ContextFor(blockIndex);
+            if (blockContext == AllocationPathContext.ErrorPath)
+                return AllocationPathContext.ErrorPath;
             if (IsInLoopRegion(offset, loopRegions))
                 return AllocationPathContext.LoopBody;
 
-            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
-            return decodedBody.PathContexts.ContextFor(blockIndex);
+            return blockContext;
         }
 
         // Conservative, sound local-escape check for a freshly created array. Returns true
