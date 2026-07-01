@@ -16,9 +16,9 @@ dnx dotnet-inspect -y -- <command>
 
 Scope any of these commands the same way: `--package Foo` (repeatable),
 `--library path.dll`, `--platform` (all in-box frameworks), `--project App.csproj`
-(restored project assets), `--extensions` or `--aspnetcore` (curated Microsoft.*
-sets), `--package-prefix Azure.AI` (every package under a NuGet ID prefix), and
-`--tfm net9.0`.
+(project-referenced packages), `--extensions` or `--aspnetcore` (curated
+Microsoft.* sets), `--package-prefix Azure.AI` (every package under a NuGet ID
+prefix), and `--tfm net9.0`.
 
 ## What implements or extends it?
 
