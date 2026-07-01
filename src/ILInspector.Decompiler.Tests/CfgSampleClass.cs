@@ -4369,6 +4369,13 @@ public static class EnumCastSamples
     public static CfgFlags UnsignedEnumConstantBitwise(CfgFlags f) => f & (CfgFlags)uint.MaxValue;
 
     public static CfgFlags UnsignedEnumConstantCoalesce(CfgFlags? f) => f ?? (CfgFlags)uint.MaxValue;
+
+    // #2076 (review): long-backed enum constants in array-element and box
+    // positions. The `stelem.i8` element type and `box` drop the enum type, so a
+    // long constant printed bare is CS0266/CS0029 unless cast.
+    public static CfgLongPriority[] LongEnumArray() => new[] { CfgLongPriority.High, (CfgLongPriority)5000000000L };
+
+    public static System.Enum LongEnumBoxed() => CfgLongPriority.High;
 }
 
 

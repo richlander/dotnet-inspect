@@ -269,6 +269,31 @@ public class EnumCastPrinterTests
         Assert.DoesNotContain("case 1311768467463790320:", output);
     }
 
+    [Fact]
+    public void LongBackedEnumConstants_InArrayAndBox_CastOrName()
+    {
+        // Array elements: long constants render as enum casts, never a bare `long`
+        // (CS0266). AssertCompiles is the real validity gate.
+        string array = RenderRaisedFixture(nameof(EnumCastSamples.LongEnumArray));
+        Assert.Contains("(CfgLongPriority)5000000000", array);
+        Assert.DoesNotContain("= 5000000000;", array);
+        AssertCompiles(
+            "public static CfgLongPriority[] M()",
+            array,
+            "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+
+        // Box target: the enum value must keep its type (bare long is CS0029 for
+        // System.Enum). A small value arrives as `Convert(long, ...)`, so it casts
+        // rather than names.
+        string boxed = RenderRaisedFixture(nameof(EnumCastSamples.LongEnumBoxed));
+        Assert.Contains("(CfgLongPriority)", boxed);
+        Assert.DoesNotContain("return (long)", boxed);
+        AssertCompiles(
+            "public static System.Enum M()",
+            boxed,
+            "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
     static string RenderFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
