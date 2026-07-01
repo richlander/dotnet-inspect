@@ -63,6 +63,22 @@ public record ILOffsetExceptionContextInfo(
     int? FilterEnd,
     string? CaughtType);
 
+public record ILOffsetCallsiteContextInfo(
+    int CallOffset,
+    string Opcode,
+    string CallKind,
+    string Callee,
+    string? OperandToken,
+    int ReturnAddress);
+
+public record ILOffsetReturnAddressContextInfo(
+    int ILOffset,
+    int CallOffset,
+    string Opcode,
+    string CallKind,
+    string Callee,
+    string? OperandToken);
+
 /// <summary>
 /// Wraps PE + PDB readers, exposes high-level operations with no SRM in public signatures.
 /// CLI orchestrates PDB acquisition (download via Packages), then calls back into this context.
@@ -424,6 +440,59 @@ public class PdbContext : IDisposable
         }
     }
 
+    public ILOffsetCallsiteContextInfo? ResolveCallsiteContext(int methodToken, int ilOffset, out string? error)
+    {
+        error = null;
+        if (!TryResolveDecodedMethod(methodToken, out var reader, out var instructions, out error))
+            return null;
+
+        var instruction = instructions!.InstructionAt(ilOffset);
+        if (instruction is null)
+        {
+            error = $"IL offset 0x{ilOffset:X} is not an instruction boundary for token 0x{methodToken:X}.";
+            return null;
+        }
+
+        if (!IsCallLike(instruction.OpCode))
+            return null;
+
+        var operand = ResolveInstructionOperand(reader!, instruction);
+        return new ILOffsetCallsiteContextInfo(
+            CallOffset: instruction.Offset,
+            Opcode: ILDisassembler.GetDisplayName(instruction.OpCode),
+            CallKind: GetCallKind(instruction.OpCode),
+            Callee: operand.Value ?? operand.Token ?? "",
+            OperandToken: operand.Token,
+            ReturnAddress: instruction.NextOffset);
+    }
+
+    public ILOffsetReturnAddressContextInfo? ResolveReturnAddressContext(int methodToken, int ilOffset, out string? error)
+    {
+        error = null;
+        if (!TryResolveDecodedMethod(methodToken, out var reader, out var instructions, out error))
+            return null;
+
+        var current = instructions!.InstructionAt(ilOffset);
+        var previous = instructions.InstructionBefore(ilOffset);
+        if (current is null && previous is null)
+        {
+            error = $"IL offset 0x{ilOffset:X} is not an instruction boundary for token 0x{methodToken:X}.";
+            return null;
+        }
+
+        if (previous is null || !IsCallReturning(previous.OpCode))
+            return null;
+
+        var operand = ResolveInstructionOperand(reader!, previous);
+        return new ILOffsetReturnAddressContextInfo(
+            ILOffset: ilOffset,
+            CallOffset: previous.Offset,
+            Opcode: ILDisassembler.GetDisplayName(previous.OpCode),
+            CallKind: GetCallKind(previous.OpCode),
+            Callee: operand.Value ?? operand.Token ?? "",
+            OperandToken: operand.Token);
+    }
+
     /// <summary>
     /// Resolves source file and line range for a specific method overload.
     /// </summary>
@@ -560,6 +629,71 @@ public class PdbContext : IDisposable
         => region.Kind == ExceptionRegionKind.Catch && !region.CatchType.IsNil
             ? TypeResolver.GetTypeName(reader, region.CatchType)
             : null;
+
+    private bool TryResolveDecodedMethod(
+        int methodToken,
+        out MetadataReader? reader,
+        out MethodInstructions? instructions,
+        out string? error)
+    {
+        reader = null;
+        instructions = null;
+        error = null;
+        if (!_peReader.HasMetadata)
+            return false;
+
+        var handle = MetadataTokens.Handle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+        {
+            error = $"Token 0x{methodToken:X} is not a MethodDef token.";
+            return false;
+        }
+
+        try
+        {
+            reader = _peReader.GetMetadataReader();
+            var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+            if (method.RelativeVirtualAddress == 0)
+            {
+                error = $"Method token 0x{methodToken:X} has no IL body.";
+                return false;
+            }
+
+            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+            instructions = MethodInstructions.Decode(body);
+            if (!instructions.IsComplete)
+            {
+                error = $"Could not decode IL for token 0x{methodToken:X}: {instructions.Blocks.IncompleteReason}";
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            error = $"Could not decode IL for token 0x{methodToken:X}.";
+            return false;
+        }
+    }
+
+    private static bool IsCallLike(ILOpCode opcode)
+        => opcode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj
+            or ILOpCode.Calli or ILOpCode.Ldftn or ILOpCode.Ldvirtftn;
+
+    private static bool IsCallReturning(ILOpCode opcode)
+        => opcode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Calli;
+
+    private static string GetCallKind(ILOpCode opcode)
+        => opcode switch
+        {
+            ILOpCode.Call => "direct",
+            ILOpCode.Callvirt => "virtual",
+            ILOpCode.Newobj => "constructor",
+            ILOpCode.Calli => "function pointer",
+            ILOpCode.Ldftn => "method pointer",
+            ILOpCode.Ldvirtftn => "virtual method pointer",
+            _ => "call"
+        };
 
     private static (string Kind, string? Value, string? Token) ResolveInstructionOperand(
         MetadataReader reader,

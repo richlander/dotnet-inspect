@@ -477,6 +477,8 @@ public record PackageSourceFileRow(
 [MarkoutContext(typeof(ILOffsetMemberContextSection))]
 [MarkoutContext(typeof(ILOffsetInstructionContextSection))]
 [MarkoutContext(typeof(ILOffsetExceptionContextRow))]
+[MarkoutContext(typeof(ILOffsetCallsiteContextSection))]
+[MarkoutContext(typeof(ILOffsetReturnAddressContextSection))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
 [MarkoutContext(typeof(EmptyDepsView))]
