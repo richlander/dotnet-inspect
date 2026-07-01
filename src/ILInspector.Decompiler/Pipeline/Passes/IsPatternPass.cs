@@ -59,6 +59,7 @@ public sealed class IsPatternPass : IIrPass
     {
         while (TransformOne(function, context.Stepper)
             || FoldConditionalReturnOne(function, context.Stepper)
+            || FoldNegatedConditionalPatternReturnOne(function, context.Stepper)
             || FoldClassUnionNullConditionalReturnOne(function, context.Stepper)
             || TransformRecursivePropertyDeclaration(function, context.Stepper)
             || FoldPositionalPatternReturnOne(function, context.Stepper))
@@ -142,6 +143,73 @@ public sealed class IsPatternPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool FoldNegatedConditionalPatternReturnOne(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i + 1 < children.Count; i++)
+            {
+                if (children[i] is not StoreLocal { Value: IsInstance asCast } store
+                    || children[i + 1] is not Return { Value: LogicalNot { Operand: Conditional conditional } returnNot }
+                    || !TryNegatedConditionalPattern(function, asCast, store.Index, conditional, out var patternCondition))
+                {
+                    continue;
+                }
+
+                if (ReferenceOwnership.SubtreeReferencesLocal(asCast.Operand, store.Index)
+                    || !IsSideEffectFree(function, asCast.Operand)
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, returnNot]))
+                {
+                    continue;
+                }
+
+                stepper.StepOver("raise negated union pattern conditional", returnNot);
+                returnNot.ReplaceWith(new LogicalNot(patternCondition));
+                store.Detach();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryNegatedConditionalPattern(
+        IrFunction function,
+        IsInstance asCast,
+        int localIndex,
+        Conditional conditional,
+        out IrExpression patternCondition)
+    {
+        patternCondition = null!;
+        if (asCast.Operand is not LoadProperty property
+            || !IsUnionValueProperty(function, property)
+            || function.TypeShapes.GetValueOrDefault(NamedDefinition(property.Accessor.DeclaringType)) != TypeShape.ValueType)
+        {
+            return false;
+        }
+
+        IrExpression valueCondition;
+        if (IsPatternLocalNull(conditional.Condition, localIndex)
+            && IsFalseConstant(conditional.WhenTrue))
+        {
+            valueCondition = conditional.WhenFalse;
+        }
+        else if (IsPatternLocalNotNull(conditional.Condition, localIndex)
+            && IsFalseConstant(conditional.WhenFalse))
+        {
+            valueCondition = conditional.WhenTrue;
+        }
+        else
+        {
+            return false;
+        }
+
+        var pattern = new IsPattern((IrExpression)asCast.Operand.Clone(), asCast.Type, localIndex);
+        patternCondition = new LogicalBinary(LogicalKind.And, pattern, (IrExpression)valueCondition.Clone());
+        return true;
     }
 
     static bool TryUnionConditionalGuard(
