@@ -30,6 +30,7 @@ public sealed record PerformanceTriageOptions
         "Allocation",
         "Path",
         "PathConfidence",
+        "PostDominance",
         "IL",
     ];
 
@@ -45,6 +46,7 @@ public sealed record PerformanceTriageOptions
         "Allocation",
         "Path",
         "PathConfidence",
+        "PostDominance",
     ];
 
     public static readonly string[] KnownShapes =

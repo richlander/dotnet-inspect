@@ -410,6 +410,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceTriageWhere_FiltersByPostDominance()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Post Dominance=return-post-dominates",
+            "--order-by", "PostDominance desc,RootReach desc",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var rows = output.TrimEnd().Split('\n').Skip(1).ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row => Assert.Contains("\treturn-post-dominates\t", row));
+    }
+
+    [Fact]
     public async Task PerformanceTriageCount_AppliesWhereBeforeTop()
     {
         var (exit, output, error) = await RunAppAsync(
