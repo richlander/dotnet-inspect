@@ -2159,6 +2159,9 @@ public static class ApiOutputFormatter
 
     internal static string GetCanonicalSignature(ApiType type, ApiMember member)
     {
+        if (ApiMemberIdentity.TryGetCanonicalSignature(type, member, out var structuredCanonicalSignature))
+            return structuredCanonicalSignature;
+
         var declaringType = member.DeclaringType;
         if (string.IsNullOrWhiteSpace(declaringType))
             declaringType = FormatGenericFullName(type);

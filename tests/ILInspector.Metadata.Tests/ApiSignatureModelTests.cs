@@ -52,9 +52,51 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("System.EventHandler?", evt.SignatureModel?.ReturnType);
     }
 
+    [Fact]
+    public void CanonicalSignature_UsesStructuredSignatureModel()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithRefKinds));
+        var member = new ApiMember
+        {
+            Name = source.Name,
+            Kind = source.Kind,
+            Signature = "BROKEN",
+            SignatureModel = source.SignatureModel
+        };
+
+        Assert.True(ApiMemberIdentity.TryGetCanonicalSignature(type, member, out var canonical));
+
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.MethodWithRefKinds(ref int,out string,in long,int,params byte[])",
+            canonical);
+    }
+
+    [Fact]
+    public void CanonicalSignature_UsesGenericMethodNameFromStructuredModel()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.GenericMethod));
+        var member = new ApiMember
+        {
+            Name = source.Name,
+            Kind = source.Kind,
+            Signature = "BROKEN",
+            SignatureModel = source.SignatureModel
+        };
+
+        Assert.True(ApiMemberIdentity.TryGetCanonicalSignature(type, member, out var canonical));
+
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.GenericMethod<T>(T)",
+            canonical);
+    }
+
+    static ApiType GetType(string typeName)
+        => Surface.Types.First(type => type.Name == typeName);
+
     static ApiMember GetMember(string typeName, string memberName)
-        => Surface.Types
-            .First(type => type.Name == typeName)
+        => GetType(typeName)
             .Members
             .First(member => member.Name == memberName);
 }
@@ -71,6 +113,8 @@ public sealed class ApiSignatureFixtures
         text = count.ToString();
         return text;
     }
+
+    public T GenericMethod<T>(T value) => value;
 
     public string this[int index]
     {
