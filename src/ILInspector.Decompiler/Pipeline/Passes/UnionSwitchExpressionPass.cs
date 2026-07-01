@@ -65,6 +65,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var children = block.Children;
         for (int start = 0; start < children.Count; start++)
         {
+            if (TryMatchNullArmSwitchAt(function, children, start, out var nullArmSwitch))
+            {
+                match = new Match(start, nullArmSwitch);
+                return true;
+            }
+
             if (TryMatchDirectSwitchStatementReturnChainAt(function, children, start, out var directStatementSwitch))
             {
                 match = new Match(start, directStatementSwitch);
@@ -153,6 +159,81 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 (IrExpression)arm.Value.Clone(),
                 arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
             (IrExpression)defaultValue.Clone());
+        return true;
+    }
+
+    static bool TryMatchNullArmSwitchAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 2 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsValueTypeUnionValueProperty(function, unionValue)
+            || children[start + 1] is not IfStatement { HasElse: false } notNullIf
+            || notNullIf.Condition is not LoadLocal conditionLocal
+            || conditionLocal.Index != valueStore.Index)
+        {
+            return false;
+        }
+
+        if (start + 3 == children.Count
+            && children[start + 2] is Return { Value: { } directNullValue }
+            && TryReturnArmsWithDefault(notNullIf.Then.Children, valueStore.Index, out var defaultArms, out var defaultValue))
+        {
+            if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, notNullIf])
+                || defaultArms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+                || !DuplicateTypesAreGuarded(defaultArms))
+            {
+                return false;
+            }
+
+            switchExpression = new UnionSwitchExpression(
+                (IrExpression)unionValue.Clone(),
+                defaultArms.Select(arm => new UnionSwitchExpressionArm(
+                    arm.PatternType,
+                    arm.LocalIndex,
+                    (IrExpression)arm.Value.Clone(),
+                    arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+                (IrExpression)defaultValue.Clone(),
+                (IrExpression)directNullValue.Clone());
+            return true;
+        }
+
+        if (start + 4 != children.Count
+            || children[start + 2] is not StoreLocal nullStore
+            || children[start + 3] is not Return nullReturn
+            || !StoreReturnMatch(nullStore, nullReturn, nullStore.Index)
+            || notNullIf.Then.Children.Count < 3
+            || notNullIf.Then.Children[^2] is not ExpressionStatement throwStatement
+            || !IsThrowSwitchExpression(throwStatement)
+            || !ThrowArgumentMatchesNullArm(throwStatement, valueStore.Index, unionValue.Instance)
+            || notNullIf.Then.Children[^1] is not Return throwReturn
+            || !ReturnsLocal(throwReturn, nullStore.Index))
+        {
+            return false;
+        }
+
+        var armNodes = notNullIf.Then.Children.Take(notNullIf.Then.Children.Count - 2).ToArray();
+        if (!TryInnerArms(armNodes, valueStore.Index, nullStore.Index, out var arms)
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, notNullIf])
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, nullStore.Index, [notNullIf, nullStore, nullReturn])
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            nullValue: (IrExpression)nullStore.Value.Clone());
         return true;
     }
 
@@ -1448,6 +1529,28 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     static bool ThrowArgumentMatches(ExpressionStatement statement, IrExpression receiver)
         => statement.Expression is Call { Arguments: [var argument] }
         && PlaceIdentity.SameVariable(argument, receiver);
+
+    static bool ThrowArgumentMatchesNullArm(ExpressionStatement statement, int tempLocal, IrExpression? unionReceiver)
+        => statement.Expression is Call { Arguments: [var argument] }
+        && (argument is LoadLocal local && local.Index == tempLocal
+            || argument is Box { Operand: LoadArgument boxedArgument }
+                && unionReceiver is LoadArgumentAddress receiverArgument
+                && boxedArgument.Index == receiverArgument.Index
+            || argument is Box { Operand: LoadIndirect { Address: LoadArgument boxedArgumentRef } }
+                && unionReceiver is LoadArgument receiverArgumentRef
+                && boxedArgumentRef.Index == receiverArgumentRef.Index
+            || argument is Box { Operand: LoadArgument boxedArgumentDirect }
+                && unionReceiver is LoadArgument receiverArgumentDirect
+                && boxedArgumentDirect.Index == receiverArgumentDirect.Index
+            || argument is Box { Operand: LoadLocal boxedLocal }
+                && unionReceiver is LoadLocalAddress receiverLocal
+                && boxedLocal.Index == receiverLocal.Index
+            || argument is Box { Operand: LoadIndirect { Address: LoadLocal boxedLocalRef } }
+                && unionReceiver is LoadLocal receiverLocalRef
+                && boxedLocalRef.Index == receiverLocalRef.Index
+            || argument is Box { Operand: LoadLocal boxedLocalDirect }
+                && unionReceiver is LoadLocal receiverLocalDirect
+                && boxedLocalDirect.Index == receiverLocalDirect.Index);
 
     static bool IsUnionValueProperty(IrFunction function, LoadProperty property)
         => property.PropertyName == "Value"

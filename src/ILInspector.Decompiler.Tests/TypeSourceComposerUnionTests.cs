@@ -310,6 +310,24 @@ public class TypeSourceComposerUnionTests
                         not null => "not null",
                         _ => "null",
                     };
+                    public static string ValueSwitchNull(Pet pet) => pet.Value switch
+                    {
+                        null => "null",
+                        Cat => "cat",
+                        Dog => "dog",
+                    };
+                    public static string SwitchNull(Pet pet) => pet switch
+                    {
+                        null => "null",
+                        Cat => "cat",
+                        Dog => "dog",
+                    };
+                    public static string ValueSwitchNullDefault(Pet pet) => pet.Value switch
+                    {
+                        null => "null",
+                        Cat => "cat",
+                        _ => "other",
+                    };
                     public static string ValueSwitchNotOlderCat(Pet pet) => pet.Value switch
                     {
                         not Cat { Age: > 3 } => "not older cat",
@@ -370,6 +388,30 @@ public class TypeSourceComposerUnionTests
                 return "null";
             }
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNull"));
+        Assert.Equal("""
+            return pet switch
+            {
+                null => "null",
+                Cat => "cat",
+                Dog => "dog",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNull"));
+        Assert.Equal("""
+            return pet switch
+            {
+                null => "null",
+                Cat => "cat",
+                Dog => "dog",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "SwitchNull"));
+        Assert.Equal("""
+            return pet switch
+            {
+                null => "null",
+                Cat => "cat",
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNullDefault"));
         Assert.Equal("""
             if (pet is not Cat { Age: > 3 })
             {
@@ -960,6 +1002,13 @@ public class TypeSourceComposerUnionTests
                     not Cat { Name: "cat" } => "not named cat",
                     Cat => "cat",
                 };
+                public static string ValueSwitchNull(Pet pet) => pet.Value switch
+                {
+                    null => "null",
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
 
                 public static bool SideEffect() => true;
 
@@ -1073,6 +1122,9 @@ public class TypeSourceComposerUnionTests
         var classValueSwitchNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNamedCat");
         Assert.Contains("pet.Value as Cat", classValueSwitchNotNamedCat);
         Assert.Contains("V_1.Name == \"cat\"", classValueSwitchNotNamedCat);
+        var classValueSwitchNull = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNull");
+        Assert.Contains("pet.Value", classValueSwitchNull);
+        Assert.DoesNotContain("return pet switch", classValueSwitchNull);
         var guardedOr = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedOrSideEffect");
         Assert.DoesNotContain("pet is Cat cat || SideEffect() ? \"cat\" : \"other\"", guardedOr);
         Assert.Contains("if (", guardedOr);

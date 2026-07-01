@@ -697,12 +697,22 @@ public sealed class SwitchExpressionArm : IrNode
 public sealed class UnionSwitchExpression : IrExpression
 {
     readonly bool _hasDefault;
+    readonly bool _hasNullArm;
 
-    public UnionSwitchExpression(IrExpression value, IEnumerable<UnionSwitchExpressionArm> arms, IrExpression? defaultValue = null)
+    public UnionSwitchExpression(
+        IrExpression value,
+        IEnumerable<UnionSwitchExpressionArm> arms,
+        IrExpression? defaultValue = null,
+        IrExpression? nullValue = null)
     {
         AddChild(value);
         foreach (var arm in arms)
             AddChild(arm);
+        if (nullValue is not null)
+        {
+            _hasNullArm = true;
+            AddChild(nullValue);
+        }
         if (defaultValue is not null)
         {
             _hasDefault = true;
@@ -712,13 +722,15 @@ public sealed class UnionSwitchExpression : IrExpression
 
     public IrExpression Value => (IrExpression)Children[0];
     public bool HasDefault => _hasDefault;
+    public bool HasNullArm => _hasNullArm;
     public IReadOnlyList<UnionSwitchExpressionArm> Arms
-        => Children.Skip(1).Take(Children.Count - 1 - (_hasDefault ? 1 : 0)).Cast<UnionSwitchExpressionArm>().ToList();
+        => Children.Skip(1).Take(Children.Count - 1 - (_hasNullArm ? 1 : 0) - (_hasDefault ? 1 : 0)).Cast<UnionSwitchExpressionArm>().ToList();
+    public IrExpression? NullValue => _hasNullArm ? (IrExpression)Children[Children.Count - 1 - (_hasDefault ? 1 : 0)] : null;
     public IrExpression? DefaultValue => _hasDefault ? (IrExpression)Children[^1] : null;
     public override TypeRef? ResultType
-        => Arms.Select(a => a.Value.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
+        => Arms.Select(a => a.Value.ResultType).Append(NullValue?.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
 
-    public override string Describe() => $"UnionSwitchExpression ({Arms.Count} arms{(_hasDefault ? " + default" : "")})";
+    public override string Describe() => $"UnionSwitchExpression ({Arms.Count} arms{(_hasNullArm ? " + null" : "")}{(_hasDefault ? " + default" : "")})";
 }
 
 /// <summary>One type-pattern arm of a <see cref="UnionSwitchExpression"/>.</summary>
