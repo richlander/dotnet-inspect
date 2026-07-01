@@ -4070,6 +4070,7 @@ public sealed class JoinTypeProvider
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
 public enum CfgLongPriority : long { Low = 0, High = 2 }
+public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 
 // uint-underlying with a high-bit member: the value 0x80000000 emits as the
 // signed int -2147483648, the case the member-map key must agree on.
@@ -4376,6 +4377,13 @@ public static class EnumCastSamples
     public static CfgLongPriority[] LongEnumArray() => new[] { CfgLongPriority.High, (CfgLongPriority)5000000000L };
 
     public static System.Enum LongEnumBoxed() => CfgLongPriority.High;
+
+    // #2076 (review): an unsigned long-backed enum value lowers as
+    // `ldc.i4.m1; conv.i8`, so the enum cast's operand is a `Convert(long, ...)`.
+    // The overflow decision must see through it and wrap `unchecked((CfgULong)(...))`.
+    public static System.Enum ULongEnumBoxedMax() => CfgULong.All;
+
+    public static CfgULong[] ULongEnumArrayMax() => new[] { CfgULong.All };
 }
 
 

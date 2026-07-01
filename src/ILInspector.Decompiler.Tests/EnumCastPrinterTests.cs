@@ -270,6 +270,22 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void UnsignedLongEnumConstant_ConvertWrapped_ForcesUncheckedCast()
+    {
+        // ulong.MaxValue lowers as `ldc.i4.m1; conv.i8`, so the enum cast operand is
+        // a Convert; the overflow decision must pierce it and wrap `unchecked`.
+        const string declaration = "public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }";
+
+        string boxed = RenderRaisedFixture(nameof(EnumCastSamples.ULongEnumBoxedMax));
+        Assert.Contains("unchecked((CfgULong)", boxed);
+        AssertCompiles("public static System.Enum M()", boxed, declaration);
+
+        string array = RenderRaisedFixture(nameof(EnumCastSamples.ULongEnumArrayMax));
+        Assert.Contains("unchecked((CfgULong)", array);
+        AssertCompiles("public static CfgULong[] M()", array, declaration);
+    }
+
+    [Fact]
     public void LongBackedEnumConstants_InArrayAndBox_CastOrName()
     {
         // Array elements: long constants render as enum casts, never a bare `long`

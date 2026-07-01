@@ -195,9 +195,8 @@ public sealed partial class CSharpPrinter
     // negative into a signed backing, `(Color)int.MinValue`) stays a bare cast.
     bool MayOverflowEnumBackingType(IrExpression value, TypeRef enumType)
     {
-        if (value is not (Constant { Value: int } or Constant { Value: long }))
+        if (!TryEnumCastLiteral(value, out long literal))
             return false;
-        long literal = value is Constant { Value: int iv } ? iv : (long)((Constant)value).Value!;
         // A known backing width: the cast is a constant-expression conversion, so it
         // needs `unchecked` exactly when the value is out of that width's range.
         if (EnumUnderlyingType(enumType) is { } underlying)
@@ -212,6 +211,34 @@ public sealed partial class CSharpPrinter
         // (including a negative high-bit constant like int.MinValue) stays a bare
         // cast and only a genuinely out-of-int value is wrapped.
         return !TypeFamilies.ConstantFits(literal, TypeRef.CoreLib("System", "Int32"));
+    }
+
+    // The integer literal an enum cast will carry, seeing through a widening
+    // `conv.i8`/`conv.u8` over an integer constant — a long-backed enum's small or
+    // unsigned members lower as `ldc.i4; conv.i8`, so the raw operand is a `Convert`,
+    // not a bare `Constant`. Returns false for a non-constant operand (a runtime
+    // value never needs an out-of-range constant wrap).
+    static bool TryEnumCastLiteral(IrExpression value, out long literal)
+    {
+        switch (value)
+        {
+            case Constant { Value: int i }:
+                literal = i;
+                return true;
+            case Constant { Value: long l }:
+                literal = l;
+                return true;
+            case Convert { Target: { } target } convert
+                when TypeFamilies.IsIntegerLike(target) && TryEnumCastLiteral(convert.Operand, out var inner):
+                // An unsigned widening zero-extends a 32-bit source (`conv.u8` of a
+                // negative int carries its uint bit pattern); a signed widening keeps
+                // the value.
+                literal = convert.IsUnsigned && convert.Operand is Constant { Value: int u } ? (uint)u : inner;
+                return true;
+            default:
+                literal = 0;
+                return false;
+        }
     }
 
     string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)
