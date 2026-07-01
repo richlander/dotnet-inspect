@@ -1114,6 +1114,26 @@ public class LibraryBodyIndexTests
         }
     }
 
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, AllocationEscape.LocalOnly)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray), AllocationKind.Array, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField), AllocationKind.Array, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall), AllocationKind.Array, AllocationEscape.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.DropsPlainObject), AllocationKind.Object, AllocationEscape.LocalOnly)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesThenUnboxesLocal), AllocationKind.Box, AllocationEscape.LocalOnly)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), AllocationKind.Box, AllocationEscape.Unknown)]
+    public void AllocationOccurrences_ClassifyIntraproceduralEscape(string methodName, AllocationKind kind, AllocationEscape expected)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+
+        Assert.Equal(expected, occurrence.Escape);
+    }
+
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagListToArrayAsCopy()
     {
@@ -1627,6 +1647,17 @@ public class LibraryBodyIndexTests
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape is "small-array" or "stackalloc-candidate")
             .Select(o => o.Shape);
+
+    static AllocationOccurrence SingleAllocationOccurrence(LibraryBodyIndex index, string methodName, AllocationKind kind)
+    {
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.DeclaringType.Name == nameof(OptimizationOpportunityFixtures)
+            && m.Name == methodName));
+        Assert.True(index.GetAllocationOccurrences().TryGetValue(method.MetadataToken, out var occurrences));
+        return Assert.Single(occurrences.Where(occurrence =>
+            occurrence.Kind == kind
+            && occurrence.CountsAsHeapAllocation));
+    }
 
     static (string Path, string Directory) BuildSlotReuseArrayFixture()
     {
@@ -2688,6 +2719,7 @@ public class OptimizationOpportunityFixtures
     private readonly int _field = 3;
     private readonly UserDisplayClassTarget _displayClassTarget = new();
     private int[]? _arrayField;
+    private PlainObject? _objectField;
 
     // A capturing delegate created INSIDE a loop: a repeated allocation -> high confidence.
     public static int CapturingDelegateInLoop(int[] values, int seed)
@@ -2823,6 +2855,17 @@ public class OptimizationOpportunityFixtures
 
     // Returned -> escapes.
     public static int[] ReturnsSmallArray() => new int[4];
+
+    // Constructed and popped without leaving the method -> local-only lifetime.
+    public static int DropsPlainObject()
+    {
+        _ = new PlainObject(1);
+        return 1;
+    }
+
+    public static object ReturnsPlainObject() => new PlainObject(1);
+
+    public void StoresPlainObjectToField() => _objectField = new PlainObject(1);
 
     // --- String accumulation (string-build-in-loop) ---
 
@@ -3375,6 +3418,12 @@ public class OptimizationOpportunityFixtures
     public static object? BoxesNullable(int? value)
     {
         return value;
+    }
+
+    public static int BoxesThenUnboxesLocal(int value)
+    {
+        object boxed = value;
+        return (int)boxed;
     }
 
     // Boxing an in-assembly struct that escapes into an object-typed API -> reported

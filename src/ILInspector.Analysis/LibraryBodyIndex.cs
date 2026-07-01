@@ -1191,7 +1191,7 @@ public sealed class LibraryBodyIndex
                         var decodedBody = DecodeBody(il, body.ExceptionRegions);
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
                         var loopRegions = decodedBody.LoopRegions;
-                        var allocations = CollectAllocationOccurrences(il, decodedBody, caller, scope, loopRegions);
+                        var allocations = CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: true);
                         if (allocations.Length > 0)
                             allocationOccurrences[caller.MetadataToken] = allocations;
                         var unsafety = CollectUnsafetyOccurrences(decodedBody.Instructions, body, caller, scope);
@@ -1582,9 +1582,11 @@ public sealed class LibraryBodyIndex
         ImmutableArray<AllocationOccurrence> CollectAllocationOccurrences(
             byte[] il,
             DecodedBody decodedBody,
+            IReadOnlyCollection<ExceptionRegion> exceptionRegions,
             MethodIdentity caller,
             GenericScope callerScope,
-            IReadOnlyList<(int Start, int End)> loopRegions)
+            IReadOnlyList<(int Start, int End)> loopRegions,
+            bool classifyEscapes)
         {
             var occurrences = ImmutableArray.CreateBuilder<AllocationOccurrence>();
             ILOpCode previousOpcode = default;
@@ -1680,7 +1682,10 @@ public sealed class LibraryBodyIndex
                 if (opcode != ILOpCode.Nop)
                     previousOpcode = opcode;
             }
-            return occurrences.ToImmutable();
+            var collected = occurrences.ToImmutable();
+            return collected.Length == 0 || !classifyEscapes
+                ? collected
+                : ClassifyAllocationEscapes(collected, il, decodedBody, exceptionRegions, caller, callerScope);
 
             AllocationOccurrence? ClassifyNewObjectAllocation(
                 byte[] ilBytes,
@@ -2137,7 +2142,7 @@ public sealed class LibraryBodyIndex
         ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, DecodedBody decodedBody, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-            var allocationByOffset = CollectAllocationOccurrences(il, decodedBody, caller, callerScope, loopRegions)
+            var allocationByOffset = CollectAllocationOccurrences(il, decodedBody, exceptionRegions, caller, callerScope, loopRegions, classifyEscapes: false)
                 .ToDictionary(occurrence => occurrence.ILOffset);
             ReachingDefinitionsResult? reachingDefinitions = null;
             ReachingDefinitionsResult GetReachingDefinitions()
@@ -2932,6 +2937,394 @@ public sealed class LibraryBodyIndex
                 return false;
             }
         }
+
+        ImmutableArray<AllocationOccurrence> ClassifyAllocationEscapes(
+            ImmutableArray<AllocationOccurrence> occurrences,
+            byte[] il,
+            DecodedBody decodedBody,
+            IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+            MethodIdentity caller,
+            GenericScope callerScope)
+        {
+            ReachingDefinitionsResult? reachingDefinitions = null;
+            bool reachingDefinitionsAttempted = false;
+
+            ReachingDefinitionsResult? GetReachingDefinitions()
+            {
+                if (!reachingDefinitionsAttempted)
+                {
+                    reachingDefinitionsAttempted = true;
+                    try
+                    {
+                        reachingDefinitions = ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
+                    }
+                    catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+                    {
+                        reachingDefinitions = null;
+                    }
+                }
+                return reachingDefinitions;
+            }
+
+            var builder = ImmutableArray.CreateBuilder<AllocationOccurrence>(occurrences.Length);
+            foreach (var occurrence in occurrences)
+            {
+                if (occurrence.Escape != AllocationEscape.Unknown
+                    || !decodedBody.TryGetInstructionAt(occurrence.ILOffset, out var instruction))
+                {
+                    builder.Add(occurrence);
+                    continue;
+                }
+
+                var escape = ClassifyProducedValueEscape(
+                    decodedBody,
+                    GetReachingDefinitions,
+                    callerScope,
+                    instruction.NextOffset,
+                    occurrence.Kind,
+                    occurrence.AllocatedType);
+
+                builder.Add(escape == AllocationEscape.Unknown ? occurrence : occurrence with { Escape = escape });
+            }
+            return builder.MoveToImmutable();
+        }
+
+        AllocationEscape ClassifyProducedValueEscape(
+            DecodedBody decodedBody,
+            Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
+            GenericScope callerScope,
+            int positionAfterValue,
+            AllocationKind kind,
+            TypeRef? allocatedType)
+            => ClassifyStackValueUse(decodedBody, reachingDefinitionsProvider, callerScope, positionAfterValue, kind, allocatedType, []);
+
+        AllocationEscape ClassifyDefinitionEscape(
+            DecodedBody decodedBody,
+            ReachingDefinitionsResult reachingDefinitions,
+            Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
+            GenericScope callerScope,
+            LocalDefinition definition,
+            AllocationKind kind,
+            TypeRef? allocatedType,
+            HashSet<int> visitingDefinitions)
+        {
+            if (!reachingDefinitions.IsComplete)
+                return AllocationEscape.Unknown;
+            if (!visitingDefinitions.Add(definition.Id))
+                return AllocationEscape.Unknown;
+
+            var verdict = AllocationEscape.LocalOnly;
+            foreach (var use in reachingDefinitions.UsesOf(definition))
+            {
+                AllocationEscape useEscape;
+                if (use.Address)
+                {
+                    useEscape = AllocationEscape.Escapes;
+                }
+                else if (TryPositionAfterLoadSlot(decodedBody, use.Offset, use.Slot, use.IsArgument, out int positionAfterLoad))
+                {
+                    useEscape = ClassifyStackValueUse(
+                        decodedBody,
+                        reachingDefinitionsProvider,
+                        callerScope,
+                        positionAfterLoad,
+                        kind,
+                        allocatedType,
+                        visitingDefinitions);
+                }
+                else
+                {
+                    useEscape = AllocationEscape.Unknown;
+                }
+
+                verdict = JoinEscape(verdict, useEscape);
+                if (verdict == AllocationEscape.Escapes)
+                    break;
+            }
+
+            visitingDefinitions.Remove(definition.Id);
+            return verdict;
+        }
+
+        AllocationEscape ClassifyStackValueUse(
+            DecodedBody decodedBody,
+            Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
+            GenericScope callerScope,
+            int position,
+            AllocationKind kind,
+            TypeRef? allocatedType,
+            HashSet<int> visitingDefinitions)
+        {
+            try
+            {
+                int index = decodedBody.NextNonNopIndexAtOrAfter(position);
+                if (index >= decodedBody.Instructions.Length)
+                    return AllocationEscape.LocalOnly;
+
+                var instruction = decodedBody.Instructions[index];
+                if (TryReadStoreSlotDefinition(instruction, out var storeAccess))
+                {
+                    var reachingDefinitions = reachingDefinitionsProvider();
+                    if (reachingDefinitions is null || !reachingDefinitions.IsComplete)
+                        return AllocationEscape.Unknown;
+                    var definition = reachingDefinitions.Definitions.FirstOrDefault(def =>
+                        def.IsArgument == storeAccess.IsArgument
+                        && def.Slot == storeAccess.Slot
+                        && def.Offset == instruction.Offset);
+                    return definition is null
+                        ? AllocationEscape.Unknown
+                        : ClassifyDefinitionEscape(
+                            decodedBody,
+                            reachingDefinitions,
+                            reachingDefinitionsProvider,
+                            callerScope,
+                            definition,
+                            kind,
+                            allocatedType,
+                            visitingDefinitions);
+                }
+
+                if (kind == AllocationKind.Array)
+                    return ClassifyArrayStackValueUse(decodedBody, callerScope, index, allocatedType);
+
+                return ClassifyImmediateConsumer(decodedBody, callerScope, instruction, kind, allocatedType, stackValuesAbove: 0);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+            {
+                return AllocationEscape.Unknown;
+            }
+        }
+
+        AllocationEscape ClassifyArrayStackValueUse(DecodedBody decodedBody, GenericScope callerScope, int startIndex, TypeRef? allocatedType)
+        {
+            int stackValuesAbove = 0;
+            for (int index = startIndex; index < decodedBody.Instructions.Length; index++)
+            {
+                var instruction = decodedBody.Instructions[index];
+                var opcode = instruction.OpCode;
+                switch (opcode)
+                {
+                    case ILOpCode.Nop:
+                        continue;
+                    case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
+                        or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
+                        or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull
+                        or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
+                        or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 or ILOpCode.Ldstr
+                        or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                        or ILOpCode.Ldloc_s or ILOpCode.Ldloc
+                        or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
+                        or ILOpCode.Ldarg_s or ILOpCode.Ldarg:
+                        stackValuesAbove++;
+                        continue;
+                    case ILOpCode.Pop:
+                        if (stackValuesAbove == 0)
+                            return AllocationEscape.LocalOnly;
+                        stackValuesAbove--;
+                        continue;
+                    case ILOpCode.Ldlen:
+                        return stackValuesAbove == 0 ? AllocationEscape.LocalOnly : AllocationEscape.Unknown;
+                    case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
+                        or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
+                        or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref:
+                        return stackValuesAbove == 1 ? AllocationEscape.LocalOnly : AllocationEscape.Unknown;
+                    case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
+                        or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
+                        or ILOpCode.Stelem_ref:
+                        return stackValuesAbove switch
+                        {
+                            0 => AllocationEscape.Escapes,
+                            2 => AllocationEscape.LocalOnly,
+                            _ => AllocationEscape.Unknown,
+                        };
+                    default:
+                        return ClassifyImmediateConsumer(decodedBody, callerScope, instruction, AllocationKind.Array, allocatedType, stackValuesAbove);
+                }
+            }
+            return AllocationEscape.Unknown;
+        }
+
+        AllocationEscape ClassifyImmediateConsumer(
+            DecodedBody decodedBody,
+            GenericScope callerScope,
+            DecodedInstruction instruction,
+            AllocationKind kind,
+            TypeRef? allocatedType,
+            int stackValuesAbove)
+        {
+            if (stackValuesAbove != 0)
+                return AllocationEscape.Unknown;
+
+            switch (instruction.OpCode)
+            {
+                case ILOpCode.Pop:
+                    return AllocationEscape.LocalOnly;
+                case ILOpCode.Ret:
+                    return AllocationEscape.Escapes;
+                case ILOpCode.Throw:
+                    return AllocationEscape.ThrowPath;
+                case ILOpCode.Stfld:
+                case ILOpCode.Stsfld:
+                case ILOpCode.Stobj:
+                case ILOpCode.Stind_i:
+                case ILOpCode.Stind_i1:
+                case ILOpCode.Stind_i2:
+                case ILOpCode.Stind_i4:
+                case ILOpCode.Stind_i8:
+                case ILOpCode.Stind_r4:
+                case ILOpCode.Stind_r8:
+                case ILOpCode.Stind_ref:
+                case ILOpCode.Stelem:
+                case ILOpCode.Stelem_i:
+                case ILOpCode.Stelem_i1:
+                case ILOpCode.Stelem_i2:
+                case ILOpCode.Stelem_i4:
+                case ILOpCode.Stelem_i8:
+                case ILOpCode.Stelem_r4:
+                case ILOpCode.Stelem_r8:
+                case ILOpCode.Stelem_ref:
+                    return AllocationEscape.Escapes;
+                case ILOpCode.Unbox:
+                case ILOpCode.Unbox_any:
+                case ILOpCode.Isinst:
+                    return kind == AllocationKind.Box ? AllocationEscape.LocalOnly : AllocationEscape.Unknown;
+                case ILOpCode.Call:
+                case ILOpCode.Callvirt:
+                case ILOpCode.Newobj:
+                {
+                    int token = OperandInt32(instruction);
+                    var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                    return IsSpanSafeLocalSink(callee, allocatedType)
+                        ? AllocationEscape.LocalOnly
+                        : AllocationEscape.Unknown;
+                }
+                default:
+                    return AllocationEscape.Unknown;
+            }
+        }
+
+        static AllocationEscape JoinEscape(AllocationEscape left, AllocationEscape right)
+        {
+            if (left == AllocationEscape.Escapes || right == AllocationEscape.Escapes)
+                return AllocationEscape.Escapes;
+            if (left == AllocationEscape.ThrowPath || right == AllocationEscape.ThrowPath)
+                return AllocationEscape.ThrowPath;
+            if (left == AllocationEscape.Unknown || right == AllocationEscape.Unknown)
+                return AllocationEscape.Unknown;
+            return AllocationEscape.LocalOnly;
+        }
+
+        static bool TryReadStoreSlotDefinition(DecodedInstruction instruction, out LocalSlotAccess access)
+        {
+            if (TryReadLocalSlot(instruction, out access) && access.IsStore)
+                return true;
+            return false;
+        }
+
+        static bool TryPositionAfterLoadSlot(DecodedBody decodedBody, int offset, int slot, bool isArgument, out int positionAfterLoad)
+        {
+            positionAfterLoad = offset;
+            if (!decodedBody.TryGetInstructionAt(offset, out var instruction)
+                || !TryReadLocalSlot(instruction, out var access)
+                || access.IsStore
+                || access.IsArgument != isArgument
+                || access.Slot != slot)
+            {
+                return false;
+            }
+            positionAfterLoad = instruction.NextOffset;
+            return true;
+        }
+
+        static bool IsSpanSafeLocalSink(MemberRef member, TypeRef? allocatedType)
+        {
+            if (member.Kind == MemberKind.Unsupported)
+                return false;
+
+            if (FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Text", "System.Text", "StringBuilder")
+                && member.Name is "Append" or "AppendLine")
+            {
+                return member.ParameterTypes.Any(parameter =>
+                    IsStringType(parameter)
+                    || IsReadOnlySpanOfChar(parameter)
+                    || IsSpanOfChar(parameter));
+            }
+
+            if (member.Name is "AppendFormatted" or "AppendLiteral"
+                && IsTrustedFrameworkInterpolatedStringHandler(member.DeclaringType)
+                && member.DeclaringType.Name.Contains("InterpolatedStringHandler", StringComparison.Ordinal))
+            {
+                return member.ParameterTypes.Any(parameter =>
+                    IsStringType(parameter)
+                    || IsReadOnlySpanOfChar(parameter)
+                    || IsSpanOfChar(parameter));
+            }
+
+            if (member.Name == "TryParse"
+                && member.ParameterTypes.Any(IsReadOnlySpanOfChar)
+                && IsPrimitiveParseDeclaringType(member.DeclaringType))
+            {
+                return true;
+            }
+
+            return allocatedType is not null
+                && IsMemoryExtensionsLocalSink(member)
+                && member.ParameterTypes.Any(parameter => SameTypeIgnoringByRef(parameter, allocatedType));
+        }
+
+        static bool IsStringType(TypeRef type)
+            => FrameworkIdentity.IsCoreLibraryType(type, "System", "String");
+
+        static bool IsPrimitiveParseDeclaringType(TypeRef type)
+            => FrameworkIdentity.IsCoreLibraryType(type, "System", "Boolean")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Byte")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "SByte")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Int16")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "UInt16")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Int32")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "UInt32")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Int64")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "UInt64")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Single")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Double")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Decimal")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "DateTime")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "DateTimeOffset")
+                || FrameworkIdentity.IsCoreLibraryType(type, "System", "Guid");
+
+        static bool IsTrustedFrameworkInterpolatedStringHandler(TypeRef type)
+        {
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            return definition.TrustedFrameworkAssembly
+                && definition.Namespace is "System.Runtime.CompilerServices" or "System.Text";
+        }
+
+        static bool IsReadOnlySpanOfChar(TypeRef type)
+            => IsSpanDefinition(type, "ReadOnlySpan", "Char");
+
+        static bool IsSpanOfChar(TypeRef type)
+            => IsSpanDefinition(type, "Span", "Char");
+
+        static bool IsSpanDefinition(TypeRef type, string spanName, string elementName)
+        {
+            if (type.Kind != TypeRefKind.GenericInstance || type.TypeArguments.Length != 1)
+                return false;
+            var definition = type.ElementType;
+            return definition is not null
+                && FrameworkIdentity.IsCoreLibraryType(definition, "System", spanName + "`1")
+                && FrameworkIdentity.IsCoreLibraryType(type.TypeArguments[0], "System", elementName);
+        }
+
+        static bool IsMemoryExtensionsLocalSink(MemberRef member)
+        {
+            if (!FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "MemoryExtensions"))
+                return false;
+            return member.Name is "IndexOf" or "LastIndexOf" or "SequenceEqual"
+                or "StartsWith" or "EndsWith" or "Contains";
+        }
+
+        static bool SameTypeIgnoringByRef(TypeRef parameter, TypeRef value)
+            => (parameter.Kind == TypeRefKind.ByRef ? parameter.ElementType ?? parameter : parameter).Equals(value);
 
         static int ArgumentSlotCount(MethodIdentity method)
             => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
