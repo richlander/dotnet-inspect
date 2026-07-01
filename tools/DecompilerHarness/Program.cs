@@ -34,6 +34,7 @@ static class Program
         string? emitValidityDefects = null;
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
+        bool returnToSender = false;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
         bool gaps = false;
@@ -101,6 +102,7 @@ static class Program
                 case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
                 case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
                 case "--fidelity-check": fidelityCheck = true; break;
+                case "--return-to-sender": returnToSender = true; break;
                 case "--fidelity-timings": fidelityTimings = true; break;
                 case "--fidelity-zero-signal-guard": fidelityZeroSignalGuard = int.Parse(args[++i]); break;
                 case "--gaps": gaps = true; break;
@@ -180,6 +182,9 @@ static class Program
 
         if (fidelityCheck)
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
+
+        if (returnToSender)
+            return ReturnToSender.Run(assemblies, cap, maxExamples);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1160,6 +1165,10 @@ static class Program
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --return-to-sender      prototype fact-planned compile-back harness:
+                                build module/type shells for the first property
+                                getter in each assembly, compile, and compare IL
+                                opcodes.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>
