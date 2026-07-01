@@ -991,6 +991,27 @@ public class TypeSourceComposerUnionTests
                     return result.ToUpperInvariant();
                 }
 
+                public static string SameTypeGuardedFallback(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat { Name: "cat" } cat:
+                            result = cat.Name;
+                            break;
+                        case Cat:
+                            result = "other cat";
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
                 public static string ValueTypeCases(MaybeNumber value)
                 {
                     string result;
@@ -1135,9 +1156,14 @@ public class TypeSourceComposerUnionTests
             return result;
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenMutate"));
 
-        var guarded = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedStaysFlat");
-        Assert.DoesNotContain("pet switch", guarded);
-        Assert.Contains("cat.Age > 3", guarded);
+        Assert.Equal("""
+            string result = pet switch { Cat cat when cat.Age > 3 => cat.Name, Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedStaysFlat"));
+        Assert.Equal("""
+            string result = pet switch { Cat cat when cat.Name == "cat" => cat.Name, Cat => "other cat", Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "SameTypeGuardedFallback"));
         Assert.Equal("""
             string result = value switch { null => "null", int number => number.ToString(), string text => text, _ => "other" };
             return result.ToUpperInvariant();

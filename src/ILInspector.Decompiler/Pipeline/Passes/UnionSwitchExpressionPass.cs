@@ -154,6 +154,8 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 return true;
             if (TryMatchValueTypePrefixStoreTailAt(function, children, start, out match))
                 return true;
+            if (TryMatchGuardedPrefixStoreTailAt(function, children, start, out match))
+                return true;
             if (TryMatchStoreTailAt(function, children, start, out match))
                 return true;
         }
@@ -285,6 +287,105 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var switchStore = new StoreLocal(firstValueStore.Index, firstValueStore.Type, switchExpression);
         match = new StoreTailMatch(start, switchStore, tail.Select(node => node.Clone()).ToArray());
         return true;
+    }
+
+    static bool TryMatchGuardedPrefixStoreTailAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out StoreTailMatch match)
+    {
+        match = null!;
+        if (start + 5 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsValueTypeUnionValueProperty(function, unionValue)
+            || children[start + 1] is not IfStatement firstIf
+            || firstIf.HasElse
+            || !TryArmPattern(firstIf.Condition, valueStore.Index, out var firstType, out var firstLocal, out var firstRoots)
+            || children[start + 2] is not StoreLocal { Value: IsInstance finalTest } finalStore
+            || !IsTempTypeTest(finalTest, valueStore.Index)
+            || children[start + 3] is not IfStatement finalNullGuard
+            || finalNullGuard.HasElse
+            || !IsNotLocal(finalNullGuard.Condition, finalStore.Index)
+            || finalNullGuard.Then.Children is not [StoreLocal defaultStore, ..]
+            || children[start + 4] is not StoreLocal finalValueStore
+            || finalValueStore.Index != defaultStore.Index)
+        {
+            return false;
+        }
+
+        var tail = children.Skip(start + 5).ToArray();
+        if (tail.Length == 0
+            || !TailShapeIsMovable(tail)
+            || !TailMatches(finalNullGuard.Then.Children, 1, tail)
+            || !TailMatches(children, start + 5, tail)
+            || !TryGuardedStoreTailSplit(firstIf.Then.Children, finalValueStore.Index, tail, defaultStore.Value, firstType, firstLocal, firstRoots, out var firstArms))
+        {
+            return false;
+        }
+
+        var finalArm = new Arm(
+            finalTest.Type,
+            finalStore.Index,
+            finalValueStore.Value,
+            [finalStore, finalNullGuard.Condition, finalValueStore.Value]);
+        var arms = firstArms.Append(finalArm).ToArray();
+        var switchNodes = children.Skip(start).Take(5).Concat(firstIf.Then.Children).Concat(finalNullGuard.Then.Children).ToArray();
+        var consumedNodes = children.Skip(start).ToArray();
+
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, switchNodes)
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, finalValueStore.Index, consumedNodes)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        var switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            (IrExpression)defaultStore.Value.Clone());
+        var switchStore = new StoreLocal(finalValueStore.Index, finalValueStore.Type, switchExpression);
+        match = new StoreTailMatch(start, switchStore, tail.Select(node => node.Clone()).ToArray());
+        return true;
+    }
+
+    static bool TryGuardedStoreTailSplit(
+        IReadOnlyList<IrNode> nodes,
+        int resultLocal,
+        IReadOnlyList<IrNode> tail,
+        IrExpression defaultValue,
+        TypeRef patternType,
+        int? localIndex,
+        IReadOnlyList<IrNode> patternRoots,
+        out IReadOnlyList<Arm> arms)
+    {
+        arms = [];
+        if (nodes is not [IfStatement guardIf, StoreLocal fallbackStore, ..]
+            || localIndex is not { } local
+            || guardIf.HasElse
+            || guardIf.Then.Children is not [StoreLocal guardedStore, ..]
+            || guardedStore.Index != resultLocal
+            || fallbackStore.Index != resultLocal
+            || !TailMatches(guardIf.Then.Children, 1, tail)
+            || !TailMatches(nodes, 2, tail))
+        {
+            return false;
+        }
+
+        arms = BuildSplitArms(
+            patternType,
+            local,
+            patternRoots,
+            guardedStore.Value,
+            guardIf.Condition,
+            fallbackStore.Value,
+            defaultValue);
+        return arms.Count > 0;
     }
 
     static bool TryMatchValueTypePrefixStoreTailAt(
