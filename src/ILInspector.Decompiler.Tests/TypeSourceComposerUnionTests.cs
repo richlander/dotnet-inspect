@@ -1076,6 +1076,28 @@ public class TypeSourceComposerUnionTests
                     return result.ToUpperInvariant();
                 }
 
+                public static string ValueTypeFinalValueTypeMutate(MaybeNumber2 value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case string text:
+                            result = text.Trim();
+                            break;
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    result += "!";
+                    return result;
+                }
+
                 public static string ValueSwitchNull(Pet pet)
                 {
                     string result;
@@ -1133,6 +1155,11 @@ public class TypeSourceComposerUnionTests
             string result = value switch { null => "null", string text => text.Trim(), int number => number.ToString(), _ => "other" };
             return result.ToUpperInvariant();
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeFinalValueType"));
+        Assert.Equal("""
+            string result = value switch { null => "null", string text => text.Trim(), int number => number.ToString(), _ => "other" };
+            result = string.Concat(result, "!");
+            return result;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeFinalValueTypeMutate"));
         Assert.Equal("""
             string result = pet switch { null => "null", Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
             return result.ToUpperInvariant();

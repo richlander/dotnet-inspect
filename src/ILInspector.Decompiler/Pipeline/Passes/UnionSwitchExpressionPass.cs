@@ -233,7 +233,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
 
         var tail = children.Skip(start + 4).ToArray();
         var nestedNodes = firstNullGuard.Then.Children;
-        int armCount = nestedNodes.Count - 3;
+        int armCount = nestedNodes.Count - (2 + tail.Length);
         if (tail.Length == 0
             || !TailShapeIsMovable(tail)
             || !TailMatches(children, start + 4, tail)
