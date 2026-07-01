@@ -622,7 +622,7 @@ static class ReturnToSender
                     $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
             }
 
-            string unit = CSharpDeclarationWriter.Write(ToCompilationUnit(plan));
+            string unit = WriteCompilationUnit(plan);
             var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
             var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
             using var ms = new MemoryStream();
@@ -690,7 +690,7 @@ static class ReturnToSender
                 closureFacts);
             return new Result(
                 plan,
-                CSharpDeclarationWriter.Write(ToCompilationUnit(plan)),
+                WriteCompilationUnit(plan),
                 FidelityCheck.CompileBackStatus.ContextFail,
                 string.Join(" ", originalOps),
                 "",
@@ -1560,48 +1560,138 @@ static class ReturnToSender
         }
     }
 
-    static CSharpCompilationUnit ToCompilationUnit(ReconstructionPlan plan)
-        => new(
-            plan.Module.Usings,
-            plan.Module.AssemblyAttributes.Select(attribute => attribute.Text).ToArray(),
-            plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
-            plan.Types.Select(ToDeclaration).ToArray());
+    static string WriteCompilationUnit(ReconstructionPlan plan)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("#pragma warning disable");
+        foreach (var attribute in plan.Module.AssemblyAttributes)
+            sb.AppendLine($"[assembly: {attribute.Text}]");
+        foreach (var attribute in plan.Module.ModuleAttributes)
+            sb.AppendLine($"[module: {attribute.Text}]");
+        foreach (var ns in plan.Module.Usings.OrderBy(ns => ns, StringComparer.Ordinal))
+            sb.AppendLine($"using {ns};");
 
-    static CSharpTypeDeclaration ToDeclaration(TypeShell type)
-        => new(
-            type.Namespace,
-            type.Name,
-            type.Kind switch
+        foreach (var group in plan.Types.GroupBy(type => type.Namespace, StringComparer.Ordinal))
+        {
+            if (group.Key.Length > 0)
             {
-                TypeShellKind.Class => CSharpTypeKind.Class,
-                TypeShellKind.Struct => CSharpTypeKind.Struct,
-                TypeShellKind.Interface => CSharpTypeKind.Interface,
-                TypeShellKind.Enum => CSharpTypeKind.Enum,
+                sb.AppendLine($"namespace {group.Key}");
+                sb.AppendLine("{");
+                foreach (var type in group)
+                    WriteType(sb, type, indent: 1);
+                sb.AppendLine("}");
+            }
+            else
+            {
+                foreach (var type in group)
+                    WriteType(sb, type, indent: 0);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    static void WriteType(StringBuilder sb, TypeShell type, int indent)
+    {
+        string pad = new(' ', indent * 4);
+        sb.AppendLine($"{pad}{CSharpDeclarationWriter.RenderTypeDeclaration(ToApiType(type))}");
+        sb.AppendLine($"{pad}{{");
+        foreach (var member in type.Members)
+            WriteMember(sb, type, member, indent + 1);
+        foreach (var nested in type.NestedTypes)
+            WriteType(sb, nested, indent + 1);
+        sb.AppendLine($"{pad}}}");
+    }
+
+    static void WriteMember(StringBuilder sb, TypeShell type, TypeMemberShell member, int indent)
+    {
+        string pad = new(' ', indent * 4);
+        var apiType = ToApiType(type);
+        var apiMember = ToApiMember(type, member);
+        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(apiType, apiMember);
+        switch (member.Kind)
+        {
+            case TypeMemberShellKind.PropertyGet:
+                if (type.Kind == TypeShellKind.Interface)
+                {
+                    sb.AppendLine($"{pad}{declaration};");
+                    return;
+                }
+
+                sb.AppendLine($"{pad}{declaration}");
+                sb.AppendLine($"{pad}{{");
+                sb.AppendLine($"{pad}    get");
+                sb.AppendLine($"{pad}    {{");
+                if (member.StubBody == StubBodyKind.Throw)
+                {
+                    sb.AppendLine($"{pad}        throw null;");
+                }
+                else
+                {
+                    foreach (var line in member.Body.Split('\n'))
+                    {
+                        var text = line.TrimEnd('\r');
+                        if (text.Length > 0)
+                            sb.AppendLine($"{pad}        {text}");
+                    }
+                }
+                sb.AppendLine($"{pad}    }}");
+                sb.AppendLine($"{pad}}}");
+                break;
+            case TypeMemberShellKind.Constructor:
+                sb.AppendLine($"{pad}{declaration} {{ throw null; }}");
+                break;
+            case TypeMemberShellKind.Method:
+                sb.AppendLine(type.Kind == TypeShellKind.Interface
+                    ? $"{pad}{declaration};"
+                    : $"{pad}{declaration} {{ throw null; }}");
+                break;
+            default:
+                throw new NotSupportedException($"Unsupported member shell kind '{member.Kind}'.");
+        }
+    }
+
+    static ApiType ToApiType(TypeShell type)
+        => new()
+        {
+            Namespace = type.Namespace,
+            Name = type.Identity.MetadataName,
+            Kind = type.Kind switch
+            {
+                TypeShellKind.Class => "class",
+                TypeShellKind.Struct => "struct",
+                TypeShellKind.Interface => "interface",
+                TypeShellKind.Enum => "enum",
                 _ => throw new NotSupportedException($"Unsupported type shell kind '{type.Kind}'."),
             },
-            type.Interfaces.Select(type => type.DisplayName).ToArray(),
-            type.Members.Select(ToDeclaration).ToArray(),
-            type.NestedTypes.Select(ToDeclaration).ToArray());
+            Interfaces = type.Interfaces.Select(type => type.DisplayName).ToList(),
+        };
 
-    static CSharpMemberDeclaration ToDeclaration(TypeMemberShell member)
-        => new(
-            member.Name,
-            member.Kind switch
+    static ApiMember ToApiMember(TypeShell type, TypeMemberShell member)
+    {
+        string parameterList = string.Join(", ", member.Parameters.Select(parameter => $"{parameter.Type.DisplayName} {parameter.Name}"));
+        string? returnType = member.ReturnType?.DisplayName;
+        return new ApiMember
+        {
+            Name = member.Name,
+            Kind = member.Kind switch
             {
-                TypeMemberShellKind.PropertyGet => CSharpMemberKind.PropertyGet,
-                TypeMemberShellKind.Constructor => CSharpMemberKind.Constructor,
-                TypeMemberShellKind.Method => CSharpMemberKind.Method,
+                TypeMemberShellKind.PropertyGet => "property",
+                TypeMemberShellKind.Constructor => "constructor",
+                TypeMemberShellKind.Method => "method",
                 _ => throw new NotSupportedException($"Unsupported member shell kind '{member.Kind}'."),
             },
-            member.IsStatic,
-            member.ReturnType?.DisplayName,
-            member.Parameters.Select(parameter => new CSharpParameterDeclaration(parameter.Name, parameter.Type.DisplayName)).ToArray(),
-            member.StubBody switch
+            ReturnType = returnType,
+            Signature = member.Kind switch
             {
-                StubBodyKind.None => CSharpStubBodyKind.None,
-                StubBodyKind.Throw => CSharpStubBodyKind.Throw,
-                StubBodyKind.TargetBody => CSharpStubBodyKind.TargetBody,
-                _ => throw new NotSupportedException($"Unsupported member stub body kind '{member.StubBody}'."),
+                TypeMemberShellKind.PropertyGet when type.Kind == TypeShellKind.Interface => $"{returnType ?? "void"} {member.Name} {{ get; }}",
+                TypeMemberShellKind.PropertyGet => $"{returnType ?? "void"} {member.Name}",
+                TypeMemberShellKind.Constructor => $"void .ctor({parameterList})",
+                TypeMemberShellKind.Method => $"{returnType ?? "void"} {member.Name}({parameterList})",
+                _ => null,
             },
-            member.TargetBody);
+            IsStatic = member.IsStatic,
+            Accessibility = null,
+        };
+    }
 }

@@ -23,7 +23,7 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Equal("Class1", result.Plan.TargetMethod.Type);
             Assert.Equal("get_Method1", result.Plan.TargetMethod.Method);
-            Assert.Contains("public unsafe class Class1", result.Source);
+            Assert.Contains("public class Class1", result.Source);
             Assert.Contains("public string Method1", result.Source);
             Assert.Contains("return \"Hello World\";", result.Source);
         }
@@ -277,7 +277,7 @@ public class ReturnToSenderPrototypeTests
                 && type.Name == "Helper"
                 && type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root"));
             Assert.Contains("namespace Other.Deep", result.Source);
-            Assert.Contains("public unsafe class Helper", result.Source);
+            Assert.Contains("public class Helper", result.Source);
         }
         finally
         {
@@ -413,7 +413,7 @@ public class ReturnToSenderPrototypeTests
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(result.Plan.Types, type => type.Name == "StructHelper" && type.Kind == ReturnToSender.TypeShellKind.Struct);
-            Assert.Contains("public unsafe struct StructHelper", result.Source);
+            Assert.Contains("public struct StructHelper", result.Source);
         }
         finally
         {
@@ -445,8 +445,8 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Outer"
                 && type.NestedTypes.Any(nested => nested.Name == "Inner"));
-            Assert.Contains("public unsafe class Outer", result.Source);
-            Assert.Contains("public unsafe class Inner", result.Source);
+            Assert.Contains("public class Outer", result.Source);
+            Assert.Contains("public class Inner", result.Source);
         }
         finally
         {
