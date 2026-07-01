@@ -22,6 +22,19 @@ public record SourceDocument(
     byte[]? Checksum = null,
     string? ChecksumAlgorithm = null);
 
+public record ILOffsetMemberContextInfo(
+    string? Assembly,
+    string Type,
+    string TypeKind,
+    string Member,
+    string Signature,
+    string MemberKind,
+    string Visibility,
+    bool Static,
+    string? Async,
+    int MetadataToken,
+    int ILOffset);
+
 /// <summary>
 /// Wraps PE + PDB readers, exposes high-level operations with no SRM in public signatures.
 /// CLI orchestrates PDB acquisition (download via Packages), then calls back into this context.
@@ -216,6 +229,51 @@ public class PdbContext : IDisposable
         return _resolver.ResolveTypeSource(metadataReader, _pdbReader, typeName);
     }
 
+    public ILOffsetMemberContextInfo? ResolveMemberContext(int methodToken, int ilOffset)
+    {
+        if (!_peReader.HasMetadata)
+            return null;
+
+        var handle = MetadataTokens.Handle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+            return null;
+
+        try
+        {
+            var reader = _peReader.GetMetadataReader();
+            var methodHandle = (MethodDefinitionHandle)handle;
+            var method = reader.GetMethodDefinition(methodHandle);
+            var type = reader.GetTypeDefinition(method.GetDeclaringType());
+            var assembly = reader.GetAssemblyDefinition();
+            var typeName = reader.GetFullTypeName(type);
+            var methodName = reader.GetString(method.Name);
+            var signature = FormatMemberSignature(reader, type, method, methodName);
+            var async = MethodClassificationScanner.ClassifyAsyncMethod(reader, method) switch
+            {
+                MethodClassification.RuntimeAsync => "Runtime",
+                MethodClassification.StateMachineAsync => "State machine",
+                _ => null
+            };
+
+            return new ILOffsetMemberContextInfo(
+                Assembly: reader.GetString(assembly.Name),
+                Type: typeName,
+                TypeKind: GetTypeKind(reader, type),
+                Member: $"{typeName}.{methodName}",
+                Signature: signature,
+                MemberKind: GetMemberKind(methodName),
+                Visibility: GetVisibility(method.Attributes),
+                Static: (method.Attributes & MethodAttributes.Static) != 0,
+                Async: async,
+                MetadataToken: methodToken,
+                ILOffset: ilOffset);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Resolves source file and line range for a specific method overload.
     /// </summary>
@@ -251,6 +309,68 @@ public class PdbContext : IDisposable
 
         return null;
     }
+
+    private static string FormatMemberSignature(
+        MetadataReader reader,
+        TypeDefinition type,
+        MethodDefinition method,
+        string methodName)
+    {
+        try
+        {
+            var context = GenericContext.ForMethod(reader, type, method);
+            var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, signature);
+        }
+        catch
+        {
+            return methodName + "(...)";
+        }
+    }
+
+    private static string GetMemberKind(string methodName)
+        => methodName switch
+        {
+            ".ctor" => "constructor",
+            ".cctor" => "static constructor",
+            _ => "method"
+        };
+
+    private static string GetVisibility(MethodAttributes attributes)
+        => (attributes & MethodAttributes.MemberAccessMask) switch
+        {
+            MethodAttributes.Public => "public",
+            MethodAttributes.Private => "private",
+            MethodAttributes.Family => "protected",
+            MethodAttributes.Assembly => "internal",
+            MethodAttributes.FamORAssem => "protected internal",
+            MethodAttributes.FamANDAssem => "private protected",
+            _ => "private"
+        };
+
+    private static string GetTypeKind(MetadataReader reader, TypeDefinition type)
+    {
+        if ((type.Attributes & TypeAttributes.Interface) != 0)
+            return "interface";
+
+        var baseName = GetBaseTypeName(reader, type);
+        if (baseName == "System.Enum")
+            return "enum";
+        if (baseName == "System.ValueType")
+            return "struct";
+        if (baseName == "System.MulticastDelegate")
+            return "delegate";
+
+        return "class";
+    }
+
+    private static string? GetBaseTypeName(MetadataReader reader, TypeDefinition type)
+        => type.BaseType.Kind switch
+        {
+            HandleKind.TypeReference => reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)type.BaseType)),
+            HandleKind.TypeDefinition => reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)type.BaseType)),
+            _ => null
+        };
 
     /// <summary>
     /// Finds a type forwarder target assembly name for a given type.
