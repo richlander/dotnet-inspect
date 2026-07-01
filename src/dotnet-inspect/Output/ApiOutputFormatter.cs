@@ -1946,9 +1946,6 @@ public static class ApiOutputFormatter
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
-    internal static string FormatGenericTypeName(string name, List<TypeParameter>? typeParameters)
-        => MetadataTypeNameFormatter.FormatGenericTypeName(name, typeParameters);
-
     internal static string FormatGenericFullName(ApiType type)
         => MetadataTypeNameFormatter.FormatFullName(type);
 

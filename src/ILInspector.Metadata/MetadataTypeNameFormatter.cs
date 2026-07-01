@@ -21,40 +21,8 @@ public static class MetadataTypeNameFormatter
         if (!name.Contains('`', StringComparison.Ordinal))
             return name;
 
-        var typeParameterIndex = 0;
-        var segments = name.Split('.');
-        for (var i = 0; i < segments.Length; i++)
-            segments[i] = FormatGenericTypeNameSegment(segments[i], typeParameters, ref typeParameterIndex);
-
-        return string.Join(".", segments);
-    }
-
-    static string FormatGenericTypeNameSegment(
-        string name,
-        IReadOnlyList<TypeParameter>? typeParameters,
-        ref int typeParameterIndex)
-    {
-        int backtickIndex = name.IndexOf('`');
-        if (backtickIndex < 0)
-            return name;
-
-        var baseName = name[..backtickIndex];
-        if (!int.TryParse(name[(backtickIndex + 1)..], out int arity) || arity <= 0)
-            return name;
-
-        if (typeParameters is { Count: > 0 } && typeParameterIndex + arity <= typeParameters.Count)
-        {
-            var names = typeParameters
-                .Skip(typeParameterIndex)
-                .Take(arity)
-                .Select(tp => tp.Name);
-            typeParameterIndex += arity;
-            return $"{baseName}<{string.Join(", ", names)}>";
-        }
-
-        var fallbackNames = arity == 1
-            ? "T"
-            : string.Join(", ", Enumerable.Range(1, arity).Select(i => $"T{i}"));
-        return $"{baseName}<{fallbackNames}>";
+        return typeParameters is { Count: > 0 }
+            ? TypeResolver.ApplyGenericArguments(name, typeParameters.Select(tp => tp.Name).ToArray())
+            : TypeResolver.FormatDisplayName(name);
     }
 }
