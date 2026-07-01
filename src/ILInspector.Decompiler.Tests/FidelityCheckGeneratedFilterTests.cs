@@ -1,3 +1,4 @@
+using DotnetInspector.Services;
 using ILInspector.DecompilerHarness;
 
 using Microsoft.CodeAnalysis;
@@ -726,11 +727,11 @@ public class FidelityCheckGeneratedFilterTests
             Directory.CreateDirectory(preview);
             Directory.CreateDirectory(otherBand);
 
-            Assert.Equal(exact, FidelityCheck.SelectSharedFrameworkDirectory(root, "11.0.1"));
+            Assert.Equal(exact, AssemblyDependencyResolver.SelectSharedFrameworkDirectory(root, "11.0.1"));
 
             Directory.Delete(exact);
-            Assert.Equal(sameBandHigher, FidelityCheck.SelectSharedFrameworkDirectory(root, "11.0.2"));
-            Assert.Equal(preview, FidelityCheck.SelectSharedFrameworkDirectory(root, "12.0.0-preview.6.2"));
+            Assert.Equal(sameBandHigher, AssemblyDependencyResolver.SelectSharedFrameworkDirectory(root, "11.0.2"));
+            Assert.Equal(preview, AssemblyDependencyResolver.SelectSharedFrameworkDirectory(root, "12.0.0-preview.6.2"));
         }
         finally
         {
