@@ -238,7 +238,8 @@ public sealed record PerformanceTriageOptions
                 error = $"Error: Field '{field}' supports only = and != predicates.";
                 return false;
             }
-            if (field == "RootReach" && !int.TryParse(value, out _))
+            if (field == "RootReach"
+                && !int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
             {
                 error = $"Error: Field 'RootReach' expects an integer value in --where predicate '{expression}'.";
                 return false;
