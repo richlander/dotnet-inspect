@@ -53,7 +53,8 @@ public sealed record AssemblyReferenceIdentity(
 /// </summary>
 public sealed record ResolvedAssemblyReference(
     AssemblyReferenceIdentity Identity,
-    string Path,
+    string? Path,
+    Func<Stream> OpenRead,
     string? Provenance = null);
 
 /// <summary>
@@ -62,12 +63,17 @@ public sealed record ResolvedAssemblyReference(
 /// </summary>
 public interface IAssemblyReferenceResolver
 {
-    ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyTrust trust);
+    ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope);
 }
 
 public static class AssemblyReferenceResolverExtensions
 {
     public static AssemblyLocator ToAssemblyLocator(this IAssemblyReferenceResolver resolver)
-        => (assemblyName, trust) =>
-            resolver.Resolve(new AssemblyReferenceIdentity(assemblyName, Version: null, Culture: null, PublicKeyToken: null), trust)?.Path;
+        => (assemblyName, scope) =>
+        {
+            var resolved = resolver.Resolve(new AssemblyReferenceIdentity(assemblyName, Version: null, Culture: null, PublicKeyToken: null), scope);
+            return resolved?.Path ?? (resolved is null
+                ? null
+                : throw new NotSupportedException("AssemblyLocator requires a file-backed resolver result."));
+        };
 }

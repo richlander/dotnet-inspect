@@ -37,6 +37,7 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool IncludeAspNetCoreSharedFramework { get; init; } = true;
     public bool IncludeSiblingAssemblies { get; init; } = true;
     public bool IncludeDepsJsonAssets { get; init; } = true;
+    public bool PreferImplementationAssemblies { get; init; }
     public bool ExcludeTargetAssembly { get; init; }
 }
 
@@ -50,6 +51,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 {
     readonly AssemblyDependencyResolutionOptions _options;
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
+    IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
 
     public AssemblyDependencyResolver(AssemblyDependencyResolutionOptions options)
         => _options = options;
@@ -69,6 +71,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         var resolved = new List<ResolvedAssemblyDependency>();
         string targetPath = Path.GetFullPath(_options.TargetAssemblyPath);
         string targetName = Path.GetFileNameWithoutExtension(targetPath);
+        var targetDirectory = Path.GetDirectoryName(targetPath);
 
         void Add(string path, AssemblyDependencyProvenance provenance, string? packageId = null, string? packageVersion = null, string? frameworkName = null)
         {
@@ -89,7 +92,14 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 frameworkName));
         }
 
-        foreach (var path in PackageDependencyReferencePaths(targetPath, _options.PackageRoots))
+        if (targetDirectory is not null && Directory.Exists(targetDirectory) && _options.IncludeSiblingAssemblies)
+            foreach (var path in Directory.EnumerateFiles(targetDirectory, "*.dll"))
+                Add(path, AssemblyDependencyProvenance.SiblingAssembly);
+
+        foreach (var path in PackageDependencyReferencePaths(
+            targetPath,
+            _options.PackageRoots,
+            preferImplementationAssemblies: _options.PreferImplementationAssemblies))
         {
             var package = TryReadPackageIdentity(path, _options.PackageRoots);
             Add(path, AssemblyDependencyProvenance.PackageDependency, package.Id, package.Version);
@@ -105,13 +115,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         if (_options.IncludeAspNetCoreSharedFramework)
             AddSharedFrameworkReferences("Microsoft.AspNetCore.App", path => Add(path, AssemblyDependencyProvenance.SharedFramework, frameworkName: "Microsoft.AspNetCore.App"));
 
-        var targetDirectory = Path.GetDirectoryName(targetPath);
         if (targetDirectory is not null && Directory.Exists(targetDirectory))
         {
-            if (_options.IncludeSiblingAssemblies)
-                foreach (var path in Directory.EnumerateFiles(targetDirectory, "*.dll"))
-                    Add(path, AssemblyDependencyProvenance.SiblingAssembly);
-
             if (_options.IncludeDepsJsonAssets)
                 AddDepsJsonReferences(targetDirectory, targetName, path =>
                 {
@@ -133,10 +138,10 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         return resolved;
     }
 
-    public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyTrust trust)
+    public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
     {
-        var candidates = trust == AssemblyTrust.Platform
-            ? CollectDependencies(deduplicate: false)
+        var candidates = scope == AssemblyResolutionScope.Platform
+            ? _allCandidates ??= CollectDependencies(deduplicate: false)
             : ResolveAll();
 
         foreach (var dependency in candidates)
@@ -144,7 +149,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             if (!Path.GetFileNameWithoutExtension(dependency.Path).Equals(identity.Name, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (trust == AssemblyTrust.Platform
+            if (scope == AssemblyResolutionScope.Platform
                 && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
                 continue;
 
@@ -154,6 +159,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             return new ResolvedAssemblyReference(
                 identity,
                 dependency.Path,
+                () => File.OpenRead(dependency.Path),
                 dependency.Provenance.ToString());
         }
 
@@ -203,6 +209,12 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         => PackageDependencyReferencePaths(targetPath, packageRoots: null);
 
     public static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath, IReadOnlyList<string>? packageRoots)
+        => PackageDependencyReferencePaths(targetPath, packageRoots, preferImplementationAssemblies: false);
+
+    public static IReadOnlyList<string> PackageDependencyReferencePaths(
+        string targetPath,
+        IReadOnlyList<string>? packageRoots,
+        bool preferImplementationAssemblies)
     {
         if (NuGetPackageContext(targetPath, packageRoots) is not { } context)
             return [];
@@ -239,7 +251,10 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
         var references = new List<string>();
         foreach (string id in resolved.Order(StringComparer.OrdinalIgnoreCase))
-            foreach (var path in ProbeNuGetPackageVersionDlls(packageDirectories[id][selectedVersions[id]], context.TargetFramework))
+            foreach (var path in ProbeNuGetPackageVersionDlls(
+                packageDirectories[id][selectedVersions[id]],
+                context.TargetFramework,
+                preferImplementationAssemblies))
                 references.Add(path);
         return references;
 
@@ -485,12 +500,16 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         return version.IndexOfAny(['[', ']', '(', ')', ',']) < 0 ? version : null;
     }
 
-    static IEnumerable<string> ProbeNuGetPackageVersionDlls(string packageDir, string? tfm)
+    static IEnumerable<string> ProbeNuGetPackageVersionDlls(string packageDir, string? tfm, bool preferImplementationAssemblies)
     {
         if (!Directory.Exists(packageDir))
             yield break;
 
-        foreach (string assetKind in (string[])["ref", "lib"])
+        var assetKinds = preferImplementationAssemblies
+            ? (string[])["lib", "ref"]
+            : (string[])["ref", "lib"];
+
+        foreach (string assetKind in assetKinds)
         {
             if (tfm is not null && AssetDirectory(packageDir, assetKind, tfm) is { } exactAssetDir)
             {
@@ -500,7 +519,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             }
         }
 
-        foreach (string assetKind in (string[])["ref", "lib"])
+        foreach (string assetKind in assetKinds)
         {
             if (tfm is not null && CompatibleAssetDirectory(packageDir, assetKind, tfm) is { } compatibleAssetDir)
             {

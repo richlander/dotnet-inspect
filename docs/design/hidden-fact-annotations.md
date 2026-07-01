@@ -197,8 +197,8 @@ non-trivial dependency. Worth a look as a comparative signal, not a gate.
   neither a value-type hint nor a same-assembly resolved shape. The
   `CrossAssemblyTypeResolver` recovers it by locating the defining assembly and
   reading its immediate base: a reference whose public-key token is a trusted
-  platform key is asserted `AssemblyTrust.Platform` and resolved only from the
-  trusted framework (a confusable local copy can never impersonate a platform
+  platform key is asserted `AssemblyResolutionScope.Platform` and resolved only
+  from platform/framework sources (a confusable local copy can never impersonate a platform
   type); other references resolve from the sibling/package set. Resolution is
   precision-preserving — when the defining assembly cannot be reached the hint
   stays unknown and the construction is reported rather than guessed, so

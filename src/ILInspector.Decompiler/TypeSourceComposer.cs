@@ -27,8 +27,11 @@ public static class TypeSourceComposer
             // Follow type forwarders (ref/facade assemblies) to the assembly
             // that actually defines the type. Default policy: implementations
             // sit alongside the starting assembly.
-            locateAssembly ??= (name, trust) =>
+            locateAssembly ??= (name, scope) =>
             {
+                if (scope == AssemblyResolutionScope.Platform)
+                    return null;
+
                 string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
                 return File.Exists(sibling) ? sibling : null;
             };

@@ -141,8 +141,11 @@ public sealed class MetadataSource : IDisposable
         string? dir = System.IO.Path.GetDirectoryName(path);
         var packageProbe = NuGetPackageProbe(path);
         var packageCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        return (name, trust) =>
+        return (name, scope) =>
         {
+            if (scope == AssemblyResolutionScope.Platform)
+                return null;
+
             if (dir is not null)
             {
                 string sibling = System.IO.Path.Combine(dir, name + ".dll");
@@ -150,7 +153,7 @@ public sealed class MetadataSource : IDisposable
                     return sibling;
             }
 
-            if (trust == AssemblyTrust.Platform || packageProbe is null)
+            if (packageProbe is null)
                 return null;
 
             if (!packageCache.TryGetValue(name, out var cached))

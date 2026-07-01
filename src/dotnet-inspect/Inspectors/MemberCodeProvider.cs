@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
 
@@ -285,7 +286,13 @@ internal static class MemberCodeProvider
             return null;
         try
         {
-            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath);
+            var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(dllPath)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath, resolver.ToAssemblyLocator());
         }
         catch
         {

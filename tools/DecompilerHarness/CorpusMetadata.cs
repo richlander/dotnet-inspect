@@ -30,7 +30,7 @@ static class CorpusMetadata
 
         AssemblyLocator locator = (name, trust) =>
         {
-            if (trust == AssemblyTrust.Platform)
+            if (trust == AssemblyResolutionScope.Platform)
             {
                 foreach (var directory in directories)
                 {

@@ -490,7 +490,7 @@ public class CrossAssemblyMethodFactsTests
             .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         return (name, trust) =>
-            trust == AssemblyTrust.Platform && assemblies.TryGetValue(name, out var path)
+            trust == AssemblyResolutionScope.Platform && assemblies.TryGetValue(name, out var path)
                 ? path
                 : null;
     }
