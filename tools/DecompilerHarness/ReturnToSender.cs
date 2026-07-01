@@ -444,7 +444,7 @@ static class ReturnToSender
                 $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
         }
 
-        string unit = ModuleWriter.Write(plan);
+        string unit = CSharpDeclarationWriter.Write(ToCompilationUnit(plan));
         var tree = CSharpSyntaxTree.ParseText(unit, new CSharpParseOptions(LanguageVersion.Preview));
         var compilation = CSharpCompilation.Create(
             "return-to-sender",
@@ -1258,115 +1258,48 @@ static class ReturnToSender
         }
     }
 
-    sealed class ModuleWriter
-    {
-        public static string Write(ReconstructionPlan plan)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine("#pragma warning disable");
-            foreach (var attribute in plan.Module.AssemblyAttributes)
-                sb.AppendLine($"[assembly: {attribute.Text}]");
-            foreach (var attribute in plan.Module.ModuleAttributes)
-                sb.AppendLine($"[module: {attribute.Text}]");
-            foreach (var ns in plan.Module.Usings.OrderBy(ns => ns, StringComparer.Ordinal))
-                sb.AppendLine($"using {ns};");
-            foreach (var group in plan.Types.GroupBy(type => type.Namespace, StringComparer.Ordinal))
+    static CSharpCompilationUnit ToCompilationUnit(ReconstructionPlan plan)
+        => new(
+            plan.Module.Usings,
+            plan.Module.AssemblyAttributes.Select(attribute => attribute.Text).ToArray(),
+            plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
+            plan.Types.Select(ToDeclaration).ToArray());
+
+    static CSharpTypeDeclaration ToDeclaration(TypeShell type)
+        => new(
+            type.Namespace,
+            type.Name,
+            type.Kind switch
             {
-                if (group.Key.Length > 0)
-                {
-                    sb.AppendLine($"namespace {group.Key}");
-                    sb.AppendLine("{");
-                    foreach (var type in group)
-                        TypePrinter.Write(type, sb, indent: 1);
-                    sb.AppendLine("}");
-                }
-                else
-                {
-                    foreach (var type in group)
-                        TypePrinter.Write(type, sb, indent: 0);
-                }
-            }
-            return sb.ToString();
-        }
-    }
+                TypeShellKind.Class => CSharpTypeKind.Class,
+                TypeShellKind.Struct => CSharpTypeKind.Struct,
+                TypeShellKind.Interface => CSharpTypeKind.Interface,
+                TypeShellKind.Enum => CSharpTypeKind.Enum,
+                _ => throw new NotSupportedException($"Unsupported type shell kind '{type.Kind}'."),
+            },
+            type.Interfaces.Select(type => type.DisplayName).ToArray(),
+            type.Members.Select(ToDeclaration).ToArray(),
+            type.NestedTypes.Select(ToDeclaration).ToArray());
 
-    sealed class TypePrinter
-    {
-        public static void Write(TypeShell type, StringBuilder sb, int indent)
-        {
-            string pad = new(' ', indent * 4);
-            string keyword = type.Kind switch
+    static CSharpMemberDeclaration ToDeclaration(TypeMemberShell member)
+        => new(
+            member.Name,
+            member.Kind switch
             {
-                TypeShellKind.Class => "class",
-                TypeShellKind.Struct => "struct",
-                TypeShellKind.Interface => "interface",
-                TypeShellKind.Enum => "enum",
-                _ => throw new NotSupportedException($"Unsupported type shell kind '{type.Kind}'.")
-            };
-
-            string unsafeModifier = type.Kind == TypeShellKind.Enum ? "" : "unsafe ";
-            string interfaces = type.Interfaces.Count == 0
-                ? ""
-                : $" : {string.Join(", ", type.Interfaces.Select(type => type.DisplayName))}";
-            sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {type.Name}{interfaces}");
-            sb.AppendLine($"{pad}{{");
-            foreach (var member in type.Members)
-                WriteMember(type, member, sb, indent + 1);
-            foreach (var nested in type.NestedTypes)
-                Write(nested, sb, indent + 1);
-            sb.AppendLine($"{pad}}}");
-        }
-
-        static void WriteMember(TypeShell type, TypeMemberShell member, StringBuilder sb, int indent)
-        {
-            string pad = new(' ', indent * 4);
-            switch (member.Kind)
+                TypeMemberShellKind.PropertyGet => CSharpMemberKind.PropertyGet,
+                TypeMemberShellKind.Constructor => CSharpMemberKind.Constructor,
+                TypeMemberShellKind.Method => CSharpMemberKind.Method,
+                _ => throw new NotSupportedException($"Unsupported member shell kind '{member.Kind}'."),
+            },
+            member.IsStatic,
+            member.ReturnType?.DisplayName,
+            member.Parameters.Select(parameter => new CSharpParameterDeclaration(parameter.Name, parameter.Type.DisplayName)).ToArray(),
+            member.StubBody switch
             {
-                case TypeMemberShellKind.PropertyGet:
-                    string propertyStatic = member.IsStatic ? "static " : "";
-                    if (type.Kind == TypeShellKind.Interface)
-                    {
-                        sb.AppendLine($"{pad}{member.Type} {member.Name} {{ get; }}");
-                        break;
-                    }
-                    sb.AppendLine($"{pad}public {propertyStatic}{member.Type} {member.Name}");
-                    sb.AppendLine($"{pad}{{");
-                    sb.AppendLine($"{pad}    get");
-                    sb.AppendLine($"{pad}    {{");
-                    if (member.StubBody == StubBodyKind.Throw)
-                    {
-                        sb.AppendLine($"{pad}        throw null;");
-                    }
-                    else
-                    {
-                        foreach (var line in member.Body.Split('\n'))
-                        {
-                            var text = line.TrimEnd('\r');
-                            if (text.Length > 0)
-                                sb.AppendLine($"{pad}        {text}");
-                        }
-                    }
-                    sb.AppendLine($"{pad}    }}");
-                    sb.AppendLine($"{pad}}}");
-                    break;
-                case TypeMemberShellKind.Constructor:
-                    sb.AppendLine($"{pad}public {type.Name}({ParameterList(member.Parameters)}) {{ throw null; }}");
-                    break;
-                case TypeMemberShellKind.Method:
-                    string methodStatic = member.IsStatic ? "static " : "";
-                    if (type.Kind == TypeShellKind.Interface)
-                    {
-                        sb.AppendLine($"{pad}{member.Type} {member.Name}({ParameterList(member.Parameters)});");
-                        break;
-                    }
-                    sb.AppendLine($"{pad}public {methodStatic}{member.Type} {member.Name}({ParameterList(member.Parameters)}) {{ throw null; }}");
-                    break;
-                default:
-                    throw new NotSupportedException($"Unsupported member shell kind '{member.Kind}'.");
-            }
-        }
-
-        static string ParameterList(IReadOnlyList<ParameterShell> parameters)
-            => string.Join(", ", parameters.Select(parameter => $"{parameter.Type.DisplayName} {parameter.Name}"));
-    }
+                StubBodyKind.None => CSharpStubBodyKind.None,
+                StubBodyKind.Throw => CSharpStubBodyKind.Throw,
+                StubBodyKind.TargetBody => CSharpStubBodyKind.TargetBody,
+                _ => throw new NotSupportedException($"Unsupported member stub body kind '{member.StubBody}'."),
+            },
+            member.TargetBody);
 }
