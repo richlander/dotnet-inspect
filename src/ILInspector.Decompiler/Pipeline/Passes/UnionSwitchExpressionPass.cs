@@ -71,6 +71,18 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 return true;
             }
 
+            if (TryMatchValueTypePrefixNullArmSwitchAt(function, children, start, out var valueTypePrefixSwitch))
+            {
+                match = new Match(start, valueTypePrefixSwitch);
+                return true;
+            }
+
+            if (TryMatchReferencePrefixValueTypeTailNullArmSwitchAt(function, children, start, out var valueTypeTailSwitch))
+            {
+                match = new Match(start, valueTypeTailSwitch);
+                return true;
+            }
+
             if (TryMatchDirectSwitchStatementReturnChainAt(function, children, start, out var directStatementSwitch))
             {
                 match = new Match(start, directStatementSwitch);
@@ -112,6 +124,252 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 match = new Match(start, switchExpression);
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    static bool TryMatchReferencePrefixValueTypeTailNullArmSwitchAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 4 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsValueTypeUnionValueProperty(function, unionValue)
+            || children[start + 1] is not StoreLocal { Value: IsInstance firstTest } firstStore
+            || !IsTempTypeTest(firstTest, valueStore.Index)
+            || children[start + 2] is not IfStatement firstNullGuard
+            || firstNullGuard.HasElse
+            || !IsNotLocal(firstNullGuard.Condition, firstStore.Index)
+            || children[start + 3] is not StoreLocal firstValueStore
+            || firstValueStore.Value is not LoadLocal firstValueLoad
+            || firstValueLoad.Index != firstStore.Index
+            || children[start + 4] is not Return firstReturn
+            || !ReturnsLocal(firstReturn, firstValueStore.Index)
+            || !TryNestedValueTypeTailNullArms(firstNullGuard.Then.Children, valueStore.Index, firstValueStore.Index, unionValue.Instance, out var tailArms, out var nullValue))
+        {
+            return false;
+        }
+
+        var firstArm = new Arm(
+            firstTest.Type,
+            firstStore.Index,
+            firstValueStore.Value,
+            [firstStore, firstNullGuard.Condition, firstValueStore.Value]);
+        var arms = new[] { firstArm }.Concat(tailArms).ToArray();
+        var consumedNodes = children.Skip(start).Take(5).Concat(firstNullGuard.Then.Children).ToArray();
+
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, consumedNodes)
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, firstValueStore.Index, consumedNodes)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            nullValue: nullValue is null ? null : (IrExpression)nullValue.Clone());
+        return true;
+    }
+
+    static bool TryNestedValueTypeTailNullArms(
+        IReadOnlyList<IrNode> nodes,
+        int tempLocal,
+        int resultLocal,
+        IrExpression? unionReceiver,
+        out IReadOnlyList<Arm> arms,
+        out IrExpression? nullValue)
+    {
+        arms = [];
+        nullValue = null;
+        if (nodes.Count < 4
+            || nodes[^2] is not ExpressionStatement throwStatement
+            || nodes[^1] is not Return throwReturn
+            || !IsThrowSwitchExpression(throwStatement)
+            || !ThrowArgumentMatchesNullArm(throwStatement, tempLocal, unionReceiver)
+            || !ReturnsLocal(throwReturn, resultLocal)
+            || nodes[^3] is not IfStatement nullIf
+            || nullIf.HasElse
+            || !IsNotLocal(nullIf.Condition, tempLocal)
+            || nullIf.Then.Children is not [StoreLocal nullStore, Return nullReturn]
+            || !StoreReturnMatch(nullStore, nullReturn, resultLocal))
+        {
+            return false;
+        }
+
+        var builder = new List<Arm>();
+        foreach (var node in nodes.Take(nodes.Count - 3))
+        {
+            if (node is not IfStatement armIf
+                || !TryValueTypePrefixArm(armIf, tempLocal, resultLocal, out var arm))
+            {
+                return false;
+            }
+
+            builder.Add(arm);
+        }
+
+        if (builder.Count == 0)
+            return false;
+
+        arms = builder;
+        nullValue = nullStore.Value;
+        return true;
+    }
+
+    static bool TryMatchValueTypePrefixNullArmSwitchAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 5 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsValueTypeUnionValueProperty(function, unionValue)
+            || children[^4] is not StoreLocal { Value: IsInstance finalTest } finalStore
+            || !IsTempTypeTest(finalTest, valueStore.Index)
+            || children[^3] is not IfStatement finalNullGuard
+            || finalNullGuard.HasElse
+            || !IsNotLocal(finalNullGuard.Condition, finalStore.Index)
+            || children[^2] is not StoreLocal finalValueStore
+            || children[^1] is not Return finalValueReturn
+            || !StoreReturnMatch(finalValueStore, finalValueReturn, finalValueStore.Index)
+            || !TryFinalThrowOrNullArm(finalNullGuard.Then.Children, finalValueStore.Index, valueStore.Index, unionValue.Instance, out var nullValue))
+        {
+            return false;
+        }
+
+        var prefixNodes = children.Skip(start + 1).Take(children.Count - start - 5).ToArray();
+        var arms = new List<Arm>();
+        foreach (var node in prefixNodes)
+        {
+            if (node is not IfStatement armIf
+                || !TryValueTypePrefixArm(armIf, valueStore.Index, finalValueStore.Index, out var arm))
+            {
+                return false;
+            }
+
+            arms.Add(arm);
+        }
+
+        if (arms.Count == 0)
+            return false;
+
+        arms.Add(new Arm(
+            finalTest.Type,
+            finalStore.Index,
+            finalValueStore.Value,
+            [finalStore, finalNullGuard.Condition, finalValueStore.Value]));
+
+        var consumedNodes = children.Skip(start).ToArray();
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, consumedNodes)
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, finalValueStore.Index, consumedNodes)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            nullValue: nullValue is null ? null : (IrExpression)nullValue.Clone());
+        return true;
+    }
+
+    static bool TryValueTypePrefixArm(IfStatement armIf, int tempLocal, int resultLocal, out Arm arm)
+    {
+        arm = null!;
+        if (armIf.HasElse
+            || armIf.Condition is not IsInstance test
+            || !IsTempTypeTest(test, tempLocal))
+        {
+            return false;
+        }
+
+        var body = armIf.Then.Children;
+        if (body.Count == 3
+            && body[0] is StoreLocal boundStore
+            && IsUnboxAnyTemp(boundStore.Value, test.Type, tempLocal)
+            && StoreReturnMatchAt(body, 1, resultLocal, out var boundValue))
+        {
+            arm = new Arm(test.Type, boundStore.Index, boundValue,
+                [armIf.Condition, boundStore, boundValue]);
+            return true;
+        }
+
+        if (body.Count == 2
+            && StoreReturnMatchAt(body, 0, resultLocal, out var value))
+        {
+            arm = new Arm(test.Type, LocalIndex: null, value, [armIf.Condition, value]);
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool StoreReturnMatchAt(IReadOnlyList<IrNode> nodes, int index, int resultLocal, out IrExpression value)
+    {
+        value = null!;
+        if (index + 1 >= nodes.Count
+            || nodes[index] is not StoreLocal store
+            || store.Index != resultLocal
+            || nodes[index + 1] is not Return ret
+            || !ReturnsLocal(ret, resultLocal))
+        {
+            return false;
+        }
+
+        value = store.Value;
+        return true;
+    }
+
+    static bool IsUnboxAnyTemp(IrExpression expression, TypeRef type, int tempLocal)
+        => expression is UnboxAny { Operand: LoadLocal load } unbox
+        && load.Index == tempLocal
+        && unbox.Type.Equals(type);
+
+    static bool TryFinalThrowOrNullArm(
+        IReadOnlyList<IrNode> nodes,
+        int resultLocal,
+        int tempLocal,
+        IrExpression? unionReceiver,
+        out IrExpression? nullValue)
+    {
+        nullValue = null;
+        if (nodes is [ExpressionStatement throwStatement, Return throwReturn]
+            && IsThrowSwitchExpression(throwStatement)
+            && ThrowArgumentMatchesNullArm(throwStatement, tempLocal, unionReceiver)
+            && ReturnsLocal(throwReturn, resultLocal))
+        {
+            return true;
+        }
+
+        if (nodes is [IfStatement nullIf, ExpressionStatement throwStatementWithNull, Return throwReturnWithNull]
+            && nullIf.HasElse == false
+            && IsNotLocal(nullIf.Condition, tempLocal)
+            && nullIf.Then.Children is [StoreLocal nullStore, Return nullReturn]
+            && StoreReturnMatch(nullStore, nullReturn, resultLocal)
+            && IsThrowSwitchExpression(throwStatementWithNull)
+            && ThrowArgumentMatchesNullArm(throwStatementWithNull, tempLocal, unionReceiver)
+            && ReturnsLocal(throwReturnWithNull, resultLocal))
+        {
+            nullValue = nullStore.Value;
+            return true;
         }
 
         return false;
