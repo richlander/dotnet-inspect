@@ -1731,11 +1731,16 @@ public static class ApiOutputFormatter
         IReadOnlySet<string>? explicitSections = null)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);
-        var methodScope = (Analysis.MethodIdentity method) => SameType(method.DeclaringType, type);
+        var methodTokens = type.Members
+            .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
+            .Select(member => member.MetadataToken!.Value)
+            .ToArray();
 
         if (requestedSections?.Contains(SectionNames.AllocationFacts) == true)
         {
-            var rows = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodScope)
+            var allocations = index.GetAllocationOccurrences();
+            var rows = methodTokens
+                .SelectMany(token => Analysis.SemanticFactProjection.AllocationFacts(allocations, token))
                 .Select(fact => ToAllocationFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.AllocationFacts))
@@ -1744,7 +1749,10 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
         {
-            var rows = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodScope)
+            var unsafeEvidence = index.GetUnsafeEvidenceByMember();
+            var unsafety = index.GetUnsafetyOccurrences();
+            var rows = methodTokens
+                .SelectMany(token => Analysis.SemanticFactProjection.SafetyFacts(unsafeEvidence, unsafety, token))
                 .Select(fact => ToSafetyFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.SafetyFacts))
@@ -1753,7 +1761,9 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var rows = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodScope)
+            var directCalls = index.GetDirectCallsByCaller();
+            var rows = methodTokens
+                .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCalls, token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CostFacts))

@@ -295,7 +295,6 @@ internal static class ILOffsetSourceQuery
 
     private static bool IsUnsafeOperation(string? operand)
         => operand?.Contains("System.Runtime.CompilerServices.Unsafe.", StringComparison.Ordinal) == true
-            || operand?.Contains("System.Span<", StringComparison.Ordinal) == true
             || operand?.Contains("void*", StringComparison.Ordinal) == true;
 
     private static List<ILOffsetCostContext> BuildCostContext(ILOffsetInstructionContextInfo? instruction)

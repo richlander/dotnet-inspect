@@ -79,6 +79,30 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    public async Task LibraryIlOffsetSafetyContext_DoesNotFlagSafeSpanCall()
+    {
+        var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.SafeSpan))!;
+        var index = LibraryBodyIndex.Open(TestAssemblyPath);
+        var call = Assert.Single(index.DirectCalls, call =>
+            call.Caller.MetadataToken == method.MetadataToken
+            && call.Callee.Name == nameof(Span<int>.Slice));
+
+        var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
+        {
+            AssemblyName = TestAssemblyPath,
+            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{call.ILOffset:X}",
+            IncludeSections = [SectionNames.SafetyContext],
+            Select = [SectionNames.SafetyContext],
+            Verbosity = Verbosity.Minimal,
+            Markdown = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("## Safety Context", result.Output);
+    }
+
+    [Fact]
     public async Task EffectiveDiscovery_ListsSemanticFactSectionsAsOptIn()
     {
         var result = await RunMemberAsync(
@@ -125,4 +149,6 @@ public static class SemanticFactsFixture
         scratch[0] = values[0];
         return array.Length + scratch[0];
     }
+
+    public static int SafeSpan(Span<int> values) => values.Slice(0).Length;
 }
