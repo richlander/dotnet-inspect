@@ -87,6 +87,7 @@ public sealed class LibraryBodyIndex
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
                         .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
                         .Where(o => o.Shape != "unsized-collection-grown")
+                        .Where(o => o.Shape != "string-slice-in-loop")
                         .Select(o => o.Method.MetadataToken))),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
@@ -301,6 +302,20 @@ public sealed class LibraryBodyIndex
         => member.Kind != MemberKind.Unsupported
             && member.Name == "Concat"
             && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "String");
+
+    static bool IsStringSliceAllocator(MemberRef member, out string op)
+    {
+        op = "";
+        if (member.Kind == MemberKind.Unsupported
+            || !FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "String")
+            || member.Name is not ("Substring" or "Split" or "Trim" or "TrimStart" or "TrimEnd"))
+        {
+            return false;
+        }
+
+        op = $"System.String::{member.Name}";
+        return true;
+    }
 
     // A GetEnumerator call that returns a reference-type enumerator — i.e. iterating the
     // sequence allocates an enumerator object on the heap. `foreach` over a concrete type with a
@@ -2425,6 +2440,21 @@ public sealed class LibraryBodyIndex
                                 true,
                                 offset,
                                 null));
+                        }
+                        else if (IsStringSliceAllocator(callee, out var sliceOp)
+                            && IsInLoopRegion(offset, loopRegions))
+                        {
+                            var coldRegion = ClassifyColdRegion(decodedBody, offset);
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "string-slice-in-loop",
+                                $"{sliceOp} allocates a new string each iteration",
+                                "Allocates a new string every iteration; use `AsSpan().Slice(...)` / span-based parsing to avoid the per-iteration allocation.",
+                                coldRegion.IsCold ? "low" : "medium",
+                                true,
+                                offset,
+                                coldRegion.Caveat,
+                                ColdPath: coldRegion.IsCold));
                         }
                         else if (IsInterfaceEnumeratorAllocation(callee) && IsInLoopRegion(offset, loopRegions))
                         {

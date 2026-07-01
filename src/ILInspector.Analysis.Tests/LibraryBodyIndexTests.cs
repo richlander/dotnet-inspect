@@ -1425,6 +1425,37 @@ public class LibraryBodyIndexTests
         Assert.Contains("cold path", row.Caveat, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_StringSliceInLoop_Fires()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.SubstringInLoop)));
+        Assert.True(row.InLoop);
+        Assert.Equal("medium", row.Confidence);
+        Assert.Contains("System.String::Substring", row.Evidence, StringComparison.Ordinal);
+        Assert.Contains("AsSpan", row.SafeFixDirection, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StringSliceOutsideLoop_DoesNotFire()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.SubstringOnce)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StringSliceOnThrowHelperPath_IsLowAdvisory()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.SubstringInLoopBeforeThrow)));
+        Assert.Equal("low", row.Confidence);
+        Assert.True(row.ColdPath);
+        Assert.Contains("cold path", row.Caveat, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     // Non-loop delegate on a high-reach method -> lifted from low to medium.
     [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach, "medium")]
@@ -1814,6 +1845,11 @@ public class LibraryBodyIndexTests
     static System.Collections.Generic.List<OptimizationOpportunity> UnsizedCollectionRows(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "unsized-collection-grown")
+            .ToList();
+
+    static System.Collections.Generic.List<OptimizationOpportunity> StringSliceRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "string-slice-in-loop")
             .ToList();
 
     [Fact]
@@ -2867,6 +2903,25 @@ public class OptimizationOpportunityFixtures
         foreach (var value in values)
             builder.Append(value);
         throw new InvalidOperationException(builder.ToString());
+    }
+
+    public static int SubstringInLoop(string[] values)
+    {
+        var total = 0;
+        foreach (var value in values)
+            total += value.Substring(1).Length;
+        return total;
+    }
+
+    public static int SubstringOnce(string value)
+        => value.Substring(1).Length;
+
+    public static void SubstringInLoopBeforeThrow(string[] values)
+    {
+        var total = 0;
+        foreach (var value in values)
+            total += value.Substring(1).Length;
+        throw new InvalidOperationException(total.ToString());
     }
 
     static void ReplaceSource(ref IEnumerable<int> source, IEnumerable<int> replacement)

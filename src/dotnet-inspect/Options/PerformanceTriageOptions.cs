@@ -21,6 +21,7 @@ public sealed record PerformanceTriageOptions
         "span-to-array-copy",
         "stackalloc-candidate",
         "string-build-in-loop",
+        "string-slice-in-loop",
         "temporary-byte-array-copy",
         "unsized-collection-grown",
     ];
