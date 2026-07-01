@@ -92,7 +92,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", -S \"Instruction Context\", or -S \"Exception Context\".");
+            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", -S \"Instruction Context\", -S \"Exception Context\", -S \"Callsite Context\", or -S \"Return Address Context\".");
             return 1;
         }
 
@@ -442,6 +442,8 @@ public class LibraryCommand
             select.Add(SectionNames.MemberContext);
             select.Add(SectionNames.InstructionContext);
             select.Add(SectionNames.ExceptionContext);
+            select.Add(SectionNames.CallsiteContext);
+            select.Add(SectionNames.ReturnAddressContext);
         }
 
         return (options with
@@ -456,14 +458,18 @@ public class LibraryCommand
         SectionNames.ILOffset,
         SectionNames.MemberContext,
         SectionNames.InstructionContext,
-        SectionNames.ExceptionContext
+        SectionNames.ExceptionContext,
+        SectionNames.CallsiteContext,
+        SectionNames.ReturnAddressContext
     ];
 
     private static readonly string[] ILCoordinateSingletonSections =
     [
         SectionNames.ILOffset,
         SectionNames.MemberContext,
-        SectionNames.InstructionContext
+        SectionNames.InstructionContext,
+        SectionNames.CallsiteContext,
+        SectionNames.ReturnAddressContext
     ];
 
     private static bool HasILOffsetCoordinate(LibraryOptions options)
@@ -533,6 +539,8 @@ public class LibraryCommand
             SectionNames.ILOffset => inspection.ILOffset != null,
             SectionNames.MemberContext => inspection.ILOffset?.MemberContext != null,
             SectionNames.InstructionContext => inspection.ILOffset?.InstructionContext != null,
+            SectionNames.CallsiteContext => inspection.ILOffset?.CallsiteContext != null,
+            SectionNames.ReturnAddressContext => inspection.ILOffset?.ReturnAddressContext != null,
             _ => false
         };
         Console.WriteLine(hasRow ? 1 : 0);
@@ -551,10 +559,13 @@ public class LibraryCommand
             SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
             SectionNames.InstructionContext => ProjectLibraryInstructionContext(inspection, section, kind, options),
             SectionNames.ExceptionContext => ProjectLibraryExceptionContext(inspection, section, kind, options),
+            SectionNames.CallsiteContext => ProjectLibraryCallsiteContext(inspection, section, kind, options),
+            SectionNames.ReturnAddressContext => ProjectLibraryReturnAddressContext(inspection, section, kind, options),
             _ => []
         };
 
-        if (rows.Count == 0 && section is SectionNames.MemberContext or SectionNames.InstructionContext or SectionNames.ExceptionContext)
+        if (rows.Count == 0 && section is SectionNames.MemberContext or SectionNames.InstructionContext or SectionNames.ExceptionContext
+            or SectionNames.CallsiteContext or SectionNames.ReturnAddressContext)
         {
             if (kind != ShapeProjectionKind.Value)
                 Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
@@ -870,6 +881,82 @@ public class LibraryCommand
             "handler range" or "handlerrange" => context.HandlerRange,
             "filter range" or "filterrange" => context.FilterRange,
             "caught type" or "caughttype" => context.CaughtType,
+            _ => null
+        };
+
+    private static List<ShapeProjectionRow> ProjectLibraryCallsiteContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.CallsiteContext is not { } context)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Callsite Context requires --fields <name>.");
+            return [];
+        }
+
+        var value = SelectCallsiteContextValue(context, field);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Callsite Context.");
+            return [];
+        }
+
+        return [new ShapeProjectionRow(1, section, value, Label: field)];
+    }
+
+    private static string? SelectCallsiteContextValue(ILOffsetCallsiteContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "call offset" or "calloffset" or "offset" => context.CallOffset,
+            "opcode" => context.Opcode,
+            "call kind" or "callkind" => context.CallKind,
+            "callee" => context.Callee,
+            "operand token" or "operandtoken" or "token" => context.OperandToken,
+            "return address" or "returnaddress" => context.ReturnAddress,
+            _ => null
+        };
+
+    private static List<ShapeProjectionRow> ProjectLibraryReturnAddressContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.ReturnAddressContext is not { } context)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Return Address Context requires --fields <name>.");
+            return [];
+        }
+
+        var value = SelectReturnAddressContextValue(context, field);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Return Address Context.");
+            return [];
+        }
+
+        return [new ShapeProjectionRow(1, section, value, Label: field)];
+    }
+
+    private static string? SelectReturnAddressContextValue(ILOffsetReturnAddressContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "il offset" or "iloffset" or "offset" => context.ILOffset,
+            "call offset" or "calloffset" => context.CallOffset,
+            "opcode" => context.Opcode,
+            "call kind" or "callkind" => context.CallKind,
+            "callee" => context.Callee,
+            "operand token" or "operandtoken" or "token" => context.OperandToken,
             _ => null
         };
 

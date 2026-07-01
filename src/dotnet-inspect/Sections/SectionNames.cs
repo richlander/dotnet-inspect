@@ -114,6 +114,12 @@ public static class SectionNames
     /// <summary>Section for resolving a MethodDef token + IL offset to containing exception regions.</summary>
     public const string ExceptionContext = "Exception Context";
 
+    /// <summary>Section for resolving a MethodDef token + IL offset to a call-like instruction.</summary>
+    public const string CallsiteContext = "Callsite Context";
+
+    /// <summary>Section for resolving a MethodDef token + IL offset to the preceding call instruction.</summary>
+    public const string ReturnAddressContext = "Return Address Context";
+
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the
     /// Decompiled Source view renders inline, as rows (id, category, detail, IL

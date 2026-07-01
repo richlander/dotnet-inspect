@@ -68,6 +68,29 @@ public sealed record MethodInstructions(
         return null;
     }
 
+    /// <summary>
+    /// The instruction whose <see cref="DecodedInstruction.NextOffset"/> equals
+    /// <paramref name="offset"/>, or null when <paramref name="offset"/> is not the
+    /// return address/fallthrough boundary after an instruction.
+    /// </summary>
+    public DecodedInstruction? InstructionBefore(int offset)
+    {
+        int lo = 0;
+        int hi = Instructions.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            int next = Instructions[mid].NextOffset;
+            if (next == offset)
+                return Instructions[mid];
+            if (next < offset)
+                lo = mid + 1;
+            else
+                hi = mid - 1;
+        }
+        return null;
+    }
+
     /// <summary>The index of the block containing <paramref name="offset"/>, or -1 if out of range.</summary>
     public int BlockIndexAt(int offset) => Blocks.BlockIndexAt(offset);
 
