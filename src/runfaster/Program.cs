@@ -358,6 +358,8 @@ static bool? GetJsonBool(JsonElement element, params string[] names)
             JsonValueKind.True => true,
             JsonValueKind.False => false,
             JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed) => parsed,
+            JsonValueKind.String when string.Equals(value.GetString(), "loop", StringComparison.OrdinalIgnoreCase) => true,
+            JsonValueKind.String when string.IsNullOrWhiteSpace(value.GetString()) => false,
             _ => null
         };
     }
@@ -392,6 +394,12 @@ static bool TryCorrelateInput(
 
     try
     {
+        if (TryCorrelateSpeedscope(path, input.Kind, summary, lookup))
+        {
+            result.DiagnosticInputs.Add(summary);
+            return true;
+        }
+
         int lineCount = 0;
         int matchedRows = 0;
         foreach (var line in File.ReadLines(path))
@@ -422,6 +430,162 @@ static bool TryCorrelateInput(
     }
 }
 
+static bool TryCorrelateSpeedscope(
+    string path,
+    string sourceKind,
+    DiagnosticInputSummary summary,
+    CandidateLookup lookup)
+{
+    if (!path.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase)
+        && !path.EndsWith(".speedscope", StringComparison.OrdinalIgnoreCase))
+    {
+        return false;
+    }
+
+    using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+    var root = document.RootElement;
+    if (!root.TryGetProperty("shared", out var shared)
+        || !shared.TryGetProperty("frames", out var framesElement)
+        || !root.TryGetProperty("profiles", out var profilesElement))
+    {
+        return false;
+    }
+
+    var frames = framesElement.EnumerateArray()
+        .Select(frame => frame.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "")
+        .ToArray();
+
+    int matchedRows = 0;
+    int profileCount = 0;
+    foreach (var profile in profilesElement.EnumerateArray())
+    {
+        profileCount++;
+        var type = profile.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null;
+        if (string.Equals(type, "evented", StringComparison.OrdinalIgnoreCase))
+            matchedRows += CorrelateEventedSpeedscopeProfile(profile, frames, sourceKind, lookup);
+        else if (string.Equals(type, "sampled", StringComparison.OrdinalIgnoreCase))
+            matchedRows += CorrelateSampledSpeedscopeProfile(profile, frames, sourceKind, lookup);
+    }
+
+    summary.MatchedRows = matchedRows;
+    summary.Observations.Add(profileCount == 0
+        ? "speedscope JSON contained no profiles"
+        : $"speedscope profiles: {profileCount.ToString(CultureInfo.InvariantCulture)}");
+    summary.Observations.Add(matchedRows == 0
+        ? "no static allocation candidate matched speedscope frames"
+        : $"matched {matchedRows.ToString(CultureInfo.InvariantCulture)} static candidate row(s) from speedscope frames");
+    return true;
+}
+
+static int CorrelateEventedSpeedscopeProfile(
+    JsonElement profile,
+    string[] frames,
+    string sourceKind,
+    CandidateLookup lookup)
+{
+    if (!profile.TryGetProperty("events", out var eventsElement))
+        return 0;
+
+    var stack = new List<int>();
+    var weightsByFrame = new Dictionary<int, double>();
+    double previousAt = 0;
+    bool havePreviousAt = false;
+
+    foreach (var item in eventsElement.EnumerateArray())
+    {
+        double at = item.TryGetProperty("at", out var atElement) && atElement.TryGetDouble(out var parsedAt)
+            ? parsedAt
+            : previousAt;
+
+        if (havePreviousAt && at > previousAt)
+        {
+            var delta = at - previousAt;
+            foreach (var frameIndex in stack)
+                weightsByFrame[frameIndex] = weightsByFrame.GetValueOrDefault(frameIndex) + delta;
+        }
+
+        havePreviousAt = true;
+        previousAt = at;
+
+        if (!item.TryGetProperty("type", out var typeElement)
+            || !item.TryGetProperty("frame", out var frameElement)
+            || !frameElement.TryGetInt32(out var frame))
+        {
+            continue;
+        }
+
+        var type = typeElement.GetString();
+        if (string.Equals(type, "O", StringComparison.OrdinalIgnoreCase))
+        {
+            stack.Add(frame);
+        }
+        else if (string.Equals(type, "C", StringComparison.OrdinalIgnoreCase))
+        {
+            for (int i = stack.Count - 1; i >= 0; i--)
+            {
+                if (stack[i] == frame)
+                {
+                    stack.RemoveRange(i, stack.Count - i);
+                    break;
+                }
+            }
+        }
+    }
+
+    return MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+}
+
+static int CorrelateSampledSpeedscopeProfile(
+    JsonElement profile,
+    string[] frames,
+    string sourceKind,
+    CandidateLookup lookup)
+{
+    if (!profile.TryGetProperty("samples", out var samplesElement))
+        return 0;
+
+    double[]? weights = null;
+    if (profile.TryGetProperty("weights", out var weightsElement))
+        weights = weightsElement.EnumerateArray().Select(w => w.TryGetDouble(out var value) ? value : 1).ToArray();
+
+    var weightsByFrame = new Dictionary<int, double>();
+    int sampleIndex = 0;
+    foreach (var sample in samplesElement.EnumerateArray())
+    {
+        var weight = weights is not null && sampleIndex < weights.Length ? weights[sampleIndex] : 1;
+        sampleIndex++;
+        foreach (var frameElement in sample.EnumerateArray())
+        {
+            if (!frameElement.TryGetInt32(out var frame))
+                continue;
+            weightsByFrame[frame] = weightsByFrame.GetValueOrDefault(frame) + weight;
+        }
+    }
+
+    return MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+}
+
+static int MarkFrameWeights(
+    IReadOnlyDictionary<int, double> weightsByFrame,
+    string[] frames,
+    string sourceKind,
+    CandidateLookup lookup)
+{
+    int matchedRows = 0;
+    foreach (var (frame, weight) in weightsByFrame.OrderByDescending(pair => pair.Value))
+    {
+        if (frame < 0 || frame >= frames.Length || weight <= 0)
+            continue;
+
+        var matchedIds = new HashSet<int>();
+        foreach (var candidate in lookup.FindByMethodText(frames[frame]))
+            MarkHit(candidate, matchedIds, sourceKind, bytes: null, exactOffset: false, weight);
+        matchedRows += matchedIds.Count;
+    }
+
+    return matchedRows;
+}
+
 static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
 {
     if (string.IsNullOrWhiteSpace(line))
@@ -436,7 +600,7 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
             continue;
 
         foreach (var candidate in lookup.FindByTokenOffset(token, offset))
-            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: true);
+            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: true, weight: 1);
     }
 
     var methodMatches = lookup.FindByMethodText(line);
@@ -452,19 +616,20 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
             if (ilOffset is int offset && candidate.IlOffset >= 0 && candidate.IlOffset != offset)
                 continue;
 
-            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: ilOffset is not null && candidate.IlOffset == ilOffset);
+            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: ilOffset is not null && candidate.IlOffset == ilOffset, weight: 1);
         }
     }
 
     return matchedIds.Count;
 }
 
-static void MarkHit(AllocationCandidate candidate, HashSet<int> matchedIds, string sourceKind, long? bytes, bool exactOffset)
+static void MarkHit(AllocationCandidate candidate, HashSet<int> matchedIds, string sourceKind, long? bytes, bool exactOffset, double weight)
 {
     if (!matchedIds.Add(candidate.Id))
         return;
 
     candidate.RuntimeHits++;
+    candidate.RuntimeWeight += weight;
     if (bytes is long value)
         candidate.RuntimeBytes += value;
     candidate.ObservedSources.Add(sourceKind);
@@ -553,6 +718,7 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
         .Where(c => !options.ConfirmedOnly || c.RuntimeHits > 0)
         .OrderByDescending(c => c.RuntimeHits > 0)
         .ThenByDescending(c => c.ExactOffsetObserved)
+        .ThenByDescending(c => c.RuntimeWeight)
         .ThenByDescending(c => c.RuntimeHits)
         .ThenByDescending(c => c.RuntimeBytes)
         .ThenByDescending(c => c.InLoop)
@@ -596,11 +762,12 @@ static void RenderTable(IReadOnlyList<AllocationCandidate> candidates, bool mark
 {
     string[][] rows =
     [
-        ["Status", "Hits", "Bytes", "Token+IL", "Method", "Kind", "Loop", "Source"],
+        ["Status", "Hits", "Weight", "Bytes", "Token+IL", "Method", "Kind", "Loop", "Source"],
         .. candidates.Select(c => new[]
         {
             c.Status,
             c.RuntimeHits.ToString(CultureInfo.InvariantCulture),
+            c.RuntimeWeight == 0 ? "" : c.RuntimeWeight.ToString("0.##", CultureInfo.InvariantCulture),
             c.RuntimeBytes == 0 ? "" : FormatBytes(c.RuntimeBytes),
             c.TokenAndOffset,
             c.Method,
@@ -613,7 +780,7 @@ static void RenderTable(IReadOnlyList<AllocationCandidate> candidates, bool mark
     if (markdown)
     {
         Console.WriteLine("| " + string.Join(" | ", rows[0].Select(Escape)) + " |");
-        Console.WriteLine("| ------ | ---: | ----: | -------- | ------ | ---- | ---- | ------ |");
+        Console.WriteLine("| ------ | ---: | -----: | ----: | -------- | ------ | ---- | ---- | ------ |");
         foreach (var row in rows.Skip(1))
             Console.WriteLine("| " + string.Join(" | ", row.Select(Escape)) + " |");
         return;
@@ -640,13 +807,14 @@ static void RenderTable(IReadOnlyList<AllocationCandidate> candidates, bool mark
 
 static void RenderSeparated(IReadOnlyList<AllocationCandidate> candidates, string separator)
 {
-    Console.WriteLine(string.Join(separator, ["status", "hits", "bytes", "token_il", "method", "kind", "in_loop", "source"]));
+    Console.WriteLine(string.Join(separator, ["status", "hits", "weight", "bytes", "token_il", "method", "kind", "in_loop", "source"]));
     foreach (var candidate in candidates)
     {
         Console.WriteLine(string.Join(separator,
         [
             candidate.Status,
             candidate.RuntimeHits.ToString(CultureInfo.InvariantCulture),
+            candidate.RuntimeWeight.ToString(CultureInfo.InvariantCulture),
             candidate.RuntimeBytes.ToString(CultureInfo.InvariantCulture),
             candidate.TokenAndOffset,
             candidate.Method,
@@ -716,6 +884,7 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
         writer.WriteString("detail", candidate.Detail);
     writer.WriteBoolean("inLoop", candidate.InLoop);
     writer.WriteNumber("runtimeHits", candidate.RuntimeHits);
+    writer.WriteNumber("runtimeWeight", candidate.RuntimeWeight);
     writer.WriteNumber("runtimeBytes", candidate.RuntimeBytes);
     writer.WriteBoolean("exactOffsetObserved", candidate.ExactOffsetObserved);
     writer.WritePropertyName("observedSources");
@@ -847,6 +1016,7 @@ sealed class AllocationCandidate(
     public string? Frequency { get; } = frequency;
     public string? Escape { get; } = escape;
     public int RuntimeHits { get; set; }
+    public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
     public bool ExactOffsetObserved { get; set; }
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
