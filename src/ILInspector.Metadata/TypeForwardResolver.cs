@@ -27,7 +27,44 @@ public enum AssemblyResolutionScope
 public delegate string? AssemblyLocator(string assemblyName, AssemblyResolutionScope scope);
 
 /// <summary>Where a type is actually defined after following forwarders.</summary>
-public sealed record TypeLocation(string AssemblyPath, string FullTypeName);
+public sealed record TypeLocation(
+    string? AssemblyPath,
+    string FullTypeName,
+    Func<Stream> OpenRead,
+    string AssemblyKey,
+    AssemblyReferenceIdentity? Identity = null,
+    string? Provenance = null)
+{
+    public TypeLocation(string assemblyPath, string fullTypeName)
+        : this(
+            assemblyPath,
+            fullTypeName,
+            () => File.OpenRead(assemblyPath),
+            Path.GetFullPath(assemblyPath),
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(assemblyPath), Version: null, Culture: null, PublicKeyToken: null),
+            Provenance: "Path")
+    {
+    }
+
+    public static TypeLocation From(ResolvedAssemblyReference assembly, string fullTypeName)
+        => new(assembly.Path, fullTypeName, assembly.OpenRead, AssemblyKeyFor(assembly), assembly.Identity, assembly.Provenance);
+
+    public ResolvedAssemblyReference ToResolvedAssemblyReference()
+        => new(
+            Identity ?? new AssemblyReferenceIdentity(
+                AssemblyPath is { Length: > 0 } path ? Path.GetFileNameWithoutExtension(path) : AssemblyKey,
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null),
+            AssemblyPath,
+            OpenRead,
+            Provenance);
+
+    internal static string AssemblyKeyFor(ResolvedAssemblyReference assembly)
+        => assembly.Path is { Length: > 0 } path
+            ? Path.GetFullPath(path)
+            : $"{assembly.Identity.Name}|{assembly.Identity.Version}|{assembly.Identity.Culture}|{assembly.Identity.PublicKeyToken}|{assembly.Provenance}";
+}
 
 /// <summary>
 /// Type-forwarder resolution: the mechanism (ExportedTypes traversal, hop
@@ -71,6 +108,46 @@ public static class TypeForwardResolver
             if (locateAssembly(targetAssembly, scope) is not { } next || !File.Exists(next))
                 return null;
             current = next;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the assembly that defines <paramref name="fullTypeName"/>,
+    /// starting at a resolved assembly descriptor and following type forwarders
+    /// through <paramref name="resolver"/>. Uses <see cref="ResolvedAssemblyReference.OpenRead"/>
+    /// so callers are not required to expose file paths.
+    /// </summary>
+    public static TypeLocation? LocateType(
+        ResolvedAssemblyReference assembly, string fullTypeName, IAssemblyReferenceResolver resolver,
+        int maxHops = 8, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = assembly;
+
+        for (int hop = 0; hop <= maxHops; hop++)
+        {
+            if (!visited.Add(VisitKey(current)))
+                return null;
+
+            if (TryReadMetadata(current.OpenRead, out var reader, out var peReader, out var stream))
+            {
+                using (stream)
+                using (peReader)
+                {
+                    if (FindTypeDefinition(reader, fullTypeName) is { IsNil: false })
+                        return TypeLocation.From(current, fullTypeName);
+
+                    if (ForwardTargetAssemblyIdentity(reader, fullTypeName) is not { } targetAssembly)
+                        return null;
+                    if (resolver.Resolve(targetAssembly, scope) is not { } next)
+                        return null;
+                    current = next;
+                }
+                continue;
+            }
+
+            return null;
         }
         return null;
     }
@@ -125,6 +202,10 @@ public static class TypeForwardResolver
 
     /// <summary>The assembly-reference simple name a forwarder for <paramref name="fullTypeName"/> points at, or null (exact-name match, one hop).</summary>
     public static string? ForwardTargetAssembly(MetadataReader reader, string fullTypeName)
+        => ForwardTargetAssemblyIdentity(reader, fullTypeName)?.Name;
+
+    /// <summary>The assembly-reference identity a forwarder for <paramref name="fullTypeName"/> points at, or null (exact-name match, one hop).</summary>
+    public static AssemblyReferenceIdentity? ForwardTargetAssemblyIdentity(MetadataReader reader, string fullTypeName)
     {
         foreach (var handle in reader.ExportedTypes)
         {
@@ -135,8 +216,7 @@ public static class TypeForwardResolver
                 continue;
             if (exported.Implementation.Kind == HandleKind.AssemblyReference)
             {
-                var assembly = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
-                return reader.GetString(assembly.Name);
+                return AssemblyReferenceIdentity.From(reader, (AssemblyReferenceHandle)exported.Implementation);
             }
         }
         return null;
@@ -159,4 +239,37 @@ public static class TypeForwardResolver
         string nameText = reader.GetString(name);
         return nsText.Length == 0 ? nameText : $"{nsText}.{nameText}";
     }
+
+    static bool TryReadMetadata(Func<Stream> openRead, out MetadataReader reader, out PEReader peReader, out Stream stream)
+    {
+        reader = null!;
+        peReader = null!;
+        stream = null!;
+        try
+        {
+            stream = openRead();
+            peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+            {
+                peReader.Dispose();
+                stream.Dispose();
+                peReader = null!;
+                stream = null!;
+                return false;
+            }
+            reader = peReader.GetMetadataReader();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            peReader?.Dispose();
+            stream?.Dispose();
+            peReader = null!;
+            stream = null!;
+            return false;
+        }
+    }
+
+    static string VisitKey(ResolvedAssemblyReference assembly)
+        => TypeLocation.AssemblyKeyFor(assembly);
 }

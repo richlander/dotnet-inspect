@@ -76,4 +76,22 @@ public static class AssemblyReferenceResolverExtensions
                 ? null
                 : throw new NotSupportedException("AssemblyLocator requires a file-backed resolver result."));
         };
+
+    public static IAssemblyReferenceResolver ToAssemblyReferenceResolver(this AssemblyLocator locator)
+        => new AssemblyLocatorReferenceResolver(locator);
+
+    sealed class AssemblyLocatorReferenceResolver(AssemblyLocator locator) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            if (locator(identity.Name, scope) is not { } path)
+                return null;
+
+            return new ResolvedAssemblyReference(
+                identity,
+                path,
+                () => File.OpenRead(path),
+                Provenance: "AssemblyLocator");
+        }
+    }
 }
