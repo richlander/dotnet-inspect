@@ -704,6 +704,7 @@ public class LibraryInspectionView
                 o.Loop,
                 o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
                 o.Path,
+                o.PathConfidence,
                 o.IL is null ? null : MarkoutInline.Code(o.IL)))
             .ToList();
 
