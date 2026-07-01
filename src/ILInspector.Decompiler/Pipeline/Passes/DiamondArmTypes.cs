@@ -27,22 +27,48 @@ static class DiamondArmTypes
     /// </summary>
     public static TypeRef? ConflictingArmType(IrExpression whenTrue, IrExpression whenFalse, IrFunction function)
     {
-        if (IsIntegerConstant(whenTrue) && !IsIntegerConstant(whenFalse) && IsEnumTarget(whenFalse.ResultType, function))
+        if (IsIntegerConstant(whenTrue, out var trueValue) && !IsIntegerConstant(whenFalse, out _) && FitsEnumTarget(trueValue, whenFalse.ResultType, function))
             return whenFalse.ResultType;
-        if (IsIntegerConstant(whenFalse) && !IsIntegerConstant(whenTrue) && IsEnumTarget(whenTrue.ResultType, function))
+        if (IsIntegerConstant(whenFalse, out var falseValue) && !IsIntegerConstant(whenTrue, out _) && FitsEnumTarget(falseValue, whenTrue.ResultType, function))
             return whenTrue.ResultType;
         return null;
     }
 
-    static bool IsIntegerConstant(IrExpression expression)
-        => expression is Constant constant && TypeFamilies.IsIntegerLike(constant.Type);
+    static bool IsIntegerConstant(IrExpression expression, out long value)
+    {
+        if (expression is Constant constant && TypeFamilies.IsIntegerLike(constant.Type) && TryToInt64(constant.Value, out value))
+            return true;
+        value = 0;
+        return false;
+    }
 
-    // Restricted to enum targets: the printer always renders an integer arm for an
-    // enum-typed conditional with an explicit `(EnumType)value` cast, so anchoring
-    // to a known enum is faithful and valid for any integer constant. A plain
-    // integer target has no such guarantee — a narrower or out-of-range constant
-    // (e.g. `byte b = c ? 300 : x`) would need a cast the arm printer omits — so it
-    // is intentionally excluded.
-    static bool IsEnumTarget(TypeRef? type, IrFunction function)
-        => type is not null && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum;
+    // Anchors only to an enum whose underlying type can represent the constant. The
+    // printer renders an integer arm of an enum-typed conditional as an explicit
+    // `(EnumType)value` cast; that cast is a constant-expression conversion, so it
+    // only compiles when the value is in the underlying type's range (`(Tiny)300`
+    // for `enum Tiny : byte` is CS0221). A plain (non-enum) integer target is
+    // excluded entirely: the arm printer omits the cast a narrower or out-of-range
+    // constant would need (e.g. `byte b = c ? 300 : x`).
+    static bool FitsEnumTarget(long value, TypeRef? type, IrFunction function)
+        => type is not null
+            && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum
+            && function.EnumUnderlyingTypes.TryGetValue(type, out var underlying)
+            && TypeFamilies.ConstantFits(value, underlying);
+
+    static bool TryToInt64(object? value, out long result)
+    {
+        switch (value)
+        {
+            case int i: result = i; return true;
+            case long l: result = l; return true;
+            case short s: result = s; return true;
+            case sbyte sb: result = sb; return true;
+            case byte b: result = b; return true;
+            case ushort us: result = us; return true;
+            case uint ui: result = ui; return true;
+            case char c: result = c; return true;
+            case ulong ul when ul <= long.MaxValue: result = (long)ul; return true;
+            default: result = 0; return false;
+        }
+    }
 }

@@ -9,20 +9,23 @@ namespace ILInspector.Decompiler.Tests;
 /// importer cannot merge a reused stack slot (its load type is unknown because
 /// the join carries conflicting types, e.g. an <c>int</c> constant on one path
 /// and an enum on the other), the folded conditional's result type must resolve
-/// to the concrete enum regardless of which arm the (polarity-preserved) branch
-/// leaves first. Otherwise the printer collapses the slot to <c>int</c> and
-/// renders the enum use without a cast — invalid C# (#1901 regression).
+/// to the enum regardless of which arm the (polarity-preserved) branch leaves
+/// first — but only when the constant is representable by the enum's underlying
+/// type, so the printer's <c>(EnumType)value</c> cast compiles. Otherwise the
+/// printer collapses the slot to <c>int</c> and renders the enum use without a
+/// cast — invalid C# (#1901 regression).
 /// </summary>
 public class DiamondArmTypeReconciliationTests
 {
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Byte = TypeRef.CoreLib("System", "Byte");
     static readonly TypeRef Kind = TypeRef.Definition("Synthetic", "Samples", "Kind");
 
     [Fact]
-    public void ConflictingArmType_IntegerConstantAndEnum_ResolvesToEnum()
+    public void ConflictingArmType_IntConstantAndIntBackedEnum_ResolvesToEnum()
     {
-        var function = FunctionWithEnumShape();
+        var function = FunctionWithEnum(Int32);
         var intConstant = new Constant(4, Int32);
         var enumValue = new Call(new MethodRef(Kind, "Get", Kind, [], HasThis: false), isVirtual: false, []);
 
@@ -31,9 +34,28 @@ public class DiamondArmTypeReconciliationTests
     }
 
     [Fact]
+    public void ConflictingArmType_InRangeConstantAndByteBackedEnum_ResolvesToEnum()
+    {
+        var function = FunctionWithEnum(Byte);
+        var enumValue = new Call(new MethodRef(Kind, "Get", Kind, [], HasThis: false), isVirtual: false, []);
+        Assert.Equal(Kind, DiamondArmTypes.ConflictingArmType(new Constant(4, Int32), enumValue, function));
+    }
+
+    [Fact]
+    public void ConflictingArmType_OutOfRangeConstantAndByteBackedEnum_IsUnresolved()
+    {
+        // `(Kind)300` where `Kind : byte` is CS0221 — the printer's enum cast is a
+        // constant-expression conversion, so it only compiles in range. Decline
+        // rather than emit invalid C#.
+        var function = FunctionWithEnum(Byte);
+        var enumValue = new Call(new MethodRef(Kind, "Get", Kind, [], HasThis: false), isVirtual: false, []);
+        Assert.Null(DiamondArmTypes.ConflictingArmType(new Constant(300, Int32), enumValue, function));
+    }
+
+    [Fact]
     public void ConflictingArmType_TwoIntegerConstants_IsUnresolved()
     {
-        var function = FunctionWithEnumShape();
+        var function = FunctionWithEnum(Int32);
         Assert.Null(DiamondArmTypes.ConflictingArmType(new Constant(4, Int32), new Constant(8, Int32), function));
     }
 
@@ -42,10 +64,10 @@ public class DiamondArmTypeReconciliationTests
     {
         // A plain (non-enum) integer concrete arm is intentionally excluded: the
         // arm printer would omit the cast a narrower or out-of-range constant needs
-        // (e.g. `byte b = c ? 300 : x`). Only enum targets, which always render an
-        // explicit `(EnumType)value` cast, are anchored.
-        var function = FunctionWithEnumShape();
-        var byteValue = new Call(new MethodRef(Kind, "GetByte", TypeRef.CoreLib("System", "Byte"), [], HasThis: false), isVirtual: false, []);
+        // (e.g. `byte b = c ? 300 : x`). Only enum targets, which render an explicit
+        // `(EnumType)value` cast, are anchored.
+        var function = FunctionWithEnum(Int32);
+        var byteValue = new Call(new MethodRef(Kind, "GetByte", Byte, [], HasThis: false), isVirtual: false, []);
         Assert.Null(DiamondArmTypes.ConflictingArmType(new Constant(300, Int32), byteValue, function));
     }
 
@@ -79,6 +101,7 @@ public class DiamondArmTypeReconciliationTests
             body)
         {
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [Kind] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [Kind] = Int32 },
         };
 
         new SlotDiamondPass().Run(function, PassContext.None);
@@ -87,7 +110,7 @@ public class DiamondArmTypeReconciliationTests
         Assert.Equal(Kind, conditional.ResultType);
     }
 
-    static IrFunction FunctionWithEnumShape()
+    static IrFunction FunctionWithEnum(TypeRef underlying)
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var body = new BlockContainer();
@@ -102,6 +125,7 @@ public class DiamondArmTypeReconciliationTests
             body)
         {
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [Kind] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [Kind] = underlying },
         };
     }
 }
