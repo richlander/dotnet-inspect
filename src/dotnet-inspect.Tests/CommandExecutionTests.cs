@@ -36,6 +36,11 @@ public class CommandExecutionTests
         }
     }
 
+    private sealed class ILOffsetFloatFixture
+    {
+        public float FloatConstant() => 1.5f;
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalRefPackage(params string[] assemblyNames)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -4484,6 +4489,7 @@ public class CommandExecutionTests
                 "Health Checks",
                 "Hosting",
                 "HTTP Client",
+                "Instruction Context",
                 "Integration Opportunities",
                 "Integrations",
                 "Logging",
@@ -4571,6 +4577,7 @@ public class CommandExecutionTests
         Assert.Contains("| IL Offset | 0x0 |", output);
         Assert.Contains("HexConverter.cs", output);
         Assert.Contains("## Member Context", output);
+        Assert.Contains("## Instruction Context", output);
     }
 
     [Fact]
@@ -4630,8 +4637,10 @@ public class CommandExecutionTests
         Assert.Empty(withError);
         Assert.DoesNotContain("Source Location", withoutOutput);
         Assert.DoesNotContain("Member Context", withoutOutput);
+        Assert.DoesNotContain("Instruction Context", withoutOutput);
         Assert.Contains("Source Location", withOutput);
         Assert.Contains("Member Context", withOutput);
+        Assert.Contains("Instruction Context", withOutput);
     }
 
     [Fact]
@@ -4676,6 +4685,86 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("| Member | DotnetInspector.Tests.CommandExecutionTests.ILOffsetAsyncFixture.StateMachineAsync |", output);
         Assert.Contains("| Async | Runtime |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetInstructionContext_RendersInstructionFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "Instruction Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Instruction Context", output);
+        Assert.Contains("| IL Offset | 0x0 |", output);
+        Assert.Contains("| Boundary | Exact |", output);
+        Assert.Contains("| Opcode | ldarg.0 |", output);
+        Assert.Contains("| Operand Kind | None |", output);
+        Assert.Contains("| Next Offset | 0x1 |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetInstructionContext_ValueProjectsOpcode()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "Instruction Context", "--fields", "Opcode", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("ldarg.0", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetInstructionContext_RequiresInstructionBoundary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x2", "-S", "Instruction Context", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not an instruction boundary", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetBareReport_RequiresInstructionBoundary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x2", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not an instruction boundary", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetMemberContext_AllowsNonInstructionBoundary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x2", "-S", "Member Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Member Context", output);
+        Assert.Contains("| Member | System.HexConverter.FromChar |", output);
+        Assert.DoesNotContain("## Instruction Context", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetInstructionContext_FormatsFloatOperands()
+    {
+        var token = typeof(ILOffsetFloatFixture).GetMethod(nameof(ILOffsetFloatFixture.FloatConstant))!.MetadataToken;
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", $"0x{token:X}+0x0", "-S", "Instruction Context", "--fields", "Operand", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1.5", output.Trim());
     }
 
     [Fact]

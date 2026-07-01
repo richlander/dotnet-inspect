@@ -502,6 +502,7 @@ public class ILOffsetResult
     public int? Line { get; init; }
     public string? Url { get; init; }
     public ILOffsetMemberContext? MemberContext { get; init; }
+    public ILOffsetInstructionContext? InstructionContext { get; init; }
 }
 
 public class ILOffsetMemberContext
@@ -517,6 +518,22 @@ public class ILOffsetMemberContext
     public string? Async { get; init; }
     public string? MetadataToken { get; init; }
     public string? ILOffset { get; init; }
+}
+
+public class ILOffsetInstructionContext
+{
+    public string? ILOffset { get; init; }
+    public string? Boundary { get; init; }
+    public string? Opcode { get; init; }
+    public string? OperandKind { get; init; }
+    public string? Operand { get; init; }
+    public string? OperandToken { get; init; }
+    public string? BranchTargets { get; init; }
+    public string? NextOffset { get; init; }
+    public int? Length { get; init; }
+    public int? Block { get; init; }
+    public string? TerminatesBlock { get; init; }
+    public string? FallsThrough { get; init; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);

@@ -1,7 +1,9 @@
 using System.Reflection;
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.Instructions;
 
 namespace ILInspector.Metadata;
 
@@ -34,6 +36,20 @@ public record ILOffsetMemberContextInfo(
     string? Async,
     int MetadataToken,
     int ILOffset);
+
+public record ILOffsetInstructionContextInfo(
+    int ILOffset,
+    string Boundary,
+    string Opcode,
+    string OperandKind,
+    string? Operand,
+    string? OperandToken,
+    string? BranchTargets,
+    int NextOffset,
+    int Length,
+    int? Block,
+    bool TerminatesBlock,
+    bool FallsThrough);
 
 /// <summary>
 /// Wraps PE + PDB readers, exposes high-level operations with no SRM in public signatures.
@@ -274,6 +290,69 @@ public class PdbContext : IDisposable
         }
     }
 
+    public ILOffsetInstructionContextInfo? ResolveInstructionContext(int methodToken, int ilOffset, out string? error)
+    {
+        error = null;
+        if (!_peReader.HasMetadata)
+            return null;
+
+        var handle = MetadataTokens.Handle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+        {
+            error = $"Token 0x{methodToken:X} is not a MethodDef token.";
+            return null;
+        }
+
+        try
+        {
+            var reader = _peReader.GetMetadataReader();
+            var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+            if (method.RelativeVirtualAddress == 0)
+            {
+                error = $"Method token 0x{methodToken:X} has no IL body.";
+                return null;
+            }
+
+            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+            var instructions = MethodInstructions.Decode(body);
+            if (!instructions.IsComplete)
+            {
+                error = $"Could not decode IL for token 0x{methodToken:X}: {instructions.Blocks.IncompleteReason}";
+                return null;
+            }
+
+            var instruction = instructions.InstructionAt(ilOffset);
+            if (instruction is null)
+            {
+                error = $"IL offset 0x{ilOffset:X} is not an instruction boundary for token 0x{methodToken:X}.";
+                return null;
+            }
+
+            var operand = ResolveInstructionOperand(reader, instruction);
+            var blockIndex = instructions.BlockIndexAt(ilOffset);
+            return new ILOffsetInstructionContextInfo(
+                ILOffset: ilOffset,
+                Boundary: "Exact",
+                Opcode: ILDisassembler.GetDisplayName(instruction.OpCode),
+                OperandKind: operand.Kind,
+                Operand: operand.Value,
+                OperandToken: operand.Token,
+                BranchTargets: instruction.BranchTargets.IsDefaultOrEmpty
+                    ? null
+                    : string.Join(", ", instruction.BranchTargets.Select(FormatILOffset)),
+                NextOffset: instruction.NextOffset,
+                Length: instruction.Length,
+                Block: blockIndex >= 0 ? blockIndex : null,
+                TerminatesBlock: instruction.TerminatesBlock,
+                FallsThrough: instruction.FallsThrough);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            error = $"Could not resolve instruction context for token 0x{methodToken:X}+0x{ilOffset:X}.";
+            return null;
+        }
+    }
+
     /// <summary>
     /// Resolves source file and line range for a specific method overload.
     /// </summary>
@@ -371,6 +450,51 @@ public class PdbContext : IDisposable
             HandleKind.TypeDefinition => reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)type.BaseType)),
             _ => null
         };
+
+    private static (string Kind, string? Value, string? Token) ResolveInstructionOperand(
+        MetadataReader reader,
+        DecodedInstruction instruction)
+    {
+        int token = (int)instruction.OperandValue;
+        return instruction.Operand switch
+        {
+            ILInspector.Instructions.OperandKind.None => ("None", null, null),
+            ILInspector.Instructions.OperandKind.InlineMethod => ("Method", ILTokenResolver.ResolveMethod(reader, token), FormatToken(token)),
+            ILInspector.Instructions.OperandKind.InlineField => ("Field", ILTokenResolver.ResolveField(reader, token), FormatToken(token)),
+            ILInspector.Instructions.OperandKind.InlineType => ("Type", ILTokenResolver.ResolveType(reader, token), FormatToken(token)),
+            ILInspector.Instructions.OperandKind.InlineString => ("String", ILTokenResolver.ResolveString(reader, token), FormatToken(token)),
+            ILInspector.Instructions.OperandKind.InlineTok => ("Token", ILTokenResolver.ResolveToken(reader, token), FormatToken(token)),
+            ILInspector.Instructions.OperandKind.InlineSig => ("Signature", FormatToken(token), FormatToken(token)),
+            ILInspector.Instructions.OperandKind.ShortInlineBrTarget or ILInspector.Instructions.OperandKind.InlineBrTarget
+                => ("Branch Target", FormatTargets(instruction), null),
+            ILInspector.Instructions.OperandKind.InlineSwitch => ("Switch Targets", FormatTargets(instruction), null),
+            ILInspector.Instructions.OperandKind.ShortInlineVar or ILInspector.Instructions.OperandKind.InlineVar
+                => (IsArgumentOpcode(instruction.OpCode) ? "Argument" : "Local", instruction.OperandValue.ToString(CultureInfo.InvariantCulture), null),
+            ILInspector.Instructions.OperandKind.ShortInlineI
+                or ILInspector.Instructions.OperandKind.InlineI
+                or ILInspector.Instructions.OperandKind.InlineI8
+                => ("Constant", instruction.OperandValue.ToString(CultureInfo.InvariantCulture), null),
+            ILInspector.Instructions.OperandKind.ShortInlineR
+                => ("Constant", BitConverter.Int32BitsToSingle((int)instruction.OperandValue).ToString(CultureInfo.InvariantCulture), null),
+            ILInspector.Instructions.OperandKind.InlineR
+                => ("Constant", BitConverter.Int64BitsToDouble(instruction.OperandValue).ToString(CultureInfo.InvariantCulture), null),
+            _ => (instruction.Operand.ToString(), instruction.OperandValue.ToString(CultureInfo.InvariantCulture), null)
+        };
+    }
+
+    private static bool IsArgumentOpcode(ILOpCode opcode)
+        => opcode is ILOpCode.Ldarg or ILOpCode.Ldarga or ILOpCode.Starg
+            or ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s
+            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3;
+
+    private static string? FormatTargets(DecodedInstruction instruction)
+        => instruction.BranchTargets.IsDefaultOrEmpty
+            ? null
+            : string.Join(", ", instruction.BranchTargets.Select(FormatILOffset));
+
+    private static string FormatILOffset(int offset) => $"IL_{offset:X4}";
+
+    private static string FormatToken(int token) => $"0x{token:X8}";
 
     /// <summary>
     /// Finds a type forwarder target assembly name for a given type.

@@ -43,6 +43,13 @@ internal static class ILOffsetSourceQuery
             return (1, null);
         }
 
+        var instructionContext = pdbContext.ResolveInstructionContext(methodToken, ilOffset, out var instructionError);
+        if (instructionContext == null && RequiresInstructionContext(options))
+        {
+            Console.Error.WriteLine($"Error: {instructionError ?? $"Could not resolve instruction context for token 0x{methodToken:X}+0x{ilOffset:X}."}");
+            return (1, null);
+        }
+
         SourceLinkResolver.ILOffsetSourceInfo? result = null;
         if (RequiresSourceLocation(options))
         {
@@ -98,6 +105,21 @@ internal static class ILOffsetSourceQuery
                 Async = memberContext.Async,
                 MetadataToken = $"0x{memberContext.MetadataToken:X}",
                 ILOffset = $"0x{memberContext.ILOffset:X}"
+            },
+            InstructionContext = instructionContext is null ? null : new ILOffsetInstructionContext
+            {
+                ILOffset = $"0x{instructionContext.ILOffset:X}",
+                Boundary = instructionContext.Boundary,
+                Opcode = instructionContext.Opcode,
+                OperandKind = instructionContext.OperandKind,
+                Operand = instructionContext.Operand,
+                OperandToken = instructionContext.OperandToken,
+                BranchTargets = instructionContext.BranchTargets,
+                NextOffset = $"0x{instructionContext.NextOffset:X}",
+                Length = instructionContext.Length,
+                Block = instructionContext.Block,
+                TerminatesBlock = instructionContext.TerminatesBlock ? "Yes" : "No",
+                FallsThrough = instructionContext.FallsThrough ? "Yes" : "No"
             }
         };
 
@@ -106,6 +128,9 @@ internal static class ILOffsetSourceQuery
 
     private static bool RequiresSourceLocation(LibraryOptions options)
         => options.IncludeSections?.Contains(SectionNames.ILOffset) == true;
+
+    private static bool RequiresInstructionContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.InstructionContext) == true;
 
     public static bool TryParse(string value, out int methodToken, out int ilOffset)
     {

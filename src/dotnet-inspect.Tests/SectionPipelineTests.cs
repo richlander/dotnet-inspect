@@ -251,7 +251,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(38, pipeline.AllSectionNames.Length);
+        Assert.Equal(39, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -261,6 +261,7 @@ public class SectionPipelineTests
         Assert.Contains("Health Checks", pipeline.AllSectionNames);
         Assert.Contains("Hosting", pipeline.AllSectionNames);
         Assert.Contains("HTTP Client", pipeline.AllSectionNames);
+        Assert.Contains("Instruction Context", pipeline.AllSectionNames);
         Assert.Contains("Source Location", pipeline.AllSectionNames);
         Assert.Contains("Member Context", pipeline.AllSectionNames);
         Assert.Contains("Integration Opportunities", pipeline.AllSectionNames);
@@ -287,7 +288,7 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["Source Location", "Member Context"], StringComparer.OrdinalIgnoreCase)
+            ? registered.Except(["Source Location", "Member Context", "Instruction Context"], StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -540,12 +541,15 @@ public class SectionPipelineTests
 
         Assert.DoesNotContain("Source Location", applicable);
         Assert.DoesNotContain("Member Context", applicable);
+        Assert.DoesNotContain("Instruction Context", applicable);
         Assert.DoesNotContain("Source Location", renderable);
         Assert.DoesNotContain("Member Context", renderable);
+        Assert.DoesNotContain("Instruction Context", renderable);
 
         model.ILOffset = new ILOffsetResult
         {
-            MemberContext = new ILOffsetMemberContext()
+            MemberContext = new ILOffsetMemberContext(),
+            InstructionContext = new ILOffsetInstructionContext()
         };
 
         applicable = pipeline.GetApplicableSections(model);
@@ -553,8 +557,10 @@ public class SectionPipelineTests
 
         Assert.Contains("Source Location", applicable);
         Assert.Contains("Member Context", applicable);
+        Assert.Contains("Instruction Context", applicable);
         Assert.Contains("Source Location", renderable);
         Assert.Contains("Member Context", renderable);
+        Assert.Contains("Instruction Context", renderable);
     }
 
     [Fact]
