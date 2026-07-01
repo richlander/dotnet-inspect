@@ -133,39 +133,50 @@ The JIT (IL → machine code) never spells C#, but it *does* reconstruct types f
 IL's loosely-typed stack, which is our prerequisite:
 
 - The importer normalises the `int32`/`int64`/`native int` stack into a typed
-  `GenTree`, inserting explicit `GT_CAST` nodes; conversions become IR at import,
-  never re-decided at codegen.
-- At join points it **merges the entry-state stack types to a common supertype** and
-  (separately) **spills mismatched entries to typed temps** — two related but
-  distinct mechanisms. Together they are the analogue of our slot-merge-at-join,
-  which today drops to `Unknown` and taints fidelity; the JIT's typed-temp model is
-  how to do it completely.
+  `GenTree` — retagging integer constants in place and inserting `GT_CAST` for other
+  narrowing/sign-changing inputs; conversions become IR at import, never re-decided
+  at codegen.
+- At join points it **spills non-empty stack slots to shared typed temps**, and for
+  a few supported conflicts (`int`/native-int/byref, `float`/`double`) it upgrades
+  the temp and reimports the clique or inserts casts on the narrower inputs. This is
+  *targeted* conflict repair, not a general supertype algorithm — but it is the same
+  operation as our slot-merge-at-join, which today drops to `Unknown` and taints
+  fidelity, and the typed-temp model is how to do it more completely.
 
 ### ILSpy — the same-domain existence proof
 
 ILSpy raises IL → C# and has exactly the abstraction we lack: a
 **`TranslatedExpression`** that carries the expression *and* its resolved type, with
-a single `.ConvertTo(targetType, …)` method that is *the* coercion site. Its
-`ExpressionBuilder` never open-codes a cast; it produces a translated expression and
-converts it. This is the closest working reference and the most convincing proof the
-choke point is achievable under the IL→C# constraint.
+`.ConvertTo(targetType, …)` as its **primary, de-facto coercion choke point**.
+`ExpressionBuilder` defers casts to it pervasively and only open-codes a
+`CastExpression` in a few genuinely semantic cases (delegate/lambda, some
+unbox-related paths), and there is a sibling `ConvertToBoolean` for the truthiness
+case. It is not literally one method — but the discipline (a typed expression with a
+single dominant conversion entry point) is exactly the shape we want, and it is the
+most convincing proof the choke point is achievable under the IL→C# constraint.
 
 ### Ghidra — the non-.NET cross-check
 
-Ghidra's decompiler propagates data types through P-code as a dataflow lattice and
-inserts casts through a single `CastStrategy`. Different language, same shape:
-propagation feeds one cast-insertion policy.
+Ghidra's decompiler runs **monotone type propagation over its data-type ordering**
+(`ActionInferTypes`, not a formal meet/join lattice) and inserts casts through a
+**language-selected `CastStrategy` implementation** (`CastStrategyC`,
+`CastStrategyJava`). Different language, same shape: propagation feeds one
+cast-insertion policy per target language.
 
 ## The capability — two halves of one type
 
 ### 1. Target type on every sink
 
-Each value-consuming position declares the type it expects. Most IR nodes already
-carry it structurally (a `StoreElement` knows its array's element type; a `Box`
-knows the boxed type; a `Return` has the method's return type) — the gap is that
-the printer sometimes reads the *storage-opcode* type instead of the *semantic*
-type (the `stelem.i8` → `long` defect). Where a sink's target is genuinely
-implicit, it is derived once and attached, not re-derived per print.
+Each value-consuming position declares the type it expects. Some sinks carry it
+directly (a `Box` knows the boxed type; a `Return` has the method's return type),
+but others **do not, and this is part of the work**: `StoreElement.ElementType` is
+often the `stelem.*` *storage* type (`Int64` for `stelem.i8` into an enum array,
+because the importer only prefers the array element when widths match), so the
+semantic target must be *derived* from `array.ResultType`'s element type, distinct
+from the opcode storage type. The rule is: every sink resolves a *semantic* target
+type once — from the array/field/parameter/return type, not the storage opcode —
+and attaches it, rather than the printer re-deriving (and sometimes mis-reading) it
+per print.
 
 ### 2. `Coerce(value, targetType)` — the node
 
@@ -181,10 +192,16 @@ owns, in one place, the rules the printer currently spreads around:
   `Enum`-shape-without-`value__` (assume C#'s default `int`);
 - enum ↔ underlying, numeric widening, `null`-literal typing;
 - seeing through a widening `conv.i8`/`conv.u8` over an integer constant (small and
-  unsigned `long`-backed enum members lower this way).
+  unsigned `long`-backed enum members lower this way);
+- **lexical `checked`/`unchecked` context.** The same value and target need a bare
+  `(T)x` outside a `checked` region but `unchecked((T)x)` inside one — otherwise a
+  narrowing/sign-changing constant cast silently recompiles to `conv.ovf.*` the IL
+  never had (today handled by `CheckedSafeCast` / `_checkedContext`). So the render
+  is not total on `(value, targetType)` alone.
 
-The rendering rule is one total function of `(value, targetType)`; the printer
-calls it and never open-codes `(T)x` again.
+The rendering rule is one function of `(value, targetType, checkedContext)` — the
+checked context either threaded in or captured on the node — and the printer calls
+it and never open-codes `(T)x` again.
 
 **`Convert` and `Coerce` compose; they do not merge.** At a sink where the value
 already carries a `Convert` (an IL `conv.i8`) *and* the target type mismatches,
