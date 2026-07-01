@@ -606,7 +606,6 @@ public class LibraryInspectionView
                 context.SafetyKind,
                 context.Operation,
                 context.Requirement,
-                context.Confidence,
                 context.Evidence))
             .ToList();
 
@@ -1018,7 +1017,6 @@ public record ILOffsetSafetyContextRow(
     [property: MarkoutPropertyName("Safety Kind")] string? SafetyKind,
     string? Operation,
     string? Requirement,
-    string? Confidence,
     string? Evidence);
 
 [MarkoutSerializable]

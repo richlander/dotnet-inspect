@@ -590,7 +590,6 @@ public class ILOffsetSafetyContext
     public string? SafetyKind { get; init; }
     public string? Operation { get; init; }
     public string? Requirement { get; init; }
-    public string? Confidence { get; init; }
     public string? Evidence { get; init; }
 }
 

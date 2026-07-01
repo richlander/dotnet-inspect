@@ -444,9 +444,6 @@ public class LibraryCommand
             select.Add(SectionNames.ExceptionContext);
             select.Add(SectionNames.CallsiteContext);
             select.Add(SectionNames.ReturnAddressContext);
-            select.Add(SectionNames.AllocationContext);
-            select.Add(SectionNames.SafetyContext);
-            select.Add(SectionNames.CostContext);
         }
 
         return (options with

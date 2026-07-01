@@ -11,6 +11,10 @@ namespace DotnetInspector.Commands;
 
 internal static class ILOffsetSourceQuery
 {
+    const int MaxCachedIndexes = 4;
+    static readonly object s_indexLock = new();
+    static readonly Dictionary<string, Analysis.LibraryBodyIndex> s_indexes = new(PathComparer());
+
     public static async Task<(int ExitCode, ILOffsetResult? Result)> ResolveAsync(
         string dllPath,
         string? packageName,
@@ -77,18 +81,17 @@ internal static class ILOffsetSourceQuery
         List<ILOffsetCostContext>? costContext = null;
         if (RequiresSemanticContext(options))
         {
-            var index = Analysis.LibraryBodyIndex.Open(dllPath);
-            var methodScope = (Analysis.MethodIdentity method) => method.MetadataToken == methodToken;
+            var index = GetLibraryIndex(dllPath);
             if (RequiresAllocationContext(options))
-                allocationContext = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodScope, ilOffset)
+                allocationContext = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodToken, ilOffset)
                     .Select(ToILOffsetAllocationContext)
                     .ToList();
             if (RequiresSafetyContext(options))
-                safetyContext = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodScope, ilOffset)
+                safetyContext = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodToken, ilOffset)
                     .Select(ToILOffsetSafetyContext)
                     .ToList();
             if (RequiresCostContext(options))
-                costContext = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodScope, ilOffset)
+                costContext = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodToken, ilOffset)
                     .Select(ToILOffsetCostContext)
                     .ToList();
         }
@@ -254,7 +257,6 @@ internal static class ILOffsetSourceQuery
             SafetyKind = fact.SafetyKind,
             Operation = fact.Operation,
             Requirement = fact.Requirement,
-            Confidence = fact.Confidence,
             Evidence = fact.Evidence
         };
 
@@ -312,4 +314,24 @@ internal static class ILOffsetSourceQuery
         Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink Availability\"' for full source reachability.");
         Console.Error.WriteLine();
     }
+
+    private static Analysis.LibraryBodyIndex GetLibraryIndex(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        lock (s_indexLock)
+        {
+            if (s_indexes.TryGetValue(fullPath, out var index))
+                return index;
+            if (s_indexes.Count >= MaxCachedIndexes)
+                s_indexes.Clear();
+            index = Analysis.LibraryBodyIndex.Open(fullPath);
+            s_indexes[fullPath] = index;
+            return index;
+        }
+    }
+
+    private static StringComparer PathComparer()
+        => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
 }

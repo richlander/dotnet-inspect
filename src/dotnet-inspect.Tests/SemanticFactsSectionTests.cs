@@ -26,6 +26,8 @@ public class SemanticFactsSectionTests
         Assert.Contains("array", result.Output);
         Assert.Contains("stackalloc", result.Output);
         Assert.Contains("virtual dispatch", result.Output);
+        Assert.DoesNotContain("Confidence", result.Output);
+        Assert.DoesNotContain("construction", result.Output);
         Assert.DoesNotContain("Root Reach", result.Output);
         Assert.DoesNotContain("Fix Direction", result.Output);
     }
@@ -64,6 +66,7 @@ public class SemanticFactsSectionTests
             AssemblyName = TestAssemblyPath,
             ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{allocationOffset:X}",
             IncludeSections = [SectionNames.AllocationContext],
+            Select = [SectionNames.AllocationContext],
             Verbosity = Verbosity.Minimal,
             Markdown = true,
             FormatExplicitlySet = true,

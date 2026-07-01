@@ -19,7 +19,6 @@ public sealed record SafetyFact(
     string SafetyKind,
     string Operation,
     string Requirement,
-    string Confidence,
     string Evidence);
 
 public sealed record CostFact(
@@ -34,11 +33,26 @@ public static class SemanticFactProjection
 {
     public static ImmutableArray<AllocationFact> AllocationFacts(
         IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> occurrences,
+        int methodToken,
+        int? ilOffset = null)
+        => occurrences.TryGetValue(methodToken, out var methodOccurrences)
+            ? ProjectAllocationFacts(methodOccurrences, ilOffset)
+            : [];
+
+    public static ImmutableArray<AllocationFact> AllocationFacts(
+        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> occurrences,
         Func<MethodIdentity, bool>? methodScope = null,
         int? ilOffset = null)
-        => [.. occurrences.Values
-            .SelectMany(group => group)
+        => ProjectAllocationFacts(
+            occurrences.Values.SelectMany(group => group)
             .Where(occurrence => methodScope is null || methodScope(occurrence.Method))
+            .ToArray(),
+            ilOffset);
+
+    static ImmutableArray<AllocationFact> ProjectAllocationFacts(
+        IEnumerable<AllocationOccurrence> occurrences,
+        int? ilOffset)
+        => [.. occurrences
             .Where(occurrence => ilOffset is null || occurrence.ILOffset == ilOffset)
             .OrderBy(occurrence => occurrence.Method.MetadataToken)
             .ThenBy(occurrence => occurrence.ILOffset)
@@ -56,12 +70,30 @@ public static class SemanticFactProjection
     public static ImmutableArray<SafetyFact> SafetyFacts(
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> occurrences,
+        int methodToken,
+        int? ilOffset = null)
+        => SafetyFacts(
+            unsafeEvidence.Where(evidence => evidence.Member.MetadataToken == methodToken),
+            occurrences.TryGetValue(methodToken, out var methodOccurrences) ? methodOccurrences : [],
+            ilOffset);
+
+    public static ImmutableArray<SafetyFact> SafetyFacts(
+        ImmutableArray<UnsafeEvidence> unsafeEvidence,
+        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> occurrences,
         Func<MethodIdentity, bool>? methodScope = null,
         int? ilOffset = null)
+        => SafetyFacts(
+            unsafeEvidence.Where(evidence => methodScope is null || methodScope(evidence.Member)),
+            occurrences.Values.SelectMany(group => group)
+                .Where(occurrence => methodScope is null || methodScope(occurrence.Method)),
+            ilOffset);
+
+    static ImmutableArray<SafetyFact> SafetyFacts(
+        IEnumerable<UnsafeEvidence> unsafeEvidence,
+        IEnumerable<UnsafetyOccurrence> occurrences,
+        int? ilOffset)
     {
-        var operationRows = occurrences.Values
-            .SelectMany(group => group)
-            .Where(occurrence => methodScope is null || methodScope(occurrence.Method))
+        var operationRows = occurrences
             .Where(occurrence => ilOffset is null || occurrence.ILOffset == ilOffset)
             .Select(occurrence => new SafetyFact(
                 occurrence.Method,
@@ -69,20 +101,22 @@ public static class SemanticFactProjection
                 FormatUnsafetyKind(occurrence.Kind),
                 occurrence.Detail ?? FormatUnsafetyKind(occurrence.Kind),
                 "requires unsafe",
-                "high",
                 FormatUnsafetyKind(occurrence.Kind)));
+
+        var coveredOperations = operationRows
+            .Select(row => (row.Method.MetadataToken, row.ILOffset))
+            .ToHashSet();
 
         var unsafeCallRows = unsafeEvidence
             .Where(evidence => evidence.ILOffset is not null)
-            .Where(evidence => methodScope is null || methodScope(evidence.Member))
             .Where(evidence => ilOffset is null || evidence.ILOffset == ilOffset)
+            .Where(evidence => !coveredOperations.Contains((evidence.Member.MetadataToken, evidence.ILOffset!.Value)))
             .Select(evidence => new SafetyFact(
                 evidence.Member,
                 evidence.ILOffset!.Value,
                 evidence.Reason,
                 evidence.Detail,
                 "requires unsafe",
-                "high",
                 evidence.Kind));
 
         return [.. operationRows.Concat(unsafeCallRows)
@@ -93,10 +127,26 @@ public static class SemanticFactProjection
 
     public static ImmutableArray<CostFact> CostFacts(
         ImmutableArray<DirectCall> directCalls,
+        int methodToken,
+        int? ilOffset = null)
+        => ProjectCostFacts(
+            directCalls.Where(call => call.Caller.MetadataToken == methodToken),
+            ilOffset);
+
+    public static ImmutableArray<CostFact> CostFacts(
+        ImmutableArray<DirectCall> directCalls,
         Func<MethodIdentity, bool>? methodScope = null,
         int? ilOffset = null)
-        => [.. directCalls
+        => ProjectCostFacts(
+            directCalls
             .Where(call => methodScope is null || methodScope(call.Caller))
+            .ToArray(),
+            ilOffset);
+
+    static ImmutableArray<CostFact> ProjectCostFacts(
+        IEnumerable<DirectCall> directCalls,
+        int? ilOffset)
+        => [.. directCalls
             .Where(call => ilOffset is null || call.ILOffset == ilOffset)
             .Select(ToCostFact)
             .Where(fact => fact is not null)
@@ -110,7 +160,6 @@ public static class SemanticFactProjection
         var kind = call.Kind switch
         {
             CallKind.CallVirtual => "virtual dispatch",
-            CallKind.NewObject => "construction",
             CallKind.LoadFunction or CallKind.LoadVirtualFunction => "delegate/function pointer",
             CallKind.CallIndirect => "function pointer call",
             _ => null

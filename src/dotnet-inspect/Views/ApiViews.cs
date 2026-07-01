@@ -813,7 +813,6 @@ public record SafetyFactRow(
     [property: MarkoutPropertyName("Safety Kind")] string SafetyKind,
     string Operation,
     string Requirement,
-    string Confidence,
     string Evidence);
 
 [MarkoutSerializable]

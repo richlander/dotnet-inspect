@@ -1923,7 +1923,6 @@ public static class ApiOutputFormatter
             fact.SafetyKind,
             MarkoutInline.Code(fact.Operation),
             fact.Requirement,
-            fact.Confidence,
             fact.Evidence);
 
     static CostFactRow ToCostFactRow(Analysis.CostFact fact, bool includeMember)
