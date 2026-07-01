@@ -178,6 +178,8 @@ public sealed partial class CSharpPrinter
     string UnionSwitchExpressionInline(UnionSwitchExpression node, TypeRef? target = null)
     {
         var arms = node.Arms.Select(arm => UnionSwitchArmText(arm, target));
+        if (node.NullValue is { } nullValue)
+            arms = arms.Prepend($"null => {SwitchArmValueText(nullValue, target)}");
         if (node.DefaultValue is { } defaultValue)
             arms = arms.Append($"_ => {SwitchArmValueText(defaultValue, target)}");
         return $"{UnionSwitchReceiverText(node.Value)} switch {{ {string.Join(", ", arms)} }}";

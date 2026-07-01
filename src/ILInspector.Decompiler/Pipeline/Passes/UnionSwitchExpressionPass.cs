@@ -65,6 +65,12 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var children = block.Children;
         for (int start = 0; start < children.Count; start++)
         {
+            if (TryMatchNullArmSwitchAt(function, children, start, out var nullArmSwitch))
+            {
+                match = new Match(start, nullArmSwitch);
+                return true;
+            }
+
             if (TryMatchDirectSwitchStatementReturnChainAt(function, children, start, out var directStatementSwitch))
             {
                 match = new Match(start, directStatementSwitch);
@@ -153,6 +159,51 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 (IrExpression)arm.Value.Clone(),
                 arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
             (IrExpression)defaultValue.Clone());
+        return true;
+    }
+
+    static bool TryMatchNullArmSwitchAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out UnionSwitchExpression switchExpression)
+    {
+        switchExpression = null!;
+        if (start + 4 != children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsValueTypeUnionValueProperty(function, unionValue)
+            || children[start + 1] is not IfStatement { HasElse: false } notNullIf
+            || notNullIf.Condition is not LoadLocal conditionLocal
+            || conditionLocal.Index != valueStore.Index
+            || children[start + 2] is not StoreLocal nullStore
+            || children[start + 3] is not Return nullReturn
+            || !StoreReturnMatch(nullStore, nullReturn, nullStore.Index)
+            || notNullIf.Then.Children.Count < 3
+            || notNullIf.Then.Children[^2] is not ExpressionStatement throwStatement
+            || !IsThrowSwitchExpression(throwStatement)
+            || notNullIf.Then.Children[^1] is not Return throwReturn
+            || !ReturnsLocal(throwReturn, nullStore.Index))
+        {
+            return false;
+        }
+
+        var armNodes = notNullIf.Then.Children.Take(notNullIf.Then.Children.Count - 2).ToArray();
+        if (!TryInnerArms(armNodes, valueStore.Index, nullStore.Index, out var arms)
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, notNullIf])
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            nullValue: (IrExpression)nullStore.Value.Clone());
         return true;
     }
 
