@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -34,48 +35,77 @@ internal static class ILOffsetSourceQuery
             return (1, null);
         }
 
-        await SourceEnricher.AcquirePdbAsync(
-            pdbContext,
-            httpClient,
-            packageName,
-            packageVersion,
-            isPlatformAssembly,
-            logger.Log);
-
-        if (!pdbContext.HasPdb)
+        var memberContext = pdbContext.ResolveMemberContext(methodToken, ilOffset);
+        if (memberContext == null)
         {
-            WritePdbWarning(pdbContext);
+            Console.Error.WriteLine($"Error: Could not resolve member context for token 0x{methodToken:X}.");
+            Console.Error.WriteLine("The method token may be invalid or may not identify a MethodDef row.");
             return (1, null);
         }
 
-        if (!service.HasSourceLink)
-            logger.Log("Warning: No SourceLink information found. URLs will not be available.");
-
-        var result = service.ResolveByILOffset(methodToken, ilOffset);
-        if (result == null)
+        SourceLinkResolver.ILOffsetSourceInfo? result = null;
+        if (RequiresSourceLocation(options))
         {
-            Console.Error.WriteLine($"Error: Could not resolve source location for token 0x{methodToken:X}+0x{ilOffset:X}.");
-            Console.Error.WriteLine("The method token may be invalid or the PDB may not contain sequence points for this method.");
-            return (1, null);
+            await SourceEnricher.AcquirePdbAsync(
+                pdbContext,
+                httpClient,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                logger.Log);
+
+            if (!pdbContext.HasPdb)
+            {
+                WritePdbWarning(pdbContext);
+                return (1, null);
+            }
+
+            if (!service.HasSourceLink)
+                logger.Log("Warning: No SourceLink information found. URLs will not be available.");
+
+            result = service.ResolveByILOffset(methodToken, ilOffset);
+            if (result == null)
+            {
+                Console.Error.WriteLine($"Error: Could not resolve source location for token 0x{methodToken:X}+0x{ilOffset:X}.");
+                Console.Error.WriteLine("The method token may be invalid or the PDB may not contain sequence points for this method.");
+                return (1, null);
+            }
         }
 
-        string? url = options.BrowsableUrls ? result.GitHubBrowseUrl : result.SourceUrl;
+        string? url = options.BrowsableUrls ? result?.GitHubBrowseUrl : result?.SourceUrl;
         if (url != null)
-            url += $"#L{result.Line}";
+            url += $"#L{result!.Line}";
 
         var resolved = new ILOffsetResult
         {
-            Method = result.MethodName,
+            Method = result?.MethodName ?? memberContext.Member,
             Token = $"0x{methodToken:X}",
             ILOffset = $"0x{ilOffset:X}",
-            MatchedOffset = result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null,
-            File = result.FilePath,
-            Line = result.Line,
-            Url = url
+            MatchedOffset = result != null && result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null,
+            File = result?.FilePath,
+            Line = result?.Line,
+            Url = url,
+            MemberContext = new ILOffsetMemberContext
+            {
+                Assembly = memberContext.Assembly,
+                Type = memberContext.Type,
+                TypeKind = memberContext.TypeKind,
+                Member = memberContext.Member,
+                Signature = memberContext.Signature,
+                MemberKind = memberContext.MemberKind,
+                Visibility = memberContext.Visibility,
+                Static = memberContext.Static ? "Yes" : "No",
+                Async = memberContext.Async,
+                MetadataToken = $"0x{memberContext.MetadataToken:X}",
+                ILOffset = $"0x{memberContext.ILOffset:X}"
+            }
         };
 
         return (0, resolved);
     }
+
+    private static bool RequiresSourceLocation(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.ILOffset) == true;
 
     public static bool TryParse(string value, out int methodToken, out int ilOffset)
     {

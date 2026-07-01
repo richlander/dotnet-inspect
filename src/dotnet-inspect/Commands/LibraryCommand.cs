@@ -71,16 +71,16 @@ public class LibraryCommand
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
         {
-            if (selectResult.Sections.Contains(SectionNames.ILOffset)
+            if (selectResult.Sections.Overlaps(ILCoordinateSections)
                 && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
-                if (!HasExactILOffsetSelection(options.Select))
+                if (!HasExactILCoordinateSelection(options.Select))
                 {
-                    selectResult.Sections.Remove(SectionNames.ILOffset);
+                    selectResult.Sections.ExceptWith(ILCoordinateSections);
                 }
                 else if (options.Discover == null)
                 {
-                    Console.Error.WriteLine("Error: IL Offset requires --il-offset <token>+<offset>.");
+                    Console.Error.WriteLine("Error: IL coordinate sections require --il-offset <token>+<offset>.");
                     return 1;
                 }
             }
@@ -90,9 +90,9 @@ public class LibraryCommand
 
         if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
             && options.IncludeSections is { Count: > 0 }
-            && !options.IncludeSections.Contains(SectionNames.ILOffset))
+            && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires the IL Offset section. Omit -S or include -S \"IL Offset\".");
+            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"IL Offset\" or -S \"Member Context\".");
             return 1;
         }
 
@@ -234,7 +234,7 @@ public class LibraryCommand
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 })
+                if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
                     var cached = TryGetCachedEffective(resolvedPath!);
                     if (cached != null)
@@ -255,12 +255,12 @@ public class LibraryCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity);
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print || options.PrintAll)
@@ -289,7 +289,7 @@ public class LibraryCommand
                 packageVersion = resolvedPackageVersion;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
+                if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
                 {
                     var cached = TryGetCachedEffective(assemblyPaths[0]);
                     if (cached != null)
@@ -321,13 +321,13 @@ public class LibraryCommand
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
 
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity);
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0], assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
                 if (options.Print || options.PrintAll)
@@ -355,7 +355,7 @@ public class LibraryCommand
                 }
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 })
+                if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
                     var cached = TryGetCachedEffective(assemblyPath!);
                     if (cached != null)
@@ -374,13 +374,13 @@ public class LibraryCommand
 
                 inspection.Source = SourceKind.File;
 
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity);
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, assemblyPath!, null, null, isPlatformAssembly: false,
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print || options.PrintAll)
@@ -447,7 +447,16 @@ public class LibraryCommand
         }, null);
     }
 
-    private static bool HasExactILOffsetSelection(string[]? select)
+    private static readonly string[] ILCoordinateSections =
+    [
+        SectionNames.ILOffset,
+        SectionNames.MemberContext
+    ];
+
+    private static bool HasILOffsetCoordinate(LibraryOptions options)
+        => !string.IsNullOrWhiteSpace(options.ILOffsetParameter);
+
+    private static bool HasExactILCoordinateSelection(string[]? select)
     {
         if (select is not { Length: > 0 })
             return false;
@@ -456,7 +465,7 @@ public class LibraryCommand
         {
             if (value.StartsWith('@'))
                 continue;
-            if (value.Equals(SectionNames.ILOffset, StringComparison.OrdinalIgnoreCase))
+            if (ILCoordinateSections.Contains(value, StringComparer.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -474,7 +483,7 @@ public class LibraryCommand
         VerboseLogger logger)
     {
         if (string.IsNullOrWhiteSpace(options.ILOffsetParameter)
-            || options.IncludeSections?.Contains(SectionNames.ILOffset) != true)
+            || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
         var resolved = await ILOffsetSourceQuery.ResolveAsync(
@@ -517,8 +526,16 @@ public class LibraryCommand
             "Source Files" => ProjectLibrarySourceFiles(inspection, section, kind, options),
             "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
             SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
+            SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
             _ => []
         };
+
+        if (rows.Count == 0 && section == SectionNames.MemberContext)
+        {
+            if (kind != ShapeProjectionKind.Value)
+                Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            return 1;
+        }
 
         if (rows.Count == 0 && section is not ("Source Files" or "Library Info") && section != SectionNames.ILOffset)
         {
@@ -702,6 +719,49 @@ public class LibraryCommand
         };
     }
 
+    private static List<ShapeProjectionRow> ProjectLibraryMemberContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.MemberContext is not { } context)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Member Context requires --fields <name>.");
+            return [];
+        }
+
+        var value = SelectMemberContextValue(context, field);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Member Context.");
+            return [];
+        }
+
+        return [new ShapeProjectionRow(1, section, value, Label: field)];
+    }
+
+    private static string? SelectMemberContextValue(ILOffsetMemberContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "assembly" => context.Assembly,
+            "type" => context.Type,
+            "type kind" or "typekind" => context.TypeKind,
+            "member" => context.Member,
+            "signature" => context.Signature,
+            "member kind" or "memberkind" => context.MemberKind,
+            "visibility" => context.Visibility,
+            "static" => context.Static,
+            "async" => context.Async,
+            "metadata token" or "metadatatoken" or "token" => context.MetadataToken,
+            "il offset" or "iloffset" => context.ILOffset,
+            _ => null
+        };
+
     private static List<ShapeProjectionRow> ProjectLibraryInfo(LibraryInspection inspection, string section, ShapeProjectionKind kind, LibraryOptions options)
     {
         if (kind != ShapeProjectionKind.Value)
@@ -774,7 +834,8 @@ public class LibraryCommand
     }
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
-        LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
+        LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
+        bool cache = true)
     {
         // Compute all structurally applicable sections for discovery/caching,
         // including opt-in sections whose renderability depends on the section's
@@ -784,7 +845,8 @@ public class LibraryCommand
 
         // Field-level filtering on ALL effective sections (unfiltered) for caching
         var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
-        CacheEffective(assemblyPath, allEffective, filteredSchema);
+        if (cache)
+            CacheEffective(assemblyPath, allEffective, filteredSchema);
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
@@ -853,6 +915,8 @@ public class LibraryCommand
     {
         if (options.IncludeSections is { Count: > 0 })
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
+        if (!HasILOffsetCoordinate(options))
+            sections = sections.Where(s => !ILCoordinateSections.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList();
         return sections;
     }
 
@@ -900,9 +964,10 @@ public class LibraryCommand
                 continue;
             }
 
-            if (string.Equals(name, "Library Info", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(name, "Library Info", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, SectionNames.MemberContext, StringComparison.OrdinalIgnoreCase))
             {
-                var renderedLabels = GetRenderedFieldLabels(rendered, "Library Info");
+                var renderedLabels = GetRenderedFieldLabels(rendered, name);
                 var effectiveItems = section.Items
                     .Where(item => renderedLabels.Contains(item.Name))
                     .Select(item => item.Name)

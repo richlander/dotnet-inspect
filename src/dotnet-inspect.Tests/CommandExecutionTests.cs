@@ -27,6 +27,15 @@ public class CommandExecutionTests
         public int Value { get; }
     }
 
+    private sealed class ILOffsetAsyncFixture
+    {
+        public async Task<int> StateMachineAsync()
+        {
+            await Task.Yield();
+            return 42;
+        }
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalRefPackage(params string[] assemblyNames)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -4479,6 +4488,7 @@ public class CommandExecutionTests
                 "Integration Opportunities",
                 "Integrations",
                 "Logging",
+                "Member Context",
                 "OpenAPI",
                 "OpenTelemetry",
                 "Options",
@@ -4577,6 +4587,69 @@ public class CommandExecutionTests
         Assert.Contains("| Token | 0x6000001 |", output);
         Assert.Contains("| IL Offset | 0x0 |", output);
         Assert.Contains("HexConverter.cs", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetDiscovery_IsCoordinateScoped()
+    {
+        var (withoutExit, withoutOutput, withoutError) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json", "-D", "--table", "--tips", "q");
+        var (withExit, withOutput, withError) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, withoutExit);
+        Assert.Equal(0, withExit);
+        Assert.Empty(withoutError);
+        Assert.Empty(withError);
+        Assert.DoesNotContain("IL Offset", withoutOutput);
+        Assert.DoesNotContain("Member Context", withoutOutput);
+        Assert.Contains("IL Offset", withOutput);
+        Assert.Contains("Member Context", withOutput);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetMemberContext_RendersMemberFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "Member Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Member Context", output);
+        Assert.Contains("| Type | System.HexConverter |", output);
+        Assert.Contains("| Type Kind | class |", output);
+        Assert.Contains("| Member | System.HexConverter.FromChar |", output);
+        Assert.Contains("| Signature | int FromChar(int c) |", output);
+        Assert.Contains("| Static | Yes |", output);
+        Assert.Contains("| Metadata Token | 0x6000001 |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetMemberContext_ValueProjectsType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "Member Context", "--fields", "Type", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("System.HexConverter", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetMemberContext_ShowsAsyncKind()
+    {
+        var token = typeof(ILOffsetAsyncFixture).GetMethod(nameof(ILOffsetAsyncFixture.StateMachineAsync))!.MetadataToken;
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", $"0x{token:X}+0x0", "-S", "Member Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Member | DotnetInspector.Tests.CommandExecutionTests.ILOffsetAsyncFixture.StateMachineAsync |", output);
+        Assert.Contains("| Async | Runtime |", output);
     }
 
     [Fact]
@@ -4689,7 +4762,7 @@ public class CommandExecutionTests
             "-S", "IL Offset", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("IL Offset requires --il-offset", error);
+        Assert.Contains("IL coordinate sections require --il-offset", error);
     }
 
     [Fact]
@@ -4711,7 +4784,7 @@ public class CommandExecutionTests
             "-S", "*", "-n", "8", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("IL Offset requires", error);
+        Assert.DoesNotContain("IL coordinate sections require", error);
         Assert.Contains("##", output);
     }
 
@@ -4723,7 +4796,7 @@ public class CommandExecutionTests
             "--il-offset", "0x06000001+0x0", "-S", "Library Info", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("--il-offset requires the IL Offset section", error);
+        Assert.Contains("--il-offset requires an IL coordinate section", error);
     }
 
     [Fact]

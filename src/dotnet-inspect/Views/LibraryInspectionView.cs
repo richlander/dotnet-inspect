@@ -492,6 +492,26 @@ public class LibraryInspectionView
         Url = result.Url
     };
 
+    [MarkoutIgnore]
+    public bool HasILOffsetMemberContext => _data.ILOffset?.MemberContext != null;
+
+    [MarkoutSection(Name = SectionNames.MemberContext, ShowWhenProperty = nameof(HasILOffsetMemberContext))]
+    public ILOffsetMemberContextSection? ILOffsetMemberContextSection =>
+        _data.ILOffset?.MemberContext is not { } context ? null : new ILOffsetMemberContextSection
+        {
+            Assembly = context.Assembly,
+            Type = context.Type,
+            TypeKind = context.TypeKind,
+            Member = context.Member,
+            Signature = context.Signature,
+            MemberKind = context.MemberKind,
+            Visibility = context.Visibility,
+            Static = context.Static,
+            Async = context.Async,
+            MetadataToken = context.MetadataToken,
+            ILOffset = context.ILOffset
+        };
+
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
@@ -774,6 +794,27 @@ public class ILOffsetSection
     public string? File { get; init; }
     public int? Line { get; init; }
     public string? Url { get; init; }
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class ILOffsetMemberContextSection
+{
+    public string? Assembly { get; init; }
+    public string? Type { get; init; }
+    [MarkoutPropertyName("Type Kind")]
+    public string? TypeKind { get; init; }
+    public string? Member { get; init; }
+    public string? Signature { get; init; }
+    [MarkoutPropertyName("Member Kind")]
+    public string? MemberKind { get; init; }
+    public string? Visibility { get; init; }
+    public string? Static { get; init; }
+    public string? Async { get; init; }
+    [MarkoutPropertyName("Metadata Token")]
+    public string? MetadataToken { get; init; }
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; init; }
 }
 
 [MarkoutSerializable]
