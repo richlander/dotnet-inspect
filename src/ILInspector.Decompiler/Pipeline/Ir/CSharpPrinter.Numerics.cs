@@ -202,12 +202,16 @@ public sealed partial class CSharpPrinter
         // needs `unchecked` exactly when the value is out of that width's range.
         if (EnumUnderlyingType(enumType) is { } underlying)
             return !TypeFamilies.ConstantFits(literal, underlying);
-        // A cross-assembly enum has no resolved width; conservatively assume the
-        // narrowest (sbyte) backing, so a negative or a value above sbyte's max may
-        // not fit and is wrapped.
+        // A cross-assembly enum: the width is genuinely unknown and framework enums
+        // are often byte/sbyte-backed [Flags], so conservatively assume the narrowest
+        // (sbyte) backing and wrap a negative or a value above sbyte's max.
         if (_function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Unknown)
             return literal < 0 || literal > sbyte.MaxValue;
-        return false;
+        // A same-assembly enum shape whose underlying is not in the map (e.g. no
+        // `value__` field): assume C#'s default `int` backing, so an int-range value
+        // (including a negative high-bit constant like int.MinValue) stays a bare
+        // cast and only a genuinely out-of-int value is wrapped.
+        return !TypeFamilies.ConstantFits(literal, TypeRef.CoreLib("System", "Int32"));
     }
 
     string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)

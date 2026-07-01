@@ -166,6 +166,31 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void EnumWithUnresolvedBackingWidth_AssumesIntBacking()
+    {
+        // An enum classified TypeShape.Enum but whose underlying width is not in the
+        // map (e.g. no value__ field) assumes C#'s default `int` backing: an
+        // int-range negative constant stays a bare cast (matching ExactMember), and
+        // only a genuinely out-of-int value would be wrapped.
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var block = new Block(0);
+        block.Add(new Return(new Constant(-1, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            // EnumUnderlyingTypes intentionally left empty.
+        };
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+        Assert.Contains("(Tiny)(-1)", body);
+        Assert.DoesNotContain("unchecked", body);
+    }
+
+    [Fact]
     public void UnknownEnumPositiveConstantThatMayOverflow_ForcesUncheckedCast()
     {
         string sbyteBody = RenderUnknownEnumReturnConstant(128);
