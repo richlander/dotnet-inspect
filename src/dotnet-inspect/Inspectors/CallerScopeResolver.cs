@@ -125,6 +125,7 @@ public static class CallerScopeResolver
         public string[] Assemblies { get; } = [];
         public string[] PlatformAssemblies { get; } = [];
         public string[] PlatformFrameworks { get; } = [];
+        public string[] Projects { get; } = [];
         public string? Tfm { get; }
         
         NuGetSourceOptions? IAssemblySourceOptions.SourceOptions => null;

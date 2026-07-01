@@ -143,6 +143,11 @@ public static class SearchCommandDefinitions
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
+        var projectOption = new Option<string[]>("--project")
+        {
+            Description = "Search project dependencies via project.assets.json. Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
@@ -158,6 +163,7 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(extensionsOption);
         implCommand.Options.Add(aspnetcoreOption);
         implCommand.Options.Add(curatedOption);
+        implCommand.Options.Add(projectOption);
         implCommand.Options.Add(tfmOption);
         implCommand.Options.Add(allOption);
         implCommand.Options.Add(typeFilterOption);
@@ -191,6 +197,7 @@ public static class SearchCommandDefinitions
             var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
                 parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var projects = parseResult.GetValue(projectOption) ?? [];
 
             var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
                 parseResult,
@@ -202,7 +209,8 @@ public static class SearchCommandDefinitions
                 Extensions: parseResult.GetValue(extensionsOption),
                 AspNetCore: parseResult.GetValue(aspnetcoreOption),
                 Curated: parseResult.GetValue(curatedOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix, platformAssemblies.Length > 0);
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
+                hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
 
             var options = new ImplementsOptions
             {
@@ -211,6 +219,7 @@ public static class SearchCommandDefinitions
                 Assemblies = assemblies,
                 PlatformAssemblies = platformAssemblies,
                 PlatformFrameworks = scope.Frameworks,
+                Projects = projects,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
@@ -262,6 +271,11 @@ public static class SearchCommandDefinitions
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
+        var projectOption = new Option<string[]>("--project")
+        {
+            Description = "Search project dependencies via project.assets.json. Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
         var reachableOption = new Option<bool>("--reachable")
         {
             Description = "Include extensions on types reachable via properties/methods"
@@ -286,6 +300,7 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(extensionsOption);
         extCommand.Options.Add(aspnetcoreOption);
         extCommand.Options.Add(curatedOption);
+        extCommand.Options.Add(projectOption);
         extCommand.Options.Add(reachableOption);
         extCommand.Options.Add(depthOption);
         extCommand.Options.Add(tfmOption);
@@ -318,6 +333,7 @@ public static class SearchCommandDefinitions
             var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
                 parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var projects = parseResult.GetValue(projectOption) ?? [];
 
             var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
                 parseResult,
@@ -329,7 +345,8 @@ public static class SearchCommandDefinitions
                 Extensions: parseResult.GetValue(extensionsOption),
                 AspNetCore: parseResult.GetValue(aspnetcoreOption),
                 Curated: parseResult.GetValue(curatedOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix, platformAssemblies.Length > 0);
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
+                hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
 
             var options = new ExtensionsOptions
             {
@@ -338,6 +355,7 @@ public static class SearchCommandDefinitions
                 Assemblies = assemblies,
                 PlatformAssemblies = platformAssemblies,
                 PlatformFrameworks = scope.Frameworks,
+                Projects = projects,
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
@@ -384,6 +402,11 @@ public static class SearchCommandDefinitions
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
+        var projectOption = new Option<string[]>("--project")
+        {
+            Description = "Search project dependencies via project.assets.json. Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
 
@@ -395,6 +418,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(extensionsOption);
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(curatedOption);
+        dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(tfmOption);
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
@@ -409,6 +433,7 @@ public static class SearchCommandDefinitions
             var targetType = parseResult.GetValue(targetTypeArg);
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var projects = parseResult.GetValue(projectOption) ?? [];
 
             // Mode detection: no type arg → library or package dependency mode
             if (string.IsNullOrEmpty(targetType))
@@ -426,10 +451,10 @@ public static class SearchCommandDefinitions
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
 
-                if (assemblies.Length == 1 && packages.Length == 0)
+                if (assemblies.Length == 1 && packages.Length == 0 && projects.Length == 0)
                     return await DependsCommand.ExecuteLibraryDependsAsync(commonOptions with { LibraryName = assemblies[0] });
 
-                if (packages.Length == 1 && assemblies.Length == 0)
+                if (packages.Length == 1 && assemblies.Length == 0 && projects.Length == 0)
                     return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
 
                 return TipWriter.MissingArgumentWithTips(dependsCommand,
@@ -449,7 +474,8 @@ public static class SearchCommandDefinitions
                 Extensions: parseResult.GetValue(extensionsOption),
                 AspNetCore: parseResult.GetValue(aspnetcoreOption),
                 Curated: parseResult.GetValue(curatedOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, hasOtherScopeIndicators: platformAssemblies.Length > 0);
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies,
+                hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
 
             var options = new DependsOptions
             {
@@ -458,6 +484,7 @@ public static class SearchCommandDefinitions
                 Assemblies = assemblies,
                 PlatformAssemblies = platformAssemblies,
                 PlatformFrameworks = scope.Frameworks,
+                Projects = projects,
                 Tfm = parseResult.GetValue(tfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),

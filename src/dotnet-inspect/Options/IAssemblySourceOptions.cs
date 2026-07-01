@@ -28,6 +28,11 @@ public interface IAssemblySourceOptions
     string[] PlatformFrameworks { get; }
 
     /// <summary>
+    /// Project files, directories, or project.assets.json paths to search via restored assets.
+    /// </summary>
+    string[] Projects { get; }
+
+    /// <summary>
     /// Target framework moniker filter.
     /// </summary>
     string? Tfm { get; }

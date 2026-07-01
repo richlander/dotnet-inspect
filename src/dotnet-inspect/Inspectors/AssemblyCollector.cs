@@ -81,7 +81,22 @@ public static class AssemblyCollector
             assemblyPaths.Add(new AssemblyInfo(asmPath, Path.GetFileName(asmPath), null));
         }
 
-        // 3. Platform assemblies
+        // 3. Project assets
+        foreach (var projectPath in options.Projects)
+        {
+            var assetsPath = ProjectAssetsParser.FindAssets(projectPath);
+            if (assetsPath == null)
+            {
+                Console.Error.WriteLine($"Warning: project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.");
+                continue;
+            }
+
+            logger.Log($"Using assets: {assetsPath}");
+            foreach (var (asmPath, packageName, packageVersion) in ProjectAssetsParser.Parse(assetsPath, options.Tfm, logger.Log))
+                assemblyPaths.Add(new AssemblyInfo(asmPath, packageName, packageVersion));
+        }
+
+        // 4. Platform assemblies
         foreach (var platformAsm in options.PlatformAssemblies)
         {
             var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(platformAsm, httpClient, logger.Log);
@@ -93,7 +108,7 @@ public static class AssemblyCollector
             assemblyPaths.Add(new AssemblyInfo(assemblyPath!, resolvedFramework ?? "platform", version));
         }
 
-        // 4. Platform frameworks (download ref packs only if not locally available)
+        // 5. Platform frameworks (download ref packs only if not locally available)
         if (options.PlatformFrameworks.Length > 0)
         {
             var requests = PlatformPackService.GetMissingPackRequests(options.PlatformFrameworks);
