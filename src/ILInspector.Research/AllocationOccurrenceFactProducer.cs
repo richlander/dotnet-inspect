@@ -59,6 +59,8 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         parts.Add($"path={FormatPathContext(occurrence.PathContext)}");
         if (FormatPathConfidence(occurrence.PathConfidence) is { } confidence)
             parts.Add($"path-confidence={confidence}");
+        if (FormatPostDominance(occurrence.PostDominance) is { } postDominance)
+            parts.Add($"post-dominance={postDominance}");
         if (occurrence.Escape != AllocationEscape.Unknown)
             parts.Add($"escape={FormatEscape(occurrence.Escape)}");
         return parts.Count == 0 ? null : string.Join("; ", parts);
@@ -79,6 +81,13 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         {
             AllocationPathConfidence.DominatesReturn => "dominates-return",
             AllocationPathConfidence.BehindBranch => "behind-branch",
+            _ => null,
+        };
+
+    static string? FormatPostDominance(AllocationPostDominance postDominance)
+        => postDominance switch
+        {
+            AllocationPostDominance.ReturnPostDominates => "return-post-dominates",
             _ => null,
         };
 

@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.ControlFlow;
 using ILInspector.Instructions;
 
 namespace ILInspector.Analysis;
@@ -145,10 +146,12 @@ public sealed class LibraryBodyIndex
         var runtimeAllocation = opportunity.RuntimeAllocationType ?? FallbackRuntimeAllocationType(opportunity);
         var pathContext = opportunity.PathContext ?? FallbackPathContext(opportunity);
         var pathConfidence = opportunity.PathConfidence;
+        var postDominance = opportunity.PostDominance;
         return runtimeAllocation != opportunity.RuntimeAllocationType
             || pathContext != opportunity.PathContext
             || pathConfidence != opportunity.PathConfidence
-            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext, PathConfidence = pathConfidence }
+            || postDominance != opportunity.PostDominance
+            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext, PathConfidence = pathConfidence, PostDominance = postDominance }
             : opportunity;
     }
 
@@ -191,6 +194,13 @@ public sealed class LibraryBodyIndex
         {
             AllocationPathConfidence.DominatesReturn => "dominates-return",
             AllocationPathConfidence.BehindBranch => "behind-branch",
+            _ => null,
+        };
+
+    static string? FormatPostDominance(AllocationPostDominance postDominance)
+        => postDominance switch
+        {
+            AllocationPostDominance.ReturnPostDominates => "return-post-dominates",
             _ => null,
         };
 
@@ -1183,6 +1193,7 @@ public sealed class LibraryBodyIndex
                 LoopRegions = CollectLoopRegions();
                 PathContexts = AllocationPathContextIndex.Create(this);
                 PathConfidences = AllocationPathConfidenceIndex.Create(this);
+                PostDominances = AllocationPostDominanceIndex.Create(this);
             }
 
             public ImmutableArray<DecodedInstruction> Instructions { get; }
@@ -1190,6 +1201,7 @@ public sealed class LibraryBodyIndex
             public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
             public AllocationPathContextIndex PathContexts { get; }
             public AllocationPathConfidenceIndex PathConfidences { get; }
+            public AllocationPostDominanceIndex PostDominances { get; }
 
             public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
             {
@@ -1389,6 +1401,20 @@ public sealed class LibraryBodyIndex
             }
         }
 
+        static int[] ReturnBlocks(DecodedBody decodedBody)
+        {
+            var returns = new List<int>();
+            foreach (var instruction in decodedBody.Instructions)
+            {
+                if (instruction.OpCode != ILOpCode.Ret)
+                    continue;
+                int blockIndex = decodedBody.BlockGraph.BlockIndexAt(instruction.Offset);
+                if (blockIndex >= 0)
+                    returns.Add(blockIndex);
+            }
+            return [.. returns.Distinct().Order()];
+        }
+
         sealed class AllocationPathConfidenceIndex
         {
             readonly AllocationPathConfidence[] _confidenceByBlock;
@@ -1431,20 +1457,44 @@ public sealed class LibraryBodyIndex
                 => (uint)blockIndex < (uint)_confidenceByBlock.Length
                     ? _confidenceByBlock[blockIndex]
                     : AllocationPathConfidence.Unknown;
+        }
 
-            static int[] ReturnBlocks(DecodedBody decodedBody)
+        sealed class AllocationPostDominanceIndex
+        {
+            readonly AllocationPostDominance[] _postDominanceByBlock;
+
+            AllocationPostDominanceIndex(AllocationPostDominance[] postDominanceByBlock)
             {
-                var returns = new List<int>();
-                foreach (var instruction in decodedBody.Instructions)
-                {
-                    if (instruction.OpCode != ILOpCode.Ret)
-                        continue;
-                    int blockIndex = decodedBody.BlockGraph.BlockIndexAt(instruction.Offset);
-                    if (blockIndex >= 0)
-                        returns.Add(blockIndex);
-                }
-                return [.. returns.Distinct().Order()];
+                _postDominanceByBlock = postDominanceByBlock;
             }
+
+            public static AllocationPostDominanceIndex Create(DecodedBody decodedBody)
+            {
+                var blockGraph = decodedBody.BlockGraph;
+                var postDominanceByBlock = new AllocationPostDominance[blockGraph.Blocks.Length];
+                if (blockGraph.Blocks.Length == 0)
+                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+
+                var postDominators = PostDominators.Of(blockGraph.Blocks.Select(static block => block.Edges).ToArray());
+                var returnBlocks = ReturnBlocks(decodedBody);
+                if (returnBlocks.Length == 0)
+                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+
+                for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
+                {
+                    if (decodedBody.PathContexts.ContextFor(blockIndex) == AllocationPathContext.ErrorPath)
+                        continue;
+                    if (returnBlocks.Any(returnBlock => postDominators.PostDominates(returnBlock, blockIndex)))
+                        postDominanceByBlock[blockIndex] = AllocationPostDominance.ReturnPostDominates;
+                }
+
+                return new AllocationPostDominanceIndex(postDominanceByBlock);
+            }
+
+            public AllocationPostDominance PostDominanceFor(int blockIndex)
+                => (uint)blockIndex < (uint)_postDominanceByBlock.Length
+                    ? _postDominanceByBlock[blockIndex]
+                    : AllocationPostDominance.Unknown;
         }
 
         sealed class DominatorTree
@@ -2196,7 +2246,8 @@ public sealed class LibraryBodyIndex
                     source,
                     RuntimeAllocationType(kind, allocatedType),
                     AllocationPathContextFor(decodedBody, offset, loopRegions, escape),
-                    AllocationPathConfidenceFor(decodedBody, offset, escape));
+                    AllocationPathConfidenceFor(decodedBody, offset, escape),
+                    AllocationPostDominanceFor(decodedBody, offset, escape));
 
             bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
             {
@@ -3024,6 +3075,7 @@ public sealed class LibraryBodyIndex
                         RuntimeAllocationType = runtimeAllocation,
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
+                        PostDominance = opportunity.PostDominance ?? FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                     };
                 }
                 return AddFallbackOpportunityMetadata(annotated);
@@ -3452,6 +3504,17 @@ public sealed class LibraryBodyIndex
             return decodedBody.PathConfidences.ConfidenceFor(blockIndex);
         }
 
+        static AllocationPostDominance AllocationPostDominanceFor(
+            DecodedBody decodedBody,
+            int offset,
+            AllocationEscape escape)
+        {
+            if (escape == AllocationEscape.ThrowPath)
+                return AllocationPostDominance.Unknown;
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            return decodedBody.PostDominances.PostDominanceFor(blockIndex);
+        }
+
         // Conservative, sound local-escape check for a freshly created array. Returns true
         // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
         // load is an in-place element access / length read — never returned, stored to a
@@ -3542,6 +3605,7 @@ public sealed class LibraryBodyIndex
                         Escape = escape,
                         PathContext = escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
                         PathConfidence = escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
+                        PostDominance = escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
                     });
             }
             return builder.MoveToImmutable();

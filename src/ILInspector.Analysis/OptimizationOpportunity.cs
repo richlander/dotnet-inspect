@@ -13,7 +13,8 @@ public sealed record OptimizationOpportunity(
     bool ColdPath = false,
     string? RuntimeAllocationType = null,
     string? PathContext = null,
-    string? PathConfidence = null)
+    string? PathConfidence = null,
+    string? PostDominance = null)
 {
     public bool Amortized { get; init; }
 }

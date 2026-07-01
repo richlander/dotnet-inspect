@@ -681,6 +681,8 @@ public record class OptimizationOpportunitySummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PathConfidence { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PostDominance { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IL { get; init; }
 }
 
