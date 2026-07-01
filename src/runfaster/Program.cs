@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ILInspector.Analysis;
+using Microsoft.Diagnostics.Tracing.Etlx;
 
 var root = new RootCommand("runfaster - correlate dotnet-* diagnostic artifacts with static .NET library allocation evidence");
 root.Subcommands.Add(CreateCorrelateCommand());
@@ -387,6 +388,15 @@ static bool TryCorrelateInput(
     }
 
     var summary = new DiagnosticInputSummary(input.Kind, path, new FileInfo(path).Length, IsTextLike(path), 0, 0, []);
+    if (path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!TryCorrelateNetTrace(path, input.Kind, summary, lookup, out exitCode))
+            return false;
+
+        result.DiagnosticInputs.Add(summary);
+        return true;
+    }
+
     if (!summary.TextLike)
     {
         summary.Observations.Add("binary artifact accepted; no EventPipe/diagnostic reader is wired in this prototype");
@@ -438,6 +448,67 @@ static bool TryCorrelateInput(
     catch (IOException ex)
     {
         Console.Error.WriteLine($"Error: cannot read diagnostic input '{input.Path}': {ex.Message}");
+        exitCode = 1;
+        return false;
+    }
+}
+
+static bool TryCorrelateNetTrace(
+    string path,
+    string sourceKind,
+    DiagnosticInputSummary summary,
+    CandidateLookup lookup,
+    out int exitCode)
+{
+    exitCode = 0;
+    string etlxPath = Path.Combine(Path.GetTempPath(), $"runfaster-{Path.GetFileNameWithoutExtension(path)}-{File.GetLastWriteTimeUtc(path).Ticks:x}.etlx");
+    try
+    {
+        if (!File.Exists(etlxPath))
+            TraceLog.CreateFromEventPipeDataFile(path, etlxPath, new TraceLogOptions());
+
+        using var traceLog = new TraceLog(etlxPath);
+        using var source = traceLog.Events.GetSource();
+        int allocationTicks = 0;
+        int matchedEvents = 0;
+        long allocationBytes = 0;
+        var matchedRows = new HashSet<int>();
+
+        source.Clr.GCAllocationTick += data =>
+        {
+            allocationTicks++;
+            var stack = traceLog.GetCallStackForEvent(data);
+            if (stack is null)
+                return;
+
+            var matchedThisEvent = new HashSet<int>();
+            while (stack != null)
+            {
+                foreach (var candidate in lookup.FindByMethodText(stack.CodeAddress.FullMethodName))
+                    MarkAllocationHit(candidate, matchedThisEvent, sourceKind, data.TypeName, data.AllocationAmount64);
+                stack = stack.Caller;
+            }
+
+            if (matchedThisEvent.Count == 0)
+                return;
+
+            matchedEvents++;
+            allocationBytes += data.AllocationAmount64;
+            foreach (var id in matchedThisEvent)
+                matchedRows.Add(id);
+        };
+
+        source.Process();
+        summary.MatchedRows = matchedRows.Count;
+        summary.Observations.Add($"nettrace GC allocation ticks: {allocationTicks.ToString(CultureInfo.InvariantCulture)}");
+        summary.Observations.Add(matchedEvents == 0
+            ? "no allocation tick stack matched a static candidate"
+            : $"matched {matchedEvents.ToString(CultureInfo.InvariantCulture)} allocation tick(s), sampled bytes {FormatBytes(allocationBytes)}");
+        return true;
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or FormatException or InvalidOperationException or NotSupportedException)
+    {
+        Console.Error.WriteLine($"Error: cannot read nettrace '{path}': {ex.Message}");
         exitCode = 1;
         return false;
     }
@@ -807,6 +878,27 @@ static void MarkHit(AllocationCandidate candidate, HashSet<int> matchedIds, stri
     candidate.ExactOffsetObserved |= exactOffset;
 }
 
+static void MarkAllocationHit(AllocationCandidate candidate, HashSet<int> matchedIds, string sourceKind, string? allocatedType, long sampledBytes)
+{
+    if (!matchedIds.Add(candidate.Id))
+        return;
+
+    candidate.AllocationHits++;
+    candidate.AllocationBytes += sampledBytes;
+    candidate.RuntimeWeight += sampledBytes;
+    candidate.ObservedSources.Add(sourceKind);
+    if (!string.IsNullOrWhiteSpace(allocatedType))
+    {
+        candidate.ObservedAllocatedTypes[allocatedType] = candidate.ObservedAllocatedTypes.GetValueOrDefault(allocatedType) + sampledBytes;
+        if (candidate.MatchesAllocatedType(allocatedType))
+        {
+            candidate.ShapeMatched = true;
+            candidate.ShapeAllocationHits++;
+            candidate.ShapeAllocationBytes += sampledBytes;
+        }
+    }
+}
+
 static long? TryReadBytes(string line)
 {
     var match = Patterns.Bytes().Match(line);
@@ -886,8 +978,11 @@ static void Render(CorrelationResult result, CorrelateOptions options)
 static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<AllocationCandidate> candidates, CorrelateOptions options)
 {
     return candidates
-        .Where(c => !options.ConfirmedOnly || c.RuntimeHits > 0)
-        .OrderByDescending(c => c.RuntimeHits > 0)
+        .Where(c => !options.ConfirmedOnly || c.IsObserved)
+        .OrderByDescending(c => c.IsObserved)
+        .ThenByDescending(c => c.ShapeMatched)
+        .ThenByDescending(c => c.ShapeAllocationBytes)
+        .ThenByDescending(c => c.AllocationHits)
         .ThenByDescending(c => c.ExactOffsetObserved)
         .ThenByDescending(c => c.RuntimeWeight)
         .ThenByDescending(c => c.RuntimeHits)
@@ -899,8 +994,8 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
 {
-    var observed = candidates.Where(c => c.RuntimeHits > 0).ToArray();
-    var cold = result.Candidates.Where(c => c.RuntimeHits == 0).ToArray();
+    var observed = candidates.Where(c => c.IsObserved).ToArray();
+    var cold = result.Candidates.Where(c => !c.IsObserved).ToArray();
     var counterObservations = result.DiagnosticInputs
         .Where(static i => string.Equals(i.Kind, "counters", StringComparison.OrdinalIgnoreCase))
         .SelectMany(static i => i.Observations)
@@ -914,6 +1009,8 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
             Method = g.Key,
             Weight = g.Max(c => c.RuntimeWeight),
             Hits = g.Sum(c => c.RuntimeHits),
+            AllocationHits = g.Max(c => c.EffectiveAllocationHits),
+            AllocationBytes = g.Max(c => c.EffectiveObservedBytes),
             Rows = g.Count(),
             Shapes = string.Join(", ", g.Select(c => c.AllocationKind).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)),
             Confidence = HighestConfidence(g.Select(c => c.Confidence)),
@@ -922,6 +1019,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
             Evidence = g.Select(c => c.Detail).FirstOrDefault(static e => !string.IsNullOrWhiteSpace(e)),
             Fix = g.Select(c => c.Fix).FirstOrDefault(static f => !string.IsNullOrWhiteSpace(f)),
             Exact = g.Any(c => c.ExactOffsetObserved),
+            ShapeMatched = g.Any(c => c.ShapeMatched),
             InLoop = g.Any(c => c.InLoop),
         })
         .OrderByDescending(g => g.Weight)
@@ -931,7 +1029,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine("# runfaster performance report");
     Console.WriteLine();
     Console.WriteLine($"Static candidates: {result.Candidates.Count.ToString(CultureInfo.InvariantCulture)}");
-    Console.WriteLine($"Runtime-observed candidates: {result.Candidates.Count(c => c.RuntimeHits > 0).ToString(CultureInfo.InvariantCulture)}");
+    Console.WriteLine($"Runtime-observed candidates: {result.Candidates.Count(c => c.IsObserved).ToString(CultureInfo.InvariantCulture)}");
     Console.WriteLine();
 
     Console.WriteLine("## Conclusion");
@@ -943,7 +1041,15 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     else
     {
         var top = observedGroups[0];
-        Console.WriteLine($"The hottest observed candidate is `{top.Method}`. Runtime samples put this method on-stack with weight {top.Weight.ToString("0.##", CultureInfo.InvariantCulture)}, and static IL triage found {top.Rows.ToString(CultureInfo.InvariantCulture)} `{top.Shapes}` row(s){(top.InLoop ? " inside loops" : "")}.");
+        if (top.AllocationHits > 0)
+        {
+            var match = top.ShapeMatched ? "matching-shape allocation events" : "allocation events";
+            Console.WriteLine($"The hottest observed candidate is `{top.Method}`. Raw `.nettrace` shows {top.AllocationHits.ToString(CultureInfo.InvariantCulture)} {match} under this method ({FormatBytes(top.AllocationBytes)} sampled), and static IL triage found {top.Rows.ToString(CultureInfo.InvariantCulture)} `{top.Shapes}` row(s){(top.InLoop ? " inside loops" : "")}.");
+        }
+        else
+        {
+            Console.WriteLine($"The hottest observed candidate is `{top.Method}`. Runtime samples put this method on-stack with weight {top.Weight.ToString("0.##", CultureInfo.InvariantCulture)}, and static IL triage found {top.Rows.ToString(CultureInfo.InvariantCulture)} `{top.Shapes}` row(s){(top.InLoop ? " inside loops" : "")}.");
+        }
         if (!string.IsNullOrWhiteSpace(top.Fix))
             Console.WriteLine($"Recommended first fix: {top.Fix}");
         if (counterObservations.Length > 0)
@@ -951,7 +1057,9 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         Console.WriteLine();
         Console.WriteLine(top.Exact
             ? "The runtime artifact matched at exact token+IL offset for at least one row."
-            : "The runtime artifact confirms the method, not the exact IL offset. Use this as a prioritization signal; inspect/decompile the listed offsets before changing code.");
+            : top.ShapeMatched
+                ? "The runtime artifact confirms matching allocation types under the method, not the exact IL offset. Use this as strong prioritization evidence; inspect/decompile the listed offsets before changing code."
+                : "The runtime artifact confirms the method, not the exact IL offset. Use this as a prioritization signal; inspect/decompile the listed offsets before changing code.");
     }
     Console.WriteLine();
 
@@ -959,14 +1067,14 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     {
         Console.WriteLine("## Confirmed paydirt");
         Console.WriteLine();
-        Console.WriteLine("| Runtime Weight | Method | Static Rows | Shape | Confidence | Loop | IL Offsets | Why it matters | Fix |");
-        Console.WriteLine("| -------------: | ------ | ----------: | ----- | ---------- | ---- | ---------- | -------------- | --- |");
+        Console.WriteLine("| Runtime Evidence | Method | Static Rows | Shape | Confidence | Loop | IL Offsets | Why it matters | Fix |");
+        Console.WriteLine("| ---------------- | ------ | ----------: | ----- | ---------- | ---- | ---------- | -------------- | --- |");
         foreach (var group in observedGroups.Take(10))
         {
             Console.WriteLine("| "
                 + string.Join(" | ",
                 [
-                    group.Weight.ToString("0.##", CultureInfo.InvariantCulture),
+                    group.AllocationBytes > 0 ? $"{group.AllocationHits.ToString(CultureInfo.InvariantCulture)} alloc ticks / {FormatBytes(group.AllocationBytes)}" : $"sample weight {group.Weight.ToString("0.##", CultureInfo.InvariantCulture)}",
                     $"`{Escape(group.Method)}`",
                     group.Rows.ToString(CultureInfo.InvariantCulture),
                     Escape(group.Shapes),
@@ -1016,14 +1124,14 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine();
     Console.WriteLine("- Static rows are IL-visible candidates from dotnet-inspect Performance Triage.");
     Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. Speedscope and Chromium reports are sampled/profile weights; text reports are presence matches.");
-    Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `confirmed-hot` means an exact token+IL coordinate was observed.");
+    Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `confirmed-hot` means an exact token+IL coordinate was observed.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
 {
     Console.WriteLine("runfaster prototype");
     Console.WriteLine($"Static candidates: {result.Candidates.Count.ToString(CultureInfo.InvariantCulture)}");
-    Console.WriteLine($"Runtime-observed candidates: {result.Candidates.Count(c => c.RuntimeHits > 0).ToString(CultureInfo.InvariantCulture)}");
+    Console.WriteLine($"Runtime-observed candidates: {result.Candidates.Count(c => c.IsObserved).ToString(CultureInfo.InvariantCulture)}");
     Console.WriteLine();
     RenderTable(candidates, markdown: false);
 }
@@ -1032,13 +1140,14 @@ static void RenderTable(IReadOnlyList<AllocationCandidate> candidates, bool mark
 {
     string[][] rows =
     [
-        ["Status", "Hits", "Weight", "Bytes", "Token+IL", "Method", "Kind", "Loop", "Source"],
+        ["Status", "Hits", "Alloc", "Weight", "Bytes", "Token+IL", "Method", "Kind", "Loop", "Source"],
         .. candidates.Select(c => new[]
         {
             c.Status,
             c.RuntimeHits.ToString(CultureInfo.InvariantCulture),
-            c.RuntimeWeight == 0 ? "" : c.RuntimeWeight.ToString("0.##", CultureInfo.InvariantCulture),
-            c.RuntimeBytes == 0 ? "" : FormatBytes(c.RuntimeBytes),
+            c.EffectiveAllocationHits == 0 ? "" : c.EffectiveAllocationHits.ToString(CultureInfo.InvariantCulture),
+            c.EffectiveRuntimeWeight == 0 ? "" : c.EffectiveRuntimeWeight.ToString("0.##", CultureInfo.InvariantCulture),
+            c.EffectiveObservedBytes == 0 ? "" : FormatBytes(c.EffectiveObservedBytes),
             c.TokenAndOffset,
             c.Method,
             c.AllocationKind,
@@ -1050,7 +1159,7 @@ static void RenderTable(IReadOnlyList<AllocationCandidate> candidates, bool mark
     if (markdown)
     {
         Console.WriteLine("| " + string.Join(" | ", rows[0].Select(Escape)) + " |");
-        Console.WriteLine("| ------ | ---: | -----: | ----: | -------- | ------ | ---- | ---- | ------ |");
+        Console.WriteLine("| ------ | ---: | ----: | -----: | ----: | -------- | ------ | ---- | ---- | ------ |");
         foreach (var row in rows.Skip(1))
             Console.WriteLine("| " + string.Join(" | ", row.Select(Escape)) + " |");
         return;
@@ -1077,15 +1186,16 @@ static void RenderTable(IReadOnlyList<AllocationCandidate> candidates, bool mark
 
 static void RenderSeparated(IReadOnlyList<AllocationCandidate> candidates, string separator)
 {
-    Console.WriteLine(string.Join(separator, ["status", "hits", "weight", "bytes", "token_il", "method", "kind", "in_loop", "source"]));
+    Console.WriteLine(string.Join(separator, ["status", "hits", "allocation_hits", "weight", "bytes", "token_il", "method", "kind", "in_loop", "source"]));
     foreach (var candidate in candidates)
     {
         Console.WriteLine(string.Join(separator,
         [
             candidate.Status,
             candidate.RuntimeHits.ToString(CultureInfo.InvariantCulture),
-            candidate.RuntimeWeight.ToString(CultureInfo.InvariantCulture),
-            candidate.RuntimeBytes.ToString(CultureInfo.InvariantCulture),
+            candidate.EffectiveAllocationHits.ToString(CultureInfo.InvariantCulture),
+            candidate.EffectiveRuntimeWeight.ToString(CultureInfo.InvariantCulture),
+            candidate.EffectiveObservedBytes.ToString(CultureInfo.InvariantCulture),
             candidate.TokenAndOffset,
             candidate.Method,
             candidate.AllocationKind,
@@ -1100,7 +1210,7 @@ static void RenderJson(CorrelationResult result, IReadOnlyList<AllocationCandida
     using var writer = new Utf8JsonWriter(Console.OpenStandardOutput(), new JsonWriterOptions { Indented = true });
     writer.WriteStartObject();
     writer.WriteNumber("staticCandidates", result.Candidates.Count);
-    writer.WriteNumber("observedCandidates", result.Candidates.Count(c => c.RuntimeHits > 0));
+    writer.WriteNumber("observedCandidates", result.Candidates.Count(c => c.IsObserved));
     writer.WritePropertyName("inputs");
     writer.WriteStartArray();
     foreach (var input in result.DiagnosticInputs)
@@ -1162,6 +1272,21 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteNumber("runtimeHits", candidate.RuntimeHits);
     writer.WriteNumber("runtimeWeight", candidate.RuntimeWeight);
     writer.WriteNumber("runtimeBytes", candidate.RuntimeBytes);
+    writer.WriteNumber("allocationHits", candidate.AllocationHits);
+    writer.WriteNumber("allocationBytes", candidate.AllocationBytes);
+    writer.WriteNumber("shapeAllocationHits", candidate.ShapeAllocationHits);
+    writer.WriteNumber("shapeAllocationBytes", candidate.ShapeAllocationBytes);
+    writer.WriteBoolean("shapeMatched", candidate.ShapeMatched);
+    writer.WritePropertyName("observedAllocatedTypes");
+    writer.WriteStartArray();
+    foreach (var (type, bytes) in candidate.ObservedAllocatedTypes.OrderByDescending(kv => kv.Value).Take(10))
+    {
+        writer.WriteStartObject();
+        writer.WriteString("type", type);
+        writer.WriteNumber("bytes", bytes);
+        writer.WriteEndObject();
+    }
+    writer.WriteEndArray();
     writer.WriteBoolean("exactOffsetObserved", candidate.ExactOffsetObserved);
     writer.WritePropertyName("observedSources");
     writer.WriteStartArray();
@@ -1315,12 +1440,84 @@ sealed class AllocationCandidate(
     public int RuntimeHits { get; set; }
     public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
+    public int AllocationHits { get; set; }
+    public long AllocationBytes { get; set; }
+    public int ShapeAllocationHits { get; set; }
+    public long ShapeAllocationBytes { get; set; }
+    public bool ShapeMatched { get; set; }
     public bool ExactOffsetObserved { get; set; }
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, long> ObservedAllocatedTypes { get; } = new(StringComparer.Ordinal);
+    public long TotalObservedBytes => RuntimeBytes + AllocationBytes;
+    public long EffectiveObservedBytes => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : TotalObservedBytes;
+    public double EffectiveRuntimeWeight => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : RuntimeWeight;
+    public int EffectiveAllocationHits => ShapeAllocationHits > 0 ? ShapeAllocationHits : AllocationHits;
+    public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
-    public string Status => RuntimeHits == 0
+    public string Status => ShapeMatched
+        ? "shape-hot"
+        : AllocationHits > 0
+            ? "allocation-hot"
+            : RuntimeHits == 0
         ? "cold-for-this-workload"
         : ExactOffsetObserved ? "confirmed-hot" : "method-hot";
+
+    public bool MatchesAllocatedType(string allocatedType)
+    {
+        if (AllocatedType is { Length: > 0 } staticType
+            && TypeNamesEquivalent(staticType, allocatedType))
+        {
+            return true;
+        }
+
+        if (Detail is null)
+            return false;
+
+        var detail = Detail.Trim();
+        if (detail.StartsWith("box ", StringComparison.OrdinalIgnoreCase))
+            return TypeNamesEquivalent(detail[4..].Trim(), allocatedType);
+
+        if (detail.StartsWith("newarr ", StringComparison.OrdinalIgnoreCase))
+        {
+            var element = detail[7..].Trim();
+            return TypeNamesEquivalent($"{element}[]", allocatedType);
+        }
+
+        if (string.Equals(AllocationKind, "string-build-in-loop", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(allocatedType, "System.String", StringComparison.Ordinal)
+                || string.Equals(allocatedType, "System.Text.StringBuilder", StringComparison.Ordinal)
+                || string.Equals(allocatedType, "System.Char[]", StringComparison.Ordinal);
+
+        if (AllocationKind.Contains("delegate", StringComparison.OrdinalIgnoreCase))
+            return allocatedType.Contains("Func`", StringComparison.Ordinal)
+                || allocatedType.Contains("Action`", StringComparison.Ordinal)
+                || allocatedType.EndsWith("Delegate", StringComparison.Ordinal);
+
+        return false;
+    }
+
+    static bool TypeNamesEquivalent(string left, string right)
+    {
+        left = NormalizeTypeName(left);
+        right = NormalizeTypeName(right);
+        return string.Equals(left, right, StringComparison.Ordinal)
+            || string.Equals(LeafTypeName(left), LeafTypeName(right), StringComparison.Ordinal);
+    }
+
+    static string NormalizeTypeName(string value)
+        => value.Replace("class ", "", StringComparison.Ordinal)
+            .Replace("value class ", "", StringComparison.Ordinal)
+            .Replace("valuetype ", "", StringComparison.Ordinal)
+            .Trim();
+
+    static string LeafTypeName(string value)
+    {
+        int generic = value.IndexOf('<');
+        if (generic >= 0)
+            value = value[..generic];
+        int dot = value.LastIndexOf('.');
+        return dot >= 0 ? value[(dot + 1)..] : value;
+    }
 
     public static AllocationCandidate FromOccurrence(int id, string path, AllocationOccurrence occurrence) => new(
         id,

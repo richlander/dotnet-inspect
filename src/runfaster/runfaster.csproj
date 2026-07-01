@@ -36,6 +36,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
