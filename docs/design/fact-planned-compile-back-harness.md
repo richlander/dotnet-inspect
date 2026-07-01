@@ -803,6 +803,106 @@ Examples:
    becoming another giant diagnostic wall?
 7. Should the working name stay ReturnToSender or switch to LoopBack?
 
+## Appendix: future test-stack considerations
+
+ReturnToSender should also help reframe the broader decompiler test stack in a
+way that looks familiar to JIT and Roslyn contributors. The goal is not to copy
+their infrastructure, but to make this repository's testing vocabulary more
+modern and recognizable: layered fixtures, explicit oracles, typed intermediate
+artifacts, and corpus gates with named failure modes.
+
+### Fixture ladder
+
+Fixtures should form a progressive ladder:
+
+1. minimal synthetic source or IL fixture;
+2. generated-family fixture, such as protobuf or Aspire resource patterns;
+3. real package witness;
+4. capped corpus run;
+5. daily corpus gate.
+
+Each rung should answer a different question. A tiny fixture proves the
+mechanism. A generated-family fixture proves the shape family. A real witness
+proves the family occurs outside the lab. Corpus and daily gates prove the change
+does not regress broad behavior.
+
+### Oracle taxonomy
+
+Tests should name the oracle they exercise:
+
+| Oracle | Question answered |
+| --- | --- |
+| parse | Is emitted C# syntactically valid? |
+| bind | Can a normal C# consumer resolve the source? |
+| opcode parity | Does compile-back preserve the IL opcode stream? |
+| fact agreement | Do independently produced facts agree on the same IL/member/type evidence? |
+| source-shape validity | Is the reconstructed shell sufficient and not speculative? |
+| API/platform resolution | Did package/framework/shared-service resolution select the intended asset? |
+| performance-signal precision | Does a signal identify useful targets without noisy over-reporting? |
+
+This taxonomy should keep product failures separate from harness reconstruction
+failures. A body that the decompiler prints incorrectly is a different class of
+bug from a shell that failed to provide the right generic constraint or assembly
+attribute.
+
+### Typed facts before projection
+
+Analysis and Research tests should validate typed facts before validating text
+views. CLI text, annotated source, and ReturnToSender shells should be consumers
+of the facts, not the only proof that the facts exist.
+
+This suggests a common pattern:
+
+1. prove a fact producer on reduced IL/source;
+2. prove fact joins against metadata and instruction offsets;
+3. prove one or more projections, such as CLI output, source annotations, or
+   ReturnToSender shell requirements.
+
+### Shared service tests
+
+Assembly, package, framework, and source selection should have a dedicated
+service test suite. The CLI, Analysis, Research, and ReturnToSender all need the
+same answers. If each layer reimplements resolution locally, test failures become
+hard to classify because the fixture may be testing resolver drift rather than
+decompiler or analysis behavior.
+
+The same principle applies to any future shared substrate, including type
+identity. Shared substrates should have direct tests before they are consumed by
+printers, writers, or CLI projections.
+
+### Modern failure reporting
+
+Large test systems age better when failures include both the top-level status and
+the failing layer. ReturnToSender should model this, but the pattern can apply
+elsewhere:
+
+```text
+status: RecompileFail
+layer : module context
+reason: required assembly attribute omitted by ModuleWriter
+oracle: bind
+```
+
+That shape is easier to route than a wall of compiler diagnostics or a text diff
+without provenance.
+
+### Broader implication
+
+ReturnToSender is the first large-scale use of this architecture, but the same
+testing style should influence other infrastructure:
+
+- decompiler fixtures should use the fixture ladder and oracle taxonomy;
+- Analysis and Research tests should prefer typed fact assertions over projected
+  text assertions;
+- CLI tests should focus on rendering and user-facing contract after lower
+  layers have proved facts;
+- daily/corpus tests should report movements in the same named statuses and
+  layers that targeted tests use.
+
+The desired end state is a coherent test stack: small fixtures explain why a
+behavior is correct, real witnesses prove it matters, and corpus gates prove it
+scales.
+
 ## Adversarial review results incorporated
 
 This revision incorporates adversarial feedback from Claude Opus 4.8,
