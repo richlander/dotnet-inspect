@@ -4764,6 +4764,91 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            # label coordinate
+            profiler-sample 0x06000001+0x1
+            return-address 0x06000001+0x6
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## IL Coordinates", output);
+            Assert.Contains("Coordinate", output);
+            Assert.Contains("IL Offset", output);
+            Assert.Contains("Meaning", output);
+            Assert.Contains("Evidence", output);
+            Assert.Contains("profiler-sample", output);
+            Assert.Contains("callsite", output);
+            Assert.Contains("return-address", output);
+            Assert.Contains("return address", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            bad debugger frame
+            good 0x06000001+0x1
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(error);
+            Assert.Contains(Path.GetFileName(path), output);
+            Assert.Contains("expected a MethodDef token + IL offset coordinate", output);
+            Assert.Contains("good", output);
+            Assert.Contains("callsite", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_JsonUsesSnakeCaseEnvelope()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "sample 0x06000001+0x1", TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--json", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("\"rows\"", output);
+            Assert.Contains("\"il_offset\"", output);
+            Assert.DoesNotContain("\"ILOffset\"", output);
+            Assert.DoesNotContain("\"Coordinate\"", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_SourceLocationSectionSelector_UsesFlagParameter()
     {
         var (exit, output, error) = await RunAppAsync(
