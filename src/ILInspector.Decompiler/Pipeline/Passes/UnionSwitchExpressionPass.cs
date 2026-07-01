@@ -181,6 +181,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             || notNullIf.Then.Children.Count < 3
             || notNullIf.Then.Children[^2] is not ExpressionStatement throwStatement
             || !IsThrowSwitchExpression(throwStatement)
+            || !ThrowArgumentMatchesNullArm(throwStatement, valueStore.Index, unionValue.Instance)
             || notNullIf.Then.Children[^1] is not Return throwReturn
             || !ReturnsLocal(throwReturn, nullStore.Index))
         {
@@ -190,6 +191,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var armNodes = notNullIf.Then.Children.Take(notNullIf.Then.Children.Count - 2).ToArray();
         if (!TryInnerArms(armNodes, valueStore.Index, nullStore.Index, out var arms)
             || !ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, notNullIf])
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, nullStore.Index, [notNullIf, nullStore, nullReturn])
             || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
             || !DuplicateTypesAreGuarded(arms))
         {
@@ -1499,6 +1501,22 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     static bool ThrowArgumentMatches(ExpressionStatement statement, IrExpression receiver)
         => statement.Expression is Call { Arguments: [var argument] }
         && PlaceIdentity.SameVariable(argument, receiver);
+
+    static bool ThrowArgumentMatchesNullArm(ExpressionStatement statement, int tempLocal, IrExpression? unionReceiver)
+        => statement.Expression is Call { Arguments: [var argument] }
+        && (argument is LoadLocal local && local.Index == tempLocal
+            || argument is Box { Operand: LoadArgument boxedArgument }
+                && unionReceiver is LoadArgumentAddress receiverArgument
+                && boxedArgument.Index == receiverArgument.Index
+            || argument is Box { Operand: LoadArgument boxedArgumentDirect }
+                && unionReceiver is LoadArgument receiverArgumentDirect
+                && boxedArgumentDirect.Index == receiverArgumentDirect.Index
+            || argument is Box { Operand: LoadLocal boxedLocal }
+                && unionReceiver is LoadLocalAddress receiverLocal
+                && boxedLocal.Index == receiverLocal.Index
+            || argument is Box { Operand: LoadLocal boxedLocalDirect }
+                && unionReceiver is LoadLocal receiverLocalDirect
+                && boxedLocalDirect.Index == receiverLocalDirect.Index);
 
     static bool IsUnionValueProperty(IrFunction function, LoadProperty property)
         => property.PropertyName == "Value"
