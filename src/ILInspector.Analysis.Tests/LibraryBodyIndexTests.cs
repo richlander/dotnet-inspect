@@ -1123,6 +1123,8 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesThenUnboxesLocal), AllocationKind.Box, AllocationEscape.LocalOnly)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstReturn), AllocationKind.Box, AllocationEscape.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstStoreField), AllocationKind.Box, AllocationEscape.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), AllocationKind.Box, AllocationEscape.Unknown)]
     public void AllocationOccurrences_ClassifyIntraproceduralEscape(string methodName, AllocationKind kind, AllocationEscape expected)
@@ -2720,6 +2722,7 @@ public class OptimizationOpportunityFixtures
     private readonly UserDisplayClassTarget _displayClassTarget = new();
     private int[]? _arrayField;
     private PlainObject? _objectField;
+    private IFormattable? _formattableField;
 
     // A capturing delegate created INSIDE a loop: a repeated allocation -> high confidence.
     public static int CapturingDelegateInLoop(int[] values, int seed)
@@ -3425,6 +3428,12 @@ public class OptimizationOpportunityFixtures
         object boxed = value;
         return (int)boxed;
     }
+
+    public static IFormattable? BoxThenIsinstReturn(int value)
+        => (object)value as IFormattable;
+
+    public void BoxThenIsinstStoreField(int value)
+        => _formattableField = (object)value as IFormattable;
 
     // Boxing an in-assembly struct that escapes into an object-typed API -> reported
     // (value-typeness resolved authoritatively via the struct's System.ValueType base).

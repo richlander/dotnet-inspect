@@ -3184,9 +3184,7 @@ public sealed class LibraryBodyIndex
                 case ILOpCode.Stelem_r8:
                 case ILOpCode.Stelem_ref:
                     return AllocationEscape.Escapes;
-                case ILOpCode.Unbox:
                 case ILOpCode.Unbox_any:
-                case ILOpCode.Isinst:
                     return kind == AllocationKind.Box ? AllocationEscape.LocalOnly : AllocationEscape.Unknown;
                 case ILOpCode.Call:
                 case ILOpCode.Callvirt:
