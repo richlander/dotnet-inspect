@@ -7,6 +7,7 @@ using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Research;
 using ILInspector.Metadata;
+using ILReader = ILInspector.Instructions.ILReader;
 
 namespace ILInspector.DecompilerHarness;
 
