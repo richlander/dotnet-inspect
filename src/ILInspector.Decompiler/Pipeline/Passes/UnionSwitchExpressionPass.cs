@@ -150,6 +150,8 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         {
             if (TryMatchNullArmStoreTailAt(function, children, start, out match))
                 return true;
+            if (TryMatchReferencePrefixValueTypeTailStoreTailAt(function, children, start, out match))
+                return true;
             if (TryMatchValueTypePrefixStoreTailAt(function, children, start, out match))
                 return true;
             if (TryMatchStoreTailAt(function, children, start, out match))
@@ -205,6 +207,82 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             (IrExpression)defaultValue.Clone(),
             (IrExpression)nullStore.Value.Clone());
         var switchStore = new StoreLocal(nullStore.Index, nullStore.Type, switchExpression);
+        match = new StoreTailMatch(start, switchStore, tail.Select(node => node.Clone()).ToArray());
+        return true;
+    }
+
+    static bool TryMatchReferencePrefixValueTypeTailStoreTailAt(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int start,
+        out StoreTailMatch match)
+    {
+        match = null!;
+        if (start + 4 >= children.Count
+            || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
+            || !IsValueTypeUnionValueProperty(function, unionValue)
+            || children[start + 1] is not StoreLocal { Value: IsInstance firstTest } firstStore
+            || !IsTempTypeTest(firstTest, valueStore.Index)
+            || children[start + 2] is not IfStatement firstNullGuard
+            || firstNullGuard.HasElse
+            || !IsNotLocal(firstNullGuard.Condition, firstStore.Index)
+            || children[start + 3] is not StoreLocal firstValueStore)
+        {
+            return false;
+        }
+
+        var tail = children.Skip(start + 4).ToArray();
+        var nestedNodes = firstNullGuard.Then.Children;
+        int armCount = nestedNodes.Count - 3;
+        if (tail.Length == 0
+            || !TailShapeIsMovable(tail)
+            || !TailMatches(children, start + 4, tail)
+            || armCount <= 0
+            || !TryNullAndDefaultStoreTail(nestedNodes.Skip(armCount).ToArray(), valueStore.Index, firstValueStore.Index, tail, out var nullValue, out var defaultValue))
+        {
+            return false;
+        }
+
+        var tailArms = new List<Arm>();
+        foreach (var node in nestedNodes.Take(armCount))
+        {
+            if (node is not IfStatement armIf
+                || !TryValueTypeStoreTailArm(armIf, valueStore.Index, firstValueStore.Index, tail, out var arm))
+            {
+                return false;
+            }
+
+            tailArms.Add(arm);
+        }
+
+        if (tailArms.Count == 0)
+            return false;
+
+        var firstArm = new Arm(
+            firstTest.Type,
+            firstStore.Index,
+            firstValueStore.Value,
+            [firstStore, firstNullGuard.Condition, firstValueStore.Value]);
+        var arms = new[] { firstArm }.Concat(tailArms).ToArray();
+        var consumedNodes = children.Skip(start).ToArray();
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, firstStore, firstNullGuard])
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, firstValueStore.Index, consumedNodes)
+            || arms.Any(arm => !ArmLocalReferencesAreOwned(function, arm))
+            || !DuplicateTypesAreGuarded(arms))
+        {
+            return false;
+        }
+
+        var switchExpression = new UnionSwitchExpression(
+            (IrExpression)unionValue.Clone(),
+            arms.Select(arm => new UnionSwitchExpressionArm(
+                arm.PatternType,
+                arm.LocalIndex,
+                (IrExpression)arm.Value.Clone(),
+                arm.Guard is null ? null : (IrExpression)arm.Guard.Clone())),
+            (IrExpression)defaultValue.Clone(),
+            (IrExpression)nullValue.Clone());
+        var switchStore = new StoreLocal(firstValueStore.Index, firstValueStore.Type, switchExpression);
         match = new StoreTailMatch(start, switchStore, tail.Select(node => node.Clone()).ToArray());
         return true;
     }

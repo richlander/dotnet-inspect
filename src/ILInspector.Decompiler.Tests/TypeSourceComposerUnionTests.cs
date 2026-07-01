@@ -911,6 +911,7 @@ public class TypeSourceComposerUnionTests
             public sealed class Bird { public string Name { get; } = "bird"; }
             public union Pet(Cat, Dog, Bird);
             public union MaybeNumber(int, string);
+            public union MaybeNumber2(string, int);
 
             public static class Matcher
             {
@@ -1054,6 +1055,27 @@ public class TypeSourceComposerUnionTests
                     return result;
                 }
 
+                public static string ValueTypeFinalValueType(MaybeNumber2 value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case string text:
+                            result = text.Trim();
+                            break;
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
                 public static string ValueSwitchNull(Pet pet)
                 {
                     string result;
@@ -1107,6 +1129,10 @@ public class TypeSourceComposerUnionTests
             result = string.Concat(result, "!");
             return result;
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeMutate"));
+        Assert.Equal("""
+            string result = value switch { null => "null", string text => text.Trim(), int number => number.ToString(), _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeFinalValueType"));
         Assert.Equal("""
             string result = pet switch { null => "null", Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
             return result.ToUpperInvariant();
