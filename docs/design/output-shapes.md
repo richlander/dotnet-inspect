@@ -155,7 +155,8 @@ member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Metho
 resolved coordinate can expose multiple sibling sections. The source-location
 section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
 source-line payload; the member-context section projects the same coordinate to
-the owning type and method.
+the owning type and method; the instruction-context section projects it to the
+exact IL instruction.
 
 The default stays evidence-oriented and renders all applicable coordinate-scoped
 sections:
@@ -191,6 +192,22 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Async | State machine |
 | Metadata Token | 0x6000002 |
 | IL Offset | 0x1 |
+
+## Instruction Context
+
+| Field | Value |
+| ----- | ----- |
+| IL Offset | 0x1 |
+| Boundary | Exact |
+| Opcode | callvirt |
+| Operand Kind | Method |
+| Operand | MyApp.IWorker::DoWork(int) |
+| Operand Token | 0x06000020 |
+| Next Offset | 0x6 |
+| Length | 5 |
+| Block | 0 |
+| Terminates Block | No |
+| Falls Through | Yes |
 ```
 
 Coordinate-scoped sections are discoverable only when the coordinate carrier is
@@ -198,11 +215,12 @@ present:
 
 ```bash
 dotnet-inspect library My.dll -D
-# Source Location and Member Context are omitted.
+# Source Location, Member Context, and Instruction Context are omitted.
 
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
 # Source Location
 # Member Context
+# Instruction Context
 ```
 
 The source-location section then projects cleanly:
@@ -236,9 +254,9 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
 
 This keeps the concerns separate: the default fact section shows all
 symbolication evidence, `Member Context` shows the owning metadata context,
-`--urls` returns the anchored source location, `--paths` returns the PDB
-document path, and `--print` returns the raw payload at the location rather than
-a decorated snippet.
+`Instruction Context` shows the exact IL operation, `--urls` returns the
+anchored source location, `--paths` returns the PDB document path, and `--print`
+returns the raw payload at the location rather than a decorated snippet.
 
 ## Design discipline for future flags
 

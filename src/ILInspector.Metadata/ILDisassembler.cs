@@ -158,7 +158,7 @@ public static class ILDisassembler
         };
     }
 
-    static string GetDisplayName(ILOpCode opCode)
+    internal static string GetDisplayName(ILOpCode opCode)
     {
         ushort index = (ushort)((((int)opCode & 0x200) >> 1) | ((int)opCode & 0xFF));
         if (index >= s_displayNames.Length)

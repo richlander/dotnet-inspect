@@ -92,7 +92,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\" or -S \"Member Context\".");
+            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", or -S \"Instruction Context\".");
             return 1;
         }
 
@@ -440,6 +440,7 @@ public class LibraryCommand
         {
             select.Add(SectionNames.ILOffset);
             select.Add(SectionNames.MemberContext);
+            select.Add(SectionNames.InstructionContext);
         }
 
         return (options with
@@ -452,7 +453,8 @@ public class LibraryCommand
     private static readonly string[] ILCoordinateSections =
     [
         SectionNames.ILOffset,
-        SectionNames.MemberContext
+        SectionNames.MemberContext,
+        SectionNames.InstructionContext
     ];
 
     private static bool HasILOffsetCoordinate(LibraryOptions options)
@@ -511,12 +513,20 @@ public class LibraryCommand
     {
         if (!options.Count
             || options.IncludeSections is not { Count: 1 } sections
-            || !sections.Contains(SectionNames.ILOffset))
+            || !sections.Overlaps(ILCoordinateSections))
         {
             return false;
         }
 
-        Console.WriteLine(inspection.ILOffset is null ? 0 : 1);
+        var section = sections.Single();
+        var hasRow = section switch
+        {
+            SectionNames.ILOffset => inspection.ILOffset != null,
+            SectionNames.MemberContext => inspection.ILOffset?.MemberContext != null,
+            SectionNames.InstructionContext => inspection.ILOffset?.InstructionContext != null,
+            _ => false
+        };
+        Console.WriteLine(hasRow ? 1 : 0);
         return true;
     }
 
@@ -530,10 +540,11 @@ public class LibraryCommand
             "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
             SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
+            SectionNames.InstructionContext => ProjectLibraryInstructionContext(inspection, section, kind, options),
             _ => []
         };
 
-        if (rows.Count == 0 && section == SectionNames.MemberContext)
+        if (rows.Count == 0 && section is SectionNames.MemberContext or SectionNames.InstructionContext)
         {
             if (kind != ShapeProjectionKind.Value)
                 Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
@@ -762,6 +773,50 @@ public class LibraryCommand
             "async" => context.Async,
             "metadata token" or "metadatatoken" or "token" => context.MetadataToken,
             "il offset" or "iloffset" => context.ILOffset,
+            _ => null
+        };
+
+    private static List<ShapeProjectionRow> ProjectLibraryInstructionContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.InstructionContext is not { } context)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Instruction Context requires --fields <name>.");
+            return [];
+        }
+
+        var value = SelectInstructionContextValue(context, field);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Instruction Context.");
+            return [];
+        }
+
+        return [new ShapeProjectionRow(1, section, value, Label: field)];
+    }
+
+    private static string? SelectInstructionContextValue(ILOffsetInstructionContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "il offset" or "iloffset" => context.ILOffset,
+            "boundary" => context.Boundary,
+            "opcode" => context.Opcode,
+            "operand kind" or "operandkind" => context.OperandKind,
+            "operand" => context.Operand,
+            "operand token" or "operandtoken" or "token" => context.OperandToken,
+            "branch targets" or "branchtargets" => context.BranchTargets,
+            "next offset" or "nextoffset" => context.NextOffset,
+            "length" => context.Length?.ToString(CultureInfo.InvariantCulture),
+            "block" => context.Block?.ToString(CultureInfo.InvariantCulture),
+            "terminates block" or "terminatesblock" => context.TerminatesBlock,
+            "falls through" or "fallsthrough" => context.FallsThrough,
             _ => null
         };
 

@@ -512,6 +512,27 @@ public class LibraryInspectionView
             ILOffset = context.ILOffset
         };
 
+    [MarkoutIgnore]
+    public bool HasILOffsetInstructionContext => _data.ILOffset?.InstructionContext != null;
+
+    [MarkoutSection(Name = SectionNames.InstructionContext, ShowWhenProperty = nameof(HasILOffsetInstructionContext))]
+    public ILOffsetInstructionContextSection? ILOffsetInstructionContextSection =>
+        _data.ILOffset?.InstructionContext is not { } context ? null : new ILOffsetInstructionContextSection
+        {
+            ILOffset = context.ILOffset,
+            Boundary = context.Boundary,
+            Opcode = context.Opcode,
+            OperandKind = context.OperandKind,
+            Operand = context.Operand,
+            OperandToken = context.OperandToken,
+            BranchTargets = context.BranchTargets,
+            NextOffset = context.NextOffset,
+            Length = context.Length,
+            Block = context.Block,
+            TerminatesBlock = context.TerminatesBlock,
+            FallsThrough = context.FallsThrough
+        };
+
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
@@ -815,6 +836,31 @@ public class ILOffsetMemberContextSection
     public string? MetadataToken { get; init; }
     [MarkoutPropertyName("IL Offset")]
     public string? ILOffset { get; init; }
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class ILOffsetInstructionContextSection
+{
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; init; }
+    public string? Boundary { get; init; }
+    public string? Opcode { get; init; }
+    [MarkoutPropertyName("Operand Kind")]
+    public string? OperandKind { get; init; }
+    public string? Operand { get; init; }
+    [MarkoutPropertyName("Operand Token")]
+    public string? OperandToken { get; init; }
+    [MarkoutPropertyName("Branch Targets")]
+    public string? BranchTargets { get; init; }
+    [MarkoutPropertyName("Next Offset")]
+    public string? NextOffset { get; init; }
+    public int? Length { get; init; }
+    public int? Block { get; init; }
+    [MarkoutPropertyName("Terminates Block")]
+    public string? TerminatesBlock { get; init; }
+    [MarkoutPropertyName("Falls Through")]
+    public string? FallsThrough { get; init; }
 }
 
 [MarkoutSerializable]

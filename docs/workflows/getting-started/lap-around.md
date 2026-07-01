@@ -229,7 +229,7 @@ dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -S
 public static partial class JsonSerializer
 ```
 
-For stack-trace style diagnostics, `library --il-offset` maps a MethodDef token plus IL offset to coordinate-scoped sections such as `Source Location` and `Member Context`.
+For stack-trace style diagnostics, `library --il-offset` maps a MethodDef token plus IL offset to coordinate-scoped sections such as `Source Location`, `Member Context`, and `Instruction Context`.
 
 ```bash
 dotnet-inspect library --platform System.Text.Json --il-offset 0x06000001+0x0 --json
