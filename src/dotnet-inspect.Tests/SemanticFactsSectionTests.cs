@@ -79,6 +79,33 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    public async Task LibraryIlOffsetSafetyContext_FlagsUnsafeCall()
+    {
+        var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.UnsafeAs))!;
+        var index = LibraryBodyIndex.Open(TestAssemblyPath);
+        var call = Assert.Single(index.DirectCalls, call =>
+            call.Caller.MetadataToken == method.MetadataToken
+            && call.Callee.DeclaringType.ToQualifiedDisplayString() == "System.Runtime.CompilerServices.Unsafe"
+            && call.Callee.Name == "As");
+
+        var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
+        {
+            AssemblyName = TestAssemblyPath,
+            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{call.ILOffset:X}",
+            IncludeSections = [SectionNames.SafetyContext],
+            Select = [SectionNames.SafetyContext],
+            Verbosity = Verbosity.Minimal,
+            Markdown = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Safety Context", result.Output);
+        Assert.Contains("Unsafe::As", result.Output);
+        Assert.Contains("requires unsafe", result.Output);
+    }
+
+    [Fact]
     public async Task LibraryIlOffsetSafetyContext_DoesNotFlagSafeSpanCall()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.SafeSpan))!;
@@ -151,4 +178,7 @@ public static class SemanticFactsFixture
     }
 
     public static int SafeSpan(Span<int> values) => values.Slice(0).Length;
+
+    public static uint UnsafeAs(ref int value)
+        => System.Runtime.CompilerServices.Unsafe.As<int, uint>(ref value);
 }
