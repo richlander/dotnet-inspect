@@ -1740,10 +1740,12 @@ public sealed partial class CSharpPrinter
         Constant { Value: int } c when EnumMemberName(c) is { } named => named,
         // A retyped enum constant with no single named member (a composite flag
         // value, or one outside the resolved member map) is still that enum — a
-        // bare int is CS0266. Cast it; naming flag combinations is a later slice.
-        // A negative value must be parenthesized after the cast (else CS0075).
+        // bare int is CS0266. Route it through the overflow-aware enum cast so an
+        // unsigned- or narrow-backed enum's out-of-range/negative value is wrapped
+        // in `unchecked` (e.g. `unchecked((U)(-1))`); naming flag combinations is a
+        // later slice.
         Constant { Value: int value, Type: { } enumType } when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
-            => $"({TypeText(enumType)}){(value < 0 ? $"({value})" : value.ToString(CultureInfo.InvariantCulture))}",
+            => EnumIntegerCast(new Constant(value, TypeRef.CoreLib("System", "Int32")), enumType),
         Constant c => ConstantText(c),
         LoadField f => FieldTarget(f.Field, f.Instance),
         Binary b => BinaryText(b),

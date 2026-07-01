@@ -177,20 +177,22 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string EnumIntegerCast(IrExpression value, TypeRef enumType)
     {
+        // A negative literal needs parentheses after the cast (CS0075); whether it
+        // (or an out-of-range positive) also needs `unchecked` is decided entirely
+        // by MayOverflowEnumBackingType against the backing width.
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
-        bool forceUnchecked = negativeLiteral || MayOverflowEnumBackingType(value, enumType);
-        // A constant can be CS0221 as a plain cast even outside a checked region:
-        // negative into an unsigned-backed enum (`(U)(-1)`) or a positive value that
-        // overflows a narrow backing (`(Tiny)128` for sbyte, `(Tiny)300` for byte),
-        // whether the width is known (from EnumUnderlyingTypes) or only guessed for
-        // a cross-assembly enum. Force `unchecked` in those cases; negative literals
-        // also need parentheses after the cast (CS0075).
+        bool forceUnchecked = MayOverflowEnumBackingType(value, enumType);
         return CheckedSafeCast(
             $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
             force: forceUnchecked);
     }
 
+    // True when a constant enum cast is CS0221 as a plain (checked) cast, so it must
+    // be wrapped in `unchecked`: a value outside the backing type's range — negative
+    // into an unsigned backing (`(U)(-1)`) or a magnitude a narrow backing cannot
+    // hold (`(Tiny)128` for sbyte, `(Tiny)300` for byte). A value that fits (e.g. a
+    // negative into a signed backing, `(Color)int.MinValue`) stays a bare cast.
     bool MayOverflowEnumBackingType(IrExpression value, TypeRef enumType)
     {
         if (value is not (Constant { Value: int } or Constant { Value: long }))
@@ -201,9 +203,10 @@ public sealed partial class CSharpPrinter
         if (EnumUnderlyingType(enumType) is { } underlying)
             return !TypeFamilies.ConstantFits(literal, underlying);
         // A cross-assembly enum has no resolved width; conservatively assume the
-        // narrowest (sbyte) backing so a value it cannot hold is wrapped.
+        // narrowest (sbyte) backing, so a negative or a value above sbyte's max may
+        // not fit and is wrapped.
         if (_function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Unknown)
-            return literal > sbyte.MaxValue;
+            return literal < 0 || literal > sbyte.MaxValue;
         return false;
     }
 

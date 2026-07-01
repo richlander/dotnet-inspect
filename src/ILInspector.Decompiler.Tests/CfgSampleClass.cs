@@ -4359,6 +4359,16 @@ public static class EnumCastSamples
         CfgFlags x = c ? CfgFlags.Top : e;
         return x == CfgFlags.None;
     }
+
+    // #2076 (review): a retyped same-assembly unsigned-enum constant with no named
+    // member — (CfgFlags)uint.MaxValue folds to `ldc.i4.m1` (-1) — must render an
+    // `unchecked` cast in comparison, bitwise, and coalesce positions, not a bare
+    // `(CfgFlags)(-1)` (CS0221).
+    public static bool UnsignedEnumConstantComparison(CfgFlags f) => f == (CfgFlags)uint.MaxValue;
+
+    public static CfgFlags UnsignedEnumConstantBitwise(CfgFlags f) => f & (CfgFlags)uint.MaxValue;
+
+    public static CfgFlags UnsignedEnumConstantCoalesce(CfgFlags? f) => f ?? (CfgFlags)uint.MaxValue;
 }
 
 

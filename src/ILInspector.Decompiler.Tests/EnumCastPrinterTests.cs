@@ -114,6 +114,26 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void RetypedUnsignedEnumConstant_ForcesUncheckedCast()
+    {
+        // A same-assembly unsigned-enum constant retyped by TypedConstantsPass with
+        // no named member, in comparison / bitwise / coalesce positions.
+        const string declaration = "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }";
+
+        string comparison = RenderFixture(nameof(EnumCastSamples.UnsignedEnumConstantComparison));
+        Assert.Contains("unchecked((CfgFlags)(-1))", comparison);
+        AssertCompiles("public static bool M(CfgFlags f)", comparison, declaration);
+
+        string bitwise = RenderFixture(nameof(EnumCastSamples.UnsignedEnumConstantBitwise));
+        Assert.Contains("unchecked((CfgFlags)(-1))", bitwise);
+        AssertCompiles("public static CfgFlags M(CfgFlags f)", bitwise, declaration);
+
+        string coalesce = RenderFixture(nameof(EnumCastSamples.UnsignedEnumConstantCoalesce));
+        Assert.Contains("unchecked((CfgFlags)(-1))", coalesce);
+        AssertCompiles("public static CfgFlags M(CfgFlags? f)", coalesce, declaration);
+    }
+
+    [Fact]
     public void EnumConditional_SameAssemblyUnsignedEnum_ForcesUncheckedCast()
     {
         // #2076: `c ? CfgFlags.Top : e` where CfgFlags : uint. Top (0x80000000u)
