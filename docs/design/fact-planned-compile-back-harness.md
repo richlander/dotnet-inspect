@@ -40,7 +40,7 @@ The new harness should:
 - Do not make the harness a general source generator for arbitrary assemblies.
 - Do not replace compiler-driven closure membership with speculative static
   closure.
-- Do not create a permanent third type system if a shared type identity substrate
+- Do not let parallel type identity representations drift if a shared substrate
   can serve the role.
 - Do not remove the current harness until the new path proves itself on real
   corpora.
@@ -126,9 +126,9 @@ selection, and the current harness has reimplemented enough of that behavior to
 show the risk of divergence. ReturnToSender should consume this service for
 reference closure and metadata identity instead of owning a parallel resolver.
 
-The service should stay SRM-only and should not depend on the decompiler,
-Research, Roslyn, or the harness. Harness-only policy, such as "which closure
-roots should be emitted as C# shells", belongs above this service.
+The service should stay SRM-only and should sit below Decompiler, Research, and
+ReturnToSender. Harness-only policy, such as "which closure roots should be
+emitted as C# shells", belongs above this service.
 
 ### Instructions
 
@@ -358,12 +358,20 @@ module or assembly attribute should not be preserved because it existed in the
 input assembly; it should be preserved because it affects compile-back binding,
 diagnostics, generated IL, or a named fidelity experiment.
 
-## Product and dependency boundary
+## Project-under-test and consumption boundary
 
-The product path must remain SRM-only, NativeAOT-friendly, Roslyn-free, and free
-of inspected-assembly loading.
+The boundary is not "Research vs Roslyn." Decompiler, Analysis, Research, and
+shared services are all project code. ReturnToSender is allowed to depend on
+that project code because it is the thing being tested. Roslyn is different: it
+is the consumption oracle used to compile the reconstructed source and judge
+whether a normal C# consumer could bind it.
 
-Allowed dependencies:
+Project code should remain SRM-only, NativeAOT-friendly, and free of
+inspected-assembly loading. The Roslyn dependency belongs in ReturnToSender and
+other harness-only tooling, not in the libraries that implement inspection,
+analysis, research facts, or decompiler output.
+
+Project code dependencies:
 
 ```text
 dotnet-inspect CLI
@@ -372,7 +380,7 @@ dotnet-inspect CLI
   -> ILInspector.Instructions
 ```
 
-Harness-only dependencies:
+ReturnToSender dependencies:
 
 ```text
 tools/CompileBackReconstruction
@@ -398,9 +406,10 @@ Analysis and Decompiler consume it
 specialized layers add interpretation above it
 ```
 
-For type identity, Phase 1 should either extract a shared substrate or define a
-strictly temporary adapter with hard transition criteria. The harness should not
-create a permanent third `ReconstructionTypeRef`.
+For type identity, Phase 1 should either extract a shared substrate or use
+explicit adapters while measuring whether the duplicate models are becoming
+friction. The goal is substrate convergence like the shared ILReader work, not a
+new harness-owned type system.
 
 The shared substrate should carry identity:
 
@@ -716,7 +725,8 @@ Examples:
 ### Phase 1: spec, identity, and data model
 
 - Land this design.
-- Decide shared TypeIdentity extraction vs a strictly temporary adapter.
+- Decide shared TypeIdentity extraction vs explicit adapters with measured
+  friction points.
 - Define `ReconstructionPlan`, `TypeShell`, `TypeMemberShell`, `TypeSignature`,
   `ModuleRequirement`, TypePrinter, and ModuleWriter shape in a tools-only
   project.
@@ -784,8 +794,8 @@ fallback and make fact producers opt-in shell-shape enrichment. Start with
 protobuf and Aspire because they expose structured, metadata-visible
 generated-family problems.
 
-Use adapters only as a transitional bridge, and expect the TypeRef duplication to
-motivate a shared type identity substrate if the adapters become noisy. Keep
-StackType as flow and provenance evidence, not as type identity.
+Use adapters deliberately while watching for friction, and expect the TypeRef
+duplication to motivate a shared type identity substrate if the adapters become
+noisy. Keep StackType as flow and provenance evidence, not as type identity.
 
 This is a new harness architecture, not another round of skeleton patching.
