@@ -1168,65 +1168,82 @@ public sealed class LibraryBodyIndex
                 for (int block = 0; block < BlockGraph.Blocks.Length; block++)
                 {
                     if (indexByBlock[block] < 0)
-                        Visit(block);
+                        VisitIterative(block);
                 }
 
                 return loops;
 
-                void Visit(int block)
+                void VisitIterative(int startBlock)
+                {
+                    StartBlock(startBlock);
+                    var frames = new List<TarjanFrame> { new(startBlock, 0, -1) };
+                    while (frames.Count > 0)
+                    {
+                        var frame = frames[^1];
+                        var successors = BlockGraph.Blocks[frame.Block].Edges.Successors;
+                        if (frame.NextSuccessorIndex < successors.Count)
+                        {
+                            int successor = successors[frame.NextSuccessorIndex];
+                            frames[^1] = frame with { NextSuccessorIndex = frame.NextSuccessorIndex + 1 };
+                            if ((uint)successor >= (uint)BlockGraph.Blocks.Length)
+                                continue;
+                            if (indexByBlock[successor] < 0)
+                            {
+                                StartBlock(successor);
+                                frames.Add(new TarjanFrame(successor, 0, frame.Block));
+                            }
+                            else if (onStack[successor])
+                            {
+                                lowLinkByBlock[frame.Block] = Math.Min(lowLinkByBlock[frame.Block], indexByBlock[successor]);
+                            }
+                            continue;
+                        }
+
+                        frames.RemoveAt(frames.Count - 1);
+                        if (frame.ParentBlock >= 0)
+                            lowLinkByBlock[frame.ParentBlock] = Math.Min(lowLinkByBlock[frame.ParentBlock], lowLinkByBlock[frame.Block]);
+
+                        if (lowLinkByBlock[frame.Block] != indexByBlock[frame.Block])
+                            continue;
+
+                        var component = new List<int>();
+                        int member;
+                        do
+                        {
+                            member = stack.Pop();
+                            onStack[member] = false;
+                            component.Add(member);
+                        }
+                        while (member != frame.Block);
+
+                        bool cyclic = component.Count > 1
+                            || BlockGraph.Blocks[component[0]].Edges.Successors.Contains(component[0]);
+                        if (!cyclic)
+                            continue;
+
+                        var componentSet = component.ToHashSet();
+                        var entries = component
+                            .Where(candidate => candidate == 0 || predecessors[candidate].Any(pred => !componentSet.Contains(pred)))
+                            .Distinct()
+                            .ToArray();
+                        if (entries.Length != 1)
+                            continue;
+
+                        int header = entries[0];
+                        if (component.Any(candidate => !DominatesBlock(BlockGraph, header, candidate)))
+                            continue;
+
+                        loops.Add(new NaturalLoop(header, LatchBlock: -1, [.. component.Order()]));
+                    }
+                }
+
+                void StartBlock(int block)
                 {
                     indexByBlock[block] = nextIndex;
                     lowLinkByBlock[block] = nextIndex;
                     nextIndex++;
                     stack.Push(block);
                     onStack[block] = true;
-
-                    foreach (int successor in BlockGraph.Blocks[block].Edges.Successors)
-                    {
-                        if ((uint)successor >= (uint)BlockGraph.Blocks.Length)
-                            continue;
-                        if (indexByBlock[successor] < 0)
-                        {
-                            Visit(successor);
-                            lowLinkByBlock[block] = Math.Min(lowLinkByBlock[block], lowLinkByBlock[successor]);
-                        }
-                        else if (onStack[successor])
-                        {
-                            lowLinkByBlock[block] = Math.Min(lowLinkByBlock[block], indexByBlock[successor]);
-                        }
-                    }
-
-                    if (lowLinkByBlock[block] != indexByBlock[block])
-                        return;
-
-                    var component = new List<int>();
-                    int member;
-                    do
-                    {
-                        member = stack.Pop();
-                        onStack[member] = false;
-                        component.Add(member);
-                    }
-                    while (member != block);
-
-                    bool cyclic = component.Count > 1
-                        || BlockGraph.Blocks[component[0]].Edges.Successors.Contains(component[0]);
-                    if (!cyclic)
-                        return;
-
-                    var componentSet = component.ToHashSet();
-                    var entries = component
-                        .Where(candidate => candidate == 0 || predecessors[candidate].Any(pred => !componentSet.Contains(pred)))
-                        .Distinct()
-                        .ToArray();
-                    if (entries.Length != 1)
-                        return;
-
-                    int header = entries[0];
-                    if (component.Any(candidate => !DominatesBlock(BlockGraph, header, candidate)))
-                        return;
-
-                    loops.Add(new NaturalLoop(header, LatchBlock: -1, [.. component.Order()]));
                 }
             }
         }
@@ -3943,6 +3960,8 @@ public sealed class LibraryBodyIndex
             public bool ContainsBlock(int block)
                 => !Blocks.IsDefaultOrEmpty && Blocks.Contains(block);
         }
+
+        readonly record struct TarjanFrame(int Block, int NextSuccessorIndex, int ParentBlock);
 
         static bool TryFindPreviousInstruction(DecodedBody decodedBody, int targetOffset, out DecodedInstruction previousInstruction)
         {

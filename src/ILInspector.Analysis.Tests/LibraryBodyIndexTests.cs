@@ -6,6 +6,8 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
+using ILInspector.ControlFlow;
+using ILInspector.Instructions;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -1378,6 +1380,39 @@ public class LibraryBodyIndexTests
         Assert.Contains("System.Collections.Generic.List<int>", row.Evidence, StringComparison.Ordinal);
         Assert.Contains("Add", row.Evidence, StringComparison.Ordinal);
         Assert.Contains("Pre-size", row.SafeFixDirection, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_NaturalLoopDetection_HandlesDeepCfgWithoutRecursion()
+    {
+        const int BlockCount = 30_000;
+        var blocks = ImmutableArray.CreateBuilder<InstructionBlock>(BlockCount);
+        for (int i = 0; i < BlockCount; i++)
+        {
+            blocks.Add(new InstructionBlock(
+                i,
+                i,
+                i + 1,
+                new BlockEdges(
+                    i + 1 < BlockCount ? [i + 1] : [],
+                    [],
+                    i + 1 == BlockCount,
+                    LeavesRegion: false)));
+        }
+
+        var graph = new BlockGraph(blocks.ToImmutable(), [], IsComplete: true, IncompleteReason: null);
+        var decodedBodyType = typeof(LibraryBodyIndex)
+            .GetNestedType("IndexBuilder", BindingFlags.NonPublic)!
+            .GetNestedType("DecodedBody", BindingFlags.NonPublic)!;
+        var ctor = decodedBodyType.GetConstructor(
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            [typeof(ImmutableArray<DecodedInstruction>), typeof(BlockGraph)],
+            modifiers: null)!;
+
+        var decodedBody = ctor.Invoke([ImmutableArray<DecodedInstruction>.Empty, graph]);
+        var loops = (System.Collections.IEnumerable)decodedBodyType.GetProperty("NaturalLoops")!.GetValue(decodedBody)!;
+        Assert.Empty(loops.Cast<object>());
     }
 
     [Fact]
