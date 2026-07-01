@@ -92,7 +92,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", or -S \"Instruction Context\".");
+            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", -S \"Instruction Context\", or -S \"Exception Context\".");
             return 1;
         }
 
@@ -441,6 +441,7 @@ public class LibraryCommand
             select.Add(SectionNames.ILOffset);
             select.Add(SectionNames.MemberContext);
             select.Add(SectionNames.InstructionContext);
+            select.Add(SectionNames.ExceptionContext);
         }
 
         return (options with
@@ -451,6 +452,14 @@ public class LibraryCommand
     }
 
     private static readonly string[] ILCoordinateSections =
+    [
+        SectionNames.ILOffset,
+        SectionNames.MemberContext,
+        SectionNames.InstructionContext,
+        SectionNames.ExceptionContext
+    ];
+
+    private static readonly string[] ILCoordinateSingletonSections =
     [
         SectionNames.ILOffset,
         SectionNames.MemberContext,
@@ -513,7 +522,7 @@ public class LibraryCommand
     {
         if (!options.Count
             || options.IncludeSections is not { Count: 1 } sections
-            || !sections.Overlaps(ILCoordinateSections))
+            || !sections.Overlaps(ILCoordinateSingletonSections))
         {
             return false;
         }
@@ -541,10 +550,11 @@ public class LibraryCommand
             SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
             SectionNames.InstructionContext => ProjectLibraryInstructionContext(inspection, section, kind, options),
+            SectionNames.ExceptionContext => ProjectLibraryExceptionContext(inspection, section, kind, options),
             _ => []
         };
 
-        if (rows.Count == 0 && section is SectionNames.MemberContext or SectionNames.InstructionContext)
+        if (rows.Count == 0 && section is SectionNames.MemberContext or SectionNames.InstructionContext or SectionNames.ExceptionContext)
         {
             if (kind != ShapeProjectionKind.Value)
                 Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
@@ -817,6 +827,49 @@ public class LibraryCommand
             "block" => context.Block?.ToString(CultureInfo.InvariantCulture),
             "terminates block" or "terminatesblock" => context.TerminatesBlock,
             "falls through" or "fallsthrough" => context.FallsThrough,
+            _ => null
+        };
+
+    private static List<ShapeProjectionRow> ProjectLibraryExceptionContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.ExceptionContext is not { Count: > 0 } rows)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Exception Context requires --fields <name>.");
+            return [];
+        }
+
+        List<ShapeProjectionRow> projected = [];
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var value = SelectExceptionContextValue(rows[i], field);
+            if (!string.IsNullOrWhiteSpace(value))
+                projected.Add(new ShapeProjectionRow(i + 1, section, value, Label: field));
+        }
+
+        if (projected.Count == 0)
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Exception Context.");
+
+        return projected;
+    }
+
+    private static string? SelectExceptionContextValue(ILOffsetExceptionContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "region" => context.Region.ToString(CultureInfo.InvariantCulture),
+            "context" => context.Context,
+            "clause" => context.Clause,
+            "try range" or "tryrange" => context.TryRange,
+            "handler range" or "handlerrange" => context.HandlerRange,
+            "filter range" or "filterrange" => context.FilterRange,
+            "caught type" or "caughttype" => context.CaughtType,
             _ => null
         };
 

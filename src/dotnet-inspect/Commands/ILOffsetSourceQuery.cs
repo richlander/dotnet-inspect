@@ -50,6 +50,13 @@ internal static class ILOffsetSourceQuery
             return (1, null);
         }
 
+        var exceptionContext = pdbContext.ResolveExceptionContext(methodToken, ilOffset, out var exceptionError);
+        if (exceptionError is not null && RequiresExceptionContext(options))
+        {
+            Console.Error.WriteLine($"Error: {exceptionError}");
+            return (1, null);
+        }
+
         SourceLinkResolver.ILOffsetSourceInfo? result = null;
         if (RequiresSourceLocation(options))
         {
@@ -120,7 +127,21 @@ internal static class ILOffsetSourceQuery
                 Block = instructionContext.Block,
                 TerminatesBlock = instructionContext.TerminatesBlock ? "Yes" : "No",
                 FallsThrough = instructionContext.FallsThrough ? "Yes" : "No"
-            }
+            },
+            ExceptionContext = exceptionContext
+                .Select(context => new ILOffsetExceptionContext
+                {
+                    Region = context.Region,
+                    Context = context.Context,
+                    Clause = context.Clause,
+                    TryRange = FormatILRange(context.TryStart, context.TryEnd),
+                    HandlerRange = FormatILRange(context.HandlerStart, context.HandlerEnd),
+                    FilterRange = context.FilterStart is { } fs && context.FilterEnd is { } fe
+                        ? FormatILRange(fs, fe)
+                        : null,
+                    CaughtType = context.CaughtType
+                })
+                .ToList()
         };
 
         return (0, resolved);
@@ -131,6 +152,11 @@ internal static class ILOffsetSourceQuery
 
     private static bool RequiresInstructionContext(LibraryOptions options)
         => options.IncludeSections?.Contains(SectionNames.InstructionContext) == true;
+
+    private static bool RequiresExceptionContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.ExceptionContext) == true;
+
+    private static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
 
     public static bool TryParse(string value, out int methodToken, out int ilOffset)
     {

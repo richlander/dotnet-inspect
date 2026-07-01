@@ -533,6 +533,22 @@ public class LibraryInspectionView
             FallsThrough = context.FallsThrough
         };
 
+    [MarkoutIgnore]
+    public bool HasILOffsetExceptionContext => _data.ILOffset?.ExceptionContext is { Count: > 0 };
+
+    [MarkoutSection(Name = SectionNames.ExceptionContext, ShowWhenProperty = nameof(HasILOffsetExceptionContext))]
+    public List<ILOffsetExceptionContextRow>? ILOffsetExceptionContextSection =>
+        _data.ILOffset?.ExceptionContext?
+            .Select(context => new ILOffsetExceptionContextRow(
+                context.Region,
+                context.Context,
+                context.Clause,
+                context.TryRange,
+                context.HandlerRange,
+                context.FilterRange,
+                context.CaughtType))
+            .ToList();
+
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
@@ -862,6 +878,20 @@ public class ILOffsetInstructionContextSection
     [MarkoutPropertyName("Falls Through")]
     public string? FallsThrough { get; init; }
 }
+
+[MarkoutSerializable]
+public record ILOffsetExceptionContextRow(
+    int Region,
+    [property: MarkoutSkipNull] string? Context,
+    [property: MarkoutSkipNull] string? Clause,
+    [property: MarkoutPropertyName("Try Range")]
+    [property: MarkoutSkipNull] string? TryRange,
+    [property: MarkoutPropertyName("Handler Range")]
+    [property: MarkoutSkipNull] string? HandlerRange,
+    [property: MarkoutPropertyName("Filter Range")]
+    [property: MarkoutSkipNull] string? FilterRange,
+    [property: MarkoutPropertyName("Caught Type")]
+    [property: MarkoutSkipNull] string? CaughtType);
 
 [MarkoutSerializable]
 public record ResourceRow(

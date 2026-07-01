@@ -503,6 +503,7 @@ public class ILOffsetResult
     public string? Url { get; init; }
     public ILOffsetMemberContext? MemberContext { get; init; }
     public ILOffsetInstructionContext? InstructionContext { get; init; }
+    public List<ILOffsetExceptionContext>? ExceptionContext { get; init; }
 }
 
 public class ILOffsetMemberContext
@@ -534,6 +535,17 @@ public class ILOffsetInstructionContext
     public int? Block { get; init; }
     public string? TerminatesBlock { get; init; }
     public string? FallsThrough { get; init; }
+}
+
+public class ILOffsetExceptionContext
+{
+    public int Region { get; init; }
+    public string? Context { get; init; }
+    public string? Clause { get; init; }
+    public string? TryRange { get; init; }
+    public string? HandlerRange { get; init; }
+    public string? FilterRange { get; init; }
+    public string? CaughtType { get; init; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);

@@ -41,6 +41,21 @@ public class CommandExecutionTests
         public float FloatConstant() => 1.5f;
     }
 
+    private sealed class ILOffsetExceptionFixture
+    {
+        public int TryCatch(int value)
+        {
+            try
+            {
+                return 100 / value;
+            }
+            catch (DivideByZeroException)
+            {
+                return -1;
+            }
+        }
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalRefPackage(params string[] assemblyNames)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -4485,6 +4500,7 @@ public class CommandExecutionTests
                 "Configuration",
                 "Custom Attributes",
                 "Dependency Injection",
+                "Exception Context",
                 "Extension Methods",
                 "Health Checks",
                 "Hosting",
@@ -4638,6 +4654,7 @@ public class CommandExecutionTests
         Assert.DoesNotContain("Source Location", withoutOutput);
         Assert.DoesNotContain("Member Context", withoutOutput);
         Assert.DoesNotContain("Instruction Context", withoutOutput);
+        Assert.DoesNotContain("Exception Context", withoutOutput);
         Assert.Contains("Source Location", withOutput);
         Assert.Contains("Member Context", withOutput);
         Assert.Contains("Instruction Context", withOutput);
@@ -4765,6 +4782,35 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("1.5", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetExceptionContext_RendersContainingRegion()
+    {
+        var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", $"0x{token:X}+0x1", "-S", "Exception Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Exception Context", output);
+        Assert.Contains("| Region | Context | Clause | Try Range | Handler Range |", output);
+        Assert.Contains("| 1 | try | catch |", output);
+        Assert.Contains("System.DivideByZeroException", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetExceptionContext_ValueProjectsClause()
+    {
+        var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", $"0x{token:X}+0x1", "-S", "Exception Context", "--fields", "Clause", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("catch", output.Trim());
     }
 
     [Fact]

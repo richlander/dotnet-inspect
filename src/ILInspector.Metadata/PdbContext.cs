@@ -51,6 +51,18 @@ public record ILOffsetInstructionContextInfo(
     bool TerminatesBlock,
     bool FallsThrough);
 
+public record ILOffsetExceptionContextInfo(
+    int Region,
+    string Context,
+    string Clause,
+    int TryStart,
+    int TryEnd,
+    int HandlerStart,
+    int HandlerEnd,
+    int? FilterStart,
+    int? FilterEnd,
+    string? CaughtType);
+
 /// <summary>
 /// Wraps PE + PDB readers, exposes high-level operations with no SRM in public signatures.
 /// CLI orchestrates PDB acquisition (download via Packages), then calls back into this context.
@@ -353,6 +365,65 @@ public class PdbContext : IDisposable
         }
     }
 
+    public IReadOnlyList<ILOffsetExceptionContextInfo> ResolveExceptionContext(int methodToken, int ilOffset, out string? error)
+    {
+        error = null;
+        if (!_peReader.HasMetadata)
+            return [];
+
+        var handle = MetadataTokens.Handle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+        {
+            error = $"Token 0x{methodToken:X} is not a MethodDef token.";
+            return [];
+        }
+
+        try
+        {
+            var reader = _peReader.GetMetadataReader();
+            var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+            if (method.RelativeVirtualAddress == 0)
+            {
+                error = $"Method token 0x{methodToken:X} has no IL body.";
+                return [];
+            }
+
+            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+            List<ILOffsetExceptionContextInfo> rows = [];
+            var regions = body.ExceptionRegions;
+            for (var i = 0; i < regions.Length; i++)
+            {
+                var region = regions[i];
+                var tryEnd = region.TryOffset + region.TryLength;
+                var handlerEnd = region.HandlerOffset + region.HandlerLength;
+                int? filterStart = region.Kind == ExceptionRegionKind.Filter ? region.FilterOffset : null;
+                int? filterEnd = region.Kind == ExceptionRegionKind.Filter ? region.HandlerOffset : null;
+                var context = GetExceptionContext(region, ilOffset, tryEnd, handlerEnd, filterStart, filterEnd);
+                if (context is null)
+                    continue;
+
+                rows.Add(new ILOffsetExceptionContextInfo(
+                    Region: i + 1,
+                    Context: context,
+                    Clause: FormatExceptionClause(region.Kind),
+                    TryStart: region.TryOffset,
+                    TryEnd: tryEnd,
+                    HandlerStart: region.HandlerOffset,
+                    HandlerEnd: handlerEnd,
+                    FilterStart: filterStart,
+                    FilterEnd: filterEnd,
+                    CaughtType: ResolveCatchType(reader, region)));
+            }
+
+            return rows;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            error = $"Could not resolve exception context for token 0x{methodToken:X}+0x{ilOffset:X}.";
+            return [];
+        }
+    }
+
     /// <summary>
     /// Resolves source file and line range for a specific method overload.
     /// </summary>
@@ -450,6 +521,45 @@ public class PdbContext : IDisposable
             HandleKind.TypeDefinition => reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)type.BaseType)),
             _ => null
         };
+
+    private static string? GetExceptionContext(
+        ExceptionRegion region,
+        int offset,
+        int tryEnd,
+        int handlerEnd,
+        int? filterStart,
+        int? filterEnd)
+    {
+        if (filterStart is { } fs && filterEnd is { } fe && offset >= fs && offset < fe)
+            return "filter";
+        if (offset >= region.HandlerOffset && offset < handlerEnd)
+            return region.Kind switch
+            {
+                ExceptionRegionKind.Catch => "catch handler",
+                ExceptionRegionKind.Filter => "filter handler",
+                ExceptionRegionKind.Finally => "finally handler",
+                ExceptionRegionKind.Fault => "fault handler",
+                _ => "handler"
+            };
+        if (offset >= region.TryOffset && offset < tryEnd)
+            return "try";
+        return null;
+    }
+
+    private static string FormatExceptionClause(ExceptionRegionKind kind)
+        => kind switch
+        {
+            ExceptionRegionKind.Catch => "catch",
+            ExceptionRegionKind.Filter => "filter",
+            ExceptionRegionKind.Finally => "finally",
+            ExceptionRegionKind.Fault => "fault",
+            _ => kind.ToString()
+        };
+
+    private static string? ResolveCatchType(MetadataReader reader, ExceptionRegion region)
+        => region.Kind == ExceptionRegionKind.Catch && !region.CatchType.IsNil
+            ? TypeResolver.GetTypeName(reader, region.CatchType)
+            : null;
 
     private static (string Kind, string? Value, string? Token) ResolveInstructionOperand(
         MetadataReader reader,
