@@ -92,7 +92,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"IL Offset\" or -S \"Member Context\".");
+            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\" or -S \"Member Context\".");
             return 1;
         }
 
@@ -429,8 +429,9 @@ public class LibraryCommand
         for (var i = 0; i < select.Count; i++)
         {
             var value = select[i].Trim();
-            if (value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase))
-                return (options, "Error: IL Offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"IL Offset\".");
+            if (value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("Source Location:", StringComparison.OrdinalIgnoreCase))
+                return (options, "Error: IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"Source Location\".");
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
@@ -438,6 +439,7 @@ public class LibraryCommand
             && !hasExplicitSelect)
         {
             select.Add(SectionNames.ILOffset);
+            select.Add(SectionNames.MemberContext);
         }
 
         return (options with
@@ -465,7 +467,8 @@ public class LibraryCommand
         {
             if (value.StartsWith('@'))
                 continue;
-            if (ILCoordinateSections.Contains(value, StringComparer.OrdinalIgnoreCase))
+            if (ILCoordinateSections.Contains(value, StringComparer.OrdinalIgnoreCase)
+                || value.Equals("IL Offset", StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -610,12 +613,12 @@ public class LibraryCommand
     {
         if (result.Line is not { } line || line < 1)
         {
-            return (null, "Error: IL Offset row has no source line to print.");
+            return (null, "Error: Source Location row has no source line to print.");
         }
 
         if (string.IsNullOrWhiteSpace(result.Url))
         {
-            return (null, "Error: IL Offset row has no printable source body. Use --urls or --paths to inspect available payloads.");
+            return (null, "Error: Source Location row has no printable source body. Use --urls or --paths to inspect available payloads.");
         }
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));

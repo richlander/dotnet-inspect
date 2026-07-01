@@ -152,18 +152,20 @@ member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Metho
 ### Case study: IL offset as a shape catalogue
 
 `library --il-offset` is a compact example of the shape ladder because one
-resolved source location can be useful as a human fact sheet, a row, a scalar, a
-URL, a path, or a source-line payload.
+resolved coordinate can expose multiple sibling sections. The source-location
+section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
+source-line payload; the member-context section projects the same coordinate to
+the owning type and method.
 
-The default stays evidence-oriented and renders the singleton location as
-vertical facts:
+The default stays evidence-oriented and renders all applicable coordinate-scoped
+sections:
 
 ```bash
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 ```
 
 ```md
-## IL Offset
+## Source Location
 
 | Field | Value |
 | ----- | ----- |
@@ -173,41 +175,70 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | File | /_/src/Foo.cs |
 | Line | 42 |
 | Url | https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42 |
+
+## Member Context
+
+| Field | Value |
+| ----- | ----- |
+| Assembly | My.Assembly |
+| Type | My.Type |
+| Type Kind | class |
+| Member | My.Type.DoWork |
+| Signature | int DoWork(int value) |
+| Member Kind | method |
+| Visibility | public |
+| Static | No |
+| Async | State machine |
+| Metadata Token | 0x6000002 |
+| IL Offset | 0x1 |
 ```
 
-The same resolved location then projects cleanly:
+Coordinate-scoped sections are discoverable only when the coordinate carrier is
+present:
+
+```bash
+dotnet-inspect library My.dll -D
+# Source Location and Member Context are omitted.
+
+dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
+# Source Location
+# Member Context
+```
+
+The source-location section then projects cleanly:
 
 ```bash
 # Scalar
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "IL Offset" --fields Line --value
+  -S "Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "IL Offset" --urls
+  -S "Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "IL Offset" --paths
+  -S "Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the raw resolved source line
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "IL Offset" --print
+  -S "Source Location" --print
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "IL Offset" --count
+  -S "Source Location" --count
 # 1
 ```
 
 This keeps the concerns separate: the default fact section shows all
-symbolication evidence, `--urls` returns the anchored source location, `--paths`
-returns the PDB document path, and `--print` returns the raw payload at the
-location rather than a decorated snippet.
+symbolication evidence, `Member Context` shows the owning metadata context,
+`--urls` returns the anchored source location, `--paths` returns the PDB
+document path, and `--print` returns the raw payload at the location rather than
+a decorated snippet.
 
 ## Design discipline for future flags
 

@@ -212,7 +212,7 @@
 | IL (Annotated) section | — | 0.3.x | IL with stack state annotations |
 | Decompiled Source mixed view | — | 0.11.x | Decompiled Source becomes a mixed C#+IL view with hidden-fact comments (allocations, unsafety, lifetime) |
 | Facts section | — | 0.11.x | Structured hidden-fact table for one method (`-S "Facts"` / `--tsv`) |
-| `library --il-offset <token>+<offset>` | — | 0.13.0 | Map MethodDef token + IL offset to source file location through the `IL Offset` section |
+| `library --il-offset <token>+<offset>` | — | 0.13.0 | Map MethodDef token + IL offset to source file location through the `Source Location` section |
 
 ## Plugin and Integration
 
