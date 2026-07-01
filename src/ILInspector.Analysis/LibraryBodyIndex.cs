@@ -1125,15 +1125,11 @@ public sealed class LibraryBodyIndex
 
         static DecodedBody DecodeBody(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
         {
-            try
-            {
-                var instructions = InstructionDecoder.Decode(il);
-                return new DecodedBody(instructions, BlockGraph.Build(il.Length, instructions, exceptionRegions));
-            }
-            catch (InvalidProgramException ex)
-            {
-                throw new BadImageFormatException(ex.Message, ex);
-            }
+            // The substrate decode contract is BadImageFormatException for malformed IL (normalized
+            // at InstructionDecoder.Decode), which the per-method IsRecoverableMethodFailure gate
+            // catches — so no InvalidProgramException shim is needed here.
+            var instructions = InstructionDecoder.Decode(il);
+            return new DecodedBody(instructions, BlockGraph.Build(il.Length, instructions, exceptionRegions));
         }
 
         bool DetectMemorySafetyRules()
