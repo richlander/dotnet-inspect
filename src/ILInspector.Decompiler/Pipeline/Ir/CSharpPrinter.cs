@@ -1751,6 +1751,10 @@ public sealed partial class CSharpPrinter
         // test the condition path spells: `!y` on an object is CS0023, the faithful
         // form is `y is null` (and `x == 0` for an integer). A bool operand returns
         // null from Truthiness and keeps the bare `!operand`.
+        LogicalNot { Operand: Comparison c } => ComparisonText(
+            Conditions.Inverse(c.Kind),
+            IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
+            c.Left, c.Right),
         LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
@@ -1891,6 +1895,12 @@ public sealed partial class CSharpPrinter
     string? UnionValueReceiverText(IrExpression value)
         => value is LoadProperty property ? UnionValueReceiverText(property) : null;
 
+    string? ValueTypeUnionValueReceiverText(IrExpression value)
+        => value is LoadProperty property
+            && IsValueTypeTarget(NamedDefinition(property.Accessor.DeclaringType))
+            ? UnionValueReceiverText(property)
+            : null;
+
     string? UnionValueReceiverText(LoadProperty property)
     {
         if (property.PropertyName != "Value"
@@ -1938,8 +1948,20 @@ public sealed partial class CSharpPrinter
         // in `!= 0` would be `bool != int` (CS0019); the inverse negates it.
         if (operand is IsInstance ii)
         {
-            string test = $"{TypeTestValueText(ii.Operand)} is {TypeText(ii.Type)}";
-            return (test, $"!({test})");
+            string valueText = TypeTestValueText(ii.Operand);
+            string typeText = TypeText(ii.Type);
+            return ($"{valueText} is {typeText}", $"{valueText} is not {typeText}");
+        }
+
+        if (operand is IsPattern pattern)
+        {
+            string valueText = TypeTestValueText(pattern.Value);
+            string typeText = TypeText(pattern.Type);
+            string direct = $"{valueText} is {typeText} {LocalName(pattern.LocalIndex)}";
+            string inverted = ReferenceOwnership.LocalReferencesOnlyWithin(_function, pattern.LocalIndex, [pattern])
+                ? $"{valueText} is not {typeText}"
+                : $"!({direct})";
+            return (direct, inverted);
         }
 
         // A `ref bool`/`bool*` deref loads via `ldind.u1`, so its IR ResultType is
@@ -1953,7 +1975,7 @@ public sealed partial class CSharpPrinter
         if (type is null || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
             return null;
 
-        string text = Operand(operand);
+        string text = ValueTypeUnionValueReceiverText(operand) ?? Operand(operand);
         (string, string) reference = ($"{text} is not null", $"{text} is null");
         (string, string) integer = ($"{text} != 0", $"{text} == 0");
 
