@@ -179,28 +179,32 @@ public sealed partial class CSharpPrinter
     {
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
-        bool forceUnchecked = negativeLiteral || MayOverflowUnknownEnumBackingType(value, enumType);
+        bool forceUnchecked = negativeLiteral || MayOverflowEnumBackingType(value, enumType);
         // A constant can be CS0221 as a plain cast even outside a checked region:
-        // negative into an unsigned-backed enum (`(U)(-1)`) or positive values that
-        // may overflow a signed- or unsigned-byte-backed unknown enum
-        // (`(Tiny)128` for sbyte, `(Tiny)300` for byte).
-        // Force `unchecked` when the target shape cannot prove the backing width;
-        // negative literals also need parentheses after the cast (CS0075).
+        // negative into an unsigned-backed enum (`(U)(-1)`) or a positive value that
+        // overflows a narrow backing (`(Tiny)128` for sbyte, `(Tiny)300` for byte),
+        // whether the width is known (from EnumUnderlyingTypes) or only guessed for
+        // a cross-assembly enum. Force `unchecked` in those cases; negative literals
+        // also need parentheses after the cast (CS0075).
         return CheckedSafeCast(
             $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
             force: forceUnchecked);
     }
 
-    bool MayOverflowUnknownEnumBackingType(IrExpression value, TypeRef enumType)
+    bool MayOverflowEnumBackingType(IrExpression value, TypeRef enumType)
     {
-        if (_function.TypeShapes.GetValueOrDefault(enumType) != TypeShape.Unknown)
+        if (value is not (Constant { Value: int } or Constant { Value: long }))
             return false;
-        return value switch
-        {
-            Constant { Value: int iv } => iv > sbyte.MaxValue,
-            Constant { Value: long lv } => lv > sbyte.MaxValue,
-            _ => false,
-        };
+        long literal = value is Constant { Value: int iv } ? iv : (long)((Constant)value).Value!;
+        // A known backing width: the cast is a constant-expression conversion, so it
+        // needs `unchecked` exactly when the value is out of that width's range.
+        if (EnumUnderlyingType(enumType) is { } underlying)
+            return !TypeFamilies.ConstantFits(literal, underlying);
+        // A cross-assembly enum has no resolved width; conservatively assume the
+        // narrowest (sbyte) backing so a value it cannot hold is wrapped.
+        if (_function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Unknown)
+            return literal > sbyte.MaxValue;
+        return false;
     }
 
     string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)

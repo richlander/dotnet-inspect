@@ -114,6 +114,38 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void EnumConditional_SameAssemblyUnsignedEnum_ForcesUncheckedCast()
+    {
+        // #2076: `c ? CfgFlags.Top : e` where CfgFlags : uint. Top (0x80000000u)
+        // is emitted as `ldc.i4` int.MinValue, so the conditional slot's importer
+        // type is unknown; the fold anchors the enum and the printer must wrap the
+        // negative reinterpret in `unchecked`.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.UnsignedEnumConditionalArm));
+
+        Assert.Contains("unchecked((CfgFlags)(-2147483648))", body);
+        Assert.DoesNotContain(": -2147483648", body);
+        AssertCompiles(
+            "public static bool M(bool c, CfgFlags e)",
+            body,
+            "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    [Fact]
+    public void KnownEnumPositiveConstantOutOfRange_ForcesUncheckedCast()
+    {
+        // A same-assembly enum with a known narrow underlying type: an out-of-range
+        // constant cast is CS0221 unless wrapped, while an in-range one stays bare.
+        string outOfRange = RenderKnownEnumReturnConstant(300, TypeRef.CoreLib("System", "Byte"));
+        Assert.Contains("return unchecked((Tiny)300);", outOfRange);
+        AssertCompiles("public static Tiny M()", outOfRange, "public enum Tiny : byte { }");
+
+        string inRange = RenderKnownEnumReturnConstant(4, TypeRef.CoreLib("System", "Byte"));
+        Assert.Contains("return (Tiny)4;", inRange);
+        Assert.DoesNotContain("unchecked", inRange);
+        AssertCompiles("public static Tiny M()", inRange, "public enum Tiny : byte { }");
+    }
+
+    [Fact]
     public void UnknownEnumPositiveConstantThatMayOverflow_ForcesUncheckedCast()
     {
         string sbyteBody = RenderUnknownEnumReturnConstant(128);
@@ -169,6 +201,19 @@ public class EnumCastPrinterTests
         return result.Output!;
     }
 
+    // As RenderFixture, but for a body that is only Partial at import (e.g. a slot
+    // whose int/enum join the importer cannot type) and is raised to valid C# by
+    // the pipeline — so it skips the import-time Full precondition.
+    static string RenderRaisedFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(EnumCastSamples).FullName!, methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.NotNull(result.Output);
+        return result.Output!;
+    }
+
     static string RenderSyntheticSwitchExpression(
         TypeRef returnType,
         IrExpression firstArm,
@@ -207,6 +252,24 @@ public class EnumCastPrinterTests
         container.Add(block);
         var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container);
+
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    static string RenderKnownEnumReturnConstant(int value, TypeRef underlying)
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var block = new Block(0);
+        block.Add(new Return(new Constant(value, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = underlying },
+        };
 
         return CSharpPrinter.Print(function).Output!.Trim();
     }

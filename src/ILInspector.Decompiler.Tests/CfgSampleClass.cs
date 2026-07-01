@@ -4347,6 +4347,18 @@ public static class EnumCastSamples
             0 => CfgPriority.High,
             _ => CfgPriority.Critical,
         };
+
+    // #2076: a conditional whose reused stack slot merges an integer constant and a
+    // same-assembly unsigned-backed enum (CfgFlags : uint). CfgFlags.Top =
+    // 0x80000000u is emitted as `ldc.i4` int.MinValue (negative as a signed int),
+    // so the importer cannot type the slot join. The slot-diamond fold must anchor
+    // the enum type and the printer must emit `unchecked((CfgFlags)(-2147483648))`;
+    // a bare or checked cast is CS0221, and a lost cast is CS0029.
+    public static bool UnsignedEnumConditionalArm(bool c, CfgFlags e)
+    {
+        CfgFlags x = c ? CfgFlags.Top : e;
+        return x == CfgFlags.None;
+    }
 }
 
 
