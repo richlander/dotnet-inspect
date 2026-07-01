@@ -249,6 +249,128 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_GrowsClosureFromNamespaceSegmentDiagnostic()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Target
+            {
+                public class Class1
+                {
+                    public Other.Deep.Helper FromNamespace => new Other.Deep.Helper();
+                }
+            }
+
+            namespace Other.Deep
+            {
+                public class Helper
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type =>
+                type.Namespace == "Other.Deep"
+                && type.Name == "Helper"
+                && type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root"));
+            Assert.Contains("namespace Other.Deep", result.Source);
+            Assert.Contains("public unsafe class Helper", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_GrowsClosureAcrossMultipleIterations()
+    {
+        var assemblyPath = CompileFixture("""
+            public class A
+            {
+                public static B Create() => new B();
+            }
+
+            public class B
+            {
+                public int Value => 42;
+            }
+
+            public class Class1
+            {
+                public int FromChain => A.Create().Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromChain");
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "A"
+                && type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root")
+                && type.Members.Any(member => member.Name == "Create"));
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "B"
+                && type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root")
+                && type.Members.Any(member => member.Name == "Value"));
+            Assert.Contains("public static B Create()", result.Source);
+            Assert.Contains("public int Value", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_AddsOnlyOneRootWhenSimpleNamesCollide()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Target
+            {
+                using A;
+
+                public class Class1
+                {
+                    public int FromAmbiguous => Helper.Value;
+                }
+            }
+
+            namespace A
+            {
+                public class Helper
+                {
+                    public static int Value => 42;
+                }
+            }
+
+            namespace B
+            {
+                public class Helper
+                {
+                    public static int Value => 13;
+                }
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Single(result.Plan.Types, type => type.Name == "Helper");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
     {
         var assemblyPath = CompileFixture("""
