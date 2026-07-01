@@ -53,6 +53,25 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void ConstructorSignatureModel_ExposesParameterFacts()
+    {
+        var ctor = GetType(nameof(ApiSignatureFixtures)).Members
+            .Where(member => member.Kind == "constructor")
+            .Single(member => member.SignatureModel?.ParameterCount == 2);
+
+        Assert.NotNull(ctor.SignatureModel);
+        Assert.Equal(".ctor", ctor.SignatureModel.MemberName);
+        Assert.Equal(2, ctor.SignatureModel.ParameterCount);
+        Assert.Equal("(string, int)", ctor.SignatureModel.ParameterTypesSummary);
+        Assert.Equal("name", ctor.SignatureModel.Parameters[0].Name);
+        Assert.Equal("string", ctor.SignatureModel.Parameters[0].Type);
+        Assert.False(ctor.SignatureModel.Parameters[0].HasDefault);
+        Assert.Equal("count", ctor.SignatureModel.Parameters[1].Name);
+        Assert.Equal("int", ctor.SignatureModel.Parameters[1].Type);
+        Assert.True(ctor.SignatureModel.Parameters[1].HasDefault);
+    }
+
+    [Fact]
     public void CanonicalSignature_UsesStructuredSignatureModel()
     {
         var type = GetType(nameof(ApiSignatureFixtures));
@@ -139,6 +158,15 @@ public sealed class ApiSignatureFixtures
     public int Count;
 
     public event EventHandler? Changed;
+
+    public ApiSignatureFixtures()
+    {
+    }
+
+    public ApiSignatureFixtures(string name, int count = 1)
+    {
+        Count = name.Length + count;
+    }
 
     public string MethodWithRefKinds(ref int value, out string text, in long source, int count = 1, params byte[] bytes)
     {
