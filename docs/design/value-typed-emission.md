@@ -135,10 +135,11 @@ IL's loosely-typed stack, which is our prerequisite:
 - The importer normalises the `int32`/`int64`/`native int` stack into a typed
   `GenTree`, inserting explicit `GT_CAST` nodes; conversions become IR at import,
   never re-decided at codegen.
-- At join points it **merges stack types to a common supertype and spills to typed
-  temps** — the same operation as our slot-merge-at-join, which today drops to
-  `Unknown` and taints fidelity. The JIT's spill-temp typing is the model for doing
-  it completely.
+- At join points it **merges the entry-state stack types to a common supertype** and
+  (separately) **spills mismatched entries to typed temps** — two related but
+  distinct mechanisms. Together they are the analogue of our slot-merge-at-join,
+  which today drops to `Unknown` and taints fidelity; the JIT's typed-temp model is
+  how to do it completely.
 
 ### ILSpy — the same-domain existence proof
 
@@ -185,13 +186,29 @@ owns, in one place, the rules the printer currently spreads around:
 The rendering rule is one total function of `(value, targetType)`; the printer
 calls it and never open-codes `(T)x` again.
 
+**`Convert` and `Coerce` compose; they do not merge.** At a sink where the value
+already carries a `Convert` (an IL `conv.i8`) *and* the target type mismatches,
+raising **wraps** the `Convert` in a `Coerce` — it does not rewrite one into the
+other. Leak case #6 is exactly this: `Coerce(Convert(long, ldc.i4.m1), UE)` renders
+`unchecked((UE)((long)-1))`, where the inner `Convert` keeps the value's IL history
+(`(long)-1`) and the outer `Coerce` owns the surface conversion to the enum and the
+overflow decision. Keeping them as separate, nesting nodes — rather than folding the
+IL conversion into the rendering one — is what lets the overflow rule see through the
+`Convert` to the literal without losing the faithful IL spelling.
+
 ### The invariant
 
 With the node in place, well-formedness becomes checkable: **no value may occupy a
 typed sink except through a `Coerce`** (or be provably already at the target type).
 `CheckInvariant()` asserts it; a violation fails at the pass level, in a unit test,
-instead of being discovered by recompiling corpus output. The compile-back oracle
-stops being the *only* place this class is caught.
+instead of being discovered by recompiling corpus output.
+
+This proves **routing, not rendering**: the invariant guarantees every sink *reaches*
+the one coercion function, collapsing the leak surface from ~12 sites to one — but it
+does not prove that function's *output* is correct. That output is still validated by
+the coercion function's own unit tests and the compile-back oracle. The win is that
+the oracle stops being the *only* place an un-coerced sink is caught, and a new sink
+can no longer silently bypass the rule.
 
 ## Scope and constraints
 
@@ -216,16 +233,22 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 
 1. **Introduce `Coerce` and the one rendering function.** Fold `CastValue`,
    `EnumIntegerCast`, `SwitchLabelText`, the retyped-constant branch, `Box`, and
-   `StoreElement` into it. No behavior change intended; the corpus fidelity card is
-   the guard.
+   `StoreElement` into it. This is **not** behavior-neutral: those sites have
+   *different* partial behaviors today (`int`-only here, `Unknown`-shape-only there),
+   so unifying them will move outputs at the margins — that is the point. Expect and
+   *measure* net-positive validity movement on the corpus quality-diff card; a
+   fidelity regression on any already-`Full` method is the stop signal.
 2. **Complete constant typing.** Extend `TypedConstantsPass` to retype `int`,
    `long`, and `Convert`-wrapped integer constants into every enum-typed sink, so
    the printer sees enum-typed values uniformly.
 3. **Turn the invariant on.** Assert every typed sink routes through `Coerce`;
    burn down the violations it flags (these are the remaining leak sites, now
-   enumerated by the checker rather than by adversarial review).
-4. **Complete join typing** where the importer drops to `Unknown` but a sound
-   common type exists (the JIT spill-temp model), reducing `Partial`-by-unknown-join.
+   enumerated by the checker rather than by adversarial review). Slices 1–3 deliver
+   the coercion choke point and can land without step 4.
+4. **Complete join typing** (a semi-separate axis, worth its own slice/issue) where
+   the importer drops to `Unknown` but a sound common type exists — type
+   *propagation* at joins (the RyuJIT typed-temp model), the sibling of type
+   *coercion* at sinks, reducing `Partial`-by-unknown-join.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples.
