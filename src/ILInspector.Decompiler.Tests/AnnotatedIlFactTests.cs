@@ -21,7 +21,7 @@ public class AnnotatedIlFactTests
         // opcode, not a statement.
         var output = Render(nameof(AllocSampleClass.BoxInt));
         var line = output.Split('\n').Single(l => l.Contains(": box"));
-        Assert.Contains("alloc.box(int)", line);
+        Assert.Contains("alloc.box(int; alloc=boxed System.Int32; path=straight-line; escape=escapes)", line);
     }
 
     [Fact]

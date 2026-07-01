@@ -82,12 +82,14 @@ public sealed class LibraryBodyIndex
                         var confidence = IsLowFrequencyOpportunity(adjusted)
                             ? "low"
                             : AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
-                        return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                        adjusted = confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                        return AddFallbackOpportunityMetadata(adjusted);
                     }),
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
                         .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
-                        .Select(o => o.Method.MetadataToken))),
-                    .. ScanMethodsInvokedInLoops(reachByToken),
+                        .Select(o => o.Method.MetadataToken)))
+                        .Select(AddFallbackOpportunityMetadata),
+                    .. ScanMethodsInvokedInLoops(reachByToken).Select(AddFallbackOpportunityMetadata),
                 ];
             }
             return _opportunities;
@@ -135,6 +137,49 @@ public sealed class LibraryBodyIndex
 
     static bool IsLowFrequencyOpportunity(OptimizationOpportunity opportunity)
         => opportunity.ColdPath || opportunity.Amortized;
+
+    static OptimizationOpportunity AddFallbackOpportunityMetadata(OptimizationOpportunity opportunity)
+    {
+        var runtimeAllocation = opportunity.RuntimeAllocationType ?? FallbackRuntimeAllocationType(opportunity);
+        var pathContext = opportunity.PathContext ?? FallbackPathContext(opportunity);
+        return runtimeAllocation != opportunity.RuntimeAllocationType || pathContext != opportunity.PathContext
+            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext }
+            : opportunity;
+    }
+
+    static string? FallbackRuntimeAllocationType(OptimizationOpportunity opportunity)
+        => opportunity.Shape switch
+        {
+            "allocation-hotspot" => "newobj/newarr/box",
+            "async-state-machine" => "state machine",
+            "box-value-type" => "boxed T",
+            "capturing-delegate" => "delegate/display class",
+            "instance-method-group-delegate" => "delegate",
+            "enumerator-allocation" => "enumerator",
+            "materialize-in-loop" when opportunity.Evidence.Contains(".ToArray", StringComparison.Ordinal) => "T[]",
+            "materialize-in-loop" when opportunity.Evidence.Contains(".ToList", StringComparison.Ordinal) => "System.Collections.Generic.List<T>",
+            "small-array" or "stackalloc-candidate" or "span-to-array-copy" => "T[]",
+            "string-build-in-loop" => "System.String",
+            "temporary-byte-array-copy" => "System.Byte[]",
+            _ => null,
+        };
+
+    static string? FallbackPathContext(OptimizationOpportunity opportunity)
+    {
+        if (opportunity.ColdPath)
+            return FormatPathContext(AllocationPathContext.ErrorPath);
+        return opportunity.InLoop ? FormatPathContext(AllocationPathContext.LoopBody) : null;
+    }
+
+    static string FormatPathContext(AllocationPathContext context)
+        => context switch
+        {
+            AllocationPathContext.Branch => "branch",
+            AllocationPathContext.SwitchArm => "switch arm",
+            AllocationPathContext.LoopBody => "loop body",
+            AllocationPathContext.ErrorPath => "error path",
+            _ => "straight-line",
+        };
 
     OptimizationOpportunity MarkAmortizedSetup(OptimizationOpportunity opportunity)
     {
@@ -1113,11 +1158,13 @@ public sealed class LibraryBodyIndex
                 for (int i = 0; i < instructions.Length; i++)
                     _instructionIndexByOffset[instructions[i].Offset] = i;
                 LoopRegions = CollectLoopRegions();
+                PathContexts = AllocationPathContextIndex.Create(this);
             }
 
             public ImmutableArray<DecodedInstruction> Instructions { get; }
             public BlockGraph BlockGraph { get; }
             public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
+            public AllocationPathContextIndex PathContexts { get; }
 
             public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
             {
@@ -1175,6 +1222,145 @@ public sealed class LibraryBodyIndex
                     }
                 }
                 return regions;
+            }
+        }
+
+        sealed class AllocationPathContextIndex
+        {
+            readonly bool[] _branchBlocks;
+            readonly bool[] _switchArmBlocks;
+            readonly bool[] _errorPathBlocks;
+
+            AllocationPathContextIndex(bool[] branchBlocks, bool[] switchArmBlocks, bool[] errorPathBlocks)
+            {
+                _branchBlocks = branchBlocks;
+                _switchArmBlocks = switchArmBlocks;
+                _errorPathBlocks = errorPathBlocks;
+            }
+
+            public static AllocationPathContextIndex Create(DecodedBody decodedBody)
+            {
+                var blockGraph = decodedBody.BlockGraph;
+                var branchBlocks = new bool[blockGraph.Blocks.Length];
+                var switchArmBlocks = new bool[blockGraph.Blocks.Length];
+                var errorPathBlocks = new bool[blockGraph.Blocks.Length];
+                var lastByBlock = LastInstructionsByBlock(decodedBody);
+                var predecessorCounts = PredecessorCounts(blockGraph);
+
+                foreach (var region in blockGraph.Regions)
+                {
+                    switch (region.Kind)
+                    {
+                        case HandlerKind.Catch:
+                        case HandlerKind.Fault:
+                            MarkBlocksInRange(blockGraph, errorPathBlocks, region.HandlerStart, region.HandlerEnd);
+                            break;
+                        case HandlerKind.Filter:
+                            MarkBlocksInRange(blockGraph, errorPathBlocks, region.FilterStart, region.FilterEnd);
+                            MarkBlocksInRange(blockGraph, errorPathBlocks, region.HandlerStart, region.HandlerEnd);
+                            break;
+                    }
+                }
+
+                for (int blockIndex = 0; blockIndex < lastByBlock.Length; blockIndex++)
+                {
+                    var terminator = lastByBlock[blockIndex];
+                    if (terminator is null || !terminator.Branches)
+                        continue;
+
+                    if (terminator.OpCode == ILOpCode.Switch)
+                    {
+                        foreach (int target in terminator.BranchTargets)
+                            MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, target);
+                        if (terminator.FallsThrough)
+                        {
+                            int defaultBlock = blockGraph.BlockIndexAt(terminator.NextOffset);
+                            MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, terminator.NextOffset);
+                            if (defaultBlock >= 0
+                                && lastByBlock[defaultBlock] is { IsUnconditionalBranch: true, BranchTargets.Length: 1 } redirect)
+                            {
+                                MarkSwitchArm(blockGraph, switchArmBlocks, predecessorCounts, redirect.BranchTargets[0]);
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (terminator.IsUnconditionalBranch)
+                        continue;
+
+                    foreach (int target in terminator.BranchTargets)
+                        MarkBranchArm(blockGraph, branchBlocks, predecessorCounts, target);
+                    if (terminator.FallsThrough)
+                        MarkBranchArm(blockGraph, branchBlocks, predecessorCounts, terminator.NextOffset);
+                }
+
+                return new AllocationPathContextIndex(branchBlocks, switchArmBlocks, errorPathBlocks);
+            }
+
+            public AllocationPathContext ContextFor(int blockIndex)
+            {
+                if ((uint)blockIndex >= (uint)_branchBlocks.Length)
+                    return AllocationPathContext.StraightLine;
+                if (_errorPathBlocks[blockIndex])
+                    return AllocationPathContext.ErrorPath;
+                if (_switchArmBlocks[blockIndex])
+                    return AllocationPathContext.SwitchArm;
+                if (_branchBlocks[blockIndex])
+                    return AllocationPathContext.Branch;
+                return AllocationPathContext.StraightLine;
+            }
+
+            static DecodedInstruction?[] LastInstructionsByBlock(DecodedBody decodedBody)
+            {
+                var lastByBlock = new DecodedInstruction?[decodedBody.BlockGraph.Blocks.Length];
+                int cursor = 0;
+                foreach (var instruction in decodedBody.Instructions)
+                {
+                    while (cursor + 1 < decodedBody.BlockGraph.Blocks.Length
+                        && instruction.Offset >= decodedBody.BlockGraph.Blocks[cursor + 1].Start)
+                    {
+                        cursor++;
+                    }
+                    if ((uint)cursor < (uint)lastByBlock.Length)
+                        lastByBlock[cursor] = instruction;
+                }
+                return lastByBlock;
+            }
+
+            static int[] PredecessorCounts(BlockGraph blockGraph)
+            {
+                var counts = new int[blockGraph.Blocks.Length];
+                foreach (var block in blockGraph.Blocks)
+                {
+                    foreach (int successor in block.Edges.Successors)
+                        if ((uint)successor < (uint)counts.Length)
+                            counts[successor]++;
+                }
+                return counts;
+            }
+
+            static void MarkBlocksInRange(BlockGraph blockGraph, bool[] targets, int start, int end)
+            {
+                for (int i = 0; i < blockGraph.Blocks.Length; i++)
+                {
+                    var block = blockGraph.Blocks[i];
+                    if (block.Start < end && block.End > start)
+                        targets[i] = true;
+                }
+            }
+
+            static void MarkSwitchArm(BlockGraph blockGraph, bool[] switchArmBlocks, int[] predecessorCounts, int offset)
+            {
+                int blockIndex = blockGraph.BlockIndexAt(offset);
+                if ((uint)blockIndex < (uint)switchArmBlocks.Length && predecessorCounts[blockIndex] <= 1)
+                    switchArmBlocks[blockIndex] = true;
+            }
+
+            static void MarkBranchArm(BlockGraph blockGraph, bool[] branchBlocks, int[] predecessorCounts, int offset)
+            {
+                int blockIndex = blockGraph.BlockIndexAt(offset);
+                if ((uint)blockIndex < (uint)branchBlocks.Length && predecessorCounts[blockIndex] <= 1)
+                    branchBlocks[blockIndex] = true;
             }
         }
 
@@ -1784,7 +1970,7 @@ public sealed class LibraryBodyIndex
                     AllocationFactSource.Newobj);
             }
 
-            static AllocationOccurrence MakeAllocation(
+            AllocationOccurrence MakeAllocation(
                 MethodIdentity method,
                 int offset,
                 int? operandToken,
@@ -1796,7 +1982,20 @@ public sealed class LibraryBodyIndex
                 bool inLoop,
                 AllocationEscape escape,
                 AllocationFactSource source)
-                => new(method, offset, operandToken, kind, allocatedType, detail, countsAsHeapAllocation, frequency, inLoop, escape, source);
+                => new(
+                    method,
+                    offset,
+                    operandToken,
+                    kind,
+                    allocatedType,
+                    detail,
+                    countsAsHeapAllocation,
+                    frequency,
+                    inLoop,
+                    escape,
+                    source,
+                    RuntimeAllocationType(kind, allocatedType),
+                    AllocationPathContextFor(decodedBody, offset, loopRegions, escape));
 
             bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
             {
@@ -2606,7 +2805,27 @@ public sealed class LibraryBodyIndex
                     previousOpcode = opcode;
             }
 
-            return opportunities.ToImmutable();
+            return [.. opportunities.Select(AnnotateOpportunityMetadata)];
+
+            OptimizationOpportunity AnnotateOpportunityMetadata(OptimizationOpportunity opportunity)
+            {
+                var annotated = opportunity;
+                if (opportunity.ILOffset is { } opportunityOffset)
+                {
+                    string? runtimeAllocation = opportunity.RuntimeAllocationType;
+                    if (allocationByOffset.TryGetValue(opportunityOffset, out var allocation)
+                        && allocation.RuntimeAllocationType is { Length: > 0 } occurrenceRuntime)
+                    {
+                        runtimeAllocation = occurrenceRuntime;
+                    }
+                    annotated = annotated with
+                    {
+                        RuntimeAllocationType = runtimeAllocation,
+                        PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
+                    };
+                }
+                return AddFallbackOpportunityMetadata(annotated);
+            }
         }
 
         // True when a delegate's target method is a closure body emitted on a compiler-
@@ -2956,6 +3175,70 @@ public sealed class LibraryBodyIndex
                    or "Int64" or "UInt64" or "Single" or "Double"
                    or "IntPtr" or "UIntPtr";
 
+        static string? RuntimeAllocationType(AllocationKind kind, TypeRef? allocatedType)
+        {
+            if (allocatedType is null)
+                return kind == AllocationKind.Object ? "object" : null;
+            return kind switch
+            {
+                AllocationKind.Box => $"boxed {RuntimeTypeName(allocatedType)}",
+                AllocationKind.Closure => $"display class ({RuntimeTypeName(allocatedType)})",
+                AllocationKind.StateMachine => $"state machine ({RuntimeTypeName(allocatedType)})",
+                _ => RuntimeTypeName(allocatedType),
+            };
+        }
+
+        static string RuntimeTypeName(TypeRef type)
+            => type.Kind switch
+            {
+                TypeRefKind.Definition => type.Namespace.Length == 0 ? StripMetadataGenericArity(type.Name) : $"{type.Namespace}.{StripMetadataGenericArity(type.Name)}",
+                TypeRefKind.GenericInstance => $"{RuntimeTypeName(type.ElementType ?? type)}<{string.Join(", ", type.TypeArguments.Select(RuntimeTypeName))}>",
+                TypeRefKind.SzArray => $"{RuntimeTypeName(type.ElementType!)}[]",
+                TypeRefKind.Array => $"{RuntimeTypeName(type.ElementType!)}[{new string(',', type.Rank - 1)}]",
+                TypeRefKind.ByRef => $"ref {RuntimeTypeName(type.ElementType!)}",
+                TypeRefKind.Pointer => $"{RuntimeTypeName(type.ElementType!)}*",
+                _ => type.ToQualifiedDisplayString(),
+            };
+
+        static string StripMetadataGenericArity(string name)
+        {
+            if (!name.Contains('`', StringComparison.Ordinal))
+                return name;
+            return string.Join("+", name.Split('+').Select(segment =>
+            {
+                int tick = segment.IndexOf('`');
+                return tick < 0 ? segment : segment[..tick];
+            }));
+        }
+
+        public static string FormatPathContext(AllocationPathContext context)
+            => context switch
+            {
+                AllocationPathContext.Branch => "branch",
+                AllocationPathContext.SwitchArm => "switch arm",
+                AllocationPathContext.LoopBody => "loop body",
+                AllocationPathContext.ErrorPath => "error path",
+                _ => "straight-line",
+            };
+
+        static AllocationPathContext AllocationPathContextFor(
+            DecodedBody decodedBody,
+            int offset,
+            IReadOnlyList<(int Start, int End)> loopRegions,
+            AllocationEscape escape)
+        {
+            if (escape == AllocationEscape.ThrowPath)
+                return AllocationPathContext.ErrorPath;
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            var blockContext = decodedBody.PathContexts.ContextFor(blockIndex);
+            if (blockContext == AllocationPathContext.ErrorPath)
+                return AllocationPathContext.ErrorPath;
+            if (IsInLoopRegion(offset, loopRegions))
+                return AllocationPathContext.LoopBody;
+
+            return blockContext;
+        }
+
         // Conservative, sound local-escape check for a freshly created array. Returns true
         // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
         // load is an in-place element access / length read — never returned, stored to a
@@ -3039,7 +3322,13 @@ public sealed class LibraryBodyIndex
                     occurrence.Kind,
                     occurrence.AllocatedType);
 
-                builder.Add(escape == AllocationEscape.Unknown ? occurrence : occurrence with { Escape = escape });
+                builder.Add(escape == AllocationEscape.Unknown
+                    ? occurrence
+                    : occurrence with
+                    {
+                        Escape = escape,
+                        PathContext = escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
+                    });
             }
             return builder.MoveToImmutable();
         }
