@@ -42,8 +42,9 @@ The new harness should:
   closure.
 - Do not let parallel type identity representations drift if a shared substrate
   can serve the role.
-- Do not remove the current harness until the new path proves itself on real
-  corpora.
+- Do not treat the current harness as the strategic architecture. Keep it only as
+  a compatibility bridge, regression baseline, and source of reusable algorithms
+  while ReturnToSender is built.
 
 ## Existing assets to reuse
 
@@ -57,6 +58,28 @@ The new harness should:
 | `ILInspector.Research` | Typed fact registry, joins, and projections only. |
 | assembly/package resolution service | Generalize and reuse for CLI and harness reference closure. |
 | generated fixtures | Keep as reduced, reviewable proof cases. |
+
+## Strategic stance
+
+ReturnToSender is a replacement track, not a "stay the course" refinement.
+
+The current harness has already delivered enough value to expose the next class
+of problems, but the skeleton architecture has plateaued. If it is already near
+an 80/20 point, then the remaining 20 percent is exactly where ad hoc source
+patching becomes expensive and low-leverage. If it is not near that point, then
+the architecture is failing earlier than expected. Either way, the conclusion is
+the same: keep useful algorithms, but stop treating the current harness shape as
+the path forward.
+
+That means:
+
+- preserve the current harness for continuity and comparison;
+- keep `CB_CLUSTER`'s compiler-driven membership algorithm because it is a good
+  algorithm, not because the surrounding skeleton architecture is the target;
+- avoid broad new investment in string-emitted skeleton patches unless they are
+  needed to protect existing gates;
+- measure ReturnToSender against the current harness, then move the hard-row path
+  to ReturnToSender when it demonstrates better leverage.
 
 ## Architecture
 
@@ -602,9 +625,12 @@ Roslyn diagnostics remain feedback:
 - if growth becomes unsafe, emit a named bail reason;
 - if the body itself is invalid, classify as product/source-shape frontier.
 
-Targets without a matching fact producer must degrade to the current generic
-cluster path, not straight to `RecompileFail`. Fact producers are opt-in shell
-enrichment, not a replacement for generic closure.
+During ramp-up, targets without a matching fact producer can route through the
+current generic cluster path for continuity rather than straight to
+`RecompileFail`. That is a compatibility bridge, not a strategic endpoint. The
+desired end state is that ReturnToSender has a generic shell-shape baseline plus
+fact-produced enrichment, with the old skeleton path retained only for comparison
+or emergency fallback.
 
 ## Performance and budgets
 
@@ -625,9 +651,10 @@ model and should be opt-in until measured.
 
 ## MVP design
 
-Build the new harness alongside the current one. Do not mutate the current
-whole-module skeleton into the new architecture. Cherry-pick reusable pieces when
-the new path proves itself.
+Build ReturnToSender alongside the current harness so the replacement can be
+measured without destabilizing existing gates. Do not mutate the current
+whole-module skeleton into the new architecture. Cherry-pick reusable pieces
+rather than carrying forward the old skeleton shape.
 
 ### MVP scope
 
@@ -669,7 +696,8 @@ the new path proves itself.
 The MVP is successful if:
 
 - it matches or beats the current harness on the chosen fixtures;
-- it never regresses no-producer targets below current `CB_CLUSTER` behavior;
+- it explains any no-producer target through a named ReturnToSender baseline,
+  current-harness bridge, or missing-producer reason;
 - it converts at least one real Aspire `RecompileFail` into `Exact` or
   `OpcodeDiff`;
 - every emitted type shell can be traced back to a typed fact, metadata fact, or
@@ -746,12 +774,13 @@ Examples:
   new harness path.
 - Measure cap-25 movement against the post-2015 and post-2025 baselines.
 
-### Phase 4: closure integration
+### Phase 4: replacement integration
 
-- Use the fact-planned shell as a new harness mode, not a replacement yet.
+- Use the fact-planned shell as the hard-row replacement candidate.
 - Compare whole-module, current closure, and fact-planned closure on the same
   target set.
-- Decide whether fact-planned shell enrichment becomes the default hard-row path.
+- Promote ReturnToSender to the default hard-row path once it shows better
+  leverage than the current skeleton architecture.
 
 ### Phase 5: TypeRef de-duplication
 
@@ -780,7 +809,8 @@ This revision incorporates adversarial feedback from Claude Opus 4.8,
 Gemini 3.1 Pro, and MAI-Code-1 Flash:
 
 - Research is fact registry/projection only; the planner is tools-only.
-- Current `CB_CLUSTER` membership growth is preserved instead of replaced.
+- Current `CB_CLUSTER` membership growth is preserved as an algorithm, not as the
+  long-term architecture.
 - TypeProducer and TypePrinter have explicit contracts and typed signatures.
 - TypeRef de-duplication has stronger transition criteria and identity fields.
 - StackType is bounded to stack-shape/provenance evidence.
@@ -788,9 +818,9 @@ Gemini 3.1 Pro, and MAI-Code-1 Flash:
 
 ## Recommendation
 
-Build **ReturnToSender** alongside the current DecompilerHarness. Keep
-compiler-driven closure membership as the generic
-fallback and make fact producers opt-in shell-shape enrichment. Start with
+Build **ReturnToSender** alongside the current DecompilerHarness as the
+replacement track. Keep compiler-driven closure membership as a reusable
+algorithm and make fact producers opt-in shell-shape enrichment. Start with
 protobuf and Aspire because they expose structured, metadata-visible
 generated-family problems.
 
