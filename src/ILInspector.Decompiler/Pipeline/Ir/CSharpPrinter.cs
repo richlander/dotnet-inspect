@@ -3103,9 +3103,9 @@ public sealed partial class CSharpPrinter
     /// the raw integer — naming those is a later slice.
     /// </summary>
     string? EnumMemberName(Constant constant)
-        => constant.Value is int value
+        => constant.Value is int or long
             && _function.EnumMembers.TryGetValue(constant.Type, out var members)
-            && members.TryGetValue(value, out var name)
+            && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
             ? $"{TypeText(constant.Type)}.{name}"
             : null;
 
@@ -3145,8 +3145,9 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string SwitchLabelText(Constant label, TypeRef? enumType)
     {
-        if (enumType is null || label.Value is not int value)
+        if (enumType is null || label.Value is not (int or long))
             return ConstantText(label);
+        long value = label.Value is int i ? i : (long)label.Value!;
         var typed = new Constant(value, enumType);
         if (EnumMemberName(typed) is { } named)
             return named;

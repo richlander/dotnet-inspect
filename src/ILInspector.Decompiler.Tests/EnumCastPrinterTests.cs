@@ -235,6 +235,40 @@ public class EnumCastPrinterTests
         AssertCompiles("public static Tiny M(int? value)", body, "public enum Tiny { }");
     }
 
+    [Fact]
+    public void EnumSwitchLabel_LongConstant_CastsInsteadOfBareLiteral()
+    {
+        // #2076 (review): a long case label on a long-backed enum switch must cast
+        // (`case (LEnum)...:`), not render a bare `case 1311768467463790320:`
+        // (CS0266). Member names still win when the value is named.
+        const long value = 1311768467463790320L;
+        var enumType = TypeRef.Definition("synthetic", "", "LEnum");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Switch(
+            new LoadArgument(0, "value", enumType),
+            [
+                new SwitchSection(ImmutableArray.Create(new Constant(value, longType)), isDefault: false, SingleReturnContainer()),
+                new SwitchSection(ImmutableArray<Constant>.Empty, isDefault: true, SingleReturnContainer()),
+            ]));
+        body.Add(block);
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "Void"),
+            [new Parameter("value", enumType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], body)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = longType },
+        };
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+        Assert.Contains("case (LEnum)1311768467463790320:", output);
+        Assert.DoesNotContain("case 1311768467463790320:", output);
+    }
+
     static string RenderFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
