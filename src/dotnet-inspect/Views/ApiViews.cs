@@ -805,6 +805,8 @@ public record OptimizationOpportunityRow(
     string Fix,
     string Confidence,
     string Loop,
+    [property: MarkoutSkipNull] string? Allocation,
+    [property: MarkoutSkipNull] string? Path,
     [property: MarkoutSkipNull] string? IL);
 
 [MarkoutSerializable]

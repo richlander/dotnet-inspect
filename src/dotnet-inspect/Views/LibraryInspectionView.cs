@@ -702,6 +702,8 @@ public class LibraryInspectionView
                 o.Fix,
                 o.Confidence,
                 o.Loop,
+                o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
+                o.Path,
                 o.IL is null ? null : MarkoutInline.Code(o.IL)))
             .ToList();
 

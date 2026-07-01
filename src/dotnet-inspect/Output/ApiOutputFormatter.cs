@@ -1680,6 +1680,8 @@ public static class ApiOutputFormatter
                 opportunity.SafeFixDirection,
                 opportunity.Confidence,
                 opportunity.InLoop ? "loop" : "",
+                opportunity.RuntimeAllocationType is { Length: > 0 } allocation ? MarkoutInline.Code(allocation) : null,
+                opportunity.PathContext,
                 opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null))
             .ToList();
 

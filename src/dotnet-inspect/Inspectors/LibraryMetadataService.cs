@@ -736,6 +736,8 @@ internal static class LibraryMetadataService
                     Fix = opportunity.SafeFixDirection,
                     Confidence = opportunity.Confidence,
                     Loop = opportunity.InLoop ? "loop" : "",
+                    Allocation = opportunity.RuntimeAllocationType,
+                    Path = opportunity.PathContext,
                     IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
                 })
                 .ToList();
