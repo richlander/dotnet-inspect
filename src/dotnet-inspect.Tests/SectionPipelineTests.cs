@@ -251,7 +251,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(37, pipeline.AllSectionNames.Length);
+        Assert.Equal(38, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -262,6 +262,7 @@ public class SectionPipelineTests
         Assert.Contains("Hosting", pipeline.AllSectionNames);
         Assert.Contains("HTTP Client", pipeline.AllSectionNames);
         Assert.Contains("IL Offset", pipeline.AllSectionNames);
+        Assert.Contains("Member Context", pipeline.AllSectionNames);
         Assert.Contains("Integration Opportunities", pipeline.AllSectionNames);
         Assert.Contains("Integrations", pipeline.AllSectionNames);
         Assert.Contains("Logging", pipeline.AllSectionNames);
@@ -285,7 +286,10 @@ public class SectionPipelineTests
         string[] registered,
         IReadOnlyCollection<string> discoverable)
     {
-        var missing = registered
+        var expected = command == "library"
+            ? registered.Except(["IL Offset", "Member Context"], StringComparer.OrdinalIgnoreCase)
+            : registered;
+        var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
             .ToArray();
 
@@ -522,7 +526,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_ILOffsetDiscovery_UsesMethodBodyApplicability()
+    public void LibraryPipeline_ILCoordinateSections_RequireResolvedCoordinate()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var model = new LibraryInspection
@@ -534,8 +538,23 @@ public class SectionPipelineTests
         var applicable = pipeline.GetApplicableSections(model);
         var renderable = pipeline.GetAvailableSections(model);
 
-        Assert.Contains("IL Offset", applicable);
+        Assert.DoesNotContain("IL Offset", applicable);
+        Assert.DoesNotContain("Member Context", applicable);
         Assert.DoesNotContain("IL Offset", renderable);
+        Assert.DoesNotContain("Member Context", renderable);
+
+        model.ILOffset = new ILOffsetResult
+        {
+            MemberContext = new ILOffsetMemberContext()
+        };
+
+        applicable = pipeline.GetApplicableSections(model);
+        renderable = pipeline.GetAvailableSections(model);
+
+        Assert.Contains("IL Offset", applicable);
+        Assert.Contains("Member Context", applicable);
+        Assert.Contains("IL Offset", renderable);
+        Assert.Contains("Member Context", renderable);
     }
 
     [Fact]

@@ -101,7 +101,7 @@ public static class MethodClassificationScanner
                 }
 
                 // Check async (runtime async vs classic state-machine async)
-                var asyncClassification = ClassifyAsync(reader, method);
+                var asyncClassification = ClassifyAsyncMethod(reader, method);
                 if (asyncClassification is { } asyncKind)
                 {
                     var signature = FormatSignature(reader, typeDef, method);
@@ -138,7 +138,7 @@ public static class MethodClassificationScanner
     /// MethodImplAttributes.Async (0x2000) flag; classic async by the compiler-emitted
     /// AsyncStateMachineAttribute / AsyncIteratorStateMachineAttribute.
     /// </summary>
-    private static MethodClassification? ClassifyAsync(MetadataReader reader, MethodDefinition method)
+    public static MethodClassification? ClassifyAsyncMethod(MetadataReader reader, MethodDefinition method)
     {
         const MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000;
         if ((method.ImplAttributes & AsyncImplFlag) != 0)

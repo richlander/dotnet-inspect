@@ -501,6 +501,22 @@ public class ILOffsetResult
     public string? File { get; init; }
     public int? Line { get; init; }
     public string? Url { get; init; }
+    public ILOffsetMemberContext? MemberContext { get; init; }
+}
+
+public class ILOffsetMemberContext
+{
+    public string? Assembly { get; init; }
+    public string? Type { get; init; }
+    public string? TypeKind { get; init; }
+    public string? Member { get; init; }
+    public string? Signature { get; init; }
+    public string? MemberKind { get; init; }
+    public string? Visibility { get; init; }
+    public string? Static { get; init; }
+    public string? Async { get; init; }
+    public string? MetadataToken { get; init; }
+    public string? ILOffset { get; init; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);
