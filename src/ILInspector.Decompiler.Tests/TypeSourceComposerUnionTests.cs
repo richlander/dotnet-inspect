@@ -910,6 +910,7 @@ public class TypeSourceComposerUnionTests
             public sealed class Dog { public string Name { get; } = "dog"; }
             public sealed class Bird { public string Name { get; } = "bird"; }
             public union Pet(Cat, Dog, Bird);
+            public union MaybeNumber(int, string);
 
             public static class Matcher
             {
@@ -988,6 +989,91 @@ public class TypeSourceComposerUnionTests
                     }
                     return result.ToUpperInvariant();
                 }
+
+                public static string ValueTypeCases(MaybeNumber value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case string text:
+                            result = text;
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string ValueTypeFinalExpression(MaybeNumber value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case string text:
+                            result = text.Trim();
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string ValueTypeMutate(MaybeNumber value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case string text:
+                            result = text;
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    result += "!";
+                    return result;
+                }
+
+                public static string ValueSwitchNull(Pet pet)
+                {
+                    string result;
+                    switch (pet.Value)
+                    {
+                        case null:
+                            result = "null";
+                            break;
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
             }
             """);
 
@@ -1008,6 +1094,23 @@ public class TypeSourceComposerUnionTests
         var guarded = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedStaysFlat");
         Assert.DoesNotContain("pet switch", guarded);
         Assert.Contains("cat.Age > 3", guarded);
+        Assert.Equal("""
+            string result = value switch { null => "null", int number => number.ToString(), string text => text, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeCases"));
+        Assert.Equal("""
+            string result = value switch { null => "null", int number => number.ToString(), string text => text.Trim(), _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeFinalExpression"));
+        Assert.Equal("""
+            string result = value switch { null => "null", int number => number.ToString(), string text => text, _ => "other" };
+            result = string.Concat(result, "!");
+            return result;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeMutate"));
+        Assert.Equal("""
+            string result = pet switch { null => "null", Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNull"));
     }
 
     [Fact]
