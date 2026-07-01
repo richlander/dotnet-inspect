@@ -1550,61 +1550,58 @@ public sealed class LibraryBodyIndex
 
             static IEnumerable<int> CyclicBlocks(IReadOnlyList<BlockEdges> edges)
             {
-                var indexByBlock = new int[edges.Count];
-                var lowlinkByBlock = new int[edges.Count];
-                Array.Fill(indexByBlock, -1);
-                var onStack = new bool[edges.Count];
-                var stack = new Stack<int>();
+                var state = new byte[edges.Count]; // 0 = unvisited, 1 = active, 2 = done
+                var activePath = new List<int>();
+                var activePosition = new int[edges.Count];
+                Array.Fill(activePosition, -1);
                 var cyclic = new bool[edges.Count];
-                int nextIndex = 0;
 
-                for (int block = 0; block < edges.Count; block++)
-                    if (indexByBlock[block] < 0)
-                        Visit(block);
+                for (int root = 0; root < edges.Count; root++)
+                {
+                    if (state[root] != 0)
+                        continue;
+
+                    var frames = new Stack<(int Block, int NextSuccessor)>();
+                    Enter(root, frames);
+                    while (frames.Count > 0)
+                    {
+                        var (block, nextSuccessor) = frames.Pop();
+                        var successors = edges[block].Successors;
+                        if (nextSuccessor >= successors.Count)
+                        {
+                            state[block] = 2;
+                            activePosition[block] = -1;
+                            activePath.RemoveAt(activePath.Count - 1);
+                            continue;
+                        }
+
+                        frames.Push((block, nextSuccessor + 1));
+                        int successor = successors[nextSuccessor];
+                        if ((uint)successor >= (uint)edges.Count)
+                            continue;
+
+                        if (state[successor] == 0)
+                        {
+                            Enter(successor, frames);
+                            continue;
+                        }
+
+                        if (state[successor] == 1 && activePosition[successor] >= 0)
+                        {
+                            for (int i = activePosition[successor]; i < activePath.Count; i++)
+                                cyclic[activePath[i]] = true;
+                        }
+                    }
+                }
 
                 return Enumerable.Range(0, cyclic.Length).Where(block => cyclic[block]).ToArray();
 
-                void Visit(int block)
+                void Enter(int block, Stack<(int Block, int NextSuccessor)> frames)
                 {
-                    indexByBlock[block] = nextIndex;
-                    lowlinkByBlock[block] = nextIndex;
-                    nextIndex++;
-                    stack.Push(block);
-                    onStack[block] = true;
-
-                    foreach (int successor in edges[block].Successors)
-                    {
-                        if ((uint)successor >= (uint)edges.Count)
-                            continue;
-                        if (indexByBlock[successor] < 0)
-                        {
-                            Visit(successor);
-                            lowlinkByBlock[block] = Math.Min(lowlinkByBlock[block], lowlinkByBlock[successor]);
-                        }
-                        else if (onStack[successor])
-                        {
-                            lowlinkByBlock[block] = Math.Min(lowlinkByBlock[block], indexByBlock[successor]);
-                        }
-                    }
-
-                    if (lowlinkByBlock[block] != indexByBlock[block])
-                        return;
-
-                    var component = new List<int>();
-                    int member;
-                    do
-                    {
-                        member = stack.Pop();
-                        onStack[member] = false;
-                        component.Add(member);
-                    }
-                    while (member != block);
-
-                    if (component.Count > 1 || edges[block].Successors.Contains(block))
-                    {
-                        foreach (int memberBlock in component)
-                            cyclic[memberBlock] = true;
-                    }
+                    state[block] = 1;
+                    activePosition[block] = activePath.Count;
+                    activePath.Add(block);
+                    frames.Push((block, 0));
                 }
             }
         }
