@@ -48,7 +48,7 @@ static Command CreateCorrelateCommand()
         AllowMultipleArgumentsPerToken = true
     };
 
-    var traceOption = CreateInputOption("--trace", "dotnet-trace artifact (.nettrace, speedscope JSON, or textual export)");
+    var traceOption = CreateInputOption("--trace", "dotnet-trace artifact (.nettrace, Speedscope JSON, Chromium JSON, or textual report)");
     var gcdumpOption = CreateInputOption("--gcdump", "dotnet-gcdump artifact");
     var dumpOption = CreateInputOption("--dump", "dotnet-dump artifact or analysis log");
     var stackOption = CreateInputOption("--stack", "dotnet-stack output");
@@ -387,7 +387,7 @@ static bool TryCorrelateInput(
     if (!summary.TextLike)
     {
         summary.Observations.Add("binary artifact accepted; no EventPipe/diagnostic reader is wired in this prototype");
-        summary.Observations.Add("export a textual stack/report or provide dotnet-inspect JSONL to exercise correlation");
+        summary.Observations.Add("convert .nettrace to Speedscope/Chromium JSON or provide a textual report to exercise correlation");
         result.DiagnosticInputs.Add(summary);
         return true;
     }
@@ -395,6 +395,11 @@ static bool TryCorrelateInput(
     try
     {
         if (TryCorrelateSpeedscope(path, input.Kind, summary, lookup))
+        {
+            result.DiagnosticInputs.Add(summary);
+            return true;
+        }
+        if (TryCorrelateChromiumTrace(path, input.Kind, summary, lookup))
         {
             result.DiagnosticInputs.Add(summary);
             return true;
@@ -475,6 +480,121 @@ static bool TryCorrelateSpeedscope(
         ? "no static allocation candidate matched speedscope frames"
         : $"matched {matchedRows.ToString(CultureInfo.InvariantCulture)} static candidate row(s) from speedscope frames");
     return true;
+}
+
+static bool TryCorrelateChromiumTrace(
+    string path,
+    string sourceKind,
+    DiagnosticInputSummary summary,
+    CandidateLookup lookup)
+{
+    if (!path.EndsWith(".chromium.json", StringComparison.OrdinalIgnoreCase)
+        && !path.EndsWith(".trace.json", StringComparison.OrdinalIgnoreCase))
+    {
+        return false;
+    }
+
+    using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+    var root = document.RootElement;
+    if (!root.TryGetProperty("stackFrames", out var stackFramesElement)
+        || !root.TryGetProperty("traceEvents", out var traceEventsElement))
+    {
+        return false;
+    }
+
+    var frames = ReadChromiumFrames(stackFramesElement);
+    var stack = new List<int>();
+    var weightsByFrame = new Dictionary<int, double>();
+    double previousAt = 0;
+    bool havePreviousAt = false;
+
+    foreach (var item in traceEventsElement.EnumerateArray())
+    {
+        if (!item.TryGetProperty("ts", out var tsElement)
+            || !tsElement.TryGetDouble(out var at))
+        {
+            at = previousAt;
+        }
+
+        if (havePreviousAt && at > previousAt)
+        {
+            var delta = at - previousAt;
+            foreach (var frameIndex in stack)
+                weightsByFrame[frameIndex] = weightsByFrame.GetValueOrDefault(frameIndex) + delta;
+        }
+
+        havePreviousAt = true;
+        previousAt = at;
+
+        if (!item.TryGetProperty("ph", out var phaseElement)
+            || !item.TryGetProperty("sf", out var frameElement))
+        {
+            continue;
+        }
+
+        var phase = phaseElement.GetString();
+        int frame = TryReadFrameId(frameElement);
+        if (frame < 0)
+            continue;
+
+        if (string.Equals(phase, "B", StringComparison.OrdinalIgnoreCase))
+        {
+            stack.Add(frame);
+        }
+        else if (string.Equals(phase, "E", StringComparison.OrdinalIgnoreCase))
+        {
+            for (int i = stack.Count - 1; i >= 0; i--)
+            {
+                if (stack[i] == frame)
+                {
+                    stack.RemoveRange(i, stack.Count - i);
+                    break;
+                }
+            }
+        }
+    }
+
+    int matchedRows = MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+    summary.MatchedRows = matchedRows;
+    summary.Observations.Add($"chromium trace events: {traceEventsElement.GetArrayLength().ToString(CultureInfo.InvariantCulture)}");
+    summary.Observations.Add(matchedRows == 0
+        ? "no static allocation candidate matched chromium frames"
+        : $"matched {matchedRows.ToString(CultureInfo.InvariantCulture)} static candidate row(s) from chromium frames");
+    return true;
+}
+
+static string[] ReadChromiumFrames(JsonElement stackFramesElement)
+{
+    var frames = new Dictionary<int, string>();
+    foreach (var property in stackFramesElement.EnumerateObject())
+    {
+        if (!int.TryParse(property.Name, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+            continue;
+
+        frames[id] = property.Value.TryGetProperty("name", out var name)
+            ? name.GetString() ?? ""
+            : "";
+    }
+
+    if (frames.Count == 0)
+        return [];
+
+    var result = new string[frames.Keys.Max() + 1];
+    foreach (var (id, name) in frames)
+        result[id] = name;
+    return result;
+}
+
+static int TryReadFrameId(JsonElement element)
+{
+    if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var number))
+        return number;
+    if (element.ValueKind == JsonValueKind.String
+        && int.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var textNumber))
+    {
+        return textNumber;
+    }
+    return -1;
 }
 
 static int CorrelateEventedSpeedscopeProfile(
@@ -1077,6 +1197,8 @@ sealed class CandidateLookup
             AddFragment(candidate.MethodKey, candidate);
             AddFragment(candidate.MethodStackKey, candidate);
             AddFragment(candidate.Method, candidate);
+            AddMethodLeafFragment(candidate.MethodKey, candidate);
+            AddMethodLeafFragment(candidate.MethodStackKey, candidate);
         }
 
         return new CandidateLookup(byTokenOffset, fragments);
@@ -1085,6 +1207,27 @@ sealed class CandidateLookup
         {
             if (value.Length >= 8)
                 fragments.Add((value, candidate));
+        }
+
+        void AddMethodLeafFragment(string value, AllocationCandidate candidate)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return;
+
+            var normalized = value.Replace("::", ".", StringComparison.Ordinal);
+            int paren = normalized.IndexOf('(');
+            if (paren >= 0)
+                normalized = normalized[..paren];
+
+            int methodDot = normalized.LastIndexOf('.');
+            if (methodDot <= 0 || methodDot == normalized.Length - 1)
+                return;
+
+            var methodName = normalized[(methodDot + 1)..];
+            var declaringType = normalized[..methodDot];
+            int typeDot = declaringType.LastIndexOf('.');
+            var typeName = typeDot >= 0 ? declaringType[(typeDot + 1)..] : declaringType;
+            AddFragment($"{typeName}.{methodName}", candidate);
         }
     }
 
