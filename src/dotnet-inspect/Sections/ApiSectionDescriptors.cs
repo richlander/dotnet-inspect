@@ -93,6 +93,7 @@ public static class ApiMemberSectionDescriptors
             .Add<MethodAttributes>()
             .Add<UnsafeMembers>()
             .Add<ExceptionRegions>()
+            .Add<CalledTypes>()
             .Add<TopLeverage>()
             .Add<OptimizationOpportunities>()
             .Add<SourceFiles>()
@@ -293,6 +294,17 @@ public static class ApiMemberSectionDescriptors
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.ExceptionRegions;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class CalledTypes : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CalledTypes;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;

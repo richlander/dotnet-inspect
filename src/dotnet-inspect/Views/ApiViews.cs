@@ -194,6 +194,10 @@ public class TypeView
     [JsonIgnore]
     public List<TypeExceptionRegionRow>? ExceptionRegionRows { get; set; }
 
+    [MarkoutSection(Name = SectionNames.CalledTypes, EmptyText = "No called types found for this type.")]
+    [JsonIgnore]
+    public List<CalledTypeRow>? CalledTypeRows { get; set; }
+
     [MarkoutSection(Name = "Top Leverage", EmptyText = "No intra-assembly call-graph leverage found for this type.")]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
@@ -707,6 +711,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(MethodAttributeRow))]
 [MarkoutContext(typeof(UnsafeMemberRow))]
 [MarkoutContext(typeof(TypeExceptionRegionRow))]
+[MarkoutContext(typeof(CalledTypeRow))]
 [MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(OptimizationOpportunityRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
@@ -745,6 +750,14 @@ public record TypeExceptionRegionRow(
     [property: MarkoutSkipNull] string? FilterRange,
     [property: MarkoutPropertyName("Caught Type")]
     [property: MarkoutSkipNull] string? CaughtType);
+
+[MarkoutSerializable]
+public record CalledTypeRow(
+    string Type,
+    [property: MarkoutSkipNull] string? Assembly,
+    int Calls,
+    int Members,
+    [property: MarkoutPropertyName("Call Kinds")] string CallKinds);
 
 [MarkoutSerializable]
 public record ExceptionRegionRow(

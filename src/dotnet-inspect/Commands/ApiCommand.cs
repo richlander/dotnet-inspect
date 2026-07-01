@@ -726,6 +726,12 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, options.IncludeSections);
             }
 
+            if (options.DllPath is { } calledTypesDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes))
+            {
+                ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, options.IncludeSections);
+            }
+
             if (options.DllPath is { } optimizationDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
@@ -1333,6 +1339,12 @@ public class ApiCommand
                     || renderOptions.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
             {
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, renderOptions.IncludeSections);
+            }
+
+            if (renderOptions.DllPath is { } calledTypesDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes))
+            {
+                ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, renderOptions.IncludeSections);
             }
 
             if (renderOptions.DllPath is { } optimizationDllPath
