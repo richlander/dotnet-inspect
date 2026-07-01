@@ -1,9 +1,10 @@
-using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+
+using ILInspector.Instructions;
 
 namespace ILInspector.Analysis;
 
@@ -1023,8 +1024,6 @@ public sealed class LibraryBodyIndex
 
     sealed class IndexBuilder
     {
-        const ILOpCode NoPrefix = (ILOpCode)0xFE19;
-
         readonly string _path;
         readonly MetadataReader _reader;
         readonly PEReader _peReader;
@@ -1046,6 +1045,92 @@ public sealed class LibraryBodyIndex
         // when MemorySafetyRulesAttribute is applied (emitted [module:], like
         // RefSafetyRulesAttribute). Check the module and assembly scopes.
         public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
+
+        sealed class DecodedBody
+        {
+            readonly Dictionary<int, int> _instructionIndexByOffset;
+
+            public DecodedBody(ImmutableArray<DecodedInstruction> instructions, BlockGraph blockGraph)
+            {
+                Instructions = instructions;
+                BlockGraph = blockGraph;
+                _instructionIndexByOffset = new Dictionary<int, int>(instructions.Length);
+                for (int i = 0; i < instructions.Length; i++)
+                    _instructionIndexByOffset[instructions[i].Offset] = i;
+                LoopRegions = CollectLoopRegions();
+            }
+
+            public ImmutableArray<DecodedInstruction> Instructions { get; }
+            public BlockGraph BlockGraph { get; }
+            public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
+
+            public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
+            {
+                if (_instructionIndexByOffset.TryGetValue(offset, out int index))
+                {
+                    instruction = Instructions[index];
+                    return true;
+                }
+                instruction = default!;
+                return false;
+            }
+
+            public int IndexAtOrAfter(int offset)
+            {
+                int lo = 0;
+                int hi = Instructions.Length;
+                while (lo < hi)
+                {
+                    int mid = (lo + hi) >>> 1;
+                    if (Instructions[mid].Offset < offset)
+                        lo = mid + 1;
+                    else
+                        hi = mid;
+                }
+                return lo;
+            }
+
+            public int NextNonNopIndexAtOrAfter(int offset)
+            {
+                int index = IndexAtOrAfter(offset);
+                while (index < Instructions.Length && Instructions[index].OpCode == ILOpCode.Nop)
+                    index++;
+                return index;
+            }
+
+            IReadOnlyList<(int Start, int End)> CollectLoopRegions()
+            {
+                var regions = new List<(int Start, int End)>();
+                foreach (var instruction in Instructions)
+                {
+                    if (instruction.OpCode == ILOpCode.Switch)
+                        continue;
+                    int sourceBlock = BlockGraph.BlockIndexAt(instruction.Offset);
+                    foreach (int target in instruction.BranchTargets)
+                    {
+                        if (target >= instruction.Offset)
+                            continue;
+                        int targetBlock = BlockGraph.BlockIndexAt(target);
+                        if (sourceBlock >= 0
+                            && targetBlock >= 0
+                            && BlockGraph.Blocks[sourceBlock].Edges.Successors.Contains(targetBlock))
+                        {
+                            regions.Add((target, instruction.Offset));
+                        }
+                    }
+                }
+                return regions;
+            }
+        }
+
+        static DecodedBody DecodeBody(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+        {
+            // The substrate decode contract is BadImageFormatException for malformed IL (normalized
+            // at InstructionDecoder.Decode), which the per-method IsRecoverableMethodFailure gate
+            // catches — so no InvalidProgramException shim is needed here.
+            var instructions = InstructionDecoder.Decode(il);
+            return new DecodedBody(instructions, BlockGraph.Build(il.Length, instructions, exceptionRegions));
+        }
 
         bool DetectMemorySafetyRules()
         {
@@ -1103,12 +1188,13 @@ public sealed class LibraryBodyIndex
                         methods.Add(caller);
                         var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
                         var il = body.GetILBytes() ?? [];
+                        var decodedBody = DecodeBody(il, body.ExceptionRegions);
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
-                        var loopRegions = CollectLoopRegions(il);
-                        var allocations = CollectAllocationOccurrences(il, caller, scope, loopRegions);
+                        var loopRegions = decodedBody.LoopRegions;
+                        var allocations = CollectAllocationOccurrences(il, decodedBody, caller, scope, loopRegions);
                         if (allocations.Length > 0)
                             allocationOccurrences[caller.MetadataToken] = allocations;
-                        var unsafety = CollectUnsafetyOccurrences(il, body, caller, scope);
+                        var unsafety = CollectUnsafetyOccurrences(decodedBody.Instructions, body, caller, scope);
                         if (unsafety.Length > 0)
                             unsafetyOccurrences[caller.MetadataToken] = unsafety;
                         var methodAttributes = methodDef.GetCustomAttributes();
@@ -1116,13 +1202,13 @@ public sealed class LibraryBodyIndex
                             && !HasGeneratedCodeAttribute(methodAttributes)
                             && !HasCompilerGeneratedAttribute(methodAttributes)
                             && !IsBlazorRenderMethod(caller))
-                            optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, body.ExceptionRegions, caller, scope, loopRegions));
+                            optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions));
                         else
                             suppressedOpportunityTokens.Add(caller.MetadataToken);
-                        var signals = CollectBodySignals(il, body, scope, loopRegions);
+                        var signals = CollectBodySignals(il, decodedBody, body, scope, loopRegions);
                         if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
                             bodySignals[caller.MetadataToken] = signals;
-                        ScanBody(il, caller, scope, calls, unsafeEvidence,
+                        ScanBody(decodedBody.Instructions, caller, scope, calls, unsafeEvidence,
                             includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
                             loopRegions);
                     }
@@ -1495,17 +1581,17 @@ public sealed class LibraryBodyIndex
 
         ImmutableArray<AllocationOccurrence> CollectAllocationOccurrences(
             byte[] il,
+            DecodedBody decodedBody,
             MethodIdentity caller,
             GenericScope callerScope,
             IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var occurrences = ImmutableArray.CreateBuilder<AllocationOccurrence>();
             ILOpCode previousOpcode = default;
-            int position = 0;
-            while (position < il.Length)
+            foreach (var instruction in decodedBody.Instructions)
             {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
+                int offset = instruction.Offset;
+                var opcode = instruction.OpCode;
                 try
                 {
                     switch (opcode)
@@ -1522,14 +1608,12 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Ldc_i4_8:
                             break;
                         case ILOpCode.Ldc_i4_s:
-                            ReadByte(il, ref position, offset);
                             break;
                         case ILOpCode.Ldc_i4:
-                            ReadInt32(il, ref position, offset);
                             break;
                         case ILOpCode.Newarr:
                         {
-                            int token = ReadInt32(il, ref position, offset);
+                            int token = OperandInt32(instruction);
                             var element = ResolveTypeToken(token, callerScope);
                             var array = TypeRef.SzArray(element);
                             occurrences.Add(MakeAllocation(
@@ -1540,7 +1624,7 @@ public sealed class LibraryBodyIndex
                         }
                         case ILOpCode.Newobj:
                         {
-                            int token = ReadInt32(il, ref position, offset);
+                            int token = OperandInt32(instruction);
                             var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                             if (IsNonHeapNewObj(token, constructor.DeclaringType))
                             {
@@ -1552,7 +1636,7 @@ public sealed class LibraryBodyIndex
                                         AllocationEscape.Unknown, AllocationFactSource.Newobj));
                                 }
                             }
-                            else if (ClassifyNewObjectAllocation(il, offset, position, token, constructor, loopRegions) is { } occurrence)
+                            else if (ClassifyNewObjectAllocation(il, decodedBody, offset, instruction.NextOffset, token, constructor, loopRegions) is { } occurrence)
                             {
                                 occurrences.Add(occurrence);
                             }
@@ -1561,7 +1645,7 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Call:
                         case ILOpCode.Callvirt:
                         {
-                            int token = ReadInt32(il, ref position, offset);
+                            int token = OperandInt32(instruction);
                             var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                             if (IsInterfaceEnumeratorAllocation(callee))
                             {
@@ -1574,18 +1658,17 @@ public sealed class LibraryBodyIndex
                         }
                         case ILOpCode.Box:
                         {
-                            int token = ReadInt32(il, ref position, offset);
+                            int token = OperandInt32(instruction);
                             var boxed = ResolveTypeToken(token, callerScope);
                             occurrences.Add(MakeAllocation(
                                 caller, offset, token, AllocationKind.Box, boxed, boxed.ToDisplayString(),
                                 countsAsHeapAllocation: IsAllocatingValueTypeBox(token, boxed),
                                 AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
-                                BoxFeedsThrowSoon(il, position) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
+                                BoxFeedsThrowSoon(decodedBody, instruction.NextOffset) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
                                 AllocationFactSource.Box));
                             break;
                         }
                         default:
-                            SkipOperand(il, opcode, ref position, offset);
                             break;
                     }
                 }
@@ -1601,6 +1684,7 @@ public sealed class LibraryBodyIndex
 
             AllocationOccurrence? ClassifyNewObjectAllocation(
                 byte[] ilBytes,
+                DecodedBody decoded,
                 int newObjectOffset,
                 int afterNewObjectPosition,
                 int operandToken,
@@ -1630,13 +1714,13 @@ public sealed class LibraryBodyIndex
                 if (kind == AllocationKind.Delegate && !followsFunctionPointer)
                     kind = AllocationKind.Object;
 
-                var frequency = kind == AllocationKind.Delegate && DelegateNewObjectIsCachedOnce(ilBytes, newObjectOffset, afterNewObjectPosition)
+                var frequency = kind == AllocationKind.Delegate && DelegateNewObjectIsCachedOnce(decoded, newObjectOffset, afterNewObjectPosition)
                     ? AllocationFrequency.CachedOnce
                     : AllocationFrequency.Always;
                 return MakeAllocation(
                     caller, newObjectOffset, operandToken, kind, type, LegacyDetail(type, kind), countsAsHeapAllocation: true,
                     frequency, IsInLoopRegion(newObjectOffset, loops),
-                    NewObjectFeedsThrowSoon(ilBytes, afterNewObjectPosition) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
+                    NewObjectFeedsThrowSoon(decoded, afterNewObjectPosition) ? AllocationEscape.ThrowPath : AllocationEscape.Unknown,
                     AllocationFactSource.Newobj);
             }
 
@@ -1758,7 +1842,7 @@ public sealed class LibraryBodyIndex
         }
 
         ImmutableArray<UnsafetyOccurrence> CollectUnsafetyOccurrences(
-            byte[] il,
+            ImmutableArray<DecodedInstruction> instructions,
             MethodBodyBlock body,
             MethodIdentity caller,
             GenericScope scope)
@@ -1767,18 +1851,17 @@ public sealed class LibraryBodyIndex
             var locals = DecodeLocalTypes(body, scope);
             var localValues = new Dictionary<int, StackValueKind>();
             var stack = new List<StackValueKind>();
-            int position = 0;
-            while (position < il.Length)
+            foreach (var instruction in instructions)
             {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
+                int offset = instruction.Offset;
+                var opcode = instruction.OpCode;
                 try
                 {
                     switch (opcode)
                     {
                         case ILOpCode.Calli:
                         {
-                            int token = ReadInt32(il, ref position, offset);
+                            int token = OperandInt32(instruction);
                             occurrences.Add(new UnsafetyOccurrence(caller, offset, UnsafetyKind.CallIndirect, CalliReturnDetail(token, scope)));
                             stack.Clear();
                             break;
@@ -1821,31 +1904,30 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Nop:
                             break;
                         default:
-                            if (TryReadAddressLoad(il, opcode, ref position, offset, out var addressKind))
+                            if (TryReadAddressLoad(instruction, out var addressKind))
                             {
                                 stack.Add(addressKind);
                                 break;
                             }
-                            if (TryReadLocalSlot(il, opcode, ref position, offset, out bool isStore, out bool isArg, out int slot))
+                            if (TryReadLocalSlot(instruction, out var access))
                             {
-                                if (isStore)
+                                if (access.IsStore)
                                 {
                                     Pop(stack, out var value);
-                                    if (!isArg)
-                                        localValues[slot] = value;
+                                    if (!access.IsArgument)
+                                        localValues[access.Slot] = value;
                                 }
                                 else
                                 {
-                                    stack.Add(SlotKind(isArg, slot, caller, locals, localValues));
+                                    stack.Add(SlotKind(access.IsArgument, access.Slot, caller, locals, localValues));
                                 }
                                 break;
                             }
-                            if (PushConstant(opcode, il, ref position, offset))
+                            if (PushConstant(instruction))
                             {
                                 stack.Add(StackValueKind.Other);
                                 break;
                             }
-                            SkipOperand(il, opcode, ref position, offset);
                             stack.Clear();
                             break;
                     }
@@ -1915,18 +1997,16 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        static bool TryReadAddressLoad(byte[] il, ILOpCode opcode, ref int position, int offset, out StackValueKind kind)
+        static bool TryReadAddressLoad(DecodedInstruction instruction, out StackValueKind kind)
         {
             kind = StackValueKind.ManagedRef;
-            switch (opcode)
+            switch (instruction.OpCode)
             {
                 case ILOpCode.Ldloca_s:
                 case ILOpCode.Ldarga_s:
-                    ReadByte(il, ref position, offset);
                     return true;
                 case ILOpCode.Ldloca:
                 case ILOpCode.Ldarga:
-                    ReadInt16(il, ref position, offset);
                     return true;
                 default:
                     kind = StackValueKind.Unknown;
@@ -1934,9 +2014,9 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        static bool PushConstant(ILOpCode opcode, byte[] il, ref int position, int offset)
+        static bool PushConstant(DecodedInstruction instruction)
         {
-            switch (opcode)
+            switch (instruction.OpCode)
             {
                 case ILOpCode.Ldc_i4_m1:
                 case ILOpCode.Ldc_i4_0:
@@ -1951,15 +2031,12 @@ public sealed class LibraryBodyIndex
                 case ILOpCode.Ldnull:
                     return true;
                 case ILOpCode.Ldc_i4_s:
-                    ReadByte(il, ref position, offset);
                     return true;
                 case ILOpCode.Ldc_i4:
                 case ILOpCode.Ldc_r4:
-                    ReadInt32(il, ref position, offset);
                     return true;
                 case ILOpCode.Ldc_i8:
                 case ILOpCode.Ldc_r8:
-                    position += 8;
                     return true;
                 default:
                     return false;
@@ -2057,10 +2134,10 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
+        ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, DecodedBody decodedBody, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-            var allocationByOffset = CollectAllocationOccurrences(il, caller, callerScope, loopRegions)
+            var allocationByOffset = CollectAllocationOccurrences(il, decodedBody, caller, callerScope, loopRegions)
                 .ToDictionary(occurrence => occurrence.ILOffset);
             ReachingDefinitionsResult? reachingDefinitions = null;
             ReachingDefinitionsResult GetReachingDefinitions()
@@ -2086,11 +2163,10 @@ public sealed class LibraryBodyIndex
             // if the delegate flows straight into a lazy LINQ operator, the obvious iterator
             // rewrite only moves the allocation, so we annotate that on the row.
             int? pendingDelegateOpportunityIndex = null;
-            int position = 0;
-            while (position < il.Length)
+            foreach (var instruction in decodedBody.Instructions)
             {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
+                int offset = instruction.Offset;
+                var opcode = instruction.OpCode;
                 switch (opcode)
                 {
                     case ILOpCode.Ldc_i4_m1:
@@ -2118,14 +2194,14 @@ public sealed class LibraryBodyIndex
                         };
                         break;
                     case ILOpCode.Ldc_i4_s:
-                        pendingConstant = (sbyte)ReadByte(il, ref position, offset);
+                        pendingConstant = (int)instruction.OperandValue;
                         break;
                     case ILOpCode.Ldc_i4:
-                        pendingConstant = ReadInt32(il, ref position, offset);
+                        pendingConstant = OperandInt32(instruction);
                         break;
                     case ILOpCode.Newarr:
                     {
-                        int elementToken = ReadInt32(il, ref position, offset);
+                        int elementToken = OperandInt32(instruction);
                         if (allocationByOffset.TryGetValue(offset, out var arrayAllocation)
                             && arrayAllocation.Kind == AllocationKind.Array
                             && pendingConstant is int length && length >= 0 && length <= 8)
@@ -2134,7 +2210,7 @@ public sealed class LibraryBodyIndex
                             // array provably stays local AND its element type is stackalloc-
                             // eligible (an unmanaged primitive); otherwise keep the
                             // non-committal shape.
-                            bool local = ArrayProvablyStaysLocal(il, GetReachingDefinitions(), position)
+                            bool local = ArrayProvablyStaysLocal(decodedBody, GetReachingDefinitions(), instruction.NextOffset)
                                 && IsStackallocEligibleElement(ResolveTypeToken(elementToken, callerScope));
                             opportunities.Add(local
                                 ? new OptimizationOpportunity(
@@ -2162,7 +2238,6 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Newobj:
                     {
                         pendingConstant = null;
-                        ReadInt32(il, ref position, offset);
                         if (pendingDelegateOffset is not null)
                         {
                             // A function pointer was just loaded, so this newobj is the delegate
@@ -2197,7 +2272,7 @@ public sealed class LibraryBodyIndex
                             else if (!cachedOnce && pendingDelegateInstanceGroup)
                             {
                                 var inLoop = IsInLoopRegion(offset, loopRegions);
-                                bool stackGuardFallback = IsStackGuardFallbackAllocation(il, offset, callerScope);
+                                bool stackGuardFallback = IsStackGuardFallbackAllocation(decodedBody, offset, callerScope);
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
@@ -2243,7 +2318,7 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Callvirt:
                     {
                         pendingConstant = null;
-                        int token = ReadInt32(il, ref position, offset);
+                        int token = OperandInt32(instruction);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         // When the delegate just allocated flows straight into a lazy LINQ
                         // operator (Where/Select/…), a static-local-function rewrite removes the
@@ -2276,7 +2351,7 @@ public sealed class LibraryBodyIndex
                         }
                         else if (IsSpanToArrayCopy(callee, out var copyReceiver))
                         {
-                            if (!SpanToArrayResultEscapes(il, GetReachingDefinitions(), position))
+                            if (!SpanToArrayResultEscapes(decodedBody, GetReachingDefinitions(), instruction.NextOffset))
                             {
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
@@ -2291,7 +2366,7 @@ public sealed class LibraryBodyIndex
                         }
                         else if (IsLinqMaterializer(callee, out var materializeOp)
                             && TryGetContainingLoop(offset, loopRegions, out var materializeLoop)
-                            && LinqMaterializerSourceIsLoopInvariant(il, GetReachingDefinitions(), offset, materializeLoop, out var sourceEvidence))
+                            && LinqMaterializerSourceIsLoopInvariant(decodedBody, GetReachingDefinitions(), offset, materializeLoop, out var sourceEvidence))
                         {
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
@@ -2320,7 +2395,7 @@ public sealed class LibraryBodyIndex
                                 "Quadratic only if the scanned sequence grows with the loop; a small or constant sequence is fine."));
                         }
                         else if (IsStringConcat(callee) && IsInLoopRegion(offset, loopRegions)
-                            && ConcatAccumulatesIntoSource(il, offset, position, callee.ParameterTypes.Length, callerScope))
+                            && ConcatAccumulatesIntoSource(decodedBody, offset, instruction.NextOffset, callee.ParameterTypes.Length, callerScope))
                         {
                             // `s += …` inside a loop lowers to String.Concat(s, …) stored back to
                             // the same local/parameter. Each iteration copies the whole growing
@@ -2366,7 +2441,7 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Ldvirtftn:
                     {
                         pendingConstant = null;
-                        int token = ReadInt32(il, ref position, offset);
+                        int token = OperandInt32(instruction);
                         // Defer emission to the following newobj (de-dup). Capture is decided
                         // by the target method's declaring type: a lambda that closes over state
                         // is emitted on a compiler-generated display class. An instance method
@@ -2390,22 +2465,19 @@ public sealed class LibraryBodyIndex
                         break;
                     case ILOpCode.Ldarg:
                         pendingConstant = null;
-                        ReadInt16(il, ref position, offset);
                         break;
                     case ILOpCode.Ldarg_s:
                         pendingConstant = null;
-                        ReadByte(il, ref position, offset);
                         break;
                     case ILOpCode.Ldfld:
                     case ILOpCode.Ldflda:
                     case ILOpCode.Stfld:
                         pendingConstant = null;
-                        ReadInt32(il, ref position, offset);
                         break;
                     case ILOpCode.Box:
                     {
                         pendingConstant = null;
-                        int token = ReadInt32(il, ref position, offset);
+                        int token = OperandInt32(instruction);
                         var boxed = ResolveTypeToken(token, callerScope);
                         // ECMA-335 permits `box` on reference types (a no-op) and generic
                         // parameters (compiler-mandated, JIT-specialized), and `box Nullable<T>`
@@ -2431,7 +2503,6 @@ public sealed class LibraryBodyIndex
                     }
                     default:
                         pendingConstant = null;
-                        SkipOperand(il, opcode, ref position, offset);
                         break;
                 }
 
@@ -2494,13 +2565,13 @@ public sealed class LibraryBodyIndex
             return nested < 0 ? name : name[(nested + 1)..];
         }
 
-        bool DelegateNewObjectIsCachedOnce(byte[] il, int newObjectOffset, int afterNewObjectPosition)
+        bool DelegateNewObjectIsCachedOnce(DecodedBody decodedBody, int newObjectOffset, int afterNewObjectPosition)
         {
             try
             {
-                if (!TryFindDelegateCacheProbe(il, newObjectOffset, out int probeFieldToken, out int branchTarget))
+                if (!TryFindDelegateCacheProbe(decodedBody, newObjectOffset, out int probeFieldToken, out int branchTarget))
                     return false;
-                return TryReadDelegateCacheStore(il, afterNewObjectPosition, out int storeFieldToken, out int storeOffset)
+                return TryReadDelegateCacheStore(decodedBody, afterNewObjectPosition, out int storeFieldToken, out int storeOffset)
                     && storeFieldToken == probeFieldToken
                     && branchTarget > storeOffset;
             }
@@ -2510,79 +2581,69 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        bool TryFindDelegateCacheProbe(byte[] il, int newObjectOffset, out int fieldToken, out int branchTarget)
+        bool TryFindDelegateCacheProbe(DecodedBody decodedBody, int newObjectOffset, out int fieldToken, out int branchTarget)
         {
             fieldToken = 0;
             branchTarget = -1;
-            int position = 0;
-            while (position < newObjectOffset)
+            foreach (var instruction in decodedBody.Instructions)
             {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
-                if (opcode == ILOpCode.Ldsfld)
+                if (instruction.Offset >= newObjectOffset)
+                    break;
+                if (instruction.OpCode == ILOpCode.Ldsfld)
                 {
-                    int candidateToken = ReadInt32(il, ref position, offset);
-                    if (TryReadLdsfldDupBranchOverOffset(il, position, newObjectOffset, out int candidateBranchTarget))
+                    int candidateToken = OperandInt32(instruction);
+                    if (TryReadLdsfldDupBranchOverOffset(decodedBody, instruction.NextOffset, newObjectOffset, out int candidateBranchTarget))
                     {
                         fieldToken = candidateToken;
                         branchTarget = candidateBranchTarget;
                     }
-                    continue;
                 }
-                SkipOperand(il, opcode, ref position, offset);
             }
             return fieldToken != 0;
         }
 
-        bool TryReadLdsfldDupBranchOverOffset(byte[] il, int position, int targetOffset, out int branchTarget)
+        bool TryReadLdsfldDupBranchOverOffset(DecodedBody decodedBody, int position, int targetOffset, out int branchTarget)
         {
             branchTarget = -1;
-            SkipNops(il, ref position);
-            if (position >= il.Length)
+            int dupIndex = decodedBody.NextNonNopIndexAtOrAfter(position);
+            if (dupIndex >= decodedBody.Instructions.Length)
                 return false;
-            var dup = ReadOpcode(il, ref position);
-            if (dup != ILOpCode.Dup)
+            var dup = decodedBody.Instructions[dupIndex];
+            if (dup.OpCode != ILOpCode.Dup)
                 return false;
-            SkipNops(il, ref position);
-            if (position >= il.Length)
+            int branchIndex = decodedBody.NextNonNopIndexAtOrAfter(dup.NextOffset);
+            if (branchIndex >= decodedBody.Instructions.Length)
                 return false;
-            int branchOffset = position;
-            var branch = ReadOpcode(il, ref position);
-            return branch is ILOpCode.Brtrue or ILOpCode.Brtrue_s
-                && TryReadBranchTarget(branch, il, ref position, branchOffset, out branchTarget)
+            var branch = decodedBody.Instructions[branchIndex];
+            return branch.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                && TrySingleBranchTarget(branch, out branchTarget)
                 && branchTarget > targetOffset;
         }
 
-        bool TryReadDelegateCacheStore(byte[] il, int position, out int fieldToken, out int storeOffset)
+        bool TryReadDelegateCacheStore(DecodedBody decodedBody, int position, out int fieldToken, out int storeOffset)
         {
             fieldToken = 0;
             storeOffset = -1;
-            SkipNops(il, ref position);
-            if (position >= il.Length)
+            int index = decodedBody.NextNonNopIndexAtOrAfter(position);
+            if (index >= decodedBody.Instructions.Length)
                 return false;
-            storeOffset = position;
-            var opcode = ReadOpcode(il, ref position);
-            if (opcode == ILOpCode.Dup)
+            var instruction = decodedBody.Instructions[index];
+            storeOffset = instruction.Offset;
+            if (instruction.OpCode == ILOpCode.Dup)
             {
-                SkipNops(il, ref position);
-                if (position >= il.Length)
+                index = decodedBody.NextNonNopIndexAtOrAfter(instruction.NextOffset);
+                if (index >= decodedBody.Instructions.Length)
                     return false;
-                storeOffset = position;
-                opcode = ReadOpcode(il, ref position);
+                instruction = decodedBody.Instructions[index];
+                storeOffset = instruction.Offset;
             }
-            if (opcode != ILOpCode.Stsfld)
+            if (instruction.OpCode != ILOpCode.Stsfld)
                 return false;
-            fieldToken = ReadInt32(il, ref position, storeOffset);
+            fieldToken = OperandInt32(instruction);
             return true;
         }
 
-        static void SkipNops(byte[] il, ref int position)
-        {
-            while (position < il.Length && il[position] == (byte)ILOpCode.Nop)
-                position++;
-        }
-
-        bool IsStackGuardFallbackAllocation(byte[] il, int allocationOffset, GenericScope callerScope)
+        bool IsStackGuardFallbackAllocation(DecodedBody decodedBody, int allocationOffset, GenericScope callerScope)
         {
             const int NoStackGuardCondition = 0;
             const int DirectResult = 1;
@@ -2597,14 +2658,15 @@ public sealed class LibraryBodyIndex
             {
                 int conditionState = NoStackGuardCondition;
                 int conditionSlot = -1;
-                int position = 0;
-                while (position < allocationOffset)
+                foreach (var instruction in decodedBody.Instructions)
                 {
-                    int offset = position;
-                    var opcode = ReadOpcode(il, ref position);
+                    if (instruction.Offset >= allocationOffset)
+                        break;
+                    int offset = instruction.Offset;
+                    var opcode = instruction.OpCode;
                     if (opcode is ILOpCode.Call or ILOpCode.Callvirt)
                     {
-                        int token = ReadInt32(il, ref position, offset);
+                        int token = OperandInt32(instruction);
                         var call = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         conditionState = call.Name == "TryEnterOnCurrentStack"
                             ? DirectResult
@@ -2622,15 +2684,15 @@ public sealed class LibraryBodyIndex
                         conditionState = InvertedResult;
                         continue;
                     }
-                    if (TryReadLocalSlot(il, opcode, ref position, offset, out bool isStore, out bool isArg, out int slot))
+                    if (TryReadLocalSlot(instruction, out var access))
                     {
-                        if (!isArg && isStore && conditionState is DirectResult or DirectLoaded or InvertedResult or InvertedLoaded)
+                        if (!access.IsArgument && access.IsStore && conditionState is DirectResult or DirectLoaded or InvertedResult or InvertedLoaded)
                         {
-                            conditionSlot = slot;
+                            conditionSlot = access.Slot;
                             conditionState = conditionState is DirectResult or DirectLoaded ? DirectStored : InvertedStored;
                             continue;
                         }
-                        if (!isArg && !isStore && slot == conditionSlot)
+                        if (!access.IsArgument && !access.IsStore && access.Slot == conditionSlot)
                         {
                             if (conditionState == DirectStored)
                             {
@@ -2649,7 +2711,7 @@ public sealed class LibraryBodyIndex
                     }
                     if (opcode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
                     {
-                        if (TryReadBranchTarget(opcode, il, ref position, offset, out int branchTarget)
+                        if (TrySingleBranchTarget(instruction, out int branchTarget)
                             && branchTarget > allocationOffset
                             && BranchSkipsStackGuardFallback(opcode, conditionState))
                         {
@@ -2662,7 +2724,6 @@ public sealed class LibraryBodyIndex
                     if (opcode == ILOpCode.Nop)
                         continue;
 
-                    SkipOperand(il, opcode, ref position, offset);
                     conditionState = NoStackGuardCondition;
                     conditionSlot = -1;
                 }
@@ -2693,17 +2754,16 @@ public sealed class LibraryBodyIndex
         // True when a boxed value flows straight into a throw within a short window — the classic
         // `box <enum>; call Format; newobj <Exception>; throw` exception-message pattern. Such a
         // box only allocates on the error path, so it is not hot pay-dirt and is not loop-promoted.
-        bool BoxFeedsThrowSoon(byte[] il, int position)
+        bool BoxFeedsThrowSoon(DecodedBody decodedBody, int position)
         {
-            for (int steps = 0; steps < 6 && position < il.Length; steps++)
+            int index = decodedBody.IndexAtOrAfter(position);
+            for (int steps = 0; steps < 6 && index < decodedBody.Instructions.Length; steps++, index++)
             {
-                int probeOffset = position;
-                var op = ReadOpcode(il, ref position);
+                var op = decodedBody.Instructions[index].OpCode;
                 if (op is ILOpCode.Throw or ILOpCode.Rethrow)
                     return true;
                 if (IsControlFlowDivergent(op))
                     return false;
-                SkipOperand(il, op, ref position, probeOffset);
             }
             return false;
         }
@@ -2841,11 +2901,11 @@ public sealed class LibraryBodyIndex
         // load is an in-place element access / length read — never returned, stored to a
         // field, address-taken, or passed to a call. Any shape we cannot prove local returns
         // false (keep the non-committal `small-array`), so a false positive is impossible.
-        bool ArrayProvablyStaysLocal(byte[] il, ReachingDefinitionsResult reachingDefinitions, int positionAfterNewarr)
+        bool ArrayProvablyStaysLocal(DecodedBody decodedBody, ReachingDefinitionsResult reachingDefinitions, int positionAfterNewarr)
         {
             try
             {
-                if (!TryReadStoreLocalDefinition(il, positionAfterNewarr, out int slot, out int storeOffset))
+                if (!TryReadStoreLocalDefinition(decodedBody, positionAfterNewarr, out int slot, out int storeOffset))
                     return false;
                 if (!reachingDefinitions.IsComplete)
                     return false;
@@ -2858,8 +2918,8 @@ public sealed class LibraryBodyIndex
                 {
                     if (use.Address)
                         return false;
-                    if (!TryPositionAfterLoadLocal(il, use.Offset, slot, out int positionAfterLoad)
-                        || ArrayLoadEscapes(il, positionAfterLoad))
+                    if (!TryPositionAfterLoadLocal(decodedBody, use.Offset, slot, out int positionAfterLoad)
+                        || ArrayLoadEscapes(decodedBody, positionAfterLoad))
                     {
                         return false;
                     }
@@ -2877,44 +2937,49 @@ public sealed class LibraryBodyIndex
             => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
 
         // If the next instruction stores to a local, returns its slot and IL offset.
-        static bool TryReadStoreLocalDefinition(byte[] il, int position, out int slot, out int storeOffset)
+        static bool TryReadStoreLocalDefinition(DecodedBody decodedBody, int position, out int slot, out int storeOffset)
         {
             slot = -1;
             storeOffset = position;
-            if (position >= il.Length)
-                return false;
-            int probe = position;
-            var opcode = ReadOpcode(il, ref probe);
-            slot = opcode switch
+            if (!decodedBody.TryGetInstructionAt(position, out var instruction)
+                || !TryReadLocalSlot(instruction, out var access)
+                || !access.IsStore
+                || access.IsArgument)
             {
-                ILOpCode.Stloc_0 => 0,
-                ILOpCode.Stloc_1 => 1,
-                ILOpCode.Stloc_2 => 2,
-                ILOpCode.Stloc_3 => 3,
-                ILOpCode.Stloc_s => il[probe],
-                ILOpCode.Stloc => BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(probe)),
-                _ => -1,
-            };
-            return slot >= 0;
+                return false;
+            }
+            slot = access.Slot;
+            storeOffset = instruction.Offset;
+            return true;
         }
 
-        static bool TryPositionAfterLoadLocal(byte[] il, int offset, int slot, out int positionAfterLoad)
+        static bool TryPositionAfterLoadLocal(DecodedBody decodedBody, int offset, int slot, out int positionAfterLoad)
         {
             positionAfterLoad = offset;
-            var opcode = ReadOpcode(il, ref positionAfterLoad);
-            return IsLoadLocal(il, opcode, ref positionAfterLoad, slot, out bool loadsSlot)
-                && loadsSlot;
+            if (!decodedBody.TryGetInstructionAt(offset, out var instruction)
+                || !TryReadLocalSlot(instruction, out var access)
+                || access.IsStore
+                || access.IsArgument
+                || access.Slot != slot)
+            {
+                return false;
+            }
+            positionAfterLoad = instruction.NextOffset;
+            return true;
         }
 
-        bool SpanToArrayResultEscapes(byte[] il, ReachingDefinitionsResult reachingDefinitions, int positionAfterCall)
+        bool SpanToArrayResultEscapes(DecodedBody decodedBody, ReachingDefinitionsResult reachingDefinitions, int positionAfterCall)
         {
             try
             {
                 if (!reachingDefinitions.IsComplete)
                     return true;
 
-                SkipNops(il, ref positionAfterCall);
-                if (TryReadStoreLocalDefinition(il, positionAfterCall, out int slot, out int storeOffset))
+                int firstUseIndex = decodedBody.NextNonNopIndexAtOrAfter(positionAfterCall);
+                positionAfterCall = firstUseIndex < decodedBody.Instructions.Length
+                    ? decodedBody.Instructions[firstUseIndex].Offset
+                    : positionAfterCall;
+                if (TryReadStoreLocalDefinition(decodedBody, positionAfterCall, out int slot, out int storeOffset))
                 {
                     var definition = reachingDefinitions.Definitions.FirstOrDefault(d =>
                         !d.IsArgument && d.Slot == slot && d.Offset == storeOffset);
@@ -2925,8 +2990,8 @@ public sealed class LibraryBodyIndex
                     {
                         if (use.Address)
                             return true;
-                        if (!TryPositionAfterLoadLocal(il, use.Offset, slot, out int positionAfterLoad)
-                            || ArrayLoadEscapes(il, positionAfterLoad))
+                        if (!TryPositionAfterLoadLocal(decodedBody, use.Offset, slot, out int positionAfterLoad)
+                            || ArrayLoadEscapes(decodedBody, positionAfterLoad))
                         {
                             return true;
                         }
@@ -2935,33 +3000,11 @@ public sealed class LibraryBodyIndex
                     return false;
                 }
 
-                return ArrayLoadEscapes(il, positionAfterCall);
+                return ArrayLoadEscapes(decodedBody, positionAfterCall);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
             {
                 return true;
-            }
-        }
-
-        static bool IsLoadLocal(byte[] il, ILOpCode opcode, ref int position, int slot, out bool matchesSlot)
-        {
-            matchesSlot = false;
-            switch (opcode)
-            {
-                case ILOpCode.Ldloc_0: matchesSlot = slot == 0; return true;
-                case ILOpCode.Ldloc_1: matchesSlot = slot == 1; return true;
-                case ILOpCode.Ldloc_2: matchesSlot = slot == 2; return true;
-                case ILOpCode.Ldloc_3: matchesSlot = slot == 3; return true;
-                case ILOpCode.Ldloc_s:
-                    matchesSlot = il[position] == slot;
-                    position += 1;
-                    return true;
-                case ILOpCode.Ldloc:
-                    matchesSlot = BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(position)) == slot;
-                    position += 2;
-                    return true;
-                default:
-                    return false;
             }
         }
 
@@ -2981,7 +3024,7 @@ public sealed class LibraryBodyIndex
         }
 
         bool LinqMaterializerSourceIsLoopInvariant(
-            byte[] il,
+            DecodedBody decodedBody,
             ReachingDefinitionsResult reachingDefinitions,
             int callOffset,
             (int Start, int End) loop,
@@ -2990,24 +3033,24 @@ public sealed class LibraryBodyIndex
             evidence = "";
             if (!reachingDefinitions.IsComplete)
                 return false;
-            if (!TryFindPreviousInstruction(il, callOffset, out int loadOffset, out var loadOpcode, out int operandPosition))
+            if (!TryFindPreviousInstruction(decodedBody, callOffset, out var loadInstruction))
                 return false;
-            if (!TryReadLocalSlot(il, loadOpcode, ref operandPosition, loadOffset, out bool isStore, out bool isArg, out int slot)
-                || isStore)
+            if (!TryReadLocalSlot(loadInstruction, out var access)
+                || access.IsStore)
             {
                 return false;
             }
 
             var use = reachingDefinitions.Uses.FirstOrDefault(candidate =>
-                candidate.Offset == loadOffset
-                && candidate.IsArgument == isArg
-                && candidate.Slot == slot);
+                candidate.Offset == loadInstruction.Offset
+                && candidate.IsArgument == access.IsArgument
+                && candidate.Slot == access.Slot);
             if (use is null || use.Address || use.ReachingDefinitions.Length == 0)
                 return false;
             if (reachingDefinitions.Uses.Any(candidate =>
                 candidate.Address
-                && candidate.IsArgument == isArg
-                && candidate.Slot == slot
+                && candidate.IsArgument == access.IsArgument
+                && candidate.Slot == access.Slot
                 && candidate.Offset >= loop.Start
                 && candidate.Offset <= loop.End))
             {
@@ -3019,52 +3062,34 @@ public sealed class LibraryBodyIndex
                     return false;
             }
 
-            evidence = isArg ? $"arg{slot}" : $"V_{slot}";
+            evidence = access.IsArgument ? $"arg{access.Slot}" : $"V_{access.Slot}";
             return true;
         }
 
-        static bool TryFindPreviousInstruction(byte[] il, int targetOffset, out int previousOffset, out ILOpCode previousOpcode, out int previousOperandPosition)
+        static bool TryFindPreviousInstruction(DecodedBody decodedBody, int targetOffset, out DecodedInstruction previousInstruction)
         {
-            previousOffset = -1;
-            previousOpcode = default;
-            previousOperandPosition = -1;
-            try
+            previousInstruction = default!;
+            foreach (var instruction in decodedBody.Instructions)
             {
-                int position = 0;
-                while (position < targetOffset)
-                {
-                    int offset = position;
-                    var opcode = ReadOpcode(il, ref position);
-                    int operandPosition = position;
-                    if (!TryReadLocalSlot(il, opcode, ref position, offset, out _, out _, out _))
-                        SkipOperandStatic(il, opcode, ref position, offset);
-                    if (position > targetOffset)
-                        return false;
-                    if (opcode == ILOpCode.Nop)
-                        continue;
-                    previousOffset = offset;
-                    previousOpcode = opcode;
-                    previousOperandPosition = operandPosition;
-                }
-                return previousOffset >= 0 && position == targetOffset;
+                if (instruction.Offset >= targetOffset)
+                    break;
+                if (instruction.OpCode == ILOpCode.Nop)
+                    continue;
+                previousInstruction = instruction;
             }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-            {
-                return false;
-            }
+            return previousInstruction is not null;
         }
 
         // Given the array reference freshly loaded onto the stack, decide whether this use
         // keeps it local. Walks forward tracking how many extra slots sit above the array;
         // an element access / length read that consumes the array at the right depth is local,
         // anything else (return, store, call argument, ambiguous stack shape) is an escape.
-        bool ArrayLoadEscapes(byte[] il, int position)
+        bool ArrayLoadEscapes(DecodedBody decodedBody, int position)
         {
             int extra = 0; // stack slots pushed above the array reference
-            while (position < il.Length)
+            for (int index = decodedBody.IndexAtOrAfter(position); index < decodedBody.Instructions.Length; index++)
             {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
+                var opcode = decodedBody.Instructions[index].OpCode;
                 switch (opcode)
                 {
                     // Simple single pushes (indices, values) layered above the array.
@@ -3075,15 +3100,12 @@ public sealed class LibraryBodyIndex
                         break;
                     case ILOpCode.Ldc_i4_s:
                         extra++;
-                        position += 1;
                         break;
                     case ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4:
                         extra++;
-                        position += 4;
                         break;
                     case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
                         extra++;
-                        position += 8;
                         break;
                     case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
                         or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3:
@@ -3091,7 +3113,6 @@ public sealed class LibraryBodyIndex
                         break;
                     case ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Ldarg_s or ILOpCode.Ldarga_s:
                         extra++;
-                        position += 1;
                         break;
                     // Length read: pops the array. Local only when the array is on top.
                     case ILOpCode.Ldlen:
@@ -3116,17 +3137,16 @@ public sealed class LibraryBodyIndex
         }
 
 
-        void ScanBody(byte[] il, MethodIdentity caller, GenericScope callerScope,
+        void ScanBody(ImmutableArray<DecodedInstruction> instructions, MethodIdentity caller, GenericScope callerScope,
             ImmutableArray<DirectCall>.Builder calls,
             ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
             bool includeIndirectOpcodes,
             IReadOnlyList<(int Start, int End)> loopRegions)
         {
-            int position = 0;
-            while (position < il.Length)
+            foreach (var instruction in instructions)
             {
-                int offset = position;
-                var opcode = ReadOpcode(il, ref position);
+                int offset = instruction.Offset;
+                var opcode = instruction.OpCode;
                 switch (opcode)
                 {
                     case ILOpCode.Call:
@@ -3135,7 +3155,7 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Ldftn:
                     case ILOpCode.Ldvirtftn:
                     {
-                        int token = ReadInt32(il, ref position, offset);
+                        int token = OperandInt32(instruction);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         bool inLoop = IsInLoopRegion(offset, loopRegions);
                         calls.Add(new DirectCall(caller, callee, offset, token, PeelToDefinitionToken(token), ToCallKind(opcode), inLoop));
@@ -3153,7 +3173,7 @@ public sealed class LibraryBodyIndex
                     }
                     case ILOpCode.Calli:
                     {
-                        int token = ReadInt32(il, ref position, offset);
+                        int token = OperandInt32(instruction);
                         calls.Add(new DirectCall(caller, MemberRef.Unsupported($"calli signature token 0x{token:X8}"), offset, token, token, CallKind.CallIndirect, IsInLoopRegion(offset, loopRegions)));
                         unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", "calli", "calli", offset, token));
                         break;
@@ -3161,7 +3181,6 @@ public sealed class LibraryBodyIndex
                     default:
                         if (UnsafeOpcodeName(opcode, includeIndirectOpcodes) is { } unsafeOpcode)
                             unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", unsafeOpcode, "opcode", offset, null));
-                        SkipOperand(il, opcode, ref position, offset);
                         break;
                 }
             }
@@ -3182,37 +3201,6 @@ public sealed class LibraryBodyIndex
             return token;
         }
 
-        IReadOnlyList<(int Start, int End)> CollectLoopRegions(byte[] il)
-        {
-            try
-            {
-                var regions = new List<(int Start, int End)>();
-                int position = 0;
-                while (position < il.Length)
-                {
-                    int offset = position;
-                    var opcode = ReadOpcode(il, ref position);
-                    // TryReadBranchTarget already advances past a branch operand when it
-                    // returns true; only non-branch opcodes still need SkipOperand. Calling
-                    // SkipOperand after a (forward) branch would double-advance and desync the scan.
-                    if (TryReadBranchTarget(opcode, il, ref position, offset, out int target))
-                    {
-                        if (target < offset)
-                            regions.Add((target, offset));
-                    }
-                    else
-                    {
-                        SkipOperand(il, opcode, ref position, offset);
-                    }
-                }
-                return regions;
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-            {
-                return [];
-            }
-        }
-
         static bool IsInLoopRegion(int offset, IReadOnlyList<(int Start, int End)> regions)
             => regions.Any(region => offset >= region.Start && offset <= region.End);
 
@@ -3220,7 +3208,7 @@ public sealed class LibraryBodyIndex
         // throw/rethrow sites, and exception-handling clauses. Mirrors the loop-region
         // scan's defensive structure — a malformed body yields empty signals, never a
         // failed index build.
-        BodySignals CollectBodySignals(byte[] il, MethodBodyBlock body, GenericScope scope, IReadOnlyList<(int Start, int End)> loopRegions)
+        BodySignals CollectBodySignals(byte[] il, DecodedBody decodedBody, MethodBodyBlock body, GenericScope scope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             int newarr = 0, throws = 0, boxes = 0;
             bool allocInLoop = false;
@@ -3230,11 +3218,10 @@ public sealed class LibraryBodyIndex
             var throwPathNewObjectOffsets = ImmutableArray.CreateBuilder<int>();
             try
             {
-                int position = 0;
-                while (position < il.Length)
+                foreach (var instruction in decodedBody.Instructions)
                 {
-                    int offset = position;
-                    var opcode = ReadOpcode(il, ref position);
+                    int offset = instruction.Offset;
+                    var opcode = instruction.OpCode;
                     switch (opcode)
                     {
                         case ILOpCode.Newarr:
@@ -3248,9 +3235,7 @@ public sealed class LibraryBodyIndex
                             break;
                         case ILOpCode.Newobj:
                         {
-                            int afterNewobj = position;
-                            SkipOperand(il, opcode, ref afterNewobj, offset);
-                            if (NewObjectFeedsThrowSoon(il, afterNewobj))
+                            if (NewObjectFeedsThrowSoon(decodedBody, instruction.NextOffset))
                                 throwPathNewObjectOffsets.Add(offset);
                             break;
                         }
@@ -3259,19 +3244,16 @@ public sealed class LibraryBodyIndex
                             // Boxing a genuinely-allocating value type is a heap allocation, like
                             // newobj/newarr. Counted unconditionally (the box-value-type opportunity
                             // adds the escape gate separately for actionable triage).
-                            int boxStart = position;
-                            int token = ReadInt32(il, ref position, offset);
+                            int token = OperandInt32(instruction);
                             if (IsAllocatingValueTypeBox(token, ResolveTypeToken(token, scope)))
                             {
                                 boxes++;
                                 boxOffsets.Add(offset);
                                 allocInLoop |= IsInLoopRegion(offset, loopRegions);
                             }
-                            position = boxStart; // let the shared SkipOperand advance past the token
                             break;
                         }
                     }
-                    SkipOperand(il, opcode, ref position, offset);
                 }
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
@@ -3306,63 +3288,35 @@ public sealed class LibraryBodyIndex
                 throwPathNewObjectOffsets.ToImmutable());
         }
 
-        bool NewObjectFeedsThrowSoon(byte[] il, int position)
+        bool NewObjectFeedsThrowSoon(DecodedBody decodedBody, int position)
         {
             var visitedOffsets = new HashSet<int>();
-            for (int steps = 0; steps < 8 && position < il.Length; steps++)
+            int index = decodedBody.IndexAtOrAfter(position);
+            for (int steps = 0; steps < 8 && index < decodedBody.Instructions.Length; steps++, index++)
             {
-                int probeOffset = position;
+                var instruction = decodedBody.Instructions[index];
+                int probeOffset = instruction.Offset;
                 if (!visitedOffsets.Add(probeOffset))
                     return false;
 
-                var op = ReadOpcode(il, ref position);
+                var op = instruction.OpCode;
                 if (op is ILOpCode.Throw or ILOpCode.Rethrow)
                     return true;
                 if (op is ILOpCode.Br or ILOpCode.Br_s)
                 {
-                    if (!TryReadBranchTarget(op, il, ref position, probeOffset, out int target)
+                    if (!TrySingleBranchTarget(instruction, out int target)
                         || target < 0
-                        || target >= il.Length)
+                        || target >= decodedBody.Instructions[^1].NextOffset)
                     {
                         return false;
                     }
-                    position = target;
+                    index = decodedBody.IndexAtOrAfter(target) - 1;
                     continue;
                 }
                 if (IsControlFlowDivergent(op))
                     return false;
-
-                SkipOperand(il, op, ref position, probeOffset);
             }
             return false;
-        }
-
-        bool TryReadBranchTarget(ILOpCode opcode, byte[] il, ref int position, int offset, out int target)
-        {
-            target = -1;
-            switch (opcode)
-            {
-                case ILOpCode.Br_s:
-                    target = offset + 2 + (sbyte)ReadByte(il, ref position, offset);
-                    return true;
-                case ILOpCode.Brfalse_s or ILOpCode.Brtrue_s or ILOpCode.Beq_s
-                    or ILOpCode.Bge_s or ILOpCode.Bgt_s or ILOpCode.Ble_s or ILOpCode.Blt_s
-                    or ILOpCode.Bne_un_s or ILOpCode.Bge_un_s or ILOpCode.Bgt_un_s
-                    or ILOpCode.Ble_un_s or ILOpCode.Blt_un_s or ILOpCode.Leave_s:
-                    target = offset + 2 + (sbyte)ReadByte(il, ref position, offset);
-                    return true;
-                case ILOpCode.Br:
-                    target = offset + 5 + ReadInt32(il, ref position, offset);
-                    return true;
-                case ILOpCode.Brfalse or ILOpCode.Brtrue or ILOpCode.Beq
-                    or ILOpCode.Bge or ILOpCode.Bgt or ILOpCode.Ble or ILOpCode.Blt
-                    or ILOpCode.Bne_un or ILOpCode.Bge_un or ILOpCode.Bgt_un
-                    or ILOpCode.Ble_un or ILOpCode.Blt_un or ILOpCode.Leave:
-                    target = offset + 5 + ReadInt32(il, ref position, offset);
-                    return true;
-                default:
-                    return false;
-            }
         }
 
         static bool IsUnsafeCall(MemberRef member)
@@ -3502,146 +3456,56 @@ public sealed class LibraryBodyIndex
             return names.MoveToImmutable();
         }
 
-        static ILOpCode ReadOpcode(byte[] il, ref int position)
-        {
-            byte first = ReadByte(il, ref position, position);
-            if (first != 0xFE)
-                return (ILOpCode)first;
-            byte second = ReadByte(il, ref position, position - 1);
-            return (ILOpCode)(0xFE00 | second);
-        }
-
-        void SkipOperand(byte[] il, ILOpCode opcode, ref int position, int offset)
-        {
-            switch (opcode)
-            {
-                case ILOpCode.Switch:
-                {
-                    int count = ReadInt32(il, ref position, offset);
-                    if (count < 0)
-                        throw new BadImageFormatException($"Malformed switch at IL_{offset:X4} in method body from {_path}");
-                    long targetPosition = (long)position + (long)count * 4;
-                    if (targetPosition < position || targetPosition > il.Length)
-                        throw new BadImageFormatException($"Malformed switch at IL_{offset:X4} in method body from {_path}");
-                    position = (int)targetPosition;
-                    break;
-                }
-                case ILOpCode.Br_s or ILOpCode.Brfalse_s or ILOpCode.Brtrue_s or ILOpCode.Beq_s
-                    or ILOpCode.Bge_s or ILOpCode.Bgt_s or ILOpCode.Ble_s or ILOpCode.Blt_s
-                    or ILOpCode.Bne_un_s or ILOpCode.Bge_un_s or ILOpCode.Bgt_un_s
-                    or ILOpCode.Ble_un_s or ILOpCode.Blt_un_s or ILOpCode.Leave_s
-                    or ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s
-                    or ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Stloc_s
-                    or ILOpCode.Ldc_i4_s or ILOpCode.Unaligned:
-                    Advance(il, ref position, 1, offset);
-                    break;
-                case ILOpCode.Ldarg or ILOpCode.Ldarga or ILOpCode.Starg
-                    or ILOpCode.Ldloc or ILOpCode.Ldloca or ILOpCode.Stloc:
-                    Advance(il, ref position, 2, offset);
-                    break;
-                case ILOpCode.Br or ILOpCode.Brfalse or ILOpCode.Brtrue or ILOpCode.Beq
-                    or ILOpCode.Bge or ILOpCode.Bgt or ILOpCode.Ble or ILOpCode.Blt
-                    or ILOpCode.Bne_un or ILOpCode.Bge_un or ILOpCode.Bgt_un
-                    or ILOpCode.Ble_un or ILOpCode.Blt_un or ILOpCode.Leave
-                    or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
-                    or ILOpCode.Jmp or ILOpCode.Ldstr
-                    or ILOpCode.Call or ILOpCode.Calli or ILOpCode.Callvirt or ILOpCode.Newobj
-                    or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
-                    or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
-                    or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
-                    or ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass
-                    or ILOpCode.Isinst or ILOpCode.Unbox or ILOpCode.Stobj
-                    or ILOpCode.Box or ILOpCode.Newarr or ILOpCode.Ldelema
-                    or ILOpCode.Ldelem or ILOpCode.Stelem or ILOpCode.Unbox_any
-                    or ILOpCode.Refanyval or ILOpCode.Mkrefany or ILOpCode.Initobj
-                    or ILOpCode.Constrained or ILOpCode.Sizeof or ILOpCode.Ldtoken:
-                    Advance(il, ref position, 4, offset);
-                    break;
-                case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
-                    Advance(il, ref position, 8, offset);
-                    break;
-                case NoPrefix:
-                    Advance(il, ref position, 1, offset);
-                    break;
-            }
-        }
-
-        static void Advance(byte[] il, ref int position, int bytes, int offset)
-        {
-            long targetPosition = (long)position + bytes;
-            if (targetPosition < position || targetPosition > il.Length)
-                throw new BadImageFormatException($"Malformed IL operand at IL_{offset:X4}");
-            position = (int)targetPosition;
-        }
-
         // True when the String.Concat at `concatOffset` — whose result is stored by the
         // instruction at `storeOffset` — accumulates into one of its own arguments, i.e.
         // `s = String.Concat(s, …)` (the `s += …` lowering). Each iteration copies the whole
         // growing accumulator: the canonical O(n^2) StringBuilder anti-pattern.
-        //
-        // Soundness is by stack-aware simulation, not a flat load window. It replays the eval
-        // stack across the basic block that produces the concat's arguments, tagging each stack
-        // slot with one bit — "produced by a bare load of the destination slot" — and reports
-        // accumulation only when a value actually consumed by the concat carries that bit. So a
-        // prior unrelated use of the slot (`Foo(s); s = a + b;`) is not misread: that load is
-        // popped by its own consumer before the concat. A derived accumulator
-        // (`s = s.Substring(..) + x`) is conservatively not matched (the bit does not survive the
-        // intermediate call). Anything the small stack model does not understand makes the probe
-        // bail, so it never reports a false positive on unmodeled IL.
-        public bool ConcatAccumulatesIntoSource(byte[] il, int concatOffset, int storeOffset, int concatArgCount, GenericScope callerScope)
+        bool ConcatAccumulatesIntoSource(DecodedBody decodedBody, int concatOffset, int storeOffset, int concatArgCount, GenericScope callerScope)
         {
             const int ArgSlotBias = 1 << 20;
             try
             {
-                if (storeOffset < 0 || storeOffset >= il.Length || concatOffset < 0 || concatArgCount <= 0)
+                if (concatOffset < 0 || concatArgCount <= 0)
                     return false;
-
-                // The concat result must be stored straight back into a local/parameter slot.
-                int sp = storeOffset;
-                var storeOp = ReadOpcode(il, ref sp);
-                if (!TryReadLocalSlot(il, storeOp, ref sp, storeOffset, out bool storeIsStore, out bool storeIsArg, out int storeSlot)
-                    || !storeIsStore)
-                    return false;
-                int storeKey = (storeIsArg ? ArgSlotBias : 0) | storeSlot;
-
-                // Pass 1: find the start of the basic block that feeds the concat — the point
-                // after the most recent store/branch/terminator before it. (Calls are not block
-                // boundaries.)
-                int blockStart = 0;
-                int p = 0;
-                while (p < concatOffset)
+                if (!decodedBody.TryGetInstructionAt(storeOffset, out var storeInstruction)
+                    || !TryReadLocalSlot(storeInstruction, out var storeAccess)
+                    || !storeAccess.IsStore)
                 {
-                    int o = p;
-                    var op = ReadOpcode(il, ref p);
-                    bool isLocal = TryReadLocalSlot(il, op, ref p, o, out bool localStore, out _, out _);
-                    if (!isLocal)
-                        SkipOperandStatic(il, op, ref p, o);
-                    if (p <= concatOffset && ((isLocal && localStore) || EndsConcatArgumentBlock(op)))
-                        blockStart = p;
+                    return false;
+                }
+                int storeKey = (storeAccess.IsArgument ? ArgSlotBias : 0) | storeAccess.Slot;
+
+                int blockStart = 0;
+                foreach (var instruction in decodedBody.Instructions)
+                {
+                    if (instruction.Offset >= concatOffset)
+                        break;
+                    bool isLocal = TryReadLocalSlot(instruction, out var access);
+                    if (instruction.NextOffset <= concatOffset
+                        && ((isLocal && access.IsStore) || EndsConcatArgumentBlock(instruction.OpCode)))
+                    {
+                        blockStart = instruction.NextOffset;
+                    }
                 }
 
-                // Pass 2: simulate the eval stack from the block start to the concat. Each slot
-                // carries a bit: was it produced by a bare load of the destination slot?
                 var stack = new List<bool>();
-                p = blockStart;
-                while (p < concatOffset)
+                for (int i = decodedBody.IndexAtOrAfter(blockStart); i < decodedBody.Instructions.Length; i++)
                 {
-                    int o = p;
-                    var op = ReadOpcode(il, ref p);
-                    if (TryReadLocalSlot(il, op, ref p, o, out bool isStore, out bool isArg, out int slot))
+                    var instruction = decodedBody.Instructions[i];
+                    if (instruction.Offset >= concatOffset)
+                        break;
+                    if (TryReadLocalSlot(instruction, out var access))
                     {
-                        if (isStore)
+                        if (access.IsStore)
                             return false; // a store starts a new block; model desync -> bail
-                        int key = (isArg ? ArgSlotBias : 0) | slot;
+                        int key = (access.IsArgument ? ArgSlotBias : 0) | access.Slot;
                         stack.Add(key == storeKey);
                         continue;
                     }
-                    if (!ApplyConcatBlockStackEffect(il, op, ref p, o, stack, callerScope))
+                    if (!ApplyConcatBlockStackEffect(instruction, stack, callerScope))
                         return false; // unmodeled opcode or stack underflow -> conservative bail
                 }
 
-                // The concat's arguments are the top `concatArgCount` slots. Accumulation iff any
-                // of them came from a bare load of the destination slot.
                 if (stack.Count < concatArgCount)
                     return false;
                 for (int i = stack.Count - concatArgCount; i < stack.Count; i++)
@@ -3655,67 +3519,38 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        // Applies one instruction's eval-stack effect during the concat-argument replay, pushing
-        // `false` for any value that is not a bare load of the accumulator slot. Returns false to
-        // bail the whole probe on a stack underflow or any opcode the model does not cover, so an
-        // incomplete model can only lose a detection, never invent one.
-        bool ApplyConcatBlockStackEffect(byte[] il, ILOpCode opcode, ref int position, int offset, List<bool> stack, GenericScope callerScope)
+        bool ApplyConcatBlockStackEffect(DecodedInstruction instruction, List<bool> stack, GenericScope callerScope)
         {
-            switch (opcode)
+            switch (instruction.OpCode)
             {
                 case ILOpCode.Nop:
                     return true;
-                // Pure pushes of a non-accumulator value.
                 case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
                     or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-                    or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull:
+                    or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull
+                    or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4 or ILOpCode.Ldstr
+                    or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Ldtoken or ILOpCode.Ldftn
+                    or ILOpCode.Sizeof or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8
+                    or ILOpCode.Ldloca_s or ILOpCode.Ldarga_s or ILOpCode.Ldloca or ILOpCode.Ldarga:
                     stack.Add(false);
                     return true;
-                case ILOpCode.Ldc_i4_s:
-                    Advance(il, ref position, 1, offset);
-                    stack.Add(false);
-                    return true;
-                case ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4 or ILOpCode.Ldstr or ILOpCode.Ldsfld
-                    or ILOpCode.Ldsflda or ILOpCode.Ldtoken or ILOpCode.Ldftn or ILOpCode.Sizeof:
-                    Advance(il, ref position, 4, offset);
-                    stack.Add(false);
-                    return true;
-                case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
-                    Advance(il, ref position, 8, offset);
-                    stack.Add(false);
-                    return true;
-                case ILOpCode.Ldloca_s or ILOpCode.Ldarga_s:
-                    Advance(il, ref position, 1, offset);
-                    stack.Add(false);
-                    return true;
-                case ILOpCode.Ldloca or ILOpCode.Ldarga:
-                    Advance(il, ref position, 2, offset);
-                    stack.Add(false);
-                    return true;
-                // pop 1, push 1 (a derived value — never the bare accumulator).
                 case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
                     or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
                     or ILOpCode.Conv_u2 or ILOpCode.Conv_u1 or ILOpCode.Conv_i or ILOpCode.Conv_u
                     or ILOpCode.Conv_r_un or ILOpCode.Neg or ILOpCode.Not or ILOpCode.Ldlen
                     or ILOpCode.Ldind_i1 or ILOpCode.Ldind_u1 or ILOpCode.Ldind_i2 or ILOpCode.Ldind_u2
                     or ILOpCode.Ldind_i4 or ILOpCode.Ldind_u4 or ILOpCode.Ldind_i8 or ILOpCode.Ldind_i
-                    or ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref:
-                    return Pop(stack, 1) && Push(stack);
-                case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Ldobj or ILOpCode.Castclass
+                    or ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref
+                    or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Ldobj or ILOpCode.Castclass
                     or ILOpCode.Isinst or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Box:
-                    Advance(il, ref position, 4, offset);
                     return Pop(stack, 1) && Push(stack);
-                // pop 2, push 1.
                 case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Div_un
                     or ILOpCode.Rem or ILOpCode.Rem_un or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
                     or ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un or ILOpCode.Ceq or ILOpCode.Cgt
                     or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un or ILOpCode.Ldelem_i1
                     or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_i4
                     or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_i or ILOpCode.Ldelem_r4
-                    or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref:
-                    return Pop(stack, 2) && Push(stack);
-                case ILOpCode.Ldelem or ILOpCode.Ldelema:
-                    Advance(il, ref position, 4, offset);
+                    or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref or ILOpCode.Ldelem or ILOpCode.Ldelema:
                     return Pop(stack, 2) && Push(stack);
                 case ILOpCode.Dup:
                     if (stack.Count == 0)
@@ -3726,14 +3561,14 @@ public sealed class LibraryBodyIndex
                     return Pop(stack, 1);
                 case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
                 {
-                    int token = ReadInt32(il, ref position, offset);
+                    int token = OperandInt32(instruction);
                     var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                     if (callee.Kind == MemberKind.Unsupported)
                         return false;
-                    int pops = callee.ParameterTypes.Length + (opcode != ILOpCode.Newobj && callee.HasThis ? 1 : 0);
+                    int pops = callee.ParameterTypes.Length + (instruction.OpCode != ILOpCode.Newobj && callee.HasThis ? 1 : 0);
                     if (!Pop(stack, pops))
                         return false;
-                    if (opcode == ILOpCode.Newobj || callee.ReturnType.Name != "Void")
+                    if (instruction.OpCode == ILOpCode.Newobj || callee.ReturnType.Name != "Void")
                         stack.Add(false);
                     return true;
                 }
@@ -3756,45 +3591,38 @@ public sealed class LibraryBodyIndex
             return true;
         }
 
-        // Decodes a load/store of a local or argument slot, advancing past any inline operand.
-        // Returns false for any other opcode (operand left for the caller to skip).
-        static bool TryReadLocalSlot(byte[] il, ILOpCode opcode, ref int position, int offset, out bool isStore, out bool isArg, out int slot)
+        readonly record struct LocalSlotAccess(int Slot, bool IsArgument, bool IsStore);
+
+        static bool TryReadLocalSlot(DecodedInstruction instruction, out LocalSlotAccess access)
         {
-            isStore = false;
-            isArg = false;
-            slot = -1;
-            switch (opcode)
+            access = default;
+            switch (instruction.OpCode)
             {
-                case ILOpCode.Ldloc_0: slot = 0; return true;
-                case ILOpCode.Ldloc_1: slot = 1; return true;
-                case ILOpCode.Ldloc_2: slot = 2; return true;
-                case ILOpCode.Ldloc_3: slot = 3; return true;
-                case ILOpCode.Ldloc_s: slot = ReadByte(il, ref position, offset); return true;
-                case ILOpCode.Ldloc: slot = (ushort)ReadInt16(il, ref position, offset); return true;
-                case ILOpCode.Stloc_0: isStore = true; slot = 0; return true;
-                case ILOpCode.Stloc_1: isStore = true; slot = 1; return true;
-                case ILOpCode.Stloc_2: isStore = true; slot = 2; return true;
-                case ILOpCode.Stloc_3: isStore = true; slot = 3; return true;
-                case ILOpCode.Stloc_s: isStore = true; slot = ReadByte(il, ref position, offset); return true;
-                case ILOpCode.Stloc: isStore = true; slot = (ushort)ReadInt16(il, ref position, offset); return true;
-                case ILOpCode.Ldarg_0: isArg = true; slot = 0; return true;
-                case ILOpCode.Ldarg_1: isArg = true; slot = 1; return true;
-                case ILOpCode.Ldarg_2: isArg = true; slot = 2; return true;
-                case ILOpCode.Ldarg_3: isArg = true; slot = 3; return true;
-                case ILOpCode.Ldarg_s: isArg = true; slot = ReadByte(il, ref position, offset); return true;
-                case ILOpCode.Ldarg: isArg = true; slot = (ushort)ReadInt16(il, ref position, offset); return true;
-                case ILOpCode.Starg_s: isStore = true; isArg = true; slot = ReadByte(il, ref position, offset); return true;
-                case ILOpCode.Starg: isStore = true; isArg = true; slot = (ushort)ReadInt16(il, ref position, offset); return true;
+                case ILOpCode.Ldloc_0: access = new(0, false, false); return true;
+                case ILOpCode.Ldloc_1: access = new(1, false, false); return true;
+                case ILOpCode.Ldloc_2: access = new(2, false, false); return true;
+                case ILOpCode.Ldloc_3: access = new(3, false, false); return true;
+                case ILOpCode.Ldloc_s:
+                case ILOpCode.Ldloc: access = new(OperandInt32(instruction), false, false); return true;
+                case ILOpCode.Stloc_0: access = new(0, false, true); return true;
+                case ILOpCode.Stloc_1: access = new(1, false, true); return true;
+                case ILOpCode.Stloc_2: access = new(2, false, true); return true;
+                case ILOpCode.Stloc_3: access = new(3, false, true); return true;
+                case ILOpCode.Stloc_s:
+                case ILOpCode.Stloc: access = new(OperandInt32(instruction), false, true); return true;
+                case ILOpCode.Ldarg_0: access = new(0, true, false); return true;
+                case ILOpCode.Ldarg_1: access = new(1, true, false); return true;
+                case ILOpCode.Ldarg_2: access = new(2, true, false); return true;
+                case ILOpCode.Ldarg_3: access = new(3, true, false); return true;
+                case ILOpCode.Ldarg_s:
+                case ILOpCode.Ldarg: access = new(OperandInt32(instruction), true, false); return true;
+                case ILOpCode.Starg_s:
+                case ILOpCode.Starg: access = new(OperandInt32(instruction), true, true); return true;
                 default:
                     return false;
             }
         }
 
-        // A store/branch/terminator that ends the basic block feeding a concat: it bounds the
-        // straight-line region whose eval-stack the accumulation probe replays. Calls are NOT
-        // boundaries — a sub-expression call (`s += x.Name`, `s = s + list[i]`) leaves the
-        // earlier accumulator value live beneath its arguments. (Store-to-local/parameter is
-        // handled separately by the caller via the local-slot decoder.)
         static bool EndsConcatArgumentBlock(ILOpCode opcode)
             => opcode is ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Stobj
                 or ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
@@ -3811,82 +3639,18 @@ public sealed class LibraryBodyIndex
                 or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
                 or ILOpCode.Blt_un or ILOpCode.Blt_un_s or ILOpCode.Switch;
 
-        // Operand-length skip for opcodes other than the local load/store ops handled by
-        // TryReadLocalSlot. Mirrors SkipOperand but is static and self-contained so the
-        // accumulation probe needs no instance state.
-        static void SkipOperandStatic(byte[] il, ILOpCode opcode, ref int position, int offset)
+        static int OperandInt32(DecodedInstruction instruction)
+            => checked((int)instruction.OperandValue);
+
+        static bool TrySingleBranchTarget(DecodedInstruction instruction, out int target)
         {
-            switch (opcode)
+            if (instruction.BranchTargets.Length == 1)
             {
-                case ILOpCode.Switch:
-                {
-                    int count = ReadInt32(il, ref position, offset);
-                    if (count < 0)
-                        throw new BadImageFormatException($"Malformed switch at IL_{offset:X4}");
-                    long target = (long)position + (long)count * 4;
-                    if (target < position || target > il.Length)
-                        throw new BadImageFormatException($"Malformed switch at IL_{offset:X4}");
-                    position = (int)target;
-                    break;
-                }
-                case ILOpCode.Br_s or ILOpCode.Brfalse_s or ILOpCode.Brtrue_s or ILOpCode.Beq_s
-                    or ILOpCode.Bge_s or ILOpCode.Bgt_s or ILOpCode.Ble_s or ILOpCode.Blt_s
-                    or ILOpCode.Bne_un_s or ILOpCode.Bge_un_s or ILOpCode.Bgt_un_s
-                    or ILOpCode.Ble_un_s or ILOpCode.Blt_un_s or ILOpCode.Leave_s
-                    or ILOpCode.Ldarga_s or ILOpCode.Ldloca_s
-                    or ILOpCode.Ldc_i4_s or ILOpCode.Unaligned:
-                    Advance(il, ref position, 1, offset);
-                    break;
-                case ILOpCode.Ldarga or ILOpCode.Ldloca:
-                    Advance(il, ref position, 2, offset);
-                    break;
-                case ILOpCode.Br or ILOpCode.Brfalse or ILOpCode.Brtrue or ILOpCode.Beq
-                    or ILOpCode.Bge or ILOpCode.Bgt or ILOpCode.Ble or ILOpCode.Blt
-                    or ILOpCode.Bne_un or ILOpCode.Bge_un or ILOpCode.Bgt_un
-                    or ILOpCode.Ble_un or ILOpCode.Blt_un or ILOpCode.Leave
-                    or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
-                    or ILOpCode.Jmp or ILOpCode.Ldstr
-                    or ILOpCode.Call or ILOpCode.Calli or ILOpCode.Callvirt or ILOpCode.Newobj
-                    or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
-                    or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
-                    or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
-                    or ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass
-                    or ILOpCode.Isinst or ILOpCode.Unbox or ILOpCode.Stobj
-                    or ILOpCode.Box or ILOpCode.Newarr or ILOpCode.Ldelema
-                    or ILOpCode.Ldelem or ILOpCode.Stelem or ILOpCode.Unbox_any
-                    or ILOpCode.Refanyval or ILOpCode.Mkrefany or ILOpCode.Initobj
-                    or ILOpCode.Constrained or ILOpCode.Sizeof or ILOpCode.Ldtoken:
-                    Advance(il, ref position, 4, offset);
-                    break;
-                case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
-                    Advance(il, ref position, 8, offset);
-                    break;
+                target = instruction.BranchTargets[0];
+                return true;
             }
-        }
-
-        static byte ReadByte(byte[] il, ref int position, int offset)
-        {
-            if (position >= il.Length)
-                throw new BadImageFormatException($"Malformed IL at IL_{offset:X4}");
-            return il[position++];
-        }
-
-        static short ReadInt16(byte[] il, ref int position, int offset)
-        {
-            if (position + 2 > il.Length)
-                throw new BadImageFormatException($"Malformed IL operand at IL_{offset:X4}");
-            short value = BinaryPrimitives.ReadInt16LittleEndian(il.AsSpan(position));
-            position += 2;
-            return value;
-        }
-
-        static int ReadInt32(byte[] il, ref int position, int offset)
-        {
-            if (position + 4 > il.Length)
-                throw new BadImageFormatException($"Malformed IL operand at IL_{offset:X4}");
-            int value = BinaryPrimitives.ReadInt32LittleEndian(il.AsSpan(position));
-            position += 4;
-            return value;
+            target = -1;
+            return false;
         }
 
         string MethodLabel(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle)
