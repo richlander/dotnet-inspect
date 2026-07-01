@@ -71,8 +71,7 @@ Projection is validated against the selected section schema. Unknown fields/colu
 
 Future row filtering and ordering should extend this same schema path rather
 than adding one flag per column. See [Row query and ordering](row-query-order.md)
-for the proposed `--where:<Field>`, `--order-by`, `--top`, and `--schema`
-contract.
+for the proposed `--where`, `--order-by`, `--top`, and `--schema` contract.
 
 ## Counts and row limits
 

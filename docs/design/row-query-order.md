@@ -45,21 +45,24 @@ adding more command-specific flags.
 
 ### Field-scoped predicates
 
-Use `--where:<Field>=<value>` for row filtering:
+Use `--where "<Field><operator><value>"` for row filtering:
 
 ```bash
 dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --where:Allocation="boxed *" \
-  --where:Path="loop body" \
-  --where:Confidence>=medium
+  --where "Allocation=boxed *" \
+  --where "Path=loop body" \
+  --where "Confidence>=medium"
 ```
 
 `--where` is deliberately separate from `--columns`:
 
 - `--columns` projects visible columns.
-- `--where:<Field>` filters rows by a field that may or may not be projected.
+- `--where` filters rows by a field that may or may not be projected.
 
-Multiple `--where:*` predicates are combined with AND.
+Multiple `--where` predicates are combined with AND.
+
+The predicate expression is one quoted command-line argument. This avoids shell
+redirection bugs with operators such as `>=` and `<=`.
 
 ### Ordering
 
@@ -67,7 +70,7 @@ Use `--order-by` for explicit row ordering:
 
 ```bash
 dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --where:Allocation="boxed *" \
+  --where "Allocation=boxed *" \
   --order-by "RootReach desc,Confidence desc" \
   --top 20
 ```
@@ -78,12 +81,13 @@ default must be discoverable through `--schema`.
 ### Top
 
 `--top N` means "take the first N rows after filtering and ordering."
+`--count` reports the post-filter row count before `--top` is applied.
 
 Pipeline:
 
 ```text
-select section -> collect rows -> apply --where -> apply order -> apply --top
--> project --columns/--fields -> render
+select section -> collect rows -> apply --where -> compute --count -> apply order
+-> apply --top -> project --columns/--fields -> render
 ```
 
 `--rows -n N` remains a renderer/display cap. It is applied after projection and
@@ -95,21 +99,21 @@ Start with a small field predicate grammar:
 
 | Form | Meaning |
 | --- | --- |
-| `--where:Field=value` | exact or enum match |
-| `--where:Field="glob *"` | glob match for string fields |
-| `--where:Field!=value` | negated exact/glob match |
-| `--where:Field>=10` | numeric or ranked comparison |
-| `--where:Field<=10` | numeric or ranked comparison |
+| `--where "Field=value"` | exact or enum match |
+| `--where "Field=glob *"` | glob match for string fields |
+| `--where "Field!=value"` | negated exact/glob match |
+| `--where "Field>=10"` | numeric or ranked comparison |
+| `--where "Field<=10"` | numeric or ranked comparison |
 
 Examples:
 
 ```bash
---where:Shape=box-value-type
---where:Allocation="boxed *"
---where:Path="loop body"
---where:PathConfidence=dominates-return
---where:RootReach>=10
---where:Confidence>=medium
+--where "Shape=box-value-type"
+--where "Allocation=boxed *"
+--where "Path=loop body"
+--where "PathConfidence=dominates-return"
+--where "RootReach>=10"
+--where "Confidence>=medium"
 ```
 
 Ranked comparisons are section/schema-defined. For `Performance Triage`,
@@ -145,7 +149,7 @@ Section: Performance Triage
 
 Default order:
   Triage desc
-    1. InLoop desc
+    1. Loop desc
     2. Confidence desc (high > medium > low)
     3. RootReach desc
     4. Member asc
@@ -157,7 +161,7 @@ Filterable fields:
   PathConfidence, IL
 
 Sortable fields:
-  Triage, RootReach, Confidence, Member, Shape, IL, Allocation, Path,
+  Triage, RootReach, Confidence, Loop, Member, Shape, IL, Allocation, Path,
   PathConfidence
 ```
 
@@ -187,8 +191,8 @@ Filtered query:
 
 ```bash
 dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --where:Allocation="boxed *" \
-  --where:Path="loop body" \
+  --where "Allocation=boxed *" \
+  --where "Path=loop body" \
   --order-by "RootReach desc" \
   --top 10 \
   --columns "Member,Shape,Allocation,Path,PathConfidence,RootReach,IL"
@@ -203,7 +207,7 @@ Showing top 10 by RootReach desc after 2 row filters.
 For default ordering:
 
 ```text
-Showing top 20 by Performance Triage default order: InLoop, Confidence, RootReach.
+Showing top 20 by Performance Triage default order: Loop, Confidence, RootReach.
 ```
 
 Suppress these notes for `--tsv`, `--jsonl`, `--json`, and quiet output.
@@ -215,9 +219,9 @@ predicates internally:
 
 | Existing option | Row-query equivalent |
 | --- | --- |
-| `--loop` | `--where:Loop=loop` or section-specific loop predicate |
-| `--min-confidence medium` | `--where:Confidence>=medium` |
-| `--triage-shape box-value-type` | `--where:Shape=box-value-type` |
+| `--loop` | `--where "Loop=loop"` or section-specific loop predicate |
+| `--min-confidence medium` | `--where "Confidence>=medium"` |
+| `--triage-shape box-value-type` | `--where "Shape=box-value-type"` |
 | `--top 20` | unchanged; semantic cap after order |
 
 This lets command-specific UX remain stable while new columns avoid bespoke
@@ -231,7 +235,7 @@ Table sections should declare query metadata alongside their row schema:
 DefaultOrder = "Triage desc";
 OrderDescription =
 [
-    "InLoop desc",
+    "Loop desc",
     "Confidence desc (high > medium > low)",
     "RootReach desc",
     "Member asc",
@@ -246,7 +250,7 @@ CompositeOrders = ["Triage"];
 The same metadata should drive:
 
 - `--schema` output;
-- validation and suggestions for `--where:*` and `--order-by`;
+- validation and suggestions for `--where` and `--order-by`;
 - help text for section-scoped options;
 - agent skills and generated examples;
 - compatibility lowering from legacy focused flags.
@@ -277,7 +281,8 @@ rendered rows.
 
 ## Open questions
 
-1. Should `--where:Field=value` treat unquoted `*` as a glob or require quotes?
+1. Should `--where "Field=glob *"` use glob matching automatically when `*` or
+   `?` appears, or require an explicit glob operator?
 2. Should field names normalize aliases such as `PathConfidence` and
    `Path Confidence`?
 3. Should `--order-by Confidence` default to descending for ranked fields?
