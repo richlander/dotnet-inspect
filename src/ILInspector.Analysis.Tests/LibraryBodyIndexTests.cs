@@ -1367,6 +1367,45 @@ public class LibraryBodyIndexTests
             && o.Shape == "materialize-in-loop");
     }
 
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_Fires()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.UnsizedListGrownInLoop)));
+        Assert.True(row.InLoop);
+        Assert.Equal("medium", row.Confidence);
+        Assert.Contains("System.Collections.Generic.List<int>", row.Evidence, StringComparison.Ordinal);
+        Assert.Contains("Add", row.Evidence, StringComparison.Ordinal);
+        Assert.Contains("Pre-size", row.SafeFixDirection, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_UnsizedStringBuilderAppendInLoop_Fires()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.UnsizedStringBuilderGrownInLoop)));
+        Assert.Contains("System.Text.StringBuilder", row.Evidence, StringComparison.Ordinal);
+        Assert.Contains("Append", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_RejectsCapacityCtor()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.CapacityListGrownInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownOutsideLoop_DoesNotFire()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.UnsizedListGrownOnce)));
+    }
+
     [Theory]
     // Non-loop delegate on a high-reach method -> lifted from low to medium.
     [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach, "medium")]
@@ -1751,6 +1790,11 @@ public class LibraryBodyIndexTests
     static System.Collections.Generic.List<OptimizationOpportunity> EnumeratorRows(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "enumerator-allocation")
+            .ToList();
+
+    static System.Collections.Generic.List<OptimizationOpportunity> UnsizedCollectionRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "unsized-collection-grown")
             .ToList();
 
     [Fact]
@@ -2751,6 +2795,37 @@ public class OptimizationOpportunityFixtures
             total += current.ToArray().Length;
         }
         return total;
+    }
+
+    public static System.Collections.Generic.List<int> UnsizedListGrownInLoop(int[] values)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        foreach (var value in values)
+            list.Add(value);
+        return list;
+    }
+
+    public static System.Text.StringBuilder UnsizedStringBuilderGrownInLoop(string[] values)
+    {
+        var builder = new System.Text.StringBuilder();
+        foreach (var value in values)
+            builder.Append(value);
+        return builder;
+    }
+
+    public static System.Collections.Generic.List<int> CapacityListGrownInLoop(int[] values)
+    {
+        var list = new System.Collections.Generic.List<int>(values.Length);
+        foreach (var value in values)
+            list.Add(value);
+        return list;
+    }
+
+    public static System.Collections.Generic.List<int> UnsizedListGrownOnce(int value)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        list.Add(value);
+        return list;
     }
 
     static void ReplaceSource(ref IEnumerable<int> source, IEnumerable<int> replacement)

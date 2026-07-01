@@ -86,6 +86,7 @@ public sealed class LibraryBodyIndex
                     }),
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
                         .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
+                        .Where(o => o.Shape != "unsized-collection-grown")
                         .Select(o => o.Method.MetadataToken))),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
@@ -2142,6 +2143,7 @@ public sealed class LibraryBodyIndex
             ReachingDefinitionsResult? reachingDefinitions = null;
             ReachingDefinitionsResult GetReachingDefinitions()
                 => reachingDefinitions ??= ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
+            var unsizedCollectionsByDefinition = new Dictionary<(int Slot, int StoreOffset), UnsizedCollectionConstruction>();
 
             int? pendingConstant = null;
             // Delegate creation is `<push target>; ldftn/ldvirtftn M; newobj DelegateCtor`.
@@ -2238,6 +2240,14 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Newobj:
                     {
                         pendingConstant = null;
+                        int token = OperandInt32(instruction);
+                        var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                        if (IsNoCapacityGrowableCollectionConstructor(constructor, out var collectionType)
+                            && TryReadStoreLocalDefinition(decodedBody, instruction.NextOffset, out int slot, out int storeOffset))
+                        {
+                            unsizedCollectionsByDefinition[(slot, storeOffset)] =
+                                new UnsizedCollectionConstruction(collectionType, offset);
+                        }
                         if (pendingDelegateOffset is not null)
                         {
                             // A function pointer was just loaded, so this newobj is the delegate
@@ -2434,6 +2444,27 @@ public sealed class LibraryBodyIndex
                                 true,
                                 offset,
                                 "No allocation when the static type has a struct enumerator; worthwhile only if the concrete type is reachable at this call site."));
+                        }
+                        else if (IsGrowableCollectionMutation(callee, out var growthCall)
+                            && IsInLoopRegion(offset, loopRegions)
+                            && TryGetUnsizedCollectionReceiver(
+                                decodedBody,
+                                GetReachingDefinitions(),
+                                offset,
+                                callee,
+                                callerScope,
+                                unsizedCollectionsByDefinition,
+                                out var construction))
+                        {
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "unsized-collection-grown",
+                                $"{construction.CollectionType} constructed without capacity; grown by {growthCall} in a loop",
+                                "Constructed without capacity and grown in a loop; each growth reallocates and copies the backing store. Pre-size with a capacity when the count is known.",
+                                "medium",
+                                true,
+                                offset,
+                                "Advisory: consider pre-sizing if the size is predictable."));
                         }
                         break;
                     }
@@ -3066,6 +3097,329 @@ public sealed class LibraryBodyIndex
             return true;
         }
 
+        bool TryGetUnsizedCollectionReceiver(
+            DecodedBody decodedBody,
+            ReachingDefinitionsResult reachingDefinitions,
+            int callOffset,
+            MemberRef callee,
+            GenericScope callerScope,
+            IReadOnlyDictionary<(int Slot, int StoreOffset), UnsizedCollectionConstruction> constructions,
+            out UnsizedCollectionConstruction construction)
+        {
+            construction = default;
+            if (!reachingDefinitions.IsComplete)
+                return false;
+            if (!TryFindReceiverLocalAtCall(decodedBody, callOffset, callee, callerScope, out var access, out int loadOffset))
+                return false;
+            if (access.IsArgument || access.IsStore)
+                return false;
+
+            var use = reachingDefinitions.Uses.FirstOrDefault(candidate =>
+                candidate.Offset == loadOffset
+                && !candidate.IsArgument
+                && candidate.Slot == access.Slot
+                && !candidate.Address);
+            if (use is null || use.ReachingDefinitions.Length == 0)
+                return false;
+
+            UnsizedCollectionConstruction? matched = null;
+            foreach (var definition in use.ReachingDefinitions)
+            {
+                if (definition.IsArgument
+                    || !constructions.TryGetValue((definition.Slot, definition.Offset), out var candidate))
+                {
+                    return false;
+                }
+
+                if (matched is { } previous
+                    && !StringComparer.Ordinal.Equals(previous.CollectionType, candidate.CollectionType))
+                {
+                    return false;
+                }
+
+                matched = candidate;
+            }
+
+            if (matched is not { } value)
+                return false;
+            construction = value;
+            return true;
+        }
+
+        bool TryFindReceiverLocalAtCall(
+            DecodedBody decodedBody,
+            int callOffset,
+            MemberRef callee,
+            GenericScope callerScope,
+            out LocalSlotAccess access,
+            out int loadOffset)
+        {
+            access = default;
+            loadOffset = -1;
+
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(callOffset);
+            if (blockIndex < 0)
+                return false;
+
+            var block = decodedBody.BlockGraph.Blocks[blockIndex];
+            var stack = new List<TrackedStackValue>();
+            for (int i = decodedBody.IndexAtOrAfter(block.Start); i < decodedBody.Instructions.Length; i++)
+            {
+                var instruction = decodedBody.Instructions[i];
+                if (instruction.Offset >= callOffset || instruction.Offset >= block.End)
+                    break;
+                if (!ApplyTrackedStackEffect(instruction, stack, callerScope))
+                    stack.Clear();
+            }
+
+            int receiverIndex = stack.Count - callee.ParameterTypes.Length - 1;
+            if (receiverIndex < 0)
+                return false;
+
+            var receiver = stack[receiverIndex];
+            if (!receiver.IsLocal)
+                return false;
+
+            access = receiver.Access;
+            loadOffset = receiver.LoadOffset;
+            return true;
+        }
+
+        bool ApplyTrackedStackEffect(DecodedInstruction instruction, List<TrackedStackValue> stack, GenericScope callerScope)
+        {
+            if (TryReadLocalSlot(instruction, out var access))
+            {
+                if (access.IsStore)
+                    return PopTracked(stack, 1);
+                stack.Add(new TrackedStackValue(true, access, instruction.Offset));
+                return true;
+            }
+
+            var opcode = instruction.OpCode;
+            switch (opcode)
+            {
+                case ILOpCode.Nop:
+                case ILOpCode.Constrained:
+                case ILOpCode.Readonly:
+                case ILOpCode.Tail:
+                case ILOpCode.Unaligned:
+                case ILOpCode.Volatile:
+                    return true;
+                case ILOpCode.Dup:
+                    if (stack.Count == 0)
+                        return false;
+                    stack.Add(stack[^1]);
+                    return true;
+                case ILOpCode.Pop:
+                    return PopTracked(stack, 1);
+                case ILOpCode.Ldnull:
+                case ILOpCode.Ldstr:
+                case ILOpCode.Ldc_i4_m1:
+                case ILOpCode.Ldc_i4_0:
+                case ILOpCode.Ldc_i4_1:
+                case ILOpCode.Ldc_i4_2:
+                case ILOpCode.Ldc_i4_3:
+                case ILOpCode.Ldc_i4_4:
+                case ILOpCode.Ldc_i4_5:
+                case ILOpCode.Ldc_i4_6:
+                case ILOpCode.Ldc_i4_7:
+                case ILOpCode.Ldc_i4_8:
+                case ILOpCode.Ldc_i4_s:
+                case ILOpCode.Ldc_i4:
+                case ILOpCode.Ldc_i8:
+                case ILOpCode.Ldc_r4:
+                case ILOpCode.Ldc_r8:
+                case ILOpCode.Ldtoken:
+                case ILOpCode.Ldsfld:
+                case ILOpCode.Ldsflda:
+                case ILOpCode.Sizeof:
+                    stack.Add(TrackedStackValue.Unknown);
+                    return true;
+                case ILOpCode.Ldfld:
+                case ILOpCode.Ldflda:
+                case ILOpCode.Ldlen:
+                case ILOpCode.Box:
+                case ILOpCode.Castclass:
+                case ILOpCode.Isinst:
+                case ILOpCode.Unbox:
+                case ILOpCode.Unbox_any:
+                case ILOpCode.Ldind_i:
+                case ILOpCode.Ldind_i1:
+                case ILOpCode.Ldind_i2:
+                case ILOpCode.Ldind_i4:
+                case ILOpCode.Ldind_i8:
+                case ILOpCode.Ldind_u1:
+                case ILOpCode.Ldind_u2:
+                case ILOpCode.Ldind_u4:
+                case ILOpCode.Ldind_r4:
+                case ILOpCode.Ldind_r8:
+                case ILOpCode.Ldind_ref:
+                case ILOpCode.Conv_i:
+                case ILOpCode.Conv_i1:
+                case ILOpCode.Conv_i2:
+                case ILOpCode.Conv_i4:
+                case ILOpCode.Conv_i8:
+                case ILOpCode.Conv_u:
+                case ILOpCode.Conv_u1:
+                case ILOpCode.Conv_u2:
+                case ILOpCode.Conv_u4:
+                case ILOpCode.Conv_u8:
+                case ILOpCode.Conv_r4:
+                case ILOpCode.Conv_r8:
+                case ILOpCode.Conv_r_un:
+                case ILOpCode.Conv_ovf_i:
+                case ILOpCode.Conv_ovf_i_un:
+                case ILOpCode.Conv_ovf_i1:
+                case ILOpCode.Conv_ovf_i1_un:
+                case ILOpCode.Conv_ovf_i2:
+                case ILOpCode.Conv_ovf_i2_un:
+                case ILOpCode.Conv_ovf_i4:
+                case ILOpCode.Conv_ovf_i4_un:
+                case ILOpCode.Conv_ovf_i8:
+                case ILOpCode.Conv_ovf_i8_un:
+                case ILOpCode.Conv_ovf_u:
+                case ILOpCode.Conv_ovf_u_un:
+                case ILOpCode.Conv_ovf_u1:
+                case ILOpCode.Conv_ovf_u1_un:
+                case ILOpCode.Conv_ovf_u2:
+                case ILOpCode.Conv_ovf_u2_un:
+                case ILOpCode.Conv_ovf_u4:
+                case ILOpCode.Conv_ovf_u4_un:
+                case ILOpCode.Conv_ovf_u8:
+                case ILOpCode.Conv_ovf_u8_un:
+                case ILOpCode.Neg:
+                case ILOpCode.Not:
+                    return ReplaceTracked(stack, popCount: 1);
+                case ILOpCode.Stfld:
+                case ILOpCode.Stind_i:
+                case ILOpCode.Stind_i1:
+                case ILOpCode.Stind_i2:
+                case ILOpCode.Stind_i4:
+                case ILOpCode.Stind_i8:
+                case ILOpCode.Stind_r4:
+                case ILOpCode.Stind_r8:
+                case ILOpCode.Stind_ref:
+                case ILOpCode.Stobj:
+                case ILOpCode.Cpobj:
+                    return PopTracked(stack, 2);
+                case ILOpCode.Add:
+                case ILOpCode.Add_ovf:
+                case ILOpCode.Add_ovf_un:
+                case ILOpCode.And:
+                case ILOpCode.Ceq:
+                case ILOpCode.Cgt:
+                case ILOpCode.Cgt_un:
+                case ILOpCode.Clt:
+                case ILOpCode.Clt_un:
+                case ILOpCode.Div:
+                case ILOpCode.Div_un:
+                case ILOpCode.Mul:
+                case ILOpCode.Mul_ovf:
+                case ILOpCode.Mul_ovf_un:
+                case ILOpCode.Or:
+                case ILOpCode.Rem:
+                case ILOpCode.Rem_un:
+                case ILOpCode.Shl:
+                case ILOpCode.Shr:
+                case ILOpCode.Shr_un:
+                case ILOpCode.Sub:
+                case ILOpCode.Sub_ovf:
+                case ILOpCode.Sub_ovf_un:
+                case ILOpCode.Xor:
+                    return ReplaceTracked(stack, popCount: 2);
+                case ILOpCode.Ldelem:
+                case ILOpCode.Ldelem_i:
+                case ILOpCode.Ldelem_i1:
+                case ILOpCode.Ldelem_i2:
+                case ILOpCode.Ldelem_i4:
+                case ILOpCode.Ldelem_i8:
+                case ILOpCode.Ldelem_u1:
+                case ILOpCode.Ldelem_u2:
+                case ILOpCode.Ldelem_u4:
+                case ILOpCode.Ldelem_r4:
+                case ILOpCode.Ldelem_r8:
+                case ILOpCode.Ldelem_ref:
+                case ILOpCode.Ldelema:
+                    return ReplaceTracked(stack, popCount: 2);
+                case ILOpCode.Stelem:
+                case ILOpCode.Stelem_i:
+                case ILOpCode.Stelem_i1:
+                case ILOpCode.Stelem_i2:
+                case ILOpCode.Stelem_i4:
+                case ILOpCode.Stelem_i8:
+                case ILOpCode.Stelem_r4:
+                case ILOpCode.Stelem_r8:
+                case ILOpCode.Stelem_ref:
+                    return PopTracked(stack, 3);
+                case ILOpCode.Newarr:
+                case ILOpCode.Localloc:
+                case ILOpCode.Mkrefany:
+                    return ReplaceTracked(stack, popCount: 1);
+                case ILOpCode.Initobj:
+                    return PopTracked(stack, 1);
+                case ILOpCode.Newobj:
+                {
+                    int token = OperandInt32(instruction);
+                    var member = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                    if (member.Kind == MemberKind.Unsupported || !PopTracked(stack, member.ParameterTypes.Length))
+                        return false;
+                    stack.Add(TrackedStackValue.Unknown);
+                    return true;
+                }
+                case ILOpCode.Call:
+                case ILOpCode.Callvirt:
+                {
+                    int token = OperandInt32(instruction);
+                    var member = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                    if (member.Kind == MemberKind.Unsupported)
+                        return false;
+                    int popCount = member.ParameterTypes.Length + (opcode == ILOpCode.Callvirt ? 1 : 0);
+                    if (!PopTracked(stack, popCount))
+                        return false;
+                    if (!ReturnsVoid(member))
+                        stack.Add(TrackedStackValue.Unknown);
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        static bool PopTracked(List<TrackedStackValue> stack, int count)
+        {
+            if (count == 0)
+                return true;
+            if (stack.Count < count)
+                return false;
+            stack.RemoveRange(stack.Count - count, count);
+            return true;
+        }
+
+        static bool ReplaceTracked(List<TrackedStackValue> stack, int popCount)
+        {
+            if (!PopTracked(stack, popCount))
+                return false;
+            stack.Add(TrackedStackValue.Unknown);
+            return true;
+        }
+
+        static bool ReturnsVoid(MemberRef member)
+        {
+            var definition = member.ReturnType.Kind == TypeRefKind.GenericInstance
+                ? member.ReturnType.ElementType ?? member.ReturnType
+                : member.ReturnType;
+            return definition.Assembly == TypeRef.CoreLibrary
+                && definition.Namespace == "System"
+                && definition.Name == "Void";
+        }
+
+        readonly record struct UnsizedCollectionConstruction(string CollectionType, int ConstructorOffset);
+
+        readonly record struct TrackedStackValue(bool IsLocal, LocalSlotAccess Access, int LoadOffset)
+        {
+            public static TrackedStackValue Unknown { get; } = new(false, default, -1);
+        }
+
         static bool TryFindPreviousInstruction(DecodedBody decodedBody, int targetOffset, out DecodedInstruction previousInstruction)
         {
             previousInstruction = default!;
@@ -3357,6 +3711,56 @@ public sealed class LibraryBodyIndex
                 return false;
             receiver = $"System.{name}<T>::ToArray";
             return true;
+        }
+
+        static bool IsNoCapacityGrowableCollectionConstructor(MemberRef member, out string collectionType)
+        {
+            collectionType = "";
+            if (member.Kind != MemberKind.Constructor)
+                return false;
+            if (!IsWellKnownGrowableCollectionType(member.DeclaringType, out collectionType))
+                return false;
+            return !member.ParameterTypes.Any(IsInt32);
+        }
+
+        static bool IsGrowableCollectionMutation(MemberRef member, out string growthCall)
+        {
+            growthCall = "";
+            if (member.Kind == MemberKind.Unsupported)
+                return false;
+            if (member.Name is not ("Add" or "AddRange" or "Append" or "AppendLine" or "Enqueue" or "Push"))
+                return false;
+            growthCall = $"{member.DeclaringType.ToQualifiedDisplayString()}::{member.Name}";
+            return true;
+        }
+
+        static bool IsWellKnownGrowableCollectionType(TypeRef type, out string collectionType)
+        {
+            collectionType = "";
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            if (definition.Kind == TypeRefKind.Unsupported || !definition.TrustedFrameworkAssembly)
+                return false;
+
+            string name = StripGenericArity(definition.Name);
+            bool match = definition.Namespace switch
+            {
+                "System.Collections.Generic" => name is "List" or "Dictionary" or "HashSet" or "Queue" or "Stack",
+                "System.Text" => name == "StringBuilder",
+                _ => false,
+            };
+            if (!match)
+                return false;
+
+            collectionType = type.ToQualifiedDisplayString();
+            return true;
+        }
+
+        static bool IsInt32(TypeRef type)
+        {
+            var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+            return definition.Assembly == TypeRef.CoreLibrary
+                && definition.Namespace == "System"
+                && definition.Name == "Int32";
         }
 
         static string StripGenericArity(string name)

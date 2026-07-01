@@ -22,6 +22,7 @@ public sealed record PerformanceTriageOptions
         "stackalloc-candidate",
         "string-build-in-loop",
         "temporary-byte-array-copy",
+        "unsized-collection-grown",
     ];
 
     public bool LoopOnly { get; init; }
