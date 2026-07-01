@@ -30,6 +30,12 @@ public class SubstratePredicateCensusTests
             "Pass-local receiver admissibility: null static receiver or PlaceIdentity.SameVariable only.",
         [new("StructuringPass.cs", "IsInsideFinallyBody")] =
             "Structuring-specific leave-target guard for finally bodies, not a general ancestor/location helper.",
+        [new("UnionSwitchExpressionPass.cs", "SameTailExpression")] =
+            "Union switch store-tail folding compares a pass-owned duplicated tail shape; this is not a reusable re-evaluable-place atom and declines on unlisted expression kinds.",
+        [new("UnionSwitchExpressionPass.cs", "SameTailExpressions")] =
+            "List form of the pass-owned duplicated-tail comparison; kept local with SameTailExpression so the admitted tail expression set stays tied to this rewrite.",
+        [new("UnionSwitchExpressionPass.cs", "SameTailNode")] =
+            "Statement form of the pass-owned duplicated-tail comparison; it accepts only StoreLocal/ExpressionStatement/Return tails for this rewrite.",
     };
 
     [Fact]
