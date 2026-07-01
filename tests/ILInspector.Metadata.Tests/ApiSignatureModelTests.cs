@@ -112,6 +112,19 @@ public sealed class ApiSignatureModelTests
             canonical);
     }
 
+    [Fact]
+    public void CanonicalSignature_PreservesLegacyGenericNameSubstringDigestContract()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.Validate));
+
+        Assert.True(ApiMemberIdentity.TryGetCanonicalSignature(type, source, out var canonical));
+
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.Validate()",
+            canonical);
+    }
+
     static ApiType GetType(string typeName)
         => Surface.Types.First(type => type.Name == typeName);
 
@@ -138,6 +151,10 @@ public sealed class ApiSignatureFixtures
 
     public (TLeft Left, TRight Right) PairGenericMethod<TLeft, TRight>(TLeft left, TRight right)
         => (left, right);
+
+    public void Validate<TValidateOptions>()
+    {
+    }
 
     public string this[int index]
     {
