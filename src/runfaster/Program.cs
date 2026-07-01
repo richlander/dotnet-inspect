@@ -303,7 +303,7 @@ static bool TryCreateCandidateFromJson(int id, string path, JsonElement element,
         return false;
 
     string kind = GetJsonString(element, "Shape", "shape", "Kind", "kind", "AllocationKind", "allocationKind") ?? "triage";
-    string? detail = GetJsonString(element, "Detail", "detail", "Reason", "reason");
+    string? detail = GetJsonString(element, "Detail", "detail", "Evidence", "evidence", "Reason", "reason");
     bool inLoop = GetJsonBool(element, "InLoop", "inLoop", "Loop", "loop") ?? false;
 
     candidate = new AllocationCandidate(
@@ -322,7 +322,10 @@ static bool TryCreateCandidateFromJson(int id, string path, JsonElement element,
         detail,
         inLoop,
         GetJsonString(element, "Frequency", "frequency"),
-        GetJsonString(element, "Escape", "escape"));
+        GetJsonString(element, "Escape", "escape"),
+        GetJsonString(element, "Confidence", "confidence"),
+        GetJsonString(element, "Fix", "fix"),
+        GetJsonString(element, "Root Reach", "root_reach", "rootReach"));
     return true;
 }
 
@@ -404,6 +407,11 @@ static bool TryCorrelateInput(
             result.DiagnosticInputs.Add(summary);
             return true;
         }
+        if (TrySummarizeCounters(path, summary))
+        {
+            result.DiagnosticInputs.Add(summary);
+            return true;
+        }
 
         int lineCount = 0;
         int matchedRows = 0;
@@ -479,6 +487,49 @@ static bool TryCorrelateSpeedscope(
     summary.Observations.Add(matchedRows == 0
         ? "no static allocation candidate matched speedscope frames"
         : $"matched {matchedRows.ToString(CultureInfo.InvariantCulture)} static candidate row(s) from speedscope frames");
+    return true;
+}
+
+static bool TrySummarizeCounters(string path, DiagnosticInputSummary summary)
+{
+    if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+        return false;
+
+    using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+    var root = document.RootElement;
+    if (!root.TryGetProperty("Events", out var eventsElement) || eventsElement.ValueKind != JsonValueKind.Array)
+        return false;
+
+    var totalAllocated = new List<double>();
+    var genCollections = new List<double>();
+    foreach (var item in eventsElement.EnumerateArray())
+    {
+        if (!item.TryGetProperty("name", out var nameElement)
+            || !item.TryGetProperty("value", out var valueElement)
+            || !valueElement.TryGetDouble(out var value))
+        {
+            continue;
+        }
+
+        var name = nameElement.GetString();
+        if (string.Equals(name, "dotnet.gc.heap.total_allocated (By / 1 sec)", StringComparison.Ordinal))
+            totalAllocated.Add(value);
+        else if (string.Equals(name, "dotnet.gc.collections ({collection} / 1 sec)", StringComparison.Ordinal))
+            genCollections.Add(value);
+    }
+
+    if (totalAllocated.Count == 0 && genCollections.Count == 0)
+        return false;
+
+    summary.Observations.Add($"counter events: {eventsElement.GetArrayLength().ToString(CultureInfo.InvariantCulture)}");
+    if (totalAllocated.Count > 0)
+    {
+        var average = totalAllocated.Average();
+        var maximum = totalAllocated.Max();
+        summary.Observations.Add($"avg allocated/sec {FormatBytes((long)average)}, max {FormatBytes((long)maximum)}");
+    }
+    if (genCollections.Count > 0)
+        summary.Observations.Add($"max GC collections/sec {genCollections.Max().ToString("0.##", CultureInfo.InvariantCulture)}");
     return true;
 }
 
@@ -848,11 +899,78 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
 {
-    Console.WriteLine("# runfaster prototype");
+    var observed = candidates.Where(c => c.RuntimeHits > 0).ToArray();
+    var observedGroups = observed
+        .GroupBy(c => c.Method, StringComparer.Ordinal)
+        .Select(g => new
+        {
+            Method = g.Key,
+            Weight = g.Max(c => c.RuntimeWeight),
+            Hits = g.Sum(c => c.RuntimeHits),
+            Rows = g.Count(),
+            Shapes = string.Join(", ", g.Select(c => c.AllocationKind).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)),
+            Confidence = HighestConfidence(g.Select(c => c.Confidence)),
+            RootReach = g.Select(c => c.RootReach).FirstOrDefault(static r => !string.IsNullOrWhiteSpace(r)),
+            Offsets = string.Join(", ", g.Select(c => DisplayHelpers.FormatOffset(c.IlOffset)).Where(o => !string.IsNullOrWhiteSpace(o)).Distinct(StringComparer.Ordinal).Take(12)),
+            Evidence = g.Select(c => c.Detail).FirstOrDefault(static e => !string.IsNullOrWhiteSpace(e)),
+            Fix = g.Select(c => c.Fix).FirstOrDefault(static f => !string.IsNullOrWhiteSpace(f)),
+            Exact = g.Any(c => c.ExactOffsetObserved),
+            InLoop = g.Any(c => c.InLoop),
+        })
+        .OrderByDescending(g => g.Weight)
+        .ThenByDescending(g => g.Hits)
+        .ToArray();
+
+    Console.WriteLine("# runfaster performance report");
     Console.WriteLine();
     Console.WriteLine($"Static candidates: {result.Candidates.Count.ToString(CultureInfo.InvariantCulture)}");
     Console.WriteLine($"Runtime-observed candidates: {result.Candidates.Count(c => c.RuntimeHits > 0).ToString(CultureInfo.InvariantCulture)}");
     Console.WriteLine();
+
+    Console.WriteLine("## Conclusion");
+    Console.WriteLine();
+    if (observedGroups.Length == 0)
+    {
+        Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+    }
+    else
+    {
+        var top = observedGroups[0];
+        Console.WriteLine($"The hottest confirmed candidate is `{top.Method}`. Runtime samples put this method on-stack with weight {top.Weight.ToString("0.##", CultureInfo.InvariantCulture)}, and static IL triage found {top.Rows.ToString(CultureInfo.InvariantCulture)} `{top.Shapes}` row(s){(top.InLoop ? " inside loops" : "")}.");
+        if (!string.IsNullOrWhiteSpace(top.Fix))
+            Console.WriteLine($"Recommended first fix: {top.Fix}");
+        Console.WriteLine();
+        Console.WriteLine(top.Exact
+            ? "The runtime artifact matched at exact token+IL offset for at least one row."
+            : "The runtime artifact confirms the method, not the exact IL offset. Use this as a prioritization signal; inspect/decompile the listed offsets before changing code.");
+    }
+    Console.WriteLine();
+
+    if (observedGroups.Length > 0)
+    {
+        Console.WriteLine("## Confirmed paydirt");
+        Console.WriteLine();
+        Console.WriteLine("| Runtime Weight | Method | Static Rows | Shape | Confidence | Loop | IL Offsets | Why it matters | Fix |");
+        Console.WriteLine("| -------------: | ------ | ----------: | ----- | ---------- | ---- | ---------- | -------------- | --- |");
+        foreach (var group in observedGroups.Take(10))
+        {
+            Console.WriteLine("| "
+                + string.Join(" | ",
+                [
+                    group.Weight.ToString("0.##", CultureInfo.InvariantCulture),
+                    $"`{Escape(group.Method)}`",
+                    group.Rows.ToString(CultureInfo.InvariantCulture),
+                    Escape(group.Shapes),
+                    Escape(group.Confidence ?? ""),
+                    group.InLoop ? "yes" : "",
+                    Escape(group.Offsets),
+                    Escape(group.Evidence ?? ""),
+                    Escape(group.Fix ?? ""),
+                ])
+                + " |");
+        }
+        Console.WriteLine();
+    }
 
     Console.WriteLine("## Inputs");
     Console.WriteLine();
@@ -864,9 +982,15 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     }
 
     Console.WriteLine();
-    Console.WriteLine("## Candidate correlation");
+    Console.WriteLine("## Candidate rows");
     Console.WriteLine();
     RenderTable(candidates, markdown: true);
+    Console.WriteLine();
+    Console.WriteLine("## Reading this report");
+    Console.WriteLine();
+    Console.WriteLine("- Static rows are IL-visible candidates from dotnet-inspect Performance Triage.");
+    Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. Speedscope and Chromium reports are sampled/profile weights; text reports are presence matches.");
+    Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `confirmed-hot` means an exact token+IL coordinate was observed.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
@@ -998,10 +1122,16 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteNumber("methodToken", candidate.MethodToken);
     writer.WriteNumber("ilOffset", candidate.IlOffset);
     writer.WriteString("kind", candidate.AllocationKind);
+    if (candidate.Confidence is not null)
+        writer.WriteString("confidence", candidate.Confidence);
+    if (candidate.RootReach is not null)
+        writer.WriteString("rootReach", candidate.RootReach);
     if (candidate.AllocatedType is not null)
         writer.WriteString("allocatedType", candidate.AllocatedType);
     if (candidate.Detail is not null)
-        writer.WriteString("detail", candidate.Detail);
+        writer.WriteString("evidence", candidate.Detail);
+    if (candidate.Fix is not null)
+        writer.WriteString("fix", candidate.Fix);
     writer.WriteBoolean("inLoop", candidate.InLoop);
     writer.WriteNumber("runtimeHits", candidate.RuntimeHits);
     writer.WriteNumber("runtimeWeight", candidate.RuntimeWeight);
@@ -1031,6 +1161,21 @@ static string FormatBytes(long bytes)
     return unit == 0
         ? $"{bytes.ToString(CultureInfo.InvariantCulture)} B"
         : $"{value.ToString("0.##", CultureInfo.InvariantCulture)} {units[unit]}";
+}
+
+static string? HighestConfidence(IEnumerable<string?> values)
+{
+    var confidence = values
+        .Where(static v => !string.IsNullOrWhiteSpace(v))
+        .Select(static v => v!)
+        .ToArray();
+    if (confidence.Any(static v => string.Equals(v, "high", StringComparison.OrdinalIgnoreCase)))
+        return "high";
+    if (confidence.Any(static v => string.Equals(v, "medium", StringComparison.OrdinalIgnoreCase)))
+        return "medium";
+    if (confidence.Any(static v => string.Equals(v, "low", StringComparison.OrdinalIgnoreCase)))
+        return "low";
+    return confidence.FirstOrDefault();
 }
 
 static bool TryParseFlexibleInt(string? value, out int result)
@@ -1117,7 +1262,10 @@ sealed class AllocationCandidate(
     string? detail,
     bool inLoop,
     string? frequency,
-    string? escape)
+    string? escape,
+    string? confidence,
+    string? fix,
+    string? rootReach)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -1135,6 +1283,9 @@ sealed class AllocationCandidate(
     public bool InLoop { get; } = inLoop;
     public string? Frequency { get; } = frequency;
     public string? Escape { get; } = escape;
+    public string? Confidence { get; } = confidence;
+    public string? Fix { get; } = fix;
+    public string? RootReach { get; } = rootReach;
     public int RuntimeHits { get; set; }
     public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
@@ -1161,7 +1312,10 @@ sealed class AllocationCandidate(
         occurrence.Detail,
         occurrence.InLoop,
         occurrence.Frequency.ToString(),
-        occurrence.Escape.ToString());
+        occurrence.Escape.ToString(),
+        null,
+        null,
+        null);
 }
 
 sealed class CandidateLookup
