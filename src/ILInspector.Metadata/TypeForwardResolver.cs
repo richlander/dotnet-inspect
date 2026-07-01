@@ -4,15 +4,15 @@ using System.Reflection.PortableExecutable;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// How much a caller trusts the assembly identity it is asking the locator to
-/// resolve. <see cref="Platform"/> asserts the reference is a runtime/framework
-/// assembly (its public-key token is a trusted platform key), so the locator
-/// may resolve it only from the trusted framework — never a confusable local
-/// copy. <see cref="Unspecified"/> places no constraint (sibling/package).
+/// Where a caller allows an assembly identity to resolve from.
+/// <see cref="Platform"/> asserts the reference is a runtime/framework assembly
+/// (its public-key token is a platform key), so the locator may resolve it only
+/// from platform/framework sources — never a confusable local copy.
+/// <see cref="Any"/> places no source constraint (sibling/package/platform).
 /// </summary>
-public enum AssemblyTrust
+public enum AssemblyResolutionScope
 {
-    Unspecified,
+    Any,
     Platform,
 }
 
@@ -20,11 +20,11 @@ public enum AssemblyTrust
 /// Locates the file for an assembly by simple name. Policy lives with the
 /// caller (sibling directory, ref pack, shared framework, package graph);
 /// the resolver below supplies only the metadata mechanism. Returns null
-/// when the assembly cannot be located. <paramref name="trust"/> lets the
-/// caller assert platform identity so the locator can both refuse confusable
-/// impostors (security) and fast-path to the known framework directory (perf).
+/// when the assembly cannot be located. <paramref name="scope"/> lets the
+/// caller constrain platform identities so the locator refuses confusable
+/// impostors and fast-paths to framework sources.
 /// </summary>
-public delegate string? AssemblyLocator(string assemblyName, AssemblyTrust trust);
+public delegate string? AssemblyLocator(string assemblyName, AssemblyResolutionScope scope);
 
 /// <summary>Where a type is actually defined after following forwarders.</summary>
 public sealed record TypeLocation(string AssemblyPath, string FullTypeName);
@@ -47,7 +47,7 @@ public static class TypeForwardResolver
     /// </summary>
     public static TypeLocation? LocateType(
         string assemblyPath, string fullTypeName, AssemblyLocator locateAssembly,
-        int maxHops = 8, AssemblyTrust trust = AssemblyTrust.Unspecified)
+        int maxHops = 8, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
     {
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string current = assemblyPath;
@@ -68,7 +68,7 @@ public static class TypeForwardResolver
 
             if (ForwardTargetAssembly(reader, fullTypeName) is not { } targetAssembly)
                 return null;
-            if (locateAssembly(targetAssembly, trust) is not { } next || !File.Exists(next))
+            if (locateAssembly(targetAssembly, scope) is not { } next || !File.Exists(next))
                 return null;
             current = next;
         }

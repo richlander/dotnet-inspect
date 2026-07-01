@@ -7,7 +7,7 @@ public class TypeForwardResolverTests
     static string NetstandardFacade => Path.Combine(FrameworkDir, "netstandard.dll");
 
     /// <summary>Sibling-directory policy over the shared framework.</summary>
-    static string? SiblingLocator(string assemblyName, AssemblyTrust trust)
+    static string? SiblingLocator(string assemblyName, AssemblyResolutionScope scope)
     {
         string candidate = Path.Combine(FrameworkDir, assemblyName + ".dll");
         return File.Exists(candidate) ? candidate : null;

@@ -21,8 +21,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// a forwarder dead-end, an I/O or format error) yields
 /// <see cref="ValueTypeHint.Unknown"/> — never a guess. Security: a reference
 /// whose public-key token is a trusted platform key is asserted
-/// <see cref="AssemblyTrust.Platform"/> so the locator resolves it only from the
-/// trusted framework, never a confusable local copy.
+/// <see cref="AssemblyResolutionScope.Platform"/> so the locator resolves it only from
+/// platform/framework sources, never a confusable local copy.
 ///
 /// Reading is delegated to a shared <see cref="MetadataContext"/>: each defining
 /// assembly is opened once and indexed for O(1) lookup, so resolving N tokens
@@ -305,7 +305,7 @@ internal sealed class CrossAssemblyTypeResolver
                 if (!string.Equals(reader.GetString(method.Name), callee.Name, StringComparison.Ordinal))
                     continue;
                 bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
-                    || TrustFor(type.Assembly) == AssemblyTrust.Platform;
+                    || ScopeFor(type.Assembly) == AssemblyResolutionScope.Platform;
                 if (!TryMatchMethod(reader, typeDef, method, callee, allowCoreLibraryAliases, out var parameterRefKinds))
                     continue;
 
@@ -347,7 +347,7 @@ internal sealed class CrossAssemblyTypeResolver
                 : [];
             var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
             bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
-                || TrustFor(type.Assembly) == AssemblyTrust.Platform;
+                || ScopeFor(type.Assembly) == AssemblyResolutionScope.Platform;
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -516,28 +516,28 @@ internal sealed class CrossAssemblyTypeResolver
         {
             foreach (var candidate in CoreLibCandidates)
             {
-                if (_context.Locator(candidate, AssemblyTrust.Platform) is not { } start || !File.Exists(start))
+                if (_context.Locator(candidate, AssemblyResolutionScope.Platform) is not { } start || !File.Exists(start))
                     continue;
-                if (LocateFrom(start, fullName, AssemblyTrust.Platform) is { } located)
+                if (LocateFrom(start, fullName, AssemblyResolutionScope.Platform) is { } located)
                     return located;
             }
             return null;
         }
 
-        var trust = TrustFor(type.Assembly);
-        if (_context.Locator(type.Assembly, trust) is not { } startPath || !File.Exists(startPath))
+        var scope = ScopeFor(type.Assembly);
+        if (_context.Locator(type.Assembly, scope) is not { } startPath || !File.Exists(startPath))
             return null;
-        return LocateFrom(startPath, fullName, trust);
+        return LocateFrom(startPath, fullName, scope);
     }
 
-    TypeLocation? LocateFrom(string startPath, string fullName, AssemblyTrust trust)
+    TypeLocation? LocateFrom(string startPath, string fullName, AssemblyResolutionScope scope)
     {
         if (_context.Open(startPath) is { } assembly && assembly.TryGetType(fullName, out _))
             return new TypeLocation(startPath, fullName);
-        return TypeForwardResolver.LocateType(startPath, fullName, _context.Locator, trust: trust);
+        return TypeForwardResolver.LocateType(startPath, fullName, _context.Locator, scope: scope);
     }
 
-    AssemblyTrust TrustFor(string simpleName)
+    AssemblyResolutionScope ScopeFor(string simpleName)
     {
         foreach (var handle in _selfReader.AssemblyReferences)
         {
@@ -545,10 +545,10 @@ internal sealed class CrossAssemblyTypeResolver
             if (!string.Equals(_selfReader.GetString(reference.Name), simpleName, StringComparison.OrdinalIgnoreCase))
                 continue;
             return PlatformKeys.IsPlatform(ToHex(_selfReader.GetBlobBytes(reference.PublicKeyOrToken)))
-                ? AssemblyTrust.Platform
-                : AssemblyTrust.Unspecified;
+                ? AssemblyResolutionScope.Platform
+                : AssemblyResolutionScope.Any;
         }
-        return AssemblyTrust.Unspecified;
+        return AssemblyResolutionScope.Any;
     }
 
     ValueTypeHint ReadValueTypeHint(TypeLocation location)

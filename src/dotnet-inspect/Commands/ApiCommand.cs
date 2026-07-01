@@ -493,32 +493,13 @@ public class ApiCommand
     /// </summary>
     internal static ILInspector.Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
     {
-        string? sharedDir = Services.PlatformResolver.GetSharedDirectory();
-
-        string? ResolvePlatform(string name)
+        var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(startingDll)
         {
-            if (sharedDir is null)
-                return null;
-            var (runtimeDir, _, _) = Services.PlatformResolver.ResolveRuntimeFramework("runtime");
-            if (runtimeDir is null)
-                return null;
-            string platform = Path.Combine(runtimeDir, name + ".dll");
-            return File.Exists(platform) ? platform : null;
-        }
-
-        return (name, trust) =>
-        {
-            // A platform-asserted reference resolves only from the trusted
-            // runtime framework: a confusable local copy (a planted sibling
-            // claiming a platform name) must never satisfy it.
-            if (trust == ILInspector.Metadata.AssemblyTrust.Platform)
-                return ResolvePlatform(name);
-
-            string sibling = Path.Combine(Path.GetDirectoryName(startingDll)!, name + ".dll");
-            if (File.Exists(sibling))
-                return sibling;
-            return ResolvePlatform(name);
-        };
+            IncludeDepsJsonAssets = false,
+            IncludeAspNetCoreSharedFramework = false,
+            PreferImplementationAssemblies = true,
+        });
+        return resolver.ToAssemblyLocator();
     }
 
     internal sealed record ResolvedMethodSource(MethodSourceContext? Source, string? PdbPath);
