@@ -3158,7 +3158,16 @@ public sealed class LibraryBodyIndex
                         int token = OperandInt32(instruction);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         bool inLoop = IsInLoopRegion(offset, loopRegions);
-                        calls.Add(new DirectCall(caller, callee, offset, token, PeelToDefinitionToken(token), ToCallKind(opcode), inLoop));
+                        calls.Add(new DirectCall(
+                            caller,
+                            callee,
+                            offset,
+                            token,
+                            PeelToDefinitionToken(token),
+                            ToCallKind(opcode),
+                            inLoop,
+                            FormatCallOpcode(opcode),
+                            instruction.NextOffset));
                         if (IsUnsafeCall(callee))
                         {
                             unsafeEvidence.Add(new UnsafeEvidence(
@@ -3174,7 +3183,16 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Calli:
                     {
                         int token = OperandInt32(instruction);
-                        calls.Add(new DirectCall(caller, MemberRef.Unsupported($"calli signature token 0x{token:X8}"), offset, token, token, CallKind.CallIndirect, IsInLoopRegion(offset, loopRegions)));
+                        calls.Add(new DirectCall(
+                            caller,
+                            MemberRef.Unsupported($"calli signature token 0x{token:X8}"),
+                            offset,
+                            token,
+                            token,
+                            CallKind.CallIndirect,
+                            IsInLoopRegion(offset, loopRegions),
+                            FormatCallOpcode(opcode),
+                            instruction.NextOffset));
                         unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", "calli", "calli", offset, token));
                         break;
                     }
@@ -3405,6 +3423,16 @@ public sealed class LibraryBodyIndex
             CallKind.LoadFunction => "ldftn",
             CallKind.LoadVirtualFunction => "ldvirtftn",
             _ => "calli",
+        };
+
+        static string FormatCallOpcode(ILOpCode opcode) => opcode switch
+        {
+            ILOpCode.Callvirt => "callvirt",
+            ILOpCode.Newobj => "newobj",
+            ILOpCode.Ldftn => "ldftn",
+            ILOpCode.Ldvirtftn => "ldvirtftn",
+            ILOpCode.Calli => "calli",
+            _ => "call",
         };
 
         static string? UnsafeOpcodeName(ILOpCode opcode, bool includeIndirectOpcodes) => opcode switch

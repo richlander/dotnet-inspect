@@ -129,7 +129,9 @@ public sealed record DirectCall(
     int OperandToken,
     int CalleeDefinitionToken,
     CallKind Kind,
-    bool InLoop = false);
+    bool InLoop = false,
+    string Opcode = "",
+    int? ReturnAddress = null);
 
 public sealed record UnsafeEvidence(
     MethodIdentity Member,

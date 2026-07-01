@@ -50,6 +50,69 @@ public class MemberExceptionRegionsSectionTests
         Assert.Contains("Exception Regions\tsection", result.Output);
     }
 
+    [Fact]
+    public async Task TypeExceptionRegionsSection_RendersMemberIndexedRegions()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(MemberExceptionRegionsFixture).FullName,
+            AssemblyPath = typeof(MemberExceptionRegionsFixture).Assembly.Location,
+            IncludeSections = [SectionNames.ExceptionRegions],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Exception Regions", result.Output);
+        Assert.Contains("| Member | Region | Clause | Try Range | Handler Range |", result.Output);
+        Assert.Contains("`int TryCatch(int value)`", result.Output);
+        Assert.Contains("| catch | IL_", result.Output);
+        Assert.Contains("`int TryFinally(int value)`", result.Output);
+        Assert.Contains("| finally | IL_", result.Output);
+        Assert.DoesNotContain("Context", result.Output);
+    }
+
+    [Fact]
+    public async Task TypeExceptionRegionsSection_RendersEmptyState_WhenExplicitlySelected()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(TypeExceptionRegionsEmptyFixture).FullName,
+            AssemblyPath = typeof(TypeExceptionRegionsEmptyFixture).Assembly.Location,
+            IncludeSections = [SectionNames.ExceptionRegions],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Exception Regions", result.Output);
+        Assert.Contains("No exception regions found on this type.", result.Output);
+    }
+
+    [Fact]
+    public async Task TypeEffectiveDiscovery_ListsExceptionRegionsAsOptIn()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(MemberExceptionRegionsFixture).FullName,
+            AssemblyPath = typeof(MemberExceptionRegionsFixture).Assembly.Location,
+            Discover = [],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Exception Regions\tsection", result.Output);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunExceptionRegionsAsync(string memberName, bool discover = false)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -93,5 +156,10 @@ public static class MemberExceptionRegionsFixture
         }
     }
 
+    public static int NoRegions(int value) => value + 1;
+}
+
+public static class TypeExceptionRegionsEmptyFixture
+{
     public static int NoRegions(int value) => value + 1;
 }

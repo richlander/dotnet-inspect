@@ -1081,10 +1081,14 @@ public static class ApiOutputFormatter
                 .Where(call => call.Caller.MetadataToken == token)
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
-                    MarkoutInline.Code(FormatCallee(call.Callee)),
-                    FormatCallKind(call.Kind),
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
-                    MarkoutInline.Code($"0x{call.OperandToken:X8}")))
+                    string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
+                    FormatCallsiteKind(call.Kind),
+                    MarkoutInline.Code(FormatCallee(call.Callee)),
+                    MarkoutInline.Code($"0x{call.OperandToken:X8}"),
+                    call.ReturnAddress is { } returnAddress
+                        ? MarkoutInline.Code($"IL_{returnAddress:X4}")
+                        : null))
                 .ToList();
             if (rows.Count > 0 || ExplicitlySelected(SectionNames.Calls))
             {
@@ -1443,6 +1447,27 @@ public static class ApiOutputFormatter
         _ => "calli",
     };
 
+    static string FormatOpcode(Analysis.CallKind kind) => kind switch
+    {
+        Analysis.CallKind.CallVirtual => "callvirt",
+        Analysis.CallKind.NewObject => "newobj",
+        Analysis.CallKind.LoadFunction => "ldftn",
+        Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
+        Analysis.CallKind.CallIndirect => "calli",
+        _ => "call",
+    };
+
+    static string FormatCallsiteKind(Analysis.CallKind kind) => kind switch
+    {
+        Analysis.CallKind.Call => "direct",
+        Analysis.CallKind.CallVirtual => "virtual",
+        Analysis.CallKind.NewObject => "constructor",
+        Analysis.CallKind.LoadFunction => "method pointer",
+        Analysis.CallKind.LoadVirtualFunction => "virtual method pointer",
+        Analysis.CallKind.CallIndirect => "function pointer",
+        _ => "call",
+    };
+
     static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
 
     static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
@@ -1598,6 +1623,35 @@ public static class ApiOutputFormatter
             .ToList();
         if (rows.Count > 0)
             view.UnsafeMemberRows = rows;
+    }
+
+    internal static void PopulateTypeExceptionRegions(
+        TypeView view,
+        ApiType type,
+        string dllPath,
+        IReadOnlySet<string>? explicitSections = null)
+    {
+        using var pdbContext = PdbContext.Open(dllPath);
+        var rows = type.Members
+            .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
+            .OrderBy(member => GetMemberSortOrder(member.Kind))
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+            .SelectMany(member => pdbContext.ResolveExceptionRegions(member.MetadataToken!.Value, out _)
+                .Select(region => new TypeExceptionRegionRow(
+                    MarkoutInline.Code(GetMemberDisplaySignature(type, member)),
+                    region.Region,
+                    region.Clause,
+                    FormatILRange(region.TryStart, region.TryEnd),
+                    FormatILRange(region.HandlerStart, region.HandlerEnd),
+                    region.FilterStart is { } filterStart && region.FilterEnd is { } filterEnd
+                        ? FormatILRange(filterStart, filterEnd)
+                        : null,
+                    region.CaughtType)))
+            .ToList();
+
+        if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.ExceptionRegions))
+            view.ExceptionRegionRows = rows;
     }
 
     internal static void PopulateOptimizationOpportunities(
@@ -1975,6 +2029,9 @@ public static class ApiOutputFormatter
 
         return signature;
     }
+
+    internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
+        => member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}";
 
     private static string GetMemberSelectorName(ApiMember member) => member.Kind switch
     {

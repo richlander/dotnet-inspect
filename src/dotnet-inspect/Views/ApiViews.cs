@@ -188,6 +188,12 @@ public class TypeView
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
 
+    [MarkoutSection(Name = SectionNames.ExceptionRegions, EmptyText = "No exception regions found on this type.")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeExceptionRegionFilterRangeIsEmpty), nameof(TypeExceptionRegionRow.FilterRange))]
+    [MarkoutIgnoreColumnWhen(nameof(TypeExceptionRegionCaughtTypeIsEmpty), nameof(TypeExceptionRegionRow.CaughtType))]
+    [JsonIgnore]
+    public List<TypeExceptionRegionRow>? ExceptionRegionRows { get; set; }
+
     [MarkoutSection(Name = "Top Leverage", EmptyText = "No intra-assembly call-graph leverage found for this type.")]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
@@ -204,6 +210,8 @@ public class TypeView
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
     public static bool TopLeverageSelectorEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Selector));
+    public static bool TypeExceptionRegionFilterRangeIsEmpty(List<TypeExceptionRegionRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.FilterRange));
+    public static bool TypeExceptionRegionCaughtTypeIsEmpty(List<TypeExceptionRegionRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.CaughtType));
 
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
@@ -698,6 +706,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(MemberSignatureRow))]
 [MarkoutContext(typeof(MethodAttributeRow))]
 [MarkoutContext(typeof(UnsafeMemberRow))]
+[MarkoutContext(typeof(TypeExceptionRegionRow))]
 [MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(OptimizationOpportunityRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
@@ -716,7 +725,26 @@ public partial class ApiViewContext : MarkoutSerializerContext
 }
 
 [MarkoutSerializable]
-public record CallSiteRow(string Callee, string Kind, string IL, string Token);
+public record CallSiteRow(
+    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    string Opcode,
+    [property: MarkoutPropertyName("Call Kind")] string CallKind,
+    string Callee,
+    [property: MarkoutPropertyName("Operand Token")] string OperandToken,
+    [property: MarkoutPropertyName("Return Address")]
+    [property: MarkoutSkipNull] string? ReturnAddress);
+
+[MarkoutSerializable]
+public record TypeExceptionRegionRow(
+    string Member,
+    int Region,
+    string Clause,
+    [property: MarkoutPropertyName("Try Range")] string TryRange,
+    [property: MarkoutPropertyName("Handler Range")] string HandlerRange,
+    [property: MarkoutPropertyName("Filter Range")]
+    [property: MarkoutSkipNull] string? FilterRange,
+    [property: MarkoutPropertyName("Caught Type")]
+    [property: MarkoutSkipNull] string? CaughtType);
 
 [MarkoutSerializable]
 public record ExceptionRegionRow(
