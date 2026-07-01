@@ -415,6 +415,27 @@ public class OutputFormatterTests
         Assert.Equal(["HighReach"], filtered);
     }
 
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_OrdersIlNumerically()
+    {
+        var opportunities = new[]
+        {
+            Opp("OffsetLarge", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with { ILOffset = 0x10000 },
+            Opp("OffsetSmall", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with { ILOffset = 0x2000 },
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    OrderBy = "IL asc",
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["OffsetSmall", "OffsetLarge"], filtered);
+    }
+
     static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape)
     {
         var declaring = ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Type");

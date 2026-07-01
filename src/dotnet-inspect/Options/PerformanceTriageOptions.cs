@@ -144,6 +144,11 @@ public sealed record PerformanceTriageOptions
         }
 
         orderTerms = [.. terms];
+        if (orderTerms.Length == 0)
+        {
+            error = "Error: --order-by requires at least one field.";
+            return false;
+        }
         if (orderTerms.Length > 1 && orderTerms.Any(term => term.Field == "Triage"))
         {
             error = "Error: Triage is a composite order and must be used alone, e.g. --order-by \"Triage desc\".";

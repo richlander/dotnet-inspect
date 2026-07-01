@@ -856,6 +856,20 @@ internal static class LibraryMetadataService
             return MatchCompare(compare, predicate.Operator);
         }
 
+        if (predicate.Field == "Member")
+        {
+            var full = FormatMethod(opportunity.Method);
+            var shortSignature = ShortMemberSignature(opportunity.Method);
+            bool memberMatches = WildcardMatch(full, predicate.Value)
+                || WildcardMatch(shortSignature, predicate.Value);
+            return predicate.Operator switch
+            {
+                PerformanceTriageOptions.RowOperator.Equals => memberMatches,
+                PerformanceTriageOptions.RowOperator.NotEquals => !memberMatches,
+                _ => false,
+            };
+        }
+
         var actual = TriageFieldValue(opportunity, predicate.Field) ?? "";
         bool match = WildcardMatch(actual, predicate.Value);
         return predicate.Operator switch
@@ -884,6 +898,8 @@ internal static class LibraryMetadataService
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Loop")
             return left.InLoop.CompareTo(right.InLoop);
+        if (field == "IL")
+            return (left.ILOffset ?? -1).CompareTo(right.ILOffset ?? -1);
         return string.Compare(
             TriageFieldValue(left, field) ?? "",
             TriageFieldValue(right, field) ?? "",
@@ -906,6 +922,9 @@ internal static class LibraryMetadataService
             "RootReach" => opportunity.RootReach.ToString(CultureInfo.InvariantCulture),
             _ => null,
         };
+
+    static string ShortMemberSignature(Analysis.MethodIdentity method)
+        => $"{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
     static bool WildcardMatch(string actual, string pattern)
     {

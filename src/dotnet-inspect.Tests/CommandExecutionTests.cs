@@ -356,6 +356,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceTriageWhere_MemberAcceptsDisplayedShortSignature()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", nameof(FactsTableFixture),
+            "--library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Member=BoxInt(int)",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("BoxInt(int)", output);
+        Assert.Contains("\tbox-value-type\t", output);
+    }
+
+    [Fact]
     public async Task PerformanceTriageOrderBy_OrdersBeforeTop()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -452,6 +469,20 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Triage is a composite order", error);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageOrderBy_EmptyTermsReportDiagnostic()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--order-by", ",",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--order-by requires at least one field", error);
     }
 
     [Theory]
