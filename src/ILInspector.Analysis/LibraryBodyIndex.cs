@@ -1475,17 +1475,32 @@ public sealed class LibraryBodyIndex
                 if (blockGraph.Blocks.Length == 0)
                     return new AllocationPostDominanceIndex(postDominanceByBlock);
 
-                var postDominators = PostDominators.Of(blockGraph.Blocks.Select(static block => block.Edges).ToArray());
+                var edges = blockGraph.Blocks.Select(static block => block.Edges).ToArray();
+                var postDominators = PostDominators.Of(edges);
                 var returnBlocks = ReturnBlocks(decodedBody);
                 if (returnBlocks.Length == 0)
                     return new AllocationPostDominanceIndex(postDominanceByBlock);
+
+                var reachesReturn = BackwardReachable(edges, returnBlocks);
+                var returnSet = returnBlocks.ToHashSet();
+                var reachesNonReturnExit = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
+                    .Where(block => !returnSet.Contains(block)
+                        && (edges[block].ExitsMethod
+                            || edges[block].ExternalTargets.Count > 0
+                            || edges[block].LeavesRegion)));
+                var reachesNonExitingBlock = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
+                    .Where(block => postDominators.ImmediatePostDominator(block) == PostDominators.None));
 
                 for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
                 {
                     if (decodedBody.PathContexts.ContextFor(blockIndex) == AllocationPathContext.ErrorPath)
                         continue;
-                    if (returnBlocks.Any(returnBlock => postDominators.PostDominates(returnBlock, blockIndex)))
+                    if (reachesReturn[blockIndex]
+                        && !reachesNonReturnExit[blockIndex]
+                        && !reachesNonExitingBlock[blockIndex])
+                    {
                         postDominanceByBlock[blockIndex] = AllocationPostDominance.ReturnPostDominates;
+                    }
                 }
 
                 return new AllocationPostDominanceIndex(postDominanceByBlock);
@@ -1495,6 +1510,41 @@ public sealed class LibraryBodyIndex
                 => (uint)blockIndex < (uint)_postDominanceByBlock.Length
                     ? _postDominanceByBlock[blockIndex]
                     : AllocationPostDominance.Unknown;
+
+            static bool[] BackwardReachable(IReadOnlyList<BlockEdges> edges, IEnumerable<int> seeds)
+            {
+                var reachable = new bool[edges.Count];
+                var predecessors = new List<int>[edges.Count];
+                for (int i = 0; i < predecessors.Length; i++)
+                    predecessors[i] = [];
+                for (int from = 0; from < edges.Count; from++)
+                    foreach (int to in edges[from].Successors)
+                        if ((uint)to < (uint)predecessors.Length)
+                            predecessors[to].Add(from);
+
+                var stack = new Stack<int>();
+                foreach (int seed in seeds)
+                {
+                    if ((uint)seed >= (uint)reachable.Length || reachable[seed])
+                        continue;
+                    reachable[seed] = true;
+                    stack.Push(seed);
+                }
+
+                while (stack.Count > 0)
+                {
+                    int block = stack.Pop();
+                    foreach (int predecessor in predecessors[block])
+                    {
+                        if (reachable[predecessor])
+                            continue;
+                        reachable[predecessor] = true;
+                        stack.Push(predecessor);
+                    }
+                }
+
+                return reachable;
+            }
         }
 
         sealed class DominatorTree
@@ -2246,8 +2296,10 @@ public sealed class LibraryBodyIndex
                     source,
                     RuntimeAllocationType(kind, allocatedType),
                     AllocationPathContextFor(decodedBody, offset, loopRegions, escape),
-                    AllocationPathConfidenceFor(decodedBody, offset, escape),
-                    AllocationPostDominanceFor(decodedBody, offset, escape));
+                    AllocationPathConfidenceFor(decodedBody, offset, escape))
+                {
+                    PostDominance = AllocationPostDominanceFor(decodedBody, offset, escape),
+                };
 
             bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
             {

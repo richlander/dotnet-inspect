@@ -74,9 +74,10 @@ public sealed record AllocationOccurrence(
     AllocationFactSource Source,
     string? RuntimeAllocationType = null,
     AllocationPathContext PathContext = AllocationPathContext.StraightLine,
-    AllocationPathConfidence PathConfidence = AllocationPathConfidence.Unknown,
-    AllocationPostDominance PostDominance = AllocationPostDominance.Unknown)
+    AllocationPathConfidence PathConfidence = AllocationPathConfidence.Unknown)
 {
+    public AllocationPostDominance PostDominance { get; init; }
+
     public string AnnotationId => Kind switch
     {
         AllocationKind.Box => "alloc.box",

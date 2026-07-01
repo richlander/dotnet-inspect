@@ -1218,6 +1218,13 @@ public class LibraryBodyIndexTests
                     && occurrence.PathContext == AllocationPathContext.StraightLine
                     && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
                     && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates);
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "ReturnOrInfiniteLoopAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.Unknown);
         }
         finally
         {
@@ -1901,6 +1908,7 @@ public class LibraryBodyIndexTests
         DefineBranchAllocation(type, ctor);
         DefineSwitchAllocation(type, ctor);
         DefineAfterIfJoinAllocation(type, ctor);
+        DefineReturnOrInfiniteLoopAllocation(type, ctor);
 
         type.CreateType();
         assembly.Save(path);
@@ -1963,6 +1971,27 @@ public class LibraryBodyIndexTests
             il.Emit(OpCodes.Br_S, join);
             il.MarkLabel(join);
             EmitNewPlainObject(il, ctor, 1);
+        }
+
+        static void DefineReturnOrInfiniteLoopAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "ReturnOrInfiniteLoopAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var loop = il.DefineLabel();
+            var value = il.DeclareLocal(typeof(object));
+            il.Emit(OpCodes.Ldc_I4, 1);
+            il.Emit(OpCodes.Newobj, ctor);
+            il.Emit(OpCodes.Stloc, value);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brtrue_S, loop);
+            il.Emit(OpCodes.Ldloc, value);
+            il.Emit(OpCodes.Ret);
+            il.MarkLabel(loop);
+            il.Emit(OpCodes.Br_S, loop);
         }
     }
 
