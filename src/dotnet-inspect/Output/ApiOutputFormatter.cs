@@ -1661,26 +1661,13 @@ public static class ApiOutputFormatter
         IReadOnlySet<string>? explicitSections = null)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);
-        var rows = index.DirectCalls
-            .Where(call => SameType(call.Caller.DeclaringType, type))
-            .Where(call => call.Callee.Kind != Analysis.MemberKind.Unsupported)
-            .Where(call => !SameType(call.Callee.DeclaringType, type))
-            .GroupBy(call => new
-            {
-                Type = call.Callee.DeclaringType.ToQualifiedDisplayString(),
-                Assembly = FormatCalledTypeAssembly(call.Callee.DeclaringType.Assembly)
-            })
-            .Select(group => new CalledTypeRow(
-                MarkoutInline.Code(group.Key.Type),
-                group.Key.Assembly,
-                group.Count(),
-                group.Select(call => call.Caller.MetadataToken).Distinct().Count(),
-                string.Join(", ", group
-                    .Select(call => FormatCallsiteKind(call.Kind))
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal))))
-            .OrderByDescending(row => row.Calls)
-            .ThenBy(row => row.Type, StringComparer.Ordinal)
+        var rows = index.CalledTypes(method => SameType(method.DeclaringType, type))
+            .Select(summary => new CalledTypeRow(
+                MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
+                string.IsNullOrEmpty(summary.Assembly) ? null : summary.Assembly,
+                summary.Calls,
+                summary.Members,
+                string.Join(", ", summary.CallKinds.Select(FormatCallsiteKind))))
             .ToList();
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CalledTypes))
@@ -1830,9 +1817,6 @@ public static class ApiOutputFormatter
 
     static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
-
-    static string? FormatCalledTypeAssembly(string assembly)
-        => string.IsNullOrEmpty(assembly) || assembly == Analysis.TypeRef.CoreLibrary ? null : assembly;
 
     static CallerSiteRow CreateCallerRow(string source, Analysis.DirectCall call)
         => new(

@@ -23,6 +23,21 @@ public class CalledTypesSectionTests
     }
 
     [Fact]
+    public async Task TypeCalledTypes_UsesOpenGenericTypesAndExcludesGenericSelfCalls()
+    {
+        var result = await RunCalledTypesAsync(typeof(CalledTypesGenericFixture<>));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Called Types", result.Output);
+        Assert.Contains("`System.Collections.Generic.List`", result.Output);
+        Assert.Contains("| System.Collections | 2 | 1 |", result.Output);
+        Assert.DoesNotContain("`DotnetInspector.Tests.CalledTypesGenericFixture", result.Output);
+        Assert.DoesNotContain("`object`", result.Output);
+        Assert.DoesNotContain("List<int>", result.Output);
+        Assert.DoesNotContain("List<string>", result.Output);
+    }
+
+    [Fact]
     public async Task TypeCalledTypes_TsvUsesPlainAggregateColumns()
     {
         var result = await RunCalledTypesAsync(typeof(CalledTypesFixture), tsv: true);
@@ -91,7 +106,7 @@ public static class CalledTypesFixture
     public static int Second(int value)
     {
         CalledTypesDependency.Touch();
-        CalledTypesDependency.Touch();
+        CalledTypesDependency.TouchOther();
         return Math.Abs(value);
     }
 
@@ -105,9 +120,32 @@ public static class CalledTypesDependency
     public static void Touch()
     {
     }
+
+    public static void TouchOther()
+    {
+    }
 }
 
 public static class CalledTypesEmptyFixture
 {
     public static int Identity(int value) => value;
+}
+
+public sealed class CalledTypesGenericFixture<T>
+{
+    public void First(List<int> values)
+    {
+        values.Add(1);
+        Self();
+    }
+
+    public void Second(List<string> values)
+    {
+        values.Add("x");
+        Self();
+    }
+
+    void Self()
+    {
+    }
 }

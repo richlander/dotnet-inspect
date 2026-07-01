@@ -727,7 +727,8 @@ public class ApiCommand
             }
 
             if (options.DllPath is { } calledTypesDllPath
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes))
+                && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
+                    || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
                 ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, options.IncludeSections);
             }
@@ -1342,7 +1343,8 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is { } calledTypesDllPath
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes))
+                && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes)
+                    || renderOptions.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
                 ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, renderOptions.IncludeSections);
             }
