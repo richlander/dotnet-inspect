@@ -677,6 +677,38 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task ClassUnionValueSwitchValueTypeCase_PreservesValueReceiver()
+    {
+        using var assembly = await CompileWithSdk("""
+            using System.Runtime.CompilerServices;
+            namespace UnionFixtures;
+
+            [Union]
+            public sealed class Result : IUnion
+            {
+                public Result(int value) => Value = value;
+                public Result(string value) => Value = value;
+                public object? Value { get; }
+            }
+
+            public static class Matcher
+            {
+                public static string Describe(Result result) => result.Value switch
+                {
+                    int value => value.ToString(),
+                    string message => message,
+                    null => "null",
+                };
+            }
+            """);
+
+        var source = RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe");
+
+        Assert.Contains("result.Value", source);
+        Assert.DoesNotContain("return result switch", source);
+    }
+
+    [Fact]
     public async Task UnionPatterns_RenderInAndByRefReceiverCanaries()
     {
         using var assembly = await CompileWithSdk("""

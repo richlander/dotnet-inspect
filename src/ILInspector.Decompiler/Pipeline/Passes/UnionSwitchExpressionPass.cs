@@ -138,7 +138,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         switchExpression = null!;
         if (start + 4 >= children.Count
             || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
-            || !IsUnionValueProperty(function, unionValue)
+            || !IsValueTypeUnionValueProperty(function, unionValue)
             || children[start + 1] is not StoreLocal { Value: IsInstance firstTest } firstStore
             || !IsTempTypeTest(firstTest, valueStore.Index)
             || children[start + 2] is not IfStatement firstNullGuard
@@ -235,7 +235,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         switchExpression = null!;
         if (start + 5 >= children.Count
             || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
-            || !IsUnionValueProperty(function, unionValue)
+            || !IsValueTypeUnionValueProperty(function, unionValue)
             || children[^4] is not StoreLocal { Value: IsInstance finalTest } finalStore
             || !IsTempTypeTest(finalTest, valueStore.Index)
             || children[^3] is not IfStatement finalNullGuard
