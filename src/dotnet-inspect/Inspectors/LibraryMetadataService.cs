@@ -740,6 +740,7 @@ internal static class LibraryMetadataService
                     Allocation = opportunity.RuntimeAllocationType,
                     Path = opportunity.PathContext,
                     PathConfidence = opportunity.PathConfidence,
+                    PostDominance = opportunity.PostDominance,
                     IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
                 })
                 .ToList();

@@ -1159,14 +1159,14 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
-    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
-    public void AllocationOccurrences_IncludeRuntimeTypePathContextAndConfidence(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence)
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    public void AllocationOccurrences_IncludeRuntimeTypePathContextConfidenceAndPostDominance(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence, AllocationPostDominance expectedPostDominance)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
@@ -1180,6 +1180,7 @@ public class LibraryBodyIndexTests
         Assert.Equal(expectedRuntimeType, occurrence.RuntimeAllocationType);
         Assert.Equal(expectedPath, occurrence.PathContext);
         Assert.Equal(expectedConfidence, occurrence.PathConfidence);
+        Assert.Equal(expectedPostDominance, occurrence.PostDominance);
     }
 
     [Fact]
@@ -1195,7 +1196,8 @@ public class LibraryBodyIndexTests
                 occurrence => occurrence.Method.Name == "BranchAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.Branch
-                    && occurrence.PathConfidence == AllocationPathConfidence.BehindBranch);
+                    && occurrence.PathConfidence == AllocationPathConfidence.BehindBranch
+                    && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates);
             Assert.Contains(
                 index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "SwitchAllocation"
@@ -1208,12 +1210,28 @@ public class LibraryBodyIndexTests
             Assert.Equal(3, switchAllocations.Length);
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathContext.SwitchArm, occurrence.PathContext));
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathConfidence.BehindBranch, occurrence.PathConfidence));
+            Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPostDominance.ReturnPostDominates, occurrence.PostDominance));
             Assert.Contains(
                 index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "AfterIfJoinAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.StraightLine
-                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn);
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates);
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "ReturnOrInfiniteLoopAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.Unknown);
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "InternalReturnLoopAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.Unknown);
         }
         finally
         {
@@ -1235,13 +1253,13 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
-    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "System.Int32[]", "straight-line", "dominates-return")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line", "dominates-return")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body", "behind-branch")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body", "behind-branch")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot", "newobj/newarr/box", "loop body", null)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body", null)]
-    public void OptimizationOpportunities_IncludeAllocationPathAndConfidenceMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath, string? expectedConfidence)
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "System.Int32[]", "straight-line", "dominates-return", "return-post-dominates")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line", "dominates-return", "return-post-dominates")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body", "behind-branch", null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body", "behind-branch", null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot", "newobj/newarr/box", "loop body", null, null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body", null, null)]
+    public void OptimizationOpportunities_IncludeAllocationPathConfidenceAndPostDominanceMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath, string? expectedConfidence, string? expectedPostDominance)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
@@ -1252,6 +1270,7 @@ public class LibraryBodyIndexTests
         Assert.Equal(expectedAllocation, opportunity.RuntimeAllocationType);
         Assert.Equal(expectedPath, opportunity.PathContext);
         Assert.Equal(expectedConfidence, opportunity.PathConfidence);
+        Assert.Equal(expectedPostDominance, opportunity.PostDominance);
     }
 
     [Fact]
@@ -1896,6 +1915,8 @@ public class LibraryBodyIndexTests
         DefineBranchAllocation(type, ctor);
         DefineSwitchAllocation(type, ctor);
         DefineAfterIfJoinAllocation(type, ctor);
+        DefineReturnOrInfiniteLoopAllocation(type, ctor);
+        DefineInternalReturnLoopAllocation(type, ctor);
 
         type.CreateType();
         assembly.Save(path);
@@ -1958,6 +1979,50 @@ public class LibraryBodyIndexTests
             il.Emit(OpCodes.Br_S, join);
             il.MarkLabel(join);
             EmitNewPlainObject(il, ctor, 1);
+        }
+
+        static void DefineReturnOrInfiniteLoopAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "ReturnOrInfiniteLoopAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var loop = il.DefineLabel();
+            var value = il.DeclareLocal(typeof(object));
+            il.Emit(OpCodes.Ldc_I4, 1);
+            il.Emit(OpCodes.Newobj, ctor);
+            il.Emit(OpCodes.Stloc, value);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brtrue_S, loop);
+            il.Emit(OpCodes.Ldloc, value);
+            il.Emit(OpCodes.Ret);
+            il.MarkLabel(loop);
+            il.Emit(OpCodes.Br_S, loop);
+        }
+
+        static void DefineInternalReturnLoopAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "InternalReturnLoopAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var header = il.DefineLabel();
+            var ret = il.DefineLabel();
+            var value = il.DeclareLocal(typeof(object));
+            il.Emit(OpCodes.Ldc_I4, 1);
+            il.Emit(OpCodes.Newobj, ctor);
+            il.Emit(OpCodes.Stloc, value);
+            il.MarkLabel(header);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brtrue_S, ret);
+            il.Emit(OpCodes.Br_S, header);
+            il.MarkLabel(ret);
+            il.Emit(OpCodes.Ldloc, value);
+            il.Emit(OpCodes.Ret);
         }
     }
 

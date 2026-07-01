@@ -50,6 +50,12 @@ public enum AllocationPathConfidence
     BehindBranch,
 }
 
+public enum AllocationPostDominance
+{
+    Unknown,
+    ReturnPostDominates,
+}
+
 /// <summary>
 /// One static heap-allocation occurrence, keyed by IL offset. Presentation layers
 /// project this into hidden-fact annotations, method signals, and triage rows.
@@ -70,6 +76,8 @@ public sealed record AllocationOccurrence(
     AllocationPathContext PathContext = AllocationPathContext.StraightLine,
     AllocationPathConfidence PathConfidence = AllocationPathConfidence.Unknown)
 {
+    public AllocationPostDominance PostDominance { get; init; }
+
     public string AnnotationId => Kind switch
     {
         AllocationKind.Box => "alloc.box",

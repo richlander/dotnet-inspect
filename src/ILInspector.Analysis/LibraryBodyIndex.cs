@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.ControlFlow;
 using ILInspector.Instructions;
 
 namespace ILInspector.Analysis;
@@ -145,10 +146,12 @@ public sealed class LibraryBodyIndex
         var runtimeAllocation = opportunity.RuntimeAllocationType ?? FallbackRuntimeAllocationType(opportunity);
         var pathContext = opportunity.PathContext ?? FallbackPathContext(opportunity);
         var pathConfidence = opportunity.PathConfidence;
+        var postDominance = opportunity.PostDominance;
         return runtimeAllocation != opportunity.RuntimeAllocationType
             || pathContext != opportunity.PathContext
             || pathConfidence != opportunity.PathConfidence
-            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext, PathConfidence = pathConfidence }
+            || postDominance != opportunity.PostDominance
+            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext, PathConfidence = pathConfidence, PostDominance = postDominance }
             : opportunity;
     }
 
@@ -191,6 +194,13 @@ public sealed class LibraryBodyIndex
         {
             AllocationPathConfidence.DominatesReturn => "dominates-return",
             AllocationPathConfidence.BehindBranch => "behind-branch",
+            _ => null,
+        };
+
+    static string? FormatPostDominance(AllocationPostDominance postDominance)
+        => postDominance switch
+        {
+            AllocationPostDominance.ReturnPostDominates => "return-post-dominates",
             _ => null,
         };
 
@@ -1183,6 +1193,7 @@ public sealed class LibraryBodyIndex
                 LoopRegions = CollectLoopRegions();
                 PathContexts = AllocationPathContextIndex.Create(this);
                 PathConfidences = AllocationPathConfidenceIndex.Create(this);
+                PostDominances = AllocationPostDominanceIndex.Create(this);
             }
 
             public ImmutableArray<DecodedInstruction> Instructions { get; }
@@ -1190,6 +1201,7 @@ public sealed class LibraryBodyIndex
             public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
             public AllocationPathContextIndex PathContexts { get; }
             public AllocationPathConfidenceIndex PathConfidences { get; }
+            public AllocationPostDominanceIndex PostDominances { get; }
 
             public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
             {
@@ -1389,6 +1401,20 @@ public sealed class LibraryBodyIndex
             }
         }
 
+        static int[] ReturnBlocks(DecodedBody decodedBody)
+        {
+            var returns = new List<int>();
+            foreach (var instruction in decodedBody.Instructions)
+            {
+                if (instruction.OpCode != ILOpCode.Ret)
+                    continue;
+                int blockIndex = decodedBody.BlockGraph.BlockIndexAt(instruction.Offset);
+                if (blockIndex >= 0)
+                    returns.Add(blockIndex);
+            }
+            return [.. returns.Distinct().Order()];
+        }
+
         sealed class AllocationPathConfidenceIndex
         {
             readonly AllocationPathConfidence[] _confidenceByBlock;
@@ -1431,19 +1457,152 @@ public sealed class LibraryBodyIndex
                 => (uint)blockIndex < (uint)_confidenceByBlock.Length
                     ? _confidenceByBlock[blockIndex]
                     : AllocationPathConfidence.Unknown;
+        }
 
-            static int[] ReturnBlocks(DecodedBody decodedBody)
+        sealed class AllocationPostDominanceIndex
+        {
+            readonly AllocationPostDominance[] _postDominanceByBlock;
+
+            AllocationPostDominanceIndex(AllocationPostDominance[] postDominanceByBlock)
             {
-                var returns = new List<int>();
-                foreach (var instruction in decodedBody.Instructions)
+                _postDominanceByBlock = postDominanceByBlock;
+            }
+
+            public static AllocationPostDominanceIndex Create(DecodedBody decodedBody)
+            {
+                var blockGraph = decodedBody.BlockGraph;
+                var postDominanceByBlock = new AllocationPostDominance[blockGraph.Blocks.Length];
+                if (blockGraph.Blocks.Length == 0)
+                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+
+                var edges = blockGraph.Blocks.Select(static block => block.Edges).ToArray();
+                var postDominators = PostDominators.Of(edges);
+                var returnBlocks = ReturnBlocks(decodedBody);
+                if (returnBlocks.Length == 0)
+                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+
+                var reachesReturn = BackwardReachable(edges, returnBlocks);
+                var returnSet = returnBlocks.ToHashSet();
+                var reachesNonReturnExit = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
+                    .Where(block => !returnSet.Contains(block)
+                        && (edges[block].ExitsMethod
+                            || edges[block].ExternalTargets.Count > 0
+                            || edges[block].LeavesRegion)));
+                var reachesNonExitingBlock = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
+                    .Where(block => postDominators.ImmediatePostDominator(block) == PostDominators.None));
+                var reachesCycle = BackwardReachable(edges, CyclicBlocks(edges));
+
+                for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
                 {
-                    if (instruction.OpCode != ILOpCode.Ret)
+                    if (decodedBody.PathContexts.ContextFor(blockIndex) == AllocationPathContext.ErrorPath)
                         continue;
-                    int blockIndex = decodedBody.BlockGraph.BlockIndexAt(instruction.Offset);
-                    if (blockIndex >= 0)
-                        returns.Add(blockIndex);
+                    if (reachesReturn[blockIndex]
+                        && !reachesNonReturnExit[blockIndex]
+                        && !reachesNonExitingBlock[blockIndex]
+                        && !reachesCycle[blockIndex])
+                    {
+                        postDominanceByBlock[blockIndex] = AllocationPostDominance.ReturnPostDominates;
+                    }
                 }
-                return [.. returns.Distinct().Order()];
+
+                return new AllocationPostDominanceIndex(postDominanceByBlock);
+            }
+
+            public AllocationPostDominance PostDominanceFor(int blockIndex)
+                => (uint)blockIndex < (uint)_postDominanceByBlock.Length
+                    ? _postDominanceByBlock[blockIndex]
+                    : AllocationPostDominance.Unknown;
+
+            static bool[] BackwardReachable(IReadOnlyList<BlockEdges> edges, IEnumerable<int> seeds)
+            {
+                var reachable = new bool[edges.Count];
+                var predecessors = new List<int>[edges.Count];
+                for (int i = 0; i < predecessors.Length; i++)
+                    predecessors[i] = [];
+                for (int from = 0; from < edges.Count; from++)
+                    foreach (int to in edges[from].Successors)
+                        if ((uint)to < (uint)predecessors.Length)
+                            predecessors[to].Add(from);
+
+                var stack = new Stack<int>();
+                foreach (int seed in seeds)
+                {
+                    if ((uint)seed >= (uint)reachable.Length || reachable[seed])
+                        continue;
+                    reachable[seed] = true;
+                    stack.Push(seed);
+                }
+
+                while (stack.Count > 0)
+                {
+                    int block = stack.Pop();
+                    foreach (int predecessor in predecessors[block])
+                    {
+                        if (reachable[predecessor])
+                            continue;
+                        reachable[predecessor] = true;
+                        stack.Push(predecessor);
+                    }
+                }
+
+                return reachable;
+            }
+
+            static IEnumerable<int> CyclicBlocks(IReadOnlyList<BlockEdges> edges)
+            {
+                var state = new byte[edges.Count]; // 0 = unvisited, 1 = active, 2 = done
+                var activePath = new List<int>();
+                var activePosition = new int[edges.Count];
+                Array.Fill(activePosition, -1);
+                var cyclic = new bool[edges.Count];
+
+                for (int root = 0; root < edges.Count; root++)
+                {
+                    if (state[root] != 0)
+                        continue;
+
+                    var frames = new Stack<(int Block, int NextSuccessor)>();
+                    Enter(root, frames);
+                    while (frames.Count > 0)
+                    {
+                        var (block, nextSuccessor) = frames.Pop();
+                        var successors = edges[block].Successors;
+                        if (nextSuccessor >= successors.Count)
+                        {
+                            state[block] = 2;
+                            activePosition[block] = -1;
+                            activePath.RemoveAt(activePath.Count - 1);
+                            continue;
+                        }
+
+                        frames.Push((block, nextSuccessor + 1));
+                        int successor = successors[nextSuccessor];
+                        if ((uint)successor >= (uint)edges.Count)
+                            continue;
+
+                        if (state[successor] == 0)
+                        {
+                            Enter(successor, frames);
+                            continue;
+                        }
+
+                        if (state[successor] == 1 && activePosition[successor] >= 0)
+                        {
+                            for (int i = activePosition[successor]; i < activePath.Count; i++)
+                                cyclic[activePath[i]] = true;
+                        }
+                    }
+                }
+
+                return Enumerable.Range(0, cyclic.Length).Where(block => cyclic[block]).ToArray();
+
+                void Enter(int block, Stack<(int Block, int NextSuccessor)> frames)
+                {
+                    state[block] = 1;
+                    activePosition[block] = activePath.Count;
+                    activePath.Add(block);
+                    frames.Push((block, 0));
+                }
             }
         }
 
@@ -2196,7 +2355,10 @@ public sealed class LibraryBodyIndex
                     source,
                     RuntimeAllocationType(kind, allocatedType),
                     AllocationPathContextFor(decodedBody, offset, loopRegions, escape),
-                    AllocationPathConfidenceFor(decodedBody, offset, escape));
+                    AllocationPathConfidenceFor(decodedBody, offset, escape))
+                {
+                    PostDominance = AllocationPostDominanceFor(decodedBody, offset, escape),
+                };
 
             bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
             {
@@ -3024,6 +3186,7 @@ public sealed class LibraryBodyIndex
                         RuntimeAllocationType = runtimeAllocation,
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
+                        PostDominance = opportunity.PostDominance ?? FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                     };
                 }
                 return AddFallbackOpportunityMetadata(annotated);
@@ -3452,6 +3615,17 @@ public sealed class LibraryBodyIndex
             return decodedBody.PathConfidences.ConfidenceFor(blockIndex);
         }
 
+        static AllocationPostDominance AllocationPostDominanceFor(
+            DecodedBody decodedBody,
+            int offset,
+            AllocationEscape escape)
+        {
+            if (escape == AllocationEscape.ThrowPath)
+                return AllocationPostDominance.Unknown;
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            return decodedBody.PostDominances.PostDominanceFor(blockIndex);
+        }
+
         // Conservative, sound local-escape check for a freshly created array. Returns true
         // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
         // load is an in-place element access / length read — never returned, stored to a
@@ -3542,6 +3716,7 @@ public sealed class LibraryBodyIndex
                         Escape = escape,
                         PathContext = escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
                         PathConfidence = escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
+                        PostDominance = escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
                     });
             }
             return builder.MoveToImmutable();
