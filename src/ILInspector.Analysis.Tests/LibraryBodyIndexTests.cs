@@ -1414,6 +1414,17 @@ public class LibraryBodyIndexTests
         Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.StaticAddHelperInLoop)));
     }
 
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionOnThrowHelperPath_IsLowAdvisory()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.UnsizedStringBuilderGrownBeforeThrow)));
+        Assert.Equal("low", row.Confidence);
+        Assert.True(row.ColdPath);
+        Assert.Contains("cold path", row.Caveat, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     // Non-loop delegate on a high-reach method -> lifted from low to medium.
     [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach, "medium")]
@@ -2849,6 +2860,14 @@ public class OptimizationOpportunityFixtures
     }
 
     static int StaticAdd(int value) => value + 1;
+
+    public static void UnsizedStringBuilderGrownBeforeThrow(string[] values)
+    {
+        var builder = new System.Text.StringBuilder();
+        foreach (var value in values)
+            builder.Append(value);
+        throw new InvalidOperationException(builder.ToString());
+    }
 
     static void ReplaceSource(ref IEnumerable<int> source, IEnumerable<int> replacement)
     {

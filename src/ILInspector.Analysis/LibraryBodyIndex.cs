@@ -2456,15 +2456,17 @@ public sealed class LibraryBodyIndex
                                 unsizedCollectionsByDefinition,
                                 out var construction))
                         {
+                            var coldRegion = ClassifyColdRegion(decodedBody, offset);
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
                                 "unsized-collection-grown",
                                 $"{construction.CollectionType} constructed without capacity; grown by {growthCall} in a loop",
                                 "Constructed without capacity and grown in a loop; each growth reallocates and copies the backing store. Pre-size with a capacity when the count is known.",
-                                "medium",
+                                coldRegion.IsCold ? "low" : "medium",
                                 true,
                                 offset,
-                                "Advisory: consider pre-sizing if the size is predictable."));
+                                coldRegion.Caveat ?? "Advisory: consider pre-sizing if the size is predictable.",
+                                ColdPath: coldRegion.IsCold));
                         }
                         break;
                     }
@@ -3559,6 +3561,102 @@ public sealed class LibraryBodyIndex
 
         static bool IsInLoopRegion(int offset, IReadOnlyList<(int Start, int End)> regions)
             => regions.Any(region => offset >= region.Start && offset <= region.End);
+
+        ColdRegionClassification ClassifyColdRegion(DecodedBody decodedBody, int offset)
+        {
+            if (IsInsideExceptionHandlerBlock(decodedBody, offset))
+                return ColdRegionClassification.Cold;
+            if (MethodUnconditionallyThrows(decodedBody))
+                return ColdRegionClassification.Cold;
+            return ColdRegionClassification.Warm;
+        }
+
+        static bool IsInsideExceptionHandlerBlock(DecodedBody decodedBody, int offset)
+        {
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            if (blockIndex < 0)
+                return false;
+
+            var block = decodedBody.BlockGraph.Blocks[blockIndex];
+            foreach (var region in decodedBody.BlockGraph.Regions)
+            {
+                if (region.Kind == HandlerKind.Filter
+                    && block.Start >= region.FilterStart
+                    && block.End <= region.FilterEnd)
+                {
+                    return true;
+                }
+                if (block.Start >= region.HandlerStart
+                    && block.End <= region.HandlerEnd)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool MethodUnconditionallyThrows(DecodedBody decodedBody)
+        {
+            if (!decodedBody.BlockGraph.IsComplete || decodedBody.BlockGraph.Blocks.Length == 0)
+                return false;
+
+            var reachable = new bool[decodedBody.BlockGraph.Blocks.Length];
+            var stack = new Stack<int>();
+            stack.Push(0);
+            reachable[0] = true;
+            while (stack.Count > 0)
+            {
+                int blockIndex = stack.Pop();
+                foreach (int successor in decodedBody.BlockGraph.Blocks[blockIndex].Edges.Successors)
+                {
+                    if ((uint)successor >= (uint)reachable.Length || reachable[successor])
+                        continue;
+                    reachable[successor] = true;
+                    stack.Push(successor);
+                }
+            }
+
+            bool sawThrowExit = false;
+            for (int i = 0; i < decodedBody.BlockGraph.Blocks.Length; i++)
+            {
+                if (!reachable[i])
+                    continue;
+                var block = decodedBody.BlockGraph.Blocks[i];
+                if (block.Edges.ExternalTargets.Count > 0 || block.Edges.LeavesRegion)
+                    return false;
+                if (!block.Edges.ExitsMethod)
+                    continue;
+                if (!TryGetLastInstruction(decodedBody, block, out var last)
+                    || last.OpCode is not (ILOpCode.Throw or ILOpCode.Rethrow))
+                {
+                    return false;
+                }
+                sawThrowExit = true;
+            }
+            return sawThrowExit;
+        }
+
+        static bool TryGetLastInstruction(DecodedBody decodedBody, InstructionBlock block, out DecodedInstruction last)
+        {
+            last = default!;
+            bool found = false;
+            for (int i = decodedBody.IndexAtOrAfter(block.Start); i < decodedBody.Instructions.Length; i++)
+            {
+                var instruction = decodedBody.Instructions[i];
+                if (instruction.Offset >= block.End)
+                    break;
+                last = instruction;
+                found = true;
+            }
+            return found;
+        }
+
+        readonly record struct ColdRegionClassification(bool IsCold, string? Caveat)
+        {
+            const string ColdCaveat = "On an exception/cold path; low steady-state impact.";
+            public static ColdRegionClassification Warm { get; } = new(false, null);
+            public static ColdRegionClassification Cold { get; } = new(true, ColdCaveat);
+        }
 
         // Body-scan signals the call index cannot see: array allocations (newarr),
         // throw/rethrow sites, and exception-handling clauses. Mirrors the loop-region
