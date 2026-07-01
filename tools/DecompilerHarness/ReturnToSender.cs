@@ -196,7 +196,7 @@ static class ReturnToSender
                 if (getter.RelativeVirtualAddress == 0)
                     continue;
 
-                results.Add(CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, accessors.Getter));
+                results.Add(CompileBackPropertyGetterOrContextFail(assemblyPath, pe, reader, source, typeHandle, propertyHandle, accessors.Getter));
                 if (results.Count >= maxTargets)
                     return results;
             }
@@ -205,6 +205,25 @@ static class ReturnToSender
         if (results.Count == 0)
             throw new InvalidOperationException("No supported property getter with a method body was found.");
         return results;
+    }
+
+    static Result CompileBackPropertyGetterOrContextFail(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        PropertyDefinitionHandle propertyHandle,
+        MethodDefinitionHandle getterHandle)
+    {
+        try
+        {
+            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, ex.Message);
+        }
     }
 
     static Result CompileBackPropertyGetter(
@@ -314,6 +333,55 @@ static class ReturnToSender
             string.Join(" ", originalOps),
             string.Join(" ", recompiledOps),
             null);
+    }
+
+    static Result ContextFailResult(
+        string assemblyPath,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        PropertyDefinitionHandle propertyHandle,
+        MethodDefinitionHandle getterHandle,
+        string detail)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var getter = reader.GetMethodDefinition(getterHandle);
+        string fullType = reader.GetFullTypeName(typeDef);
+        string methodName = reader.GetString(getter.Name);
+        int overload = OverloadIndex(reader, typeDef, getterHandle, methodName);
+        string ns = reader.GetString(typeDef.Namespace);
+        string typeName = Identifier(StripArity(reader.GetString(typeDef.Name)));
+        string propertyName = Identifier(reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name));
+
+        var plan = new ReconstructionPlan(
+            AssemblyPath: Path.GetFullPath(assemblyPath),
+            TargetMethod: new MethodIdentity(fullType, methodName, overload, ""),
+            Module: new ModuleRequirement(
+                Usings: ["System"],
+                AssemblyAttributes: [],
+                ModuleAttributes: []),
+            Types:
+            [
+                new TypeShell(
+                    Namespace: ns,
+                    Name: typeName,
+                    Kind: TypeShellKind.Class,
+                    Members:
+                    [
+                        new TypeMemberShell(
+                            Name: propertyName,
+                            Kind: TypeMemberShellKind.PropertyGet,
+                            Type: "",
+                            Body: "")
+                    ])
+            ]);
+
+        return new Result(
+            plan,
+            "",
+            FidelityCheck.CompileBackStatus.ContextFail,
+            "",
+            "",
+            detail);
     }
 
     static int OverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string methodName)

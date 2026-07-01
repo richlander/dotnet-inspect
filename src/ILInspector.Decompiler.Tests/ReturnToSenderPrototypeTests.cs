@@ -141,6 +141,43 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackPropertyGetters_PreservesSuccessesAfterFailingTarget()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+            }
+
+            public class Class1
+            {
+                public Helper SameAssemblyType => new Helper();
+                public string Method1 => "Hello World";
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2);
+
+            Assert.Collection(
+                results,
+                first =>
+                {
+                    Assert.Equal("get_SameAssemblyType", first.Plan.TargetMethod.Method);
+                    Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, first.Status);
+                },
+                second =>
+                {
+                    Assert.Equal("get_Method1", second.Plan.TargetMethod.Method);
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, second.Status);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
