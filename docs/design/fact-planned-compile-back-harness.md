@@ -169,7 +169,9 @@ Responsibilities:
 `Int32`, `Int64`, `NativeInt`, `Float`, `ManagedPointer`,
 `UnmanagedPointer`, `ObjectReference`, `ValueType`, `TypedReference`, and
 `Unknown`. It is useful for stack provenance and receiver/argument shape, not
-for saying "this is protobuf type X."
+for saying "this is protobuf type X." This describes the current substrate, not
+a promise that the lattice is final; #1939 tracks related evidence and review
+around whether the stack typing model should be trimmed.
 
 ### Analysis
 
@@ -580,22 +582,20 @@ The harness is stricter than display-only consumers. If facts are too vague,
 stringly typed, or incomplete, the shell will not compile. That makes the harness
 a useful stress test for Research facts, but not the owner of Research itself.
 
-## Relationship to issue 2030
+## Relationship to PR 2030
 
-Issue 2030 documents the current compile-back reconstruction problem space and
-the existing closure-vs-whole-module tradeoff. This spec is narrower and newer:
-it describes a fresh harness architecture for typed shell reconstruction.
+PR 2030 was the earlier compile-back reconstruction design proposal. It is now
+closed and superseded by this spec.
 
-The two documents should not conflict:
+The useful parts that carry forward are:
 
-- issue 2030 explains why the current whole-module skeleton and current closure
-  path exist;
-- this spec keeps the current `CB_CLUSTER` membership algorithm and adds a
-  typed shell-shape architecture beside it.
+- the problem framing for whole-module skeletons vs target closure;
+- the evidence that hard rows need more than broad skeleton patches;
+- the current `CB_CLUSTER` compiler-driven membership algorithm.
 
-If both docs land, issue 2030 should point here as the proposed ReturnToSender
-direction
-rather than duplicate the same architecture.
+What changes here is the strategic answer. ReturnToSender replaces the older
+"continue the reconstruction path" framing with a fresh, tools-side architecture
+for typed module and type shell reconstruction.
 
 ## Whole-module vs closure
 
