@@ -494,10 +494,12 @@ public class ApiCommand
     internal static ILInspector.Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
         => PlatformAssemblyResolver(startingDll).ToAssemblyLocator();
 
-    internal static AssemblyDependencyResolver PlatformAssemblyResolver(string startingDll)
+    internal static AssemblyDependencyResolver PlatformAssemblyResolver(string startingDll, string? projectAssetsPath = null, string? targetFramework = null)
     {
         return new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(startingDll)
         {
+            ProjectAssetsPath = projectAssetsPath,
+            TargetFramework = targetFramework,
             IncludeDepsJsonAssets = false,
             IncludeAspNetCoreSharedFramework = false,
             PreferImplementationAssemblies = true,
@@ -772,7 +774,7 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
-            var resolver = PlatformAssemblyResolver(typeDllPath);
+            var resolver = PlatformAssemblyResolver(typeDllPath, options.ProjectAssetsPath, options.Tfm);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.TypeSourceComposer.Compose(
                 type, typeDllPath, options.PdbPath, resolver, metadata);

@@ -18,6 +18,8 @@ public partial record ApiOptions
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
     public string? PlatformAssembly { get; init; }
+    public string? ProjectPath { get; init; }
+    public string? ProjectAssetsPath { get; init; }
     public string? PlatformFramework { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }

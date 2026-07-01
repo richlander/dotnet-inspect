@@ -1051,7 +1051,9 @@ public static class ApiOutputFormatter
             Callers: requestedSections.Contains(SectionNames.Callers),
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
-            Facts: requestedSections.Contains(SectionNames.Facts));
+            Facts: requestedSections.Contains(SectionNames.Facts),
+            ProjectAssetsPath: options?.ProjectAssetsPath,
+            TargetFramework: options?.Tfm);
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
