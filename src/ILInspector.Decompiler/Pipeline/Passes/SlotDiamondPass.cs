@@ -174,10 +174,11 @@ public sealed class SlotDiamondPass : IIrPass
         var condition = branch.Condition;
         var whenTrue = trueStore.Value;
         var whenFalse = falseStore.Value;
-        if (HasNullArmForNonNullableValue(whenTrue, whenFalse, load.Type, function))
+        var slotType = load.Type ?? DiamondArmTypes.ConflictingArmType(whenTrue, whenFalse, function);
+        if (HasNullArmForNonNullableValue(whenTrue, whenFalse, slotType, function))
             return null;
 
-        return new Diamond(condition, whenTrue, whenFalse, load.Type);
+        return new Diamond(condition, whenTrue, whenFalse, slotType);
     }
 
     static bool HasNullArmForNonNullableValue(IrExpression whenTrue, IrExpression whenFalse, TypeRef? slotType, IrFunction function)
