@@ -18,7 +18,7 @@ dnx dotnet-inspect -y -- <command>
 
 | Goal | Command |
 | ---- | ------- |
-| Find an API | `find Pattern`, then reuse the reported `--platform`, `--package`, or `--library`. |
+| Find an API | In a repo, start with `find Pattern --project path/to/project`; otherwise `find Pattern`, then reuse the reported `--platform`, `--package`, or `--library`. |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
@@ -45,6 +45,6 @@ dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Me
 
 - Default output is Markdown; for formats, `-D`/`-S` discovery, projection, and
   limits, load `dotnet-inspect skill query`.
-- Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote
-  generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
+- In repos, prefer `--project <csproj|dir|project.assets.json>` for API/type/member questions; use `--bin <dir>` for built DLLs.
+- Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.
