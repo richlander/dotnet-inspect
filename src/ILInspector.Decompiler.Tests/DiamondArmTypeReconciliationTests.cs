@@ -38,6 +38,18 @@ public class DiamondArmTypeReconciliationTests
     }
 
     [Fact]
+    public void ConflictingArmType_IntegerConstantAndPlainIntegerArm_IsUnresolved()
+    {
+        // A plain (non-enum) integer concrete arm is intentionally excluded: the
+        // arm printer would omit the cast a narrower or out-of-range constant needs
+        // (e.g. `byte b = c ? 300 : x`). Only enum targets, which always render an
+        // explicit `(EnumType)value` cast, are anchored.
+        var function = FunctionWithEnumShape();
+        var byteValue = new Call(new MethodRef(Kind, "GetByte", TypeRef.CoreLib("System", "Byte"), [], HasThis: false), isVirtual: false, []);
+        Assert.Null(DiamondArmTypes.ConflictingArmType(new Constant(300, Int32), byteValue, function));
+    }
+
+    [Fact]
     public void SlotDiamond_UnknownSlotWithIntConstantTrueArm_TypesConditionalAsEnum()
     {
         // if (c) S = 4; else S = Kind.Get(); return S;  — the true (int constant)

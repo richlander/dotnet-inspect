@@ -12,12 +12,11 @@ static class DiamondArmTypes
     /// <summary>
     /// The sound slot type when the importer could not merge the join (its load
     /// type is unknown) and the arms carry conflicting types — one an integer
-    /// constant, the other a concrete enum/integer value (e.g. <c>c ? 4 :
-    /// GetKind()</c> where <c>GetKind</c> returns an enum). The IL stores that
-    /// integer into the same slot as the concrete value, so the constant is a
-    /// faithful reinterpretation of the concrete arm's type; anchoring
-    /// <see cref="Conditional.MergedType"/> here makes the folded conditional's
-    /// result type independent of arm order.
+    /// constant, the other a concrete enum value (e.g. <c>c ? 4 : GetKind()</c>
+    /// where <c>GetKind</c> returns an enum). The IL stores that integer into the
+    /// same slot as the enum value, so the constant is a faithful reinterpretation
+    /// of the enum type; anchoring <see cref="Conditional.MergedType"/> here makes
+    /// the folded conditional's result type independent of arm order.
     ///
     /// <para>Without it the result type falls back to whichever arm prints first
     /// (<see cref="Conditional.ResultType"/> is <c>MergedType ?? WhenTrue ??
@@ -28,9 +27,9 @@ static class DiamondArmTypes
     /// </summary>
     public static TypeRef? ConflictingArmType(IrExpression whenTrue, IrExpression whenFalse, IrFunction function)
     {
-        if (IsIntegerConstant(whenTrue) && !IsIntegerConstant(whenFalse) && IsIntegerReinterpretTarget(whenFalse.ResultType, function))
+        if (IsIntegerConstant(whenTrue) && !IsIntegerConstant(whenFalse) && IsEnumTarget(whenFalse.ResultType, function))
             return whenFalse.ResultType;
-        if (IsIntegerConstant(whenFalse) && !IsIntegerConstant(whenTrue) && IsIntegerReinterpretTarget(whenTrue.ResultType, function))
+        if (IsIntegerConstant(whenFalse) && !IsIntegerConstant(whenTrue) && IsEnumTarget(whenTrue.ResultType, function))
             return whenTrue.ResultType;
         return null;
     }
@@ -38,8 +37,12 @@ static class DiamondArmTypes
     static bool IsIntegerConstant(IrExpression expression)
         => expression is Constant constant && TypeFamilies.IsIntegerLike(constant.Type);
 
-    static bool IsIntegerReinterpretTarget(TypeRef? type, IrFunction function)
-        => type is not null
-            && (TypeFamilies.IsIntegerLike(type)
-                || function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum);
+    // Restricted to enum targets: the printer always renders an integer arm for an
+    // enum-typed conditional with an explicit `(EnumType)value` cast, so anchoring
+    // to a known enum is faithful and valid for any integer constant. A plain
+    // integer target has no such guarantee — a narrower or out-of-range constant
+    // (e.g. `byte b = c ? 300 : x`) would need a cast the arm printer omits — so it
+    // is intentionally excluded.
+    static bool IsEnumTarget(TypeRef? type, IrFunction function)
+        => type is not null && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum;
 }
