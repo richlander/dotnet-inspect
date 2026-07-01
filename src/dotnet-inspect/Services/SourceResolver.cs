@@ -343,7 +343,7 @@ public static class SourceResolver
                     else
                     {
                         // Convert backtick notation back to C#-style for display
-                        var displayName = DotnetInspector.Output.ApiOutputFormatter.FormatGenericTypeName(packagePath, null);
+                        var displayName = MetadataTypeNameFormatter.FormatGenericTypeName(packagePath);
                         return new ResolvedSource(
                             packagePath, assemblyPath, platformAssembly, null, null,
                             VersionError: true,

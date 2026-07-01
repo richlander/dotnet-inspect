@@ -1946,53 +1946,8 @@ public static class ApiOutputFormatter
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
-    internal static string FormatGenericTypeName(string name, List<TypeParameter>? typeParameters)
-    {
-        if (!name.Contains('`'))
-            return name;
-
-        var typeParameterIndex = 0;
-        var segments = name.Split('.');
-        for (var i = 0; i < segments.Length; i++)
-            segments[i] = FormatGenericTypeNameSegment(segments[i], typeParameters, ref typeParameterIndex);
-
-        return string.Join(".", segments);
-    }
-
-    private static string FormatGenericTypeNameSegment(
-        string name,
-        List<TypeParameter>? typeParameters,
-        ref int typeParameterIndex)
-    {
-        int backtickIndex = name.IndexOf('`');
-        if (backtickIndex < 0)
-            return name;
-
-        var baseName = name[..backtickIndex];
-        if (!int.TryParse(name[(backtickIndex + 1)..], out int arity) || arity <= 0)
-            return name;
-
-        if (typeParameters is { Count: > 0 } && typeParameterIndex + arity <= typeParameters.Count)
-        {
-            var names = typeParameters
-                .Skip(typeParameterIndex)
-                .Take(arity)
-                .Select(tp => tp.Name);
-            typeParameterIndex += arity;
-            return $"{baseName}<{string.Join(", ", names)}>";
-        }
-
-        var fallbackNames = arity == 1
-            ? "T"
-            : string.Join(", ", Enumerable.Range(1, arity).Select(i => $"T{i}"));
-        return $"{baseName}<{fallbackNames}>";
-    }
-
     internal static string FormatGenericFullName(ApiType type)
-    {
-        var displayName = FormatGenericTypeName(type.Name, type.TypeParameters);
-        return string.IsNullOrEmpty(type.Namespace) ? displayName : $"{type.Namespace}.{displayName}";
-    }
+        => MetadataTypeNameFormatter.FormatFullName(type);
 
     internal static string GetMemberSignatureSortKey(ApiMember member)
     {
