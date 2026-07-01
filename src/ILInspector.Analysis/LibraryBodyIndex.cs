@@ -82,12 +82,14 @@ public sealed class LibraryBodyIndex
                         var confidence = IsLowFrequencyOpportunity(adjusted)
                             ? "low"
                             : AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
-                        return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                        adjusted = confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                        return AddFallbackOpportunityMetadata(adjusted);
                     }),
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
                         .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
-                        .Select(o => o.Method.MetadataToken))),
-                    .. ScanMethodsInvokedInLoops(reachByToken),
+                        .Select(o => o.Method.MetadataToken)))
+                        .Select(AddFallbackOpportunityMetadata),
+                    .. ScanMethodsInvokedInLoops(reachByToken).Select(AddFallbackOpportunityMetadata),
                 ];
             }
             return _opportunities;
@@ -135,6 +137,49 @@ public sealed class LibraryBodyIndex
 
     static bool IsLowFrequencyOpportunity(OptimizationOpportunity opportunity)
         => opportunity.ColdPath || opportunity.Amortized;
+
+    static OptimizationOpportunity AddFallbackOpportunityMetadata(OptimizationOpportunity opportunity)
+    {
+        var runtimeAllocation = opportunity.RuntimeAllocationType ?? FallbackRuntimeAllocationType(opportunity);
+        var pathContext = opportunity.PathContext ?? FallbackPathContext(opportunity);
+        return runtimeAllocation != opportunity.RuntimeAllocationType || pathContext != opportunity.PathContext
+            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext }
+            : opportunity;
+    }
+
+    static string? FallbackRuntimeAllocationType(OptimizationOpportunity opportunity)
+        => opportunity.Shape switch
+        {
+            "allocation-hotspot" => "newobj/newarr/box",
+            "async-state-machine" => "state machine",
+            "box-value-type" => "boxed T",
+            "capturing-delegate" => "delegate/display class",
+            "instance-method-group-delegate" => "delegate",
+            "enumerator-allocation" => "enumerator",
+            "materialize-in-loop" when opportunity.Evidence.Contains(".ToArray", StringComparison.Ordinal) => "T[]",
+            "materialize-in-loop" when opportunity.Evidence.Contains(".ToList", StringComparison.Ordinal) => "System.Collections.Generic.List<T>",
+            "small-array" or "stackalloc-candidate" or "span-to-array-copy" => "T[]",
+            "string-build-in-loop" => "System.String",
+            "temporary-byte-array-copy" => "System.Byte[]",
+            _ => null,
+        };
+
+    static string? FallbackPathContext(OptimizationOpportunity opportunity)
+    {
+        if (opportunity.ColdPath)
+            return FormatPathContext(AllocationPathContext.ErrorPath);
+        return opportunity.InLoop ? FormatPathContext(AllocationPathContext.LoopBody) : null;
+    }
+
+    static string FormatPathContext(AllocationPathContext context)
+        => context switch
+        {
+            AllocationPathContext.Branch => "branch",
+            AllocationPathContext.SwitchArm => "switch arm",
+            AllocationPathContext.LoopBody => "loop body",
+            AllocationPathContext.ErrorPath => "error path",
+            _ => "straight-line",
+        };
 
     OptimizationOpportunity MarkAmortizedSetup(OptimizationOpportunity opportunity)
     {
@@ -2709,47 +2754,22 @@ public sealed class LibraryBodyIndex
 
             OptimizationOpportunity AnnotateOpportunityMetadata(OptimizationOpportunity opportunity)
             {
-                var runtimeAllocation = opportunity.RuntimeAllocationType ?? RuntimeAllocationTypeForOpportunity(opportunity);
-                var pathContext = opportunity.PathContext ?? PathContextForOpportunity(opportunity);
-                return runtimeAllocation != opportunity.RuntimeAllocationType || pathContext != opportunity.PathContext
-                    ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext }
-                    : opportunity;
-            }
-
-            string? PathContextForOpportunity(OptimizationOpportunity opportunity)
-            {
-                if (opportunity.ColdPath)
-                    return FormatPathContext(AllocationPathContext.ErrorPath);
+                var annotated = opportunity;
                 if (opportunity.ILOffset is { } opportunityOffset)
-                    return FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown));
-                return opportunity.InLoop ? FormatPathContext(AllocationPathContext.LoopBody) : null;
-            }
-
-            string? RuntimeAllocationTypeForOpportunity(OptimizationOpportunity opportunity)
-            {
-                if (opportunity.ILOffset is { } opportunityOffset
-                    && allocationByOffset.TryGetValue(opportunityOffset, out var allocation)
-                    && allocation.RuntimeAllocationType is { Length: > 0 } occurrenceRuntime)
                 {
-                    return occurrenceRuntime;
+                    string? runtimeAllocation = opportunity.RuntimeAllocationType;
+                    if (allocationByOffset.TryGetValue(opportunityOffset, out var allocation)
+                        && allocation.RuntimeAllocationType is { Length: > 0 } occurrenceRuntime)
+                    {
+                        runtimeAllocation = occurrenceRuntime;
+                    }
+                    annotated = annotated with
+                    {
+                        RuntimeAllocationType = runtimeAllocation,
+                        PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
+                    };
                 }
-
-                return opportunity.Shape switch
-                {
-                    "allocation-hotspot" => "newobj/newarr/box",
-                    "async-state-machine" => "state machine",
-                    "box-value-type" => "boxed T",
-                    "capturing-delegate" => "delegate/display class",
-                    "instance-method-group-delegate" => "delegate",
-                    "enumerator-allocation" => "enumerator",
-                    "linq-scan-in-loop" => null,
-                    "materialize-in-loop" when opportunity.Evidence.Contains(".ToArray", StringComparison.Ordinal) => "T[]",
-                    "materialize-in-loop" when opportunity.Evidence.Contains(".ToList", StringComparison.Ordinal) => "System.Collections.Generic.List<T>",
-                    "small-array" or "stackalloc-candidate" or "span-to-array-copy" => "T[]",
-                    "string-build-in-loop" => "System.String",
-                    "temporary-byte-array-copy" => "System.Byte[]",
-                    _ => null,
-                };
+                return AddFallbackOpportunityMetadata(annotated);
             }
         }
 

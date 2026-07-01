@@ -1231,7 +1231,9 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line")]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body")]
     [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body")]
-    public void OptimizationOpportunities_IncludeAllocationAndPathMetadata(string methodName, string shape, string expectedAllocation, string expectedPath)
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot", "newobj/newarr/box", "loop body")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body")]
+    public void OptimizationOpportunities_IncludeAllocationAndPathMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
