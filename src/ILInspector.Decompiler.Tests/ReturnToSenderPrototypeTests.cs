@@ -102,6 +102,45 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackPropertyGetters_EvaluatesSupportedGetterLadderWithCap()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public string Method1 => "Hello World";
+                public int Count => 42;
+                public string this[int index] => index.ToString();
+            }
+
+            public readonly struct SkippedStruct
+            {
+                public int Value => 1;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2);
+
+            Assert.Collection(
+                results,
+                first =>
+                {
+                    Assert.Equal("get_Method1", first.Plan.TargetMethod.Method);
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, first.Status);
+                },
+                second =>
+                {
+                    Assert.Equal("get_Count", second.Plan.TargetMethod.Method);
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, second.Status);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,

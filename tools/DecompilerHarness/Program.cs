@@ -184,7 +184,7 @@ static class Program
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
 
         if (returnToSender)
-            return ReturnToSender.Run(assemblies, maxExamples);
+            return ReturnToSender.Run(assemblies, cap, maxExamples);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);

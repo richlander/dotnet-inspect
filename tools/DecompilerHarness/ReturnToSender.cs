@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -66,17 +67,20 @@ static class ReturnToSender
         string RecompiledOpcodes,
         string? Detail);
 
-    public static int Run(IReadOnlyList<string> assemblies, int maxExamples)
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
         int total = 0, exact = 0, opcodeDiff = 0, recompileFail = 0, contextFail = 0;
         var examples = new List<string>();
 
         foreach (var assemblyPath in assemblies)
         {
-            Result result;
+            if (total >= cap)
+                break;
+
+            IReadOnlyList<Result> results;
             try
             {
-                result = CompileBackFirstPropertyGetter(assemblyPath);
+                results = CompileBackPropertyGetters(assemblyPath, cap - total);
             }
             catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
             {
@@ -87,35 +91,41 @@ static class ReturnToSender
                 continue;
             }
 
-            total++;
-            switch (result.Status)
+            foreach (var result in results)
             {
-                case FidelityCheck.CompileBackStatus.Exact:
-                    exact++;
+                if (total >= cap)
                     break;
-                case FidelityCheck.CompileBackStatus.OpcodeDiff:
-                    opcodeDiff++;
-                    break;
-                case FidelityCheck.CompileBackStatus.RecompileFail:
-                    recompileFail++;
-                    break;
-                default:
-                    contextFail++;
-                    break;
-            }
 
-            if (examples.Count < maxExamples)
-            {
-                examples.Add($"""
-                    {result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}
-                        status: {result.Status}
-                        layer : module/type shell
-                        detail: {result.Detail ?? "ok"}
-                    """);
+                total++;
+                switch (result.Status)
+                {
+                    case FidelityCheck.CompileBackStatus.Exact:
+                        exact++;
+                        break;
+                    case FidelityCheck.CompileBackStatus.OpcodeDiff:
+                        opcodeDiff++;
+                        break;
+                    case FidelityCheck.CompileBackStatus.RecompileFail:
+                        recompileFail++;
+                        break;
+                    default:
+                        contextFail++;
+                        break;
+                }
+
+                if (examples.Count < maxExamples)
+                {
+                    examples.Add($"""
+                        {result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}
+                            status: {result.Status}
+                            layer : identity transform, module/type shell
+                            detail: {result.Detail ?? "ok"}
+                        """);
+                }
             }
         }
 
-        Console.WriteLine($"RETURNTOSENDER prototype over {total} assemblies");
+        Console.WriteLine($"RETURNTOSENDER prototype over {total} property getters");
         Console.WriteLine();
         Console.WriteLine($"  Exact         : {exact}");
         Console.WriteLine($"  OpcodeDiff    : {opcodeDiff}");
@@ -133,7 +143,14 @@ static class ReturnToSender
     }
 
     public static Result CompileBackFirstPropertyGetter(string assemblyPath)
+        => CompileBackPropertyGetters(assemblyPath, maxTargets: 1).First();
+
+    public static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets = int.MaxValue)
     {
+        if (maxTargets <= 0)
+            return [];
+
+        var results = new List<Result>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         if (!pe.HasMetadata)
             throw new InvalidOperationException("Assembly has no metadata.");
@@ -145,12 +162,22 @@ static class ReturnToSender
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
-            if (!typeDef.GetDeclaringType().IsNil || reader.GetString(typeDef.Name) == "<Module>")
+            if (!typeDef.GetDeclaringType().IsNil
+                || reader.GetString(typeDef.Name) == "<Module>"
+                || !IsSupportedClass(reader, typeDef))
+            {
                 continue;
+            }
 
             foreach (var propertyHandle in typeDef.GetProperties())
             {
                 var property = reader.GetPropertyDefinition(propertyHandle);
+                if (reader.GetString(property.Name).Contains('<', StringComparison.Ordinal))
+                    continue;
+
+                if (property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef)).ParameterTypes.Length != 0)
+                    continue;
+
                 var accessors = property.GetAccessors();
                 if (accessors.Getter.IsNil)
                     continue;
@@ -159,11 +186,15 @@ static class ReturnToSender
                 if (getter.RelativeVirtualAddress == 0)
                     continue;
 
-                return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, accessors.Getter);
+                results.Add(CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, accessors.Getter));
+                if (results.Count >= maxTargets)
+                    return results;
             }
         }
 
-        throw new InvalidOperationException("No property getter with a method body was found.");
+        if (results.Count == 0)
+            throw new InvalidOperationException("No supported property getter with a method body was found.");
+        return results;
     }
 
     static Result CompileBackPropertyGetter(
@@ -286,6 +317,36 @@ static class ReturnToSender
                 overload++;
         }
         return overload;
+    }
+
+    static bool IsSupportedClass(MetadataReader reader, TypeDefinition typeDef)
+    {
+        if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
+            return false;
+
+        string baseName = typeDef.BaseType.Kind switch
+        {
+            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)typeDef.BaseType)),
+            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType)),
+            _ => "",
+        };
+
+        return baseName is not "System.Enum" and not "System.ValueType"
+            and not "System.MulticastDelegate" and not "System.Delegate";
+    }
+
+    static string FullName(MetadataReader reader, TypeReference type)
+    {
+        string ns = reader.GetString(type.Namespace);
+        string name = reader.GetString(type.Name);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
+    }
+
+    static string FullName(MetadataReader reader, TypeDefinition type)
+    {
+        string ns = reader.GetString(type.Namespace);
+        string name = reader.GetString(type.Name);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
     }
 
     static IReadOnlySet<string> RequiredNamespaces(IrFunction function)
