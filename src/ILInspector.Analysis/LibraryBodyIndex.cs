@@ -3205,10 +3205,10 @@ public sealed class LibraryBodyIndex
         {
             if (left == AllocationEscape.Escapes || right == AllocationEscape.Escapes)
                 return AllocationEscape.Escapes;
-            if (left == AllocationEscape.ThrowPath || right == AllocationEscape.ThrowPath)
-                return AllocationEscape.ThrowPath;
             if (left == AllocationEscape.Unknown || right == AllocationEscape.Unknown)
                 return AllocationEscape.Unknown;
+            if (left == AllocationEscape.ThrowPath || right == AllocationEscape.ThrowPath)
+                return AllocationEscape.ThrowPath;
             return AllocationEscape.LocalOnly;
         }
 

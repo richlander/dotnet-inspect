@@ -1122,6 +1122,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.DropsPlainObject), AllocationKind.Object, AllocationEscape.LocalOnly)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ExceptionUnknownOrThrow), AllocationKind.Object, AllocationEscape.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesThenUnboxesLocal), AllocationKind.Box, AllocationEscape.LocalOnly)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstReturn), AllocationKind.Box, AllocationEscape.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstStoreField), AllocationKind.Box, AllocationEscape.Unknown)]
@@ -2870,6 +2871,17 @@ public class OptimizationOpportunityFixtures
 
     public void StoresPlainObjectToField() => _objectField = new PlainObject(1);
 
+    public static void ExceptionUnknownOrThrow(bool passToUnknown)
+    {
+        var exception = new InvalidOperationException("bad");
+        if (passToUnknown)
+        {
+            ConsumeObject(exception);
+            return;
+        }
+        throw exception;
+    }
+
     // --- String accumulation (string-build-in-loop) ---
 
     // `s += x` inside a foreach: String.Concat(s, x) stored back to the same local each
@@ -3202,6 +3214,8 @@ public class OptimizationOpportunityFixtures
     }
 
     private static void ConsumeArray(int[] data) => Console.WriteLine(data.Length);
+
+    private static void ConsumeObject(object? value) => Console.WriteLine(value);
 
     // --- Delegate allocation (capture detection + de-dup) ---
 
