@@ -675,6 +675,10 @@ public record class OptimizationOpportunitySummary
     public string Confidence { get; init; } = "";
     public string Loop { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Allocation { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IL { get; init; }
 }
 

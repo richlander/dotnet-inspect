@@ -28,7 +28,7 @@ public class AnnotationStructuredViewTests
         var fact = Assert.Single(doc.RootElement.EnumerateArray());
         Assert.Equal("alloc.box", fact.GetProperty("id").GetString());
         Assert.Equal("Allocation", fact.GetProperty("category").GetString());
-        Assert.Equal("int", fact.GetProperty("detail").GetString());
+        Assert.Equal("int; alloc=boxed System.Int32; path=straight-line; escape=escapes", fact.GetProperty("detail").GetString());
         Assert.Equal("IL_0001", fact.GetProperty("il").GetString());
         Assert.True(fact.GetProperty("offset").GetInt32() >= 0);
     }
@@ -41,7 +41,7 @@ public class AnnotationStructuredViewTests
         var json = AnnotationStructuredView.Json(Collect(nameof(AllocSampleClass.Capture)));
         using var doc = JsonDocument.Parse(json);
         Assert.Contains(doc.RootElement.EnumerateArray(),
-            f => f.GetProperty("detail").GetString() == "Func<int, int>");
+            f => f.GetProperty("detail").GetString() == "Func<int, int>; alloc=System.Func<System.Int32, System.Int32>; path=straight-line; escape=escapes");
     }
 
     [Fact]
