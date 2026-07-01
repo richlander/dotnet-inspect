@@ -317,10 +317,13 @@ public class CommandExecutionTests
 
         var baseline = await RunAppAsync(BaseArgs());
         var filtered = await RunAppAsync([.. BaseArgs(), "--loop"]);
+        var whereFiltered = await RunAppAsync([.. BaseArgs(), "--where", "Shape=box-value-type"]);
 
         Assert.Equal(0, baseline.Exit);
         Assert.Equal(0, filtered.Exit);
+        Assert.Equal(0, whereFiltered.Exit);
         Assert.Equal(baseline.Output, filtered.Output);
+        Assert.Equal(baseline.Output, whereFiltered.Output);
     }
 
     [Fact]
@@ -332,6 +335,89 @@ public class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("Unknown Performance Triage shape 'typo-shape'", error);
         Assert.Contains("capturing-delegate", error);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageWhere_FiltersRowsByField()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Allocation=boxed *",
+            "--where", "Path=straight-line",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\tbox-value-type\t", output);
+        Assert.Contains("\tboxed System.Int32\tstraight-line\t", output);
+        Assert.DoesNotContain("\tstackalloc-candidate\t", output);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageOrderBy_OrdersBeforeTop()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Shape=box-value-type",
+            "--order-by", "RootReach desc",
+            "--top", "1",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var rows = output.TrimEnd().Split('\n');
+        Assert.Single(rows.Skip(1));
+        Assert.Contains("\tbox-value-type\t", rows[1]);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageCount_AppliesWhereBeforeTop()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Shape=box-value-type",
+            "--top", "1",
+            "--count",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 1, $"expected post-filter count before --top, got {count}");
+    }
+
+    [Fact]
+    public async Task PerformanceTriageWhere_UnknownFieldReportsSuggestion()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--where", "Allocaton=boxed *",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Field 'Allocaton' is not filterable", error);
+        Assert.Contains("Allocation", error);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageOrderBy_TriageCompositeMustBeStandalone()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--order-by", "Triage desc,RootReach desc",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Triage is a composite order", error);
     }
 
     [Theory]
@@ -4554,6 +4640,10 @@ public class CommandExecutionTests
         Assert.Contains("| Fix | column |", output);
         Assert.Contains("| Confidence | column |", output);
         Assert.Contains("| Loop | column |", output);
+        Assert.Contains("| Triage desc | default-order |", output);
+        Assert.Contains("| Loop desc | order-step |", output);
+        Assert.Contains("| Allocation | filterable |", output);
+        Assert.Contains("| RootReach | sortable |", output);
         Assert.Contains("| IL | column |", output);
     }
 

@@ -65,6 +65,15 @@ public class SharedOptions
         AllowMultipleArgumentsPerToken = true
     };
     public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Performance Triage: show the top N ranked rows" };
+    public Option<string[]> RowWhere { get; } = new("--where")
+    {
+        Description = "Filter selected section rows with a field predicate, e.g. --where \"Allocation=boxed *\" or --where \"RootReach>=10\"",
+        AllowMultipleArgumentsPerToken = false
+    };
+    public Option<string?> RowOrderBy { get; } = new("--order-by")
+    {
+        Description = "Order selected section rows by field(s), e.g. --order-by \"RootReach desc,Confidence desc\""
+    };
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -192,6 +201,8 @@ public class SharedOptions
         command.Options.Add(PerformanceTriageMinConfidence);
         command.Options.Add(PerformanceTriageShape);
         command.Options.Add(PerformanceTriageTop);
+        command.Options.Add(RowWhere);
+        command.Options.Add(RowOrderBy);
     }
 
     /// <summary>
@@ -228,13 +239,15 @@ public class SharedOptions
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var top = parseResult.GetValue(PerformanceTriageTop);
+        var top = parseResult.GetValue(Count) ? null : parseResult.GetValue(PerformanceTriageTop);
         return new PerformanceTriageOptions
         {
             LoopOnly = parseResult.GetValue(PerformanceTriageLoop),
             MinConfidence = parseResult.GetValue(PerformanceTriageMinConfidence),
             Shapes = shapes,
-            Top = top is > 0 ? top : null
+            Top = top is > 0 ? top : null,
+            Where = parseResult.GetValue(RowWhere) ?? [],
+            OrderBy = parseResult.GetValue(RowOrderBy)
         };
     }
 
