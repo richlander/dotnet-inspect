@@ -175,7 +175,17 @@ static class ReturnToSender
                 if (reader.GetString(property.Name).Contains('<', StringComparison.Ordinal))
                     continue;
 
-                if (property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef)).ParameterTypes.Length != 0)
+                MethodSignature<string> propertySignature;
+                try
+                {
+                    propertySignature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                {
+                    continue;
+                }
+
+                if (propertySignature.ParameterTypes.Length != 0)
                     continue;
 
                 var accessors = property.GetAccessors();
