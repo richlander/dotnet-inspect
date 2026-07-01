@@ -92,6 +92,26 @@ public sealed class ApiSignatureModelTests
             canonical);
     }
 
+    [Fact]
+    public void CanonicalSignature_NormalizesMultiGenericMethodNameWhitespace()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.PairGenericMethod));
+        var member = new ApiMember
+        {
+            Name = source.Name,
+            Kind = source.Kind,
+            Signature = "BROKEN",
+            SignatureModel = source.SignatureModel
+        };
+
+        Assert.True(ApiMemberIdentity.TryGetCanonicalSignature(type, member, out var canonical));
+
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.PairGenericMethod<TLeft,TRight>(TLeft,TRight)",
+            canonical);
+    }
+
     static ApiType GetType(string typeName)
         => Surface.Types.First(type => type.Name == typeName);
 
@@ -115,6 +135,9 @@ public sealed class ApiSignatureFixtures
     }
 
     public T GenericMethod<T>(T value) => value;
+
+    public (TLeft Left, TRight Right) PairGenericMethod<TLeft, TRight>(TLeft left, TRight right)
+        => (left, right);
 
     public string this[int index]
     {
