@@ -199,6 +199,89 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void PackageDependencyReferencePaths_SelectsCurrentTfmDependencyGroup()
+    {
+        string root = Directory.CreateTempSubdirectory("dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string packageDir = Path.Combine(root, "root.package", "1.0.0");
+            string targetDir = Path.Combine(packageDir, "lib", "net8.0");
+            Directory.CreateDirectory(targetDir);
+            string targetPath = Path.Combine(targetDir, "Root.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(packageDir, "root.package.nuspec"),
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+                  <metadata>
+                    <id>Root.Package</id>
+                    <version>1.0.0</version>
+                    <dependencies>
+                      <group targetFramework=".NETStandard2.0">
+                        <dependency id="Shared.Package" version="2.0.0" />
+                      </group>
+                      <group targetFramework="net8.0">
+                        <dependency id="Shared.Package" version="8.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            string netstandardPath = CreatePackageAsset(root, "Shared.Package", "2.0.0", "lib", "netstandard2.0", "Shared.dll");
+            string net8Path = CreatePackageAsset(root, "Shared.Package", "8.0.0", "lib", "net8.0", "Shared.dll");
+
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
+
+            Assert.Contains(net8Path, references);
+            Assert.DoesNotContain(netstandardPath, references);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PackageDependencyReferencePaths_HandlesBracketExactRangeAndLowercaseVersionDirectory()
+    {
+        string root = Directory.CreateTempSubdirectory("dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string packageDir = Path.Combine(root, "root.package", "1.0.0");
+            string targetDir = Path.Combine(packageDir, "lib", "net8.0");
+            Directory.CreateDirectory(targetDir);
+            string targetPath = Path.Combine(targetDir, "Root.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(packageDir, "root.package.nuspec"),
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="Shared.Package" version="[8.0.0-RC1]" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            string dependencyPath = CreatePackageAsset(root, "Shared.Package", "8.0.0-rc1", "lib", "net8.0", "Shared.dll");
+
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
+
+            Assert.Contains(dependencyPath, references);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Resolve_PlatformTrustFindsTrustedAssemblyWhenPackageCandidateHasSameName()
     {
         string root = Directory.CreateTempSubdirectory("dotnet-inspect-assembly-deps-").FullName;
@@ -251,6 +334,15 @@ public class AssemblyDependencyResolverTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    static string CreatePackageAsset(string root, string id, string version, string assetKind, string tfm, string fileName)
+    {
+        string assetDir = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant(), assetKind, tfm);
+        Directory.CreateDirectory(assetDir);
+        string path = Path.Combine(assetDir, fileName);
+        File.WriteAllText(path, "");
+        return path;
     }
 
     [Fact]

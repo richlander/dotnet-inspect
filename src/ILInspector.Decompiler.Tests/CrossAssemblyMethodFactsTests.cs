@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -182,72 +181,6 @@ public class CrossAssemblyMethodFactsTests
         Assert.True(call.Callee.IsSpecialNameInferred);
     }
 
-    [Fact]
-    public void NuGetDependencyProbe_SelectsCurrentTfmDependencyGroup()
-    {
-        string directory = Directory.CreateTempSubdirectory("dotnet-inspect-nuspec-deps-").FullName;
-        try
-        {
-            string packageDir = Path.Combine(directory, "root.package", "1.0.0");
-            Directory.CreateDirectory(packageDir);
-            File.WriteAllText(
-                Path.Combine(packageDir, "root.package.nuspec"),
-                """
-                <?xml version="1.0" encoding="utf-8"?>
-                <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
-                  <metadata>
-                    <id>Root.Package</id>
-                    <version>1.0.0</version>
-                    <dependencies>
-                      <group targetFramework=".NETStandard2.0">
-                        <dependency id="Shared.Package" version="2.0.0" />
-                      </group>
-                      <group targetFramework="net8.0">
-                        <dependency id="Shared.Package" version="8.0.0" />
-                      </group>
-                    </dependencies>
-                  </metadata>
-                </package>
-                """);
-
-            var dependencies = ReadNuGetDependencyPackageVersions(packageDir, "Root.Package", "1.0.0", "net8.0");
-
-            Assert.Equal("1.0.0", dependencies["Root.Package"]);
-            Assert.Equal("8.0.0", dependencies["Shared.Package"]);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void NuGetDependencyProbe_HandlesSingleBracketExactRangeAndLowercaseVersionDirectory()
-    {
-        string directory = Directory.CreateTempSubdirectory("dotnet-inspect-nuspec-probe-").FullName;
-        try
-        {
-            string dependencyVersionDir = Path.Combine(directory, "shared.package", "8.0.0-rc1");
-            string dependencyAssetDir = Path.Combine(dependencyVersionDir, "lib", "net8.0");
-            Directory.CreateDirectory(dependencyAssetDir);
-            string dependencyAssembly = Path.Combine(dependencyAssetDir, "Shared.dll");
-            File.WriteAllText(dependencyAssembly, "");
-
-            string? exactVersion = DependencyExactVersion("[8.0.0-RC1]");
-            Assert.Equal("8.0.0-RC1", exactVersion);
-            var versions = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Shared.Package"] = exactVersion,
-            };
-
-            Assert.Equal(dependencyAssembly, ProbeNuGetPackages(directory, "Shared.dll", versions, "net8.0"));
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
     static string Print(MetadataSource source, string methodName)
     {
         var function = ImportFunction(source, methodName);
@@ -279,28 +212,6 @@ public class CrossAssemblyMethodFactsTests
         Assert.NotNull(function);
         function.CheckInvariant();
         return function!;
-    }
-
-    static IReadOnlyDictionary<string, string?> ReadNuGetDependencyPackageVersions(string packageVersionDir, string packageId, string packageVersion, string tfm)
-    {
-        var method = typeof(MetadataSource).GetMethod("NuGetDependencyPackageVersions", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-        var result = method!.Invoke(null, [packageVersionDir, packageId, packageVersion, tfm]);
-        return Assert.IsAssignableFrom<IReadOnlyDictionary<string, string?>>(result);
-    }
-
-    static string? ProbeNuGetPackages(string root, string fileName, IReadOnlyDictionary<string, string?> packageVersions, string tfm)
-    {
-        var method = typeof(MetadataSource).GetMethod("ProbeNuGetPackages", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-        return (string?)method!.Invoke(null, [root, fileName, packageVersions, tfm]);
-    }
-
-    static string? DependencyExactVersion(string version)
-    {
-        var method = typeof(MetadataSource).GetMethod("DependencyExactVersion", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-        return (string?)method!.Invoke(null, [version]);
     }
 
     sealed class CrossAssemblyFixture : IDisposable
