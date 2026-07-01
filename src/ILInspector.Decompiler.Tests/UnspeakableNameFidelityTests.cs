@@ -127,7 +127,7 @@ public class UnspeakableNameFidelityTests
         Assert.Null(upgraded.BackingPropertyName);
     }
 
-    static string? LocateTestAssembly(string assemblyName, AssemblyTrust _)
+    static string? LocateTestAssembly(string assemblyName, AssemblyResolutionScope _)
         => assemblyName == typeof(CfgSampleClass).Assembly.GetName().Name
             ? typeof(CfgSampleClass).Assembly.Location
             : null;
