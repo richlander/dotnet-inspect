@@ -21,7 +21,7 @@ namespace ILInspector.Instructions;
 /// extended with peeking, skipping, and branch-destination helpers. Shared
 /// by both decompiler pipelines.
 /// </summary>
-internal ref struct ILReader
+public ref struct ILReader
 {
     private int _currentOffset;
     private readonly ReadOnlySpan<byte> _ilBytes;

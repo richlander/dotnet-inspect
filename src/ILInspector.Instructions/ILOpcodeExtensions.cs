@@ -16,7 +16,7 @@ namespace ILInspector.Instructions;
 /// Extension methods for <see cref="ILOpCode"/> providing size, validity, and branch classification.
 /// Ported from dotnet/runtime Internal.IL.ILOpcodeHelper, adapted to use BCL's ILOpCode enum.
 /// </summary>
-internal static class ILOpcodeExtensions
+public static class ILOpcodeExtensions
 {
     private const byte VariableSize = 0xFF;
     private const byte Invalid = 0xFE;
