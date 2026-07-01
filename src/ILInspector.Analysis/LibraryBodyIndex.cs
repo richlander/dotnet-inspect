@@ -1074,11 +1074,13 @@ public sealed class LibraryBodyIndex
                 for (int i = 0; i < instructions.Length; i++)
                     _instructionIndexByOffset[instructions[i].Offset] = i;
                 LoopRegions = CollectLoopRegions();
+                NaturalLoops = CollectNaturalLoops();
             }
 
             public ImmutableArray<DecodedInstruction> Instructions { get; }
             public BlockGraph BlockGraph { get; }
             public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
+            public IReadOnlyList<NaturalLoop> NaturalLoops { get; }
 
             public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
             {
@@ -1136,6 +1138,96 @@ public sealed class LibraryBodyIndex
                     }
                 }
                 return regions;
+            }
+
+            IReadOnlyList<NaturalLoop> CollectNaturalLoops()
+            {
+                var loops = new List<NaturalLoop>();
+                if (!BlockGraph.IsComplete || BlockGraph.Blocks.Length == 0)
+                    return loops;
+
+                var predecessors = new List<int>[BlockGraph.Blocks.Length];
+                for (int i = 0; i < predecessors.Length; i++)
+                    predecessors[i] = [];
+                for (int source = 0; source < BlockGraph.Blocks.Length; source++)
+                {
+                    foreach (int successor in BlockGraph.Blocks[source].Edges.Successors)
+                    {
+                        if ((uint)successor < (uint)predecessors.Length)
+                            predecessors[successor].Add(source);
+                    }
+                }
+
+                var indexByBlock = new int[BlockGraph.Blocks.Length];
+                var lowLinkByBlock = new int[BlockGraph.Blocks.Length];
+                var onStack = new bool[BlockGraph.Blocks.Length];
+                Array.Fill(indexByBlock, -1);
+                var stack = new Stack<int>();
+                var nextIndex = 0;
+
+                for (int block = 0; block < BlockGraph.Blocks.Length; block++)
+                {
+                    if (indexByBlock[block] < 0)
+                        Visit(block);
+                }
+
+                return loops;
+
+                void Visit(int block)
+                {
+                    indexByBlock[block] = nextIndex;
+                    lowLinkByBlock[block] = nextIndex;
+                    nextIndex++;
+                    stack.Push(block);
+                    onStack[block] = true;
+
+                    foreach (int successor in BlockGraph.Blocks[block].Edges.Successors)
+                    {
+                        if ((uint)successor >= (uint)BlockGraph.Blocks.Length)
+                            continue;
+                        if (indexByBlock[successor] < 0)
+                        {
+                            Visit(successor);
+                            lowLinkByBlock[block] = Math.Min(lowLinkByBlock[block], lowLinkByBlock[successor]);
+                        }
+                        else if (onStack[successor])
+                        {
+                            lowLinkByBlock[block] = Math.Min(lowLinkByBlock[block], indexByBlock[successor]);
+                        }
+                    }
+
+                    if (lowLinkByBlock[block] != indexByBlock[block])
+                        return;
+
+                    var component = new List<int>();
+                    int member;
+                    do
+                    {
+                        member = stack.Pop();
+                        onStack[member] = false;
+                        component.Add(member);
+                    }
+                    while (member != block);
+
+                    bool cyclic = component.Count > 1
+                        || BlockGraph.Blocks[component[0]].Edges.Successors.Contains(component[0]);
+                    if (!cyclic)
+                        return;
+
+                    var componentSet = component.ToHashSet();
+                    var entries = component
+                        .Where(candidate => candidate == 0 || predecessors[candidate].Any(pred => !componentSet.Contains(pred)))
+                        .Distinct()
+                        .ToArray();
+                    if (entries.Length != 1)
+                        return;
+
+                    int header = entries[0];
+                    if (component.Any(candidate => !DominatesBlock(BlockGraph, header, candidate)))
+                        return;
+
+                    loops.Add(new NaturalLoop(header, LatchBlock: -1, [.. component.Order()]));
+                }
             }
         }
 
@@ -2258,7 +2350,8 @@ public sealed class LibraryBodyIndex
                         int token = OperandInt32(instruction);
                         var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         if (IsNoCapacityGrowableCollectionConstructor(constructor, out var collectionType)
-                            && TryReadStoreLocalDefinition(decodedBody, instruction.NextOffset, out int slot, out int storeOffset))
+                            && TryReadStoreLocalDefinition(decodedBody, instruction.NextOffset, out int slot, out int storeOffset)
+                            && ConstructorDominatesStoreDefinition(decodedBody, offset, storeOffset))
                         {
                             unsizedCollectionsByDefinition[(slot, storeOffset)] =
                                 new UnsizedCollectionConstruction(collectionType, offset);
@@ -2443,9 +2536,10 @@ public sealed class LibraryBodyIndex
                         }
                         else if (IsStringSliceAllocator(callee, out var sliceOp)
                             && IsInLoopRegion(offset, loopRegions)
+                            && TryGetContainingNaturalLoop(decodedBody, offset, out _)
                             && !StringSliceCallIsProvablyNoOp(decodedBody, offset, callee, callerScope))
                         {
-                            var coldRegion = ClassifyColdRegion(decodedBody, offset);
+                            var coldRegion = ClassifyColdRegion(caller, decodedBody, offset);
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
                                 "string-slice-in-loop",
@@ -2477,7 +2571,8 @@ public sealed class LibraryBodyIndex
                                 "No allocation when the static type has a struct enumerator; worthwhile only if the concrete type is reachable at this call site."));
                         }
                         else if (IsGrowableCollectionMutation(callee, out var growthCall)
-                            && TryGetContainingLoop(offset, loopRegions, out var growthLoop)
+                            && TryGetContainingLoop(offset, loopRegions, out _)
+                            && TryGetContainingNaturalLoop(decodedBody, offset, out var growthLoop)
                             && TryGetUnsizedCollectionReceiver(
                                 decodedBody,
                                 GetReachingDefinitions(),
@@ -2495,7 +2590,7 @@ public sealed class LibraryBodyIndex
                                 callerScope,
                                 unsizedCollectionsByDefinition))
                         {
-                            var coldRegion = ClassifyColdRegion(decodedBody, offset);
+                            var coldRegion = ClassifyColdRegion(caller, decodedBody, offset);
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
                                 "unsized-collection-grown",
@@ -3025,6 +3120,16 @@ public sealed class LibraryBodyIndex
             return true;
         }
 
+        static bool ConstructorDominatesStoreDefinition(DecodedBody decodedBody, int constructorOffset, int storeOffset)
+        {
+            int constructorBlock = decodedBody.BlockGraph.BlockIndexAt(constructorOffset);
+            int storeBlock = decodedBody.BlockGraph.BlockIndexAt(storeOffset);
+            if (constructorBlock < 0 || storeBlock < 0)
+                return false;
+            return constructorBlock == storeBlock
+                || DominatesBlock(decodedBody.BlockGraph, constructorBlock, storeBlock);
+        }
+
         static bool TryPositionAfterLoadLocal(DecodedBody decodedBody, int offset, int slot, out int positionAfterLoad)
         {
             positionAfterLoad = offset;
@@ -3090,6 +3195,25 @@ public sealed class LibraryBodyIndex
                     continue;
                 if (!found || region.End - region.Start < loop.End - loop.Start)
                     loop = region;
+                found = true;
+            }
+            return found;
+        }
+
+        static bool TryGetContainingNaturalLoop(DecodedBody decodedBody, int offset, out NaturalLoop loop)
+        {
+            loop = default;
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            if (blockIndex < 0)
+                return false;
+
+            var found = false;
+            foreach (var candidate in decodedBody.NaturalLoops)
+            {
+                if (!candidate.ContainsBlock(blockIndex))
+                    continue;
+                if (!found || candidate.Blocks.Length < loop.Blocks.Length)
+                    loop = candidate;
                 found = true;
             }
             return found;
@@ -3357,7 +3481,7 @@ public sealed class LibraryBodyIndex
             DecodedBody decodedBody,
             ReachingDefinitionsResult reachingDefinitions,
             int growthOffset,
-            (int Start, int End) growthLoop,
+            NaturalLoop growthLoop,
             UnsizedCollectionConstruction construction,
             GenericScope callerScope,
             IReadOnlyDictionary<(int Slot, int StoreOffset), UnsizedCollectionConstruction> constructions)
@@ -3365,14 +3489,10 @@ public sealed class LibraryBodyIndex
             if (!decodedBody.BlockGraph.IsComplete)
                 return false;
 
-            int loopEntryBlock = decodedBody.BlockGraph.BlockIndexAt(growthLoop.Start);
-            if (loopEntryBlock < 0)
-                return false;
-
             foreach (var instruction in decodedBody.Instructions)
             {
                 int offset = instruction.Offset;
-                if (offset >= growthLoop.Start || offset >= growthOffset)
+                if (offset >= growthOffset)
                     break;
                 if (offset <= construction.ConstructorOffset)
                     continue;
@@ -3398,8 +3518,11 @@ public sealed class LibraryBodyIndex
                 int sizingBlock = decodedBody.BlockGraph.BlockIndexAt(offset);
                 if (sizingBlock < 0)
                     continue;
-                if (sizingBlock == loopEntryBlock || DominatesBlock(decodedBody.BlockGraph, sizingBlock, loopEntryBlock))
+                if (!growthLoop.ContainsBlock(sizingBlock)
+                    && DominatesBlock(decodedBody.BlockGraph, sizingBlock, growthLoop.HeaderBlock))
+                {
                     return true;
+                }
             }
 
             return false;
@@ -3815,6 +3938,12 @@ public sealed class LibraryBodyIndex
             public static StringSliceStackValue LengthOf(LocalSlotAccess access) => new(false, access, false, true);
         }
 
+        readonly record struct NaturalLoop(int HeaderBlock, int LatchBlock, ImmutableArray<int> Blocks)
+        {
+            public bool ContainsBlock(int block)
+                => !Blocks.IsDefaultOrEmpty && Blocks.Contains(block);
+        }
+
         static bool TryFindPreviousInstruction(DecodedBody decodedBody, int targetOffset, out DecodedInstruction previousInstruction)
         {
             previousInstruction = default!;
@@ -3953,14 +4082,18 @@ public sealed class LibraryBodyIndex
         static bool IsInLoopRegion(int offset, IReadOnlyList<(int Start, int End)> regions)
             => regions.Any(region => offset >= region.Start && offset <= region.End);
 
-        ColdRegionClassification ClassifyColdRegion(DecodedBody decodedBody, int offset)
+        ColdRegionClassification ClassifyColdRegion(MethodIdentity caller, DecodedBody decodedBody, int offset)
         {
             if (IsInsideExceptionHandlerBlock(decodedBody, offset))
                 return ColdRegionClassification.Cold;
-            if (MethodUnconditionallyThrows(decodedBody))
+            if (IsThrowHelperMethod(caller) && MethodUnconditionallyThrows(decodedBody, offset))
                 return ColdRegionClassification.Cold;
             return ColdRegionClassification.Warm;
         }
+
+        static bool IsThrowHelperMethod(MethodIdentity caller)
+            => caller.Name.StartsWith("Throw", StringComparison.Ordinal)
+                || StringComparer.Ordinal.Equals(DeclaringTypeLeafName(caller.DeclaringType), "ThrowHelper");
 
         static bool IsInsideExceptionHandlerBlock(DecodedBody decodedBody, int offset)
         {
@@ -3987,10 +4120,11 @@ public sealed class LibraryBodyIndex
             return false;
         }
 
-        static bool MethodUnconditionallyThrows(DecodedBody decodedBody)
+        static bool MethodUnconditionallyThrows(DecodedBody decodedBody, int siteOffset)
         {
             if (!decodedBody.BlockGraph.IsComplete || decodedBody.BlockGraph.Blocks.Length == 0)
                 return false;
+            TryGetContainingNaturalLoop(decodedBody, siteOffset, out var siteLoop);
 
             var reachable = new bool[decodedBody.BlockGraph.Blocks.Length];
             var stack = new Stack<int>();
@@ -4023,6 +4157,8 @@ public sealed class LibraryBodyIndex
                 {
                     return false;
                 }
+                if (siteLoop.ContainsBlock(i))
+                    return false;
                 sawThrowExit = true;
             }
             return sawThrowExit;

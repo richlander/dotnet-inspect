@@ -1415,6 +1415,22 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_RejectsTernarySizedOrUnsizedCtor()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.TernarySizedOrUnsizedListGrownInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLexicalButNotNaturalLoop_DoesNotFire()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.LexicalButNotNaturalLoop)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_UnsizedCollectionGrownOutsideLoop_DoesNotFire()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1435,10 +1451,20 @@ public class LibraryBodyIndexTests
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.UnsizedStringBuilderGrownBeforeThrow)));
+        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.ThrowUnsizedStringBuilderGrown)));
         Assert.Equal("low", row.Confidence);
         Assert.True(row.ColdPath);
         Assert.Contains("cold path", row.Caveat, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionInInfiniteLoopWithConditionalThrow_StaysMedium()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.UnsizedListGrownInInfiniteLoopBeforeConditionalThrow)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.ColdPath);
     }
 
     [Fact]
@@ -1470,11 +1496,19 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_StringSliceInLexicalButNotNaturalLoop_DoesNotFire()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.LexicalButNotNaturalLoop)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_StringSliceOnThrowHelperPath_IsLowAdvisory()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var row = Assert.Single(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.SubstringInLoopBeforeThrow)));
+        var row = Assert.Single(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.ThrowSubstringInLoop)));
         Assert.Equal("low", row.Confidence);
         Assert.True(row.ColdPath);
         Assert.Contains("cold path", row.Caveat, StringComparison.OrdinalIgnoreCase);
@@ -2928,6 +2962,37 @@ public class OptimizationOpportunityFixtures
         return list;
     }
 
+    public static System.Collections.Generic.List<int> TernarySizedOrUnsizedListGrownInLoop(int[] values, bool sized)
+    {
+        var list = sized
+            ? new System.Collections.Generic.List<int>(values.Length)
+            : new System.Collections.Generic.List<int>();
+        foreach (var value in values)
+            list.Add(value);
+        return list;
+    }
+
+    public static int LexicalButNotNaturalLoop(int[] values, string text)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        var total = 0;
+        var i = 0;
+        goto Check;
+    LoopStart:
+        i++;
+        goto Check;
+    OutsideLoop:
+        if (values.Length > 0)
+            list.Add(values[0]);
+        if (text.Length > 1)
+            total += text.Substring(1).Length;
+        return total + list.Count;
+    Check:
+        if (i < values.Length)
+            goto LoopStart;
+        goto OutsideLoop;
+    }
+
     public static System.Collections.Generic.List<int> UnsizedListGrownOnce(int value)
     {
         var list = new System.Collections.Generic.List<int>();
@@ -2949,12 +3014,24 @@ public class OptimizationOpportunityFixtures
 
     static int StaticAdd(int value) => value + 1;
 
-    public static void UnsizedStringBuilderGrownBeforeThrow(string[] values)
+    public static void ThrowUnsizedStringBuilderGrown(string[] values)
     {
         var builder = new System.Text.StringBuilder();
         foreach (var value in values)
             builder.Append(value);
         throw new InvalidOperationException(builder.ToString());
+    }
+
+    public static void UnsizedListGrownInInfiniteLoopBeforeConditionalThrow(bool fatal)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        while (true)
+        {
+            list.Add(42);
+            if (fatal)
+                throw new InvalidOperationException(list.Count.ToString());
+            GC.KeepAlive(list);
+        }
     }
 
     public static int SubstringInLoop(string[] values)
@@ -2979,7 +3056,7 @@ public class OptimizationOpportunityFixtures
         return total;
     }
 
-    public static void SubstringInLoopBeforeThrow(string[] values)
+    public static void ThrowSubstringInLoop(string[] values)
     {
         var total = 0;
         foreach (var value in values)
