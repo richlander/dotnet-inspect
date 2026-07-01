@@ -1177,11 +1177,11 @@ public static class ApiOutputFormatter
 
             // Deduplicate and sort
             rows = rows
-                .GroupBy(row => (row.Source, row.Caller, row.IL, row.Token))
+                .GroupBy(row => (row.Source, row.Caller, row.ILOffset, row.OperandToken))
                 .Select(g => g.First())
                 .OrderBy(row => row.Source, StringComparer.Ordinal)
                 .ThenBy(row => row.Caller, StringComparer.Ordinal)
-                .ThenBy(row => row.IL, StringComparer.Ordinal)
+                .ThenBy(row => row.ILOffset, StringComparer.Ordinal)
                 .ToList();
 
             if (rows.Count > 0 || ExplicitlySelected(SectionNames.Callers))
@@ -1802,9 +1802,13 @@ public static class ApiOutputFormatter
         => new(
             source,
             MarkoutInline.Code(FormatMethod(call.Caller)),
-            FormatCallKind(call.Kind),
             MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
-            MarkoutInline.Code($"0x{call.OperandToken:X8}"));
+            string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
+            FormatCallsiteKind(call.Kind),
+            MarkoutInline.Code($"0x{call.OperandToken:X8}"),
+            call.ReturnAddress is { } returnAddress
+                ? MarkoutInline.Code($"IL_{returnAddress:X4}")
+                : null);
 
     static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
     {

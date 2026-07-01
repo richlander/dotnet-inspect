@@ -313,7 +313,7 @@ public class ApiCommand
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.Callers) == null)
-            detailSchema.Add(SectionNames.Callers, "column", "Caller", "Kind", "IL", "Token");
+            detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
         detailSchema.Add(SectionNames.CallGraph, "field",

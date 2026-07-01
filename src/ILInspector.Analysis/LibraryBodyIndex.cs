@@ -3165,9 +3165,11 @@ public sealed class LibraryBodyIndex
                             token,
                             PeelToDefinitionToken(token),
                             ToCallKind(opcode),
-                            inLoop,
-                            FormatCallOpcode(opcode),
-                            instruction.NextOffset));
+                            inLoop)
+                        {
+                            Opcode = FormatCallOpcode(opcode),
+                            ReturnAddress = instruction.NextOffset
+                        });
                         if (IsUnsafeCall(callee))
                         {
                             unsafeEvidence.Add(new UnsafeEvidence(
@@ -3190,9 +3192,11 @@ public sealed class LibraryBodyIndex
                             token,
                             token,
                             CallKind.CallIndirect,
-                            IsInLoopRegion(offset, loopRegions),
-                            FormatCallOpcode(opcode),
-                            instruction.NextOffset));
+                            IsInLoopRegion(offset, loopRegions))
+                        {
+                            Opcode = FormatCallOpcode(opcode),
+                            ReturnAddress = instruction.NextOffset
+                        });
                         unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", "calli", "calli", offset, token));
                         break;
                     }

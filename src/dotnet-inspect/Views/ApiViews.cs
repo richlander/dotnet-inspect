@@ -758,7 +758,15 @@ public record ExceptionRegionRow(
     [property: MarkoutSkipNull] string? CaughtType);
 
 [MarkoutSerializable]
-public record CallerSiteRow(string Source, string Caller, string Kind, string IL, string Token);
+public record CallerSiteRow(
+    string Source,
+    string Caller,
+    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    string Opcode,
+    [property: MarkoutPropertyName("Call Kind")] string CallKind,
+    [property: MarkoutPropertyName("Operand Token")] string OperandToken,
+    [property: MarkoutPropertyName("Return Address")]
+    [property: MarkoutSkipNull] string? ReturnAddress);
 
 [MarkoutSerializable]
 public record UnsafeOperationRow(
