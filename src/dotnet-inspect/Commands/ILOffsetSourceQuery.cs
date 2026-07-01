@@ -270,6 +270,11 @@ internal static class ILOffsetSourceQuery
             "localloc" => "stackalloc",
             "calli" => "calli",
             "cpblk" or "initblk" => "unsafe block operation",
+            "ldind.i1" or "ldind.u1" or "ldind.i2" or "ldind.u2" or "ldind.i4" or "ldind.u4"
+                or "ldind.i8" or "ldind.i" or "ldind.r4" or "ldind.r8" or "ldind.ref" => "dereference",
+            "stind.i1" or "stind.i2" or "stind.i4" or "stind.i8" or "stind.i"
+                or "stind.r4" or "stind.r8" or "stind.ref" => "dereference",
+            "call" or "callvirt" or "newobj" when IsUnsafeOperation(instruction.Operand) => "unsafe call",
             _ => null
         };
         if (kind is null)
@@ -287,6 +292,11 @@ internal static class ILOffsetSourceQuery
             }
         ];
     }
+
+    private static bool IsUnsafeOperation(string? operand)
+        => operand?.Contains("System.Runtime.CompilerServices.Unsafe.", StringComparison.Ordinal) == true
+            || operand?.Contains("System.Span<", StringComparison.Ordinal) == true
+            || operand?.Contains("void*", StringComparison.Ordinal) == true;
 
     private static List<ILOffsetCostContext> BuildCostContext(ILOffsetInstructionContextInfo? instruction)
     {

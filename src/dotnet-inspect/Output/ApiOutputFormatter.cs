@@ -1287,11 +1287,10 @@ public static class ApiOutputFormatter
         {
             RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
-            var methodScope = (Analysis.MethodIdentity method) => method.MetadataToken == semanticToken;
 
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
-                var rows = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodScope)
+                var rows = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), semanticToken)
                     .Select(fact => ToAllocationFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.AllocationFacts))
@@ -1303,7 +1302,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
-                var rows = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodScope)
+                var rows = Analysis.SemanticFactProjection.SafetyFacts(index.GetUnsafeEvidenceByMember(), index.GetUnsafetyOccurrences(), semanticToken)
                     .Select(fact => ToSafetyFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.SafetyFacts))
@@ -1315,7 +1314,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
-                var rows = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodScope)
+                var rows = Analysis.SemanticFactProjection.CostFacts(index.GetDirectCallsByCaller(), semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.CostFacts))
