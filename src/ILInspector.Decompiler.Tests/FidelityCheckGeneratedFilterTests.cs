@@ -632,6 +632,84 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void Evaluate_RetainsResourceCollectionEnumerableClause()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+            using System.Linq;
+
+            namespace Aspire.Hosting.ApplicationModel
+            {
+                public interface IResource
+                {
+                    string Name { get; }
+                }
+
+                public interface IResourceCollection : IList<IResource>
+                {
+                    bool TryGetByName(string name, out IResource resource);
+                }
+            }
+
+            public static class ResourceCollectionQueries
+            {
+                public static Aspire.Hosting.ApplicationModel.IResource Find(
+                    Aspire.Hosting.ApplicationModel.IResourceCollection resources,
+                    string name)
+                    => resources.SingleOrDefault(resource => resource.Name == name);
+            }
+            """);
+        try
+        {
+            AssertCheckable(FidelityCheck.Evaluate(assemblyPath), "ResourceCollectionQueries", "Find");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_RetainsResourceAnnotationCollectionSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+            using System.Linq;
+
+            namespace Aspire.Hosting.ApplicationModel
+            {
+                public interface IResourceAnnotation { }
+
+                public sealed class HttpAnnotation : IResourceAnnotation { }
+
+                public class ResourceAnnotationCollection : System.Collections.ObjectModel.Collection<IResourceAnnotation>
+                {
+                }
+            }
+
+            public static class AnnotationQueries
+            {
+                public static bool HasHttp(Aspire.Hosting.ApplicationModel.ResourceAnnotationCollection annotations)
+                {
+                    annotations.Add(new Aspire.Hosting.ApplicationModel.HttpAnnotation());
+                    foreach (var annotation in annotations)
+                        if (annotation is Aspire.Hosting.ApplicationModel.HttpAnnotation)
+                            return annotations.OfType<Aspire.Hosting.ApplicationModel.HttpAnnotation>().Any();
+                    return false;
+                }
+            }
+            """);
+        try
+        {
+            AssertCheckable(FidelityCheck.Evaluate(assemblyPath), "AnnotationQueries", "HasHttp");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectSharedFrameworkDirectory_PrefersExactThenNearestSameMajorMinor()
     {
         string root = Directory.CreateTempSubdirectory("dotnet-inspect-frameworks-").FullName;
