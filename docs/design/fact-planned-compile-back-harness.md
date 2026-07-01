@@ -26,8 +26,8 @@ The new harness should:
 1. gather typed facts from Metadata, Instructions, Analysis, and Research;
 2. keep compile-driven closure growth as the generic membership algorithm;
 3. turn facts and membership into a structured reconstruction plan;
-4. produce structured type shells with typed signatures;
-5. print those shells as C# declarations;
+4. produce structured module and type shells with typed signatures;
+5. print those shells as C# declarations and assembly/module context;
 6. insert the existing `CSharpPrinter` method body;
 7. compile and compare opcode streams.
 
@@ -88,12 +88,19 @@ Metadata / Instructions / Analysis / Research facts
         +-------------+-------------+
                       |
                       v
+        +---------------------------+
+        | ModuleWriter              |
+        | compilation-unit context  |
+        +-------------+-------------+
+                      |
+                      v
 CSharpPrinter body -> compile shell -> Roslyn -> opcode compare
 ```
 
 `ReturnToSenderPlanner`, `ReconstructionPlan`, `TypeProducer`, `TypeShell`, and
 `TypePrinter` should live in a tools-only reconstruction project under `tools/`
-or another non-shipped harness assembly. They should not live in
+or another non-shipped harness assembly. `ModuleWriter` belongs there too if it
+is harness-specific. They should not live in
 `ILInspector.Research` or `ILInspector.Decompiler`.
 
 Research remains a product library. It can expose generic facts that other
@@ -240,6 +247,29 @@ TypePrinter prints:
 TypePrinter should be a renderer, not a planner. It should not query Research or
 read Roslyn diagnostics.
 
+### ModuleWriter
+
+Own compilation-unit rendering above type declarations.
+
+ReturnToSender needs a module-level writer if it wants to preserve assembly and
+module context instead of smuggling that context into TypePrinter. This includes:
+
+- assembly attributes;
+- module attributes;
+- file-scoped or block-scoped namespace strategy;
+- usings, aliases, and nullable context if they become necessary for fidelity;
+- unsafe and compiler-option context that affects whether emitted source binds;
+- ordering of generated declarations and the target body.
+
+ModuleWriter should be narrow. It should not become a second source generator or
+own type/member shape decisions. Its job is to assemble a compilable C# unit from
+module facts, TypePrinter output, and the CSharpPrinter method body.
+
+Some assembly/module attributes are noise for compile-back and should be omitted.
+Others can affect binding, diagnostics, or generated IL shape. ReturnToSender
+needs an explicit allowlist of preservable attributes, with each attribute traced
+to a metadata fact and a compile-back reason.
+
 ### ReturnToSender harness
 
 Own orchestration and proof.
@@ -250,10 +280,11 @@ Responsibilities:
 2. ask `ReturnToSenderPlanner` for a reconstruction plan;
 3. ask TypeProducer for type shells;
 4. ask TypePrinter for declaration text;
-5. ask CSharpPrinter for the target method body;
-6. compile;
-7. compare opcodes;
-8. classify failure if compile-back cannot run.
+5. ask ModuleWriter for assembly/module context and final compilation unit;
+6. ask CSharpPrinter for the target method body;
+7. compile;
+8. compare opcodes;
+9. classify failure if compile-back cannot run.
 
 Roslyn diagnostics remain useful, but as membership growth and validation
 feedback, not as the primary shell-shape architecture.
@@ -267,9 +298,19 @@ implementation starts.
 ReconstructionPlan
   TargetMethod: MethodIdentity
   AssemblyReferences: IReadOnlyList<AssemblyReference>
+  ModuleRequirements: ModuleRequirement
   ClosureRoots: IReadOnlyList<TypeIdentity>
   TypeRequirements: IReadOnlyList<TypeRequirement>
   Diagnostics: IReadOnlyList<PlanningDiagnostic>
+```
+
+```text
+ModuleRequirement
+  AssemblyAttributes: IReadOnlyList<AttributeRequirement>
+  ModuleAttributes: IReadOnlyList<AttributeRequirement>
+  NullableContext: NullableContextRequirement?
+  UnsafeContext: UnsafeContextRequirement?
+  SourceFacts: IReadOnlyList<FactIdentity>
 ```
 
 ```text
@@ -311,6 +352,11 @@ TypeMemberShell
 
 `TypeShell` and `TypeMemberShell` must carry typed signatures. They should never
 store printable fragments as the source of truth.
+
+`ModuleRequirement` should be just as evidence-backed as type requirements. A
+module or assembly attribute should not be preserved because it existed in the
+input assembly; it should be preserved because it affects compile-back binding,
+diagnostics, generated IL, or a named fidelity experiment.
 
 ## Product and dependency boundary
 
@@ -583,8 +629,9 @@ the new path proves itself.
 2. Define the tools-only `ReconstructionPlan`.
 3. Define `TypeShell`, `TypeMemberShell`, `TypeSignature`, and related identity
    records.
-4. Keep current `CB_CLUSTER` membership growth as the closure source.
-5. Implement TypePrinter for a minimal subset:
+4. Define `ModuleRequirement` and a minimal `ModuleWriter`.
+5. Keep current `CB_CLUSTER` membership growth as the closure source.
+6. Implement TypePrinter for a minimal subset:
    - class/interface declarations;
    - namespace nesting;
    - base/interface clauses;
@@ -592,17 +639,21 @@ the new path proves itself.
    - properties;
    - methods as throwing stubs;
    - explicit interface property stubs.
-6. Add reusable fact producers where they belong:
+7. Implement ModuleWriter for a minimal subset:
+   - assembly/module attributes from an explicit compile-back allowlist;
+   - nullable/unsafe context only when needed by a witness;
+   - deterministic ordering of declarations and the target body.
+8. Add reusable fact producers where they belong:
    - protobuf message facts in Research if reusable by CLI/Analysis views;
    - Aspire resource collection/resource annotation facts only if they are useful
      beyond the harness; otherwise keep them harness-local.
-7. Add harness-side shell-shape producers:
+9. Add harness-side shell-shape producers:
    - protobuf shell producer;
    - Aspire resource collection/resource annotation shell producer;
    - generic base/interface constraint producer.
-8. Compile shell + method body.
-9. Compare opcode stream.
-10. Emit plan report.
+10. Compile shell + method body.
+11. Compare opcode stream.
+12. Emit plan report.
 
 ### MVP success criteria
 
@@ -648,6 +699,7 @@ ReturnToSender over N targets
 Plan layers:
   closure membership    : resolved / failed
   reference closure     : resolved / failed
+  module context        : resolved / failed
   type identity         : resolved / failed
   member surface        : resolved / failed
   generated-family facts: resolved / failed
@@ -666,7 +718,8 @@ Examples:
 - Land this design.
 - Decide shared TypeIdentity extraction vs a strictly temporary adapter.
 - Define `ReconstructionPlan`, `TypeShell`, `TypeMemberShell`, `TypeSignature`,
-  and TypePrinter shape in a tools-only project.
+  `ModuleRequirement`, TypePrinter, and ModuleWriter shape in a tools-only
+  project.
 - Keep Research scoped to reusable facts.
 
 ### Phase 2: protobuf pilot
@@ -709,6 +762,7 @@ Examples:
 5. What is the first real witness set: protobuf-only, Aspire-only, or both?
 6. How should the new harness report bails so they are actionable without
    becoming another giant diagnostic wall?
+7. Should the working name stay ReturnToSender or switch to LoopBack?
 
 ## Adversarial review results incorporated
 
