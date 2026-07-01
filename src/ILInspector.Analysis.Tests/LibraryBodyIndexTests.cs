@@ -1162,7 +1162,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch, AllocationPostDominance.ReturnPostDominates)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch, AllocationPostDominance.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
@@ -1225,6 +1225,13 @@ public class LibraryBodyIndexTests
                     && occurrence.PathContext == AllocationPathContext.StraightLine
                     && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
                     && occurrence.PostDominance == AllocationPostDominance.Unknown);
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "InternalReturnLoopAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.Unknown);
         }
         finally
         {
@@ -1248,8 +1255,8 @@ public class LibraryBodyIndexTests
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "System.Int32[]", "straight-line", "dominates-return", "return-post-dominates")]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line", "dominates-return", "return-post-dominates")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body", "behind-branch", "return-post-dominates")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body", "behind-branch", "return-post-dominates")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body", "behind-branch", null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body", "behind-branch", null)]
     [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot", "newobj/newarr/box", "loop body", null, null)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body", null, null)]
     public void OptimizationOpportunities_IncludeAllocationPathConfidenceAndPostDominanceMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath, string? expectedConfidence, string? expectedPostDominance)
@@ -1909,6 +1916,7 @@ public class LibraryBodyIndexTests
         DefineSwitchAllocation(type, ctor);
         DefineAfterIfJoinAllocation(type, ctor);
         DefineReturnOrInfiniteLoopAllocation(type, ctor);
+        DefineInternalReturnLoopAllocation(type, ctor);
 
         type.CreateType();
         assembly.Save(path);
@@ -1992,6 +2000,29 @@ public class LibraryBodyIndexTests
             il.Emit(OpCodes.Ret);
             il.MarkLabel(loop);
             il.Emit(OpCodes.Br_S, loop);
+        }
+
+        static void DefineInternalReturnLoopAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "InternalReturnLoopAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var header = il.DefineLabel();
+            var ret = il.DefineLabel();
+            var value = il.DeclareLocal(typeof(object));
+            il.Emit(OpCodes.Ldc_I4, 1);
+            il.Emit(OpCodes.Newobj, ctor);
+            il.Emit(OpCodes.Stloc, value);
+            il.MarkLabel(header);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brtrue_S, ret);
+            il.Emit(OpCodes.Br_S, header);
+            il.MarkLabel(ret);
+            il.Emit(OpCodes.Ldloc, value);
+            il.Emit(OpCodes.Ret);
         }
     }
 

@@ -1490,6 +1490,7 @@ public sealed class LibraryBodyIndex
                             || edges[block].LeavesRegion)));
                 var reachesNonExitingBlock = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
                     .Where(block => postDominators.ImmediatePostDominator(block) == PostDominators.None));
+                var reachesCycle = BackwardReachable(edges, CyclicBlocks(edges));
 
                 for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
                 {
@@ -1497,7 +1498,8 @@ public sealed class LibraryBodyIndex
                         continue;
                     if (reachesReturn[blockIndex]
                         && !reachesNonReturnExit[blockIndex]
-                        && !reachesNonExitingBlock[blockIndex])
+                        && !reachesNonExitingBlock[blockIndex]
+                        && !reachesCycle[blockIndex])
                     {
                         postDominanceByBlock[blockIndex] = AllocationPostDominance.ReturnPostDominates;
                     }
@@ -1544,6 +1546,66 @@ public sealed class LibraryBodyIndex
                 }
 
                 return reachable;
+            }
+
+            static IEnumerable<int> CyclicBlocks(IReadOnlyList<BlockEdges> edges)
+            {
+                var indexByBlock = new int[edges.Count];
+                var lowlinkByBlock = new int[edges.Count];
+                Array.Fill(indexByBlock, -1);
+                var onStack = new bool[edges.Count];
+                var stack = new Stack<int>();
+                var cyclic = new bool[edges.Count];
+                int nextIndex = 0;
+
+                for (int block = 0; block < edges.Count; block++)
+                    if (indexByBlock[block] < 0)
+                        Visit(block);
+
+                return Enumerable.Range(0, cyclic.Length).Where(block => cyclic[block]).ToArray();
+
+                void Visit(int block)
+                {
+                    indexByBlock[block] = nextIndex;
+                    lowlinkByBlock[block] = nextIndex;
+                    nextIndex++;
+                    stack.Push(block);
+                    onStack[block] = true;
+
+                    foreach (int successor in edges[block].Successors)
+                    {
+                        if ((uint)successor >= (uint)edges.Count)
+                            continue;
+                        if (indexByBlock[successor] < 0)
+                        {
+                            Visit(successor);
+                            lowlinkByBlock[block] = Math.Min(lowlinkByBlock[block], lowlinkByBlock[successor]);
+                        }
+                        else if (onStack[successor])
+                        {
+                            lowlinkByBlock[block] = Math.Min(lowlinkByBlock[block], indexByBlock[successor]);
+                        }
+                    }
+
+                    if (lowlinkByBlock[block] != indexByBlock[block])
+                        return;
+
+                    var component = new List<int>();
+                    int member;
+                    do
+                    {
+                        member = stack.Pop();
+                        onStack[member] = false;
+                        component.Add(member);
+                    }
+                    while (member != block);
+
+                    if (component.Count > 1 || edges[block].Successors.Contains(block))
+                    {
+                        foreach (int memberBlock in component)
+                            cyclic[memberBlock] = true;
+                    }
+                }
             }
         }
 
