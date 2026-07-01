@@ -198,6 +198,18 @@ public class TypeView
     [JsonIgnore]
     public List<CalledTypeRow>? CalledTypeRows { get; set; }
 
+    [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = "No allocation facts found for this type.")]
+    [JsonIgnore]
+    public List<AllocationFactRow>? AllocationFactRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.SafetyFacts, EmptyText = "No safety facts found for this type.")]
+    [JsonIgnore]
+    public List<SafetyFactRow>? SafetyFactRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.CostFacts, EmptyText = "No cost facts found for this type.")]
+    [JsonIgnore]
+    public List<CostFactRow>? CostFactRows { get; set; }
+
     [MarkoutSection(Name = "Top Leverage", EmptyText = "No intra-assembly call-graph leverage found for this type.")]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
@@ -664,6 +676,15 @@ public class MemberCodeView
     public static bool ExceptionRegionCaughtTypeIsEmpty(List<ExceptionRegionRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.CaughtType));
 
+    public static bool AllocationFactMemberIsEmpty(List<AllocationFactRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.Member));
+
+    public static bool SafetyFactMemberIsEmpty(List<SafetyFactRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.Member));
+
+    public static bool CostFactMemberIsEmpty(List<CostFactRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.Member));
+
     [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
     public List<TreeNode>? CallGraphNodes { get; set; }
  
@@ -675,6 +696,18 @@ public class MemberCodeView
 
     [MarkoutSection(Name = "Facts", EmptyText = "No hidden facts found in this method body.")]
     public List<FactRow>? FactRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = "No allocation facts found in this method body.")]
+    [MarkoutIgnoreColumnWhen(nameof(AllocationFactMemberIsEmpty), nameof(AllocationFactRow.Member))]
+    public List<AllocationFactRow>? AllocationFactRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.SafetyFacts, EmptyText = "No safety facts found in this method body.")]
+    [MarkoutIgnoreColumnWhen(nameof(SafetyFactMemberIsEmpty), nameof(SafetyFactRow.Member))]
+    public List<SafetyFactRow>? SafetyFactRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.CostFacts, EmptyText = "No cost facts found in this method body.")]
+    [MarkoutIgnoreColumnWhen(nameof(CostFactMemberIsEmpty), nameof(CostFactRow.Member))]
+    public List<CostFactRow>? CostFactRows { get; set; }
 
     [MarkoutSection(Name = "IL")]
     public CodeSection ILCode { get; set; }
@@ -712,6 +745,9 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(UnsafeMemberRow))]
 [MarkoutContext(typeof(TypeExceptionRegionRow))]
 [MarkoutContext(typeof(CalledTypeRow))]
+[MarkoutContext(typeof(AllocationFactRow))]
+[MarkoutContext(typeof(SafetyFactRow))]
+[MarkoutContext(typeof(CostFactRow))]
 [MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(OptimizationOpportunityRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
@@ -758,6 +794,36 @@ public record CalledTypeRow(
     int Calls,
     int Members,
     [property: MarkoutPropertyName("Call Kinds")] string CallKinds);
+
+[MarkoutSerializable]
+public record AllocationFactRow(
+    [property: MarkoutSkipNull] string? Member,
+    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    [property: MarkoutPropertyName("Allocation Kind")] string AllocationKind,
+    [property: MarkoutPropertyName("Allocated Type")] string? AllocatedType,
+    [property: MarkoutPropertyName("Counted As Heap")] string CountedAsHeap,
+    string Escape,
+    [property: MarkoutPropertyName("In Loop")] string InLoop,
+    string Evidence);
+
+[MarkoutSerializable]
+public record SafetyFactRow(
+    [property: MarkoutSkipNull] string? Member,
+    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    [property: MarkoutPropertyName("Safety Kind")] string SafetyKind,
+    string Operation,
+    string Requirement,
+    string Confidence,
+    string Evidence);
+
+[MarkoutSerializable]
+public record CostFactRow(
+    [property: MarkoutSkipNull] string? Member,
+    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    [property: MarkoutPropertyName("Cost Kind")] string CostKind,
+    string Operation,
+    [property: MarkoutPropertyName("In Loop")] string InLoop,
+    string Evidence);
 
 [MarkoutSerializable]
 public record ExceptionRegionRow(

@@ -1283,6 +1283,49 @@ public static class ApiOutputFormatter
             }
         }
 
+        if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
+        {
+            RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var methodScope = (Analysis.MethodIdentity method) => method.MetadataToken == semanticToken;
+
+            if (requestedSections.Contains(SectionNames.AllocationFacts))
+            {
+                var rows = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodScope)
+                    .Select(fact => ToAllocationFactRow(fact, includeMember: false))
+                    .ToList();
+                if (rows.Count > 0 || ExplicitlySelected(SectionNames.AllocationFacts))
+                {
+                    memberCode.AllocationFactRows = rows;
+                    hasCode = true;
+                }
+            }
+
+            if (requestedSections.Contains(SectionNames.SafetyFacts))
+            {
+                var rows = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodScope)
+                    .Select(fact => ToSafetyFactRow(fact, includeMember: false))
+                    .ToList();
+                if (rows.Count > 0 || ExplicitlySelected(SectionNames.SafetyFacts))
+                {
+                    memberCode.SafetyFactRows = rows;
+                    hasCode = true;
+                }
+            }
+
+            if (requestedSections.Contains(SectionNames.CostFacts))
+            {
+                var rows = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodScope)
+                    .Select(fact => ToCostFactRow(fact, includeMember: false))
+                    .ToList();
+                if (rows.Count > 0 || ExplicitlySelected(SectionNames.CostFacts))
+                {
+                    memberCode.CostFactRows = rows;
+                    hasCode = true;
+                }
+            }
+        }
+
         if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
@@ -1469,6 +1512,13 @@ public static class ApiOutputFormatter
     };
 
     static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
+
+    static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
+    {
+        SectionNames.AllocationFacts,
+        SectionNames.SafetyFacts,
+        SectionNames.CostFacts
+    };
 
     static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
         => evidence is { Reason: "Unsafe API member", Kind: "api" };
@@ -1674,6 +1724,44 @@ public static class ApiOutputFormatter
             view.CalledTypeRows = rows;
     }
 
+    internal static void PopulateTypeSemanticFacts(
+        TypeView view,
+        ApiType type,
+        string dllPath,
+        IReadOnlySet<string>? requestedSections,
+        IReadOnlySet<string>? explicitSections = null)
+    {
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var methodScope = (Analysis.MethodIdentity method) => SameType(method.DeclaringType, type);
+
+        if (requestedSections?.Contains(SectionNames.AllocationFacts) == true)
+        {
+            var rows = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodScope)
+                .Select(fact => ToAllocationFactRow(fact, includeMember: true))
+                .ToList();
+            if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.AllocationFacts))
+                view.AllocationFactRows = rows;
+        }
+
+        if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
+        {
+            var rows = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodScope)
+                .Select(fact => ToSafetyFactRow(fact, includeMember: true))
+                .ToList();
+            if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.SafetyFacts))
+                view.SafetyFactRows = rows;
+        }
+
+        if (requestedSections?.Contains(SectionNames.CostFacts) == true)
+        {
+            var rows = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodScope)
+                .Select(fact => ToCostFactRow(fact, includeMember: true))
+                .ToList();
+            if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CostFacts))
+                view.CostFactRows = rows;
+        }
+    }
+
     internal static void PopulateOptimizationOpportunities(
         TypeView view,
         ApiType type,
@@ -1814,6 +1902,36 @@ public static class ApiOutputFormatter
             evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
             evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null);
     }
+
+    static AllocationFactRow ToAllocationFactRow(Analysis.AllocationFact fact, bool includeMember)
+        => new(
+            includeMember ? MarkoutInline.Code(FormatMethod(fact.Method)) : null,
+            MarkoutInline.Code($"IL_{fact.ILOffset:X4}"),
+            fact.AllocationKind,
+            fact.AllocatedType is { } allocated ? MarkoutInline.Code(allocated) : null,
+            fact.CountedAsHeap ? "Yes" : "No",
+            fact.Escape,
+            fact.InLoop ? "Yes" : "No",
+            fact.Evidence);
+
+    static SafetyFactRow ToSafetyFactRow(Analysis.SafetyFact fact, bool includeMember)
+        => new(
+            includeMember ? MarkoutInline.Code(FormatMethod(fact.Method)) : null,
+            MarkoutInline.Code($"IL_{fact.ILOffset:X4}"),
+            fact.SafetyKind,
+            MarkoutInline.Code(fact.Operation),
+            fact.Requirement,
+            fact.Confidence,
+            fact.Evidence);
+
+    static CostFactRow ToCostFactRow(Analysis.CostFact fact, bool includeMember)
+        => new(
+            includeMember ? MarkoutInline.Code(FormatMethod(fact.Method)) : null,
+            MarkoutInline.Code($"IL_{fact.ILOffset:X4}"),
+            fact.CostKind,
+            MarkoutInline.Code(fact.Operation),
+            fact.InLoop ? "Yes" : "No",
+            fact.Evidence);
 
     static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);

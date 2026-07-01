@@ -444,6 +444,9 @@ public class LibraryCommand
             select.Add(SectionNames.ExceptionContext);
             select.Add(SectionNames.CallsiteContext);
             select.Add(SectionNames.ReturnAddressContext);
+            select.Add(SectionNames.AllocationContext);
+            select.Add(SectionNames.SafetyContext);
+            select.Add(SectionNames.CostContext);
         }
 
         return (options with
@@ -460,7 +463,10 @@ public class LibraryCommand
         SectionNames.InstructionContext,
         SectionNames.ExceptionContext,
         SectionNames.CallsiteContext,
-        SectionNames.ReturnAddressContext
+        SectionNames.ReturnAddressContext,
+        SectionNames.AllocationContext,
+        SectionNames.SafetyContext,
+        SectionNames.CostContext
     ];
 
     private static readonly string[] ILCoordinateSingletonSections =
@@ -469,7 +475,10 @@ public class LibraryCommand
         SectionNames.MemberContext,
         SectionNames.InstructionContext,
         SectionNames.CallsiteContext,
-        SectionNames.ReturnAddressContext
+        SectionNames.ReturnAddressContext,
+        SectionNames.AllocationContext,
+        SectionNames.SafetyContext,
+        SectionNames.CostContext
     ];
 
     private static bool HasILOffsetCoordinate(LibraryOptions options)
@@ -541,6 +550,9 @@ public class LibraryCommand
             SectionNames.InstructionContext => inspection.ILOffset?.InstructionContext != null,
             SectionNames.CallsiteContext => inspection.ILOffset?.CallsiteContext != null,
             SectionNames.ReturnAddressContext => inspection.ILOffset?.ReturnAddressContext != null,
+            SectionNames.AllocationContext => inspection.ILOffset?.AllocationContext is { Count: > 0 },
+            SectionNames.SafetyContext => inspection.ILOffset?.SafetyContext is { Count: > 0 },
+            SectionNames.CostContext => inspection.ILOffset?.CostContext is { Count: > 0 },
             _ => false
         };
         Console.WriteLine(hasRow ? 1 : 0);

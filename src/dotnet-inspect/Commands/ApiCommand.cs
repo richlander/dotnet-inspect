@@ -735,6 +735,14 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, options.IncludeSections);
             }
 
+            var semanticSections = GetRequestedMemberSections(type, options);
+            if (options is not MemberOptions
+                && options.DllPath is { } semanticFactsDllPath
+                && semanticSections.Overlaps(SemanticFactSections))
+            {
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, semanticFactsDllPath, semanticSections, options.IncludeSections);
+            }
+
             if (options.DllPath is { } optimizationDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
@@ -1353,6 +1361,14 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, renderOptions.IncludeSections);
             }
 
+            var semanticSections = GetRequestedMemberSections(type, renderOptions);
+            if (renderOptions is not MemberOptions
+                && renderOptions.DllPath is { } semanticFactsDllPath
+                && semanticSections.Overlaps(SemanticFactSections))
+            {
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, semanticFactsDllPath, semanticSections, renderOptions.IncludeSections);
+            }
+
             if (renderOptions.DllPath is { } optimizationDllPath
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
@@ -1435,6 +1451,13 @@ public class ApiCommand
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
+    {
+        SectionNames.AllocationFacts,
+        SectionNames.SafetyFacts,
+        SectionNames.CostFacts
+    };
 
     /// <summary>
     /// Maps each member section name to the predicate that selects its members.

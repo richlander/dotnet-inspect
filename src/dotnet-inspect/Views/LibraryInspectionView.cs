@@ -579,6 +579,51 @@ public class LibraryInspectionView
             OperandToken = context.OperandToken
         };
 
+    [MarkoutIgnore]
+    public bool HasILOffsetAllocationContext => _data.ILOffset?.AllocationContext is { Count: > 0 };
+
+    [MarkoutSection(Name = SectionNames.AllocationContext, ShowWhenProperty = nameof(HasILOffsetAllocationContext))]
+    public List<ILOffsetAllocationContextRow>? ILOffsetAllocationContextSection =>
+        _data.ILOffset?.AllocationContext?
+            .Select(context => new ILOffsetAllocationContextRow(
+                context.ILOffset,
+                context.AllocationKind,
+                context.AllocatedType,
+                context.CountedAsHeap,
+                context.Escape,
+                context.InLoop,
+                context.Evidence))
+            .ToList();
+
+    [MarkoutIgnore]
+    public bool HasILOffsetSafetyContext => _data.ILOffset?.SafetyContext is { Count: > 0 };
+
+    [MarkoutSection(Name = SectionNames.SafetyContext, ShowWhenProperty = nameof(HasILOffsetSafetyContext))]
+    public List<ILOffsetSafetyContextRow>? ILOffsetSafetyContextSection =>
+        _data.ILOffset?.SafetyContext?
+            .Select(context => new ILOffsetSafetyContextRow(
+                context.ILOffset,
+                context.SafetyKind,
+                context.Operation,
+                context.Requirement,
+                context.Confidence,
+                context.Evidence))
+            .ToList();
+
+    [MarkoutIgnore]
+    public bool HasILOffsetCostContext => _data.ILOffset?.CostContext is { Count: > 0 };
+
+    [MarkoutSection(Name = SectionNames.CostContext, ShowWhenProperty = nameof(HasILOffsetCostContext))]
+    public List<ILOffsetCostContextRow>? ILOffsetCostContextSection =>
+        _data.ILOffset?.CostContext?
+            .Select(context => new ILOffsetCostContextRow(
+                context.ILOffset,
+                context.CostKind,
+                context.Operation,
+                context.InLoop,
+                context.Evidence))
+            .ToList();
+
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
@@ -954,6 +999,33 @@ public class ILOffsetReturnAddressContextSection
     [MarkoutPropertyName("Operand Token")]
     public string? OperandToken { get; init; }
 }
+
+[MarkoutSerializable]
+public record ILOffsetAllocationContextRow(
+    [property: MarkoutPropertyName("IL Offset")] string? ILOffset,
+    [property: MarkoutPropertyName("Allocation Kind")] string? AllocationKind,
+    [property: MarkoutPropertyName("Allocated Type")] string? AllocatedType,
+    [property: MarkoutPropertyName("Counted As Heap")] string? CountedAsHeap,
+    string? Escape,
+    [property: MarkoutPropertyName("In Loop")] string? InLoop,
+    string? Evidence);
+
+[MarkoutSerializable]
+public record ILOffsetSafetyContextRow(
+    [property: MarkoutPropertyName("IL Offset")] string? ILOffset,
+    [property: MarkoutPropertyName("Safety Kind")] string? SafetyKind,
+    string? Operation,
+    string? Requirement,
+    string? Confidence,
+    string? Evidence);
+
+[MarkoutSerializable]
+public record ILOffsetCostContextRow(
+    [property: MarkoutPropertyName("IL Offset")] string? ILOffset,
+    [property: MarkoutPropertyName("Cost Kind")] string? CostKind,
+    string? Operation,
+    [property: MarkoutPropertyName("In Loop")] string? InLoop,
+    string? Evidence);
 
 [MarkoutSerializable]
 public record ResourceRow(

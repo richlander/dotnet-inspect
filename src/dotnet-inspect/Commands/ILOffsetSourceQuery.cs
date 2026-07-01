@@ -5,6 +5,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Commands;
 
@@ -69,6 +70,27 @@ internal static class ILOffsetSourceQuery
         {
             Console.Error.WriteLine($"Error: {returnAddressError}");
             return (1, null);
+        }
+
+        List<ILOffsetAllocationContext>? allocationContext = null;
+        List<ILOffsetSafetyContext>? safetyContext = null;
+        List<ILOffsetCostContext>? costContext = null;
+        if (RequiresSemanticContext(options))
+        {
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var methodScope = (Analysis.MethodIdentity method) => method.MetadataToken == methodToken;
+            if (RequiresAllocationContext(options))
+                allocationContext = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), methodScope, ilOffset)
+                    .Select(ToILOffsetAllocationContext)
+                    .ToList();
+            if (RequiresSafetyContext(options))
+                safetyContext = Analysis.SemanticFactProjection.SafetyFacts(index.UnsafeEvidence, index.GetUnsafetyOccurrences(), methodScope, ilOffset)
+                    .Select(ToILOffsetSafetyContext)
+                    .ToList();
+            if (RequiresCostContext(options))
+                costContext = Analysis.SemanticFactProjection.CostFacts(index.DirectCalls, methodScope, ilOffset)
+                    .Select(ToILOffsetCostContext)
+                    .ToList();
         }
 
         SourceLinkResolver.ILOffsetSourceInfo? result = null;
@@ -173,7 +195,10 @@ internal static class ILOffsetSourceQuery
                 CallKind = returnAddressContext.CallKind,
                 Callee = returnAddressContext.Callee,
                 OperandToken = returnAddressContext.OperandToken
-            }
+            },
+            AllocationContext = allocationContext,
+            SafetyContext = safetyContext,
+            CostContext = costContext
         };
 
         return (0, resolved);
@@ -194,9 +219,54 @@ internal static class ILOffsetSourceQuery
     private static bool RequiresReturnAddressContext(LibraryOptions options)
         => options.IncludeSections?.Contains(SectionNames.ReturnAddressContext) == true;
 
+    private static bool RequiresAllocationContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.AllocationContext) == true;
+
+    private static bool RequiresSafetyContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.SafetyContext) == true;
+
+    private static bool RequiresCostContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.CostContext) == true;
+
+    private static bool RequiresSemanticContext(LibraryOptions options)
+        => RequiresAllocationContext(options) || RequiresSafetyContext(options) || RequiresCostContext(options);
+
     private static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
 
     private static string FormatILOffset(int offset) => $"IL_{offset:X4}";
+
+    private static ILOffsetAllocationContext ToILOffsetAllocationContext(Analysis.AllocationFact fact)
+        => new()
+        {
+            ILOffset = FormatILOffset(fact.ILOffset),
+            AllocationKind = fact.AllocationKind,
+            AllocatedType = fact.AllocatedType,
+            CountedAsHeap = fact.CountedAsHeap ? "Yes" : "No",
+            Escape = fact.Escape,
+            InLoop = fact.InLoop ? "Yes" : "No",
+            Evidence = fact.Evidence
+        };
+
+    private static ILOffsetSafetyContext ToILOffsetSafetyContext(Analysis.SafetyFact fact)
+        => new()
+        {
+            ILOffset = FormatILOffset(fact.ILOffset),
+            SafetyKind = fact.SafetyKind,
+            Operation = fact.Operation,
+            Requirement = fact.Requirement,
+            Confidence = fact.Confidence,
+            Evidence = fact.Evidence
+        };
+
+    private static ILOffsetCostContext ToILOffsetCostContext(Analysis.CostFact fact)
+        => new()
+        {
+            ILOffset = FormatILOffset(fact.ILOffset),
+            CostKind = fact.CostKind,
+            Operation = fact.Operation,
+            InLoop = fact.InLoop ? "Yes" : "No",
+            Evidence = fact.Evidence
+        };
 
     public static bool TryParse(string value, out int methodToken, out int ilOffset)
     {
