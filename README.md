@@ -20,11 +20,17 @@ dnx dotnet-inspect -y -- <command>
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `project ./src/App -S Grounding`, `project ./src/App -S Grounding --print` | Resolves direct package references from `project.assets.json` for compact package grounding manifests and version-pinned docs. |
+| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Grounding --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup and package grounding; no restore/build/MSBuild evaluation is run. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
+
+For API commands, `--project` means an existing `project.assets.json`
+restored-assets context. Passing a `.csproj` or project directory only locates
+that file; dotnet-inspect does not restore or build. `--bin` remains the output
+directory context for copied DLLs. A future `--deps` source can represent
+runtime `.deps.json` context.
 
 ## Capability inventory
 
@@ -33,7 +39,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project grounding | `project` | Direct dependency `Grounding` rows and printable best package docs from restored projects. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. |
+| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
@@ -179,6 +185,8 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
+dotnet-inspect type Command --project ./src/App
+dotnet-inspect member Command --project ./src/App --show-index
 dotnet-inspect project ./src/App -S Grounding --jsonl
 dotnet-inspect project ./src/App -S Grounding --paths
 dotnet-inspect project ./src/App -S Grounding --print --row 1
@@ -199,6 +207,8 @@ dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,Sour
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
+dotnet-inspect type Command --project ./src/App
+dotnet-inspect member Command --project ./src/App --show-index
 dotnet-inspect project ./src/App -S Grounding
 dotnet-inspect project ./src/App -S Grounding --print --row 1
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all
