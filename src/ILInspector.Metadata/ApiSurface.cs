@@ -170,6 +170,44 @@ public class TypeParameter
         : null;
 }
 
+public class ApiSignature
+{
+    public string? ReturnType { get; set; }
+    public string? MemberName { get; set; }
+    public bool IsRequired { get; set; }
+    public List<ApiParameter> Parameters { get; set; } = [];
+    public List<ApiAccessor> Accessors { get; set; } = [];
+
+    public int ParameterCount => Parameters.Count;
+
+    public string ParameterTypesSummary => Parameters.Count == 0
+        ? ""
+        : $"({string.Join(", ", Parameters.Select(parameter => parameter.TypeWithModifier))})";
+
+    public string PublicAccessorsSummary => string.Join(", ",
+        Accessors
+            .Where(accessor => string.IsNullOrEmpty(accessor.Accessibility))
+            .Select(accessor => accessor.Kind));
+}
+
+public class ApiParameter
+{
+    public string Name { get; set; } = "";
+    public string Type { get; set; } = "";
+    public string? Modifier { get; set; }
+    public bool HasDefault { get; set; }
+
+    public string TypeWithModifier => string.IsNullOrEmpty(Modifier)
+        ? Type
+        : $"{Modifier} {Type}";
+}
+
+public class ApiAccessor
+{
+    public string Kind { get; set; } = "";
+    public string? Accessibility { get; set; }
+}
+
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -260,6 +298,9 @@ public class ApiMember
 
     public string? ReturnType { get; set; }
     public string? Signature { get; set; }
+
+    [JsonIgnore]
+    public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>
     /// MethodDef metadata token for method-like members when known.
