@@ -390,7 +390,7 @@ static bool TryCorrelateInput(
     var summary = new DiagnosticInputSummary(input.Kind, path, new FileInfo(path).Length, IsTextLike(path), 0, 0, []);
     if (path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
     {
-        if (!TryCorrelateNetTrace(path, input.Kind, summary, lookup, out exitCode))
+        if (!TryCorrelateNetTrace(path, input.Kind, summary, lookup, result, out exitCode))
             return false;
 
         result.DiagnosticInputs.Add(summary);
@@ -458,6 +458,7 @@ static bool TryCorrelateNetTrace(
     string sourceKind,
     DiagnosticInputSummary summary,
     CandidateLookup lookup,
+    CorrelationResult result,
     out int exitCode)
 {
     exitCode = 0;
@@ -482,10 +483,15 @@ static bool TryCorrelateNetTrace(
                 return;
 
             var matchedThisEvent = new HashSet<int>();
+            var matchedMethodsThisEvent = new HashSet<string>(StringComparer.Ordinal);
             while (stack != null)
             {
                 foreach (var candidate in lookup.FindByMethodText(stack.CodeAddress.FullMethodName))
+                {
+                    if (matchedMethodsThisEvent.Add(candidate.Method))
+                        result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
                     MarkAllocationHit(candidate, matchedThisEvent, sourceKind, data.TypeName, data.AllocationAmount64);
+                }
                 stack = stack.Caller;
             }
 
@@ -1018,6 +1024,10 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
             Offsets = string.Join(", ", g.Select(c => DisplayHelpers.FormatOffset(c.IlOffset)).Where(o => !string.IsNullOrWhiteSpace(o)).Distinct(StringComparer.Ordinal).Take(12)),
             Evidence = g.Select(c => c.Detail).FirstOrDefault(static e => !string.IsNullOrWhiteSpace(e)),
             Fix = g.Select(c => c.Fix).FirstOrDefault(static f => !string.IsNullOrWhiteSpace(f)),
+            TopTypes = result.MethodAllocations.TryGetValue(g.Key, out var methodAllocations)
+                ? methodAllocations.TopTypes(4)
+                : "",
+            Ambiguity = g.Any(c => c.RowAmbiguous) ? "row-ambiguous" : "row-likely",
             Exact = g.Any(c => c.ExactOffsetObserved),
             ShapeMatched = g.Any(c => c.ShapeMatched),
             InLoop = g.Any(c => c.InLoop),
@@ -1058,7 +1068,9 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         Console.WriteLine(top.Exact
             ? "The runtime artifact matched at exact token+IL offset for at least one row."
             : top.ShapeMatched
-                ? "The runtime artifact confirms matching allocation types under the method, not the exact IL offset. Use this as strong prioritization evidence; inspect/decompile the listed offsets before changing code."
+                ? top.Ambiguity == "row-ambiguous"
+                    ? "The runtime artifact confirms matching allocation types under the method, but multiple same-shape static rows share that evidence. Treat the method/shape as hot and inspect the listed offsets before choosing the exact edit."
+                    : "The runtime artifact confirms matching allocation types under the method, and there is a single same-shape static row. This is strong row-level prioritization evidence; inspect/decompile the listed offset before changing code."
                 : "The runtime artifact confirms the method, not the exact IL offset. Use this as a prioritization signal; inspect/decompile the listed offsets before changing code.");
     }
     Console.WriteLine();
@@ -1067,8 +1079,8 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     {
         Console.WriteLine("## Confirmed paydirt");
         Console.WriteLine();
-        Console.WriteLine("| Runtime Evidence | Method | Static Rows | Shape | Confidence | Loop | IL Offsets | Why it matters | Fix |");
-        Console.WriteLine("| ---------------- | ------ | ----------: | ----- | ---------- | ---- | ---------- | -------------- | --- |");
+        Console.WriteLine("| Runtime Evidence | Method | Static Rows | Row Confidence | Shape | Confidence | Loop | IL Offsets | Top Allocated Types | Why it matters | Fix |");
+        Console.WriteLine("| ---------------- | ------ | ----------: | -------------- | ----- | ---------- | ---- | ---------- | ------------------- | -------------- | --- |");
         foreach (var group in observedGroups.Take(10))
         {
             Console.WriteLine("| "
@@ -1077,10 +1089,12 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
                     group.AllocationBytes > 0 ? $"{group.AllocationHits.ToString(CultureInfo.InvariantCulture)} alloc ticks / {FormatBytes(group.AllocationBytes)}" : $"sample weight {group.Weight.ToString("0.##", CultureInfo.InvariantCulture)}",
                     $"`{Escape(group.Method)}`",
                     group.Rows.ToString(CultureInfo.InvariantCulture),
+                    Escape(group.Ambiguity),
                     Escape(group.Shapes),
                     Escape(group.Confidence ?? ""),
                     group.InLoop ? "yes" : "",
                     Escape(group.Offsets),
+                    Escape(group.TopTypes),
                     Escape(group.Evidence ?? ""),
                     Escape(group.Fix ?? ""),
                 ])
@@ -1124,7 +1138,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine();
     Console.WriteLine("- Static rows are IL-visible candidates from dotnet-inspect Performance Triage.");
     Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. Speedscope and Chromium reports are sampled/profile weights; text reports are presence matches.");
-    Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `confirmed-hot` means an exact token+IL coordinate was observed.");
+    Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape rows in one method share the dynamic evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
@@ -1277,6 +1291,8 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteNumber("shapeAllocationHits", candidate.ShapeAllocationHits);
     writer.WriteNumber("shapeAllocationBytes", candidate.ShapeAllocationBytes);
     writer.WriteBoolean("shapeMatched", candidate.ShapeMatched);
+    writer.WriteBoolean("rowAmbiguous", candidate.RowAmbiguous);
+    writer.WriteNumber("sameMethodShapeRows", candidate.SameMethodShapeRows);
     writer.WritePropertyName("observedAllocatedTypes");
     writer.WriteStartArray();
     foreach (var (type, bytes) in candidate.ObservedAllocatedTypes.OrderByDescending(kv => kv.Value).Take(10))
@@ -1395,6 +1411,61 @@ sealed class CorrelationResult
     public List<TriageInput> TriageInputs { get; } = [];
     public List<DiagnosticInputSummary> DiagnosticInputs { get; } = [];
     public List<AllocationCandidate> Candidates { get; } = [];
+    public Dictionary<string, MethodAllocationSummary> MethodAllocations { get; } = new(StringComparer.Ordinal);
+
+    public void RecordMethodAllocation(string method, string? allocatedType, long bytes)
+    {
+        if (string.IsNullOrWhiteSpace(allocatedType))
+            allocatedType = "(unknown)";
+
+        if (!MethodAllocations.TryGetValue(method, out var summary))
+        {
+            summary = new MethodAllocationSummary(method);
+            MethodAllocations.Add(method, summary);
+        }
+
+        summary.Record(allocatedType, bytes);
+    }
+}
+
+sealed class MethodAllocationSummary(string method)
+{
+    readonly Dictionary<string, (int Count, long Bytes)> _types = new(StringComparer.Ordinal);
+
+    public string Method { get; } = method;
+    public int Count { get; private set; }
+    public long Bytes { get; private set; }
+
+    public void Record(string allocatedType, long bytes)
+    {
+        Count++;
+        Bytes += bytes;
+        var current = _types.GetValueOrDefault(allocatedType);
+        _types[allocatedType] = (current.Count + 1, current.Bytes + bytes);
+    }
+
+    public string TopTypes(int count)
+        => string.Join("; ", _types
+            .OrderByDescending(static kv => kv.Value.Bytes)
+            .ThenBy(static kv => kv.Key, StringComparer.Ordinal)
+            .Take(count)
+            .Select(static kv => $"{kv.Key} {FormatBytesLocal(kv.Value.Bytes)}"));
+
+    static string FormatBytesLocal(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double value = bytes;
+        int unit = 0;
+        while (value >= 1024 && unit + 1 < units.Length)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0
+            ? $"{bytes.ToString(CultureInfo.InvariantCulture)} B"
+            : $"{value.ToString("0.##", CultureInfo.InvariantCulture)} {units[unit]}";
+    }
 }
 
 sealed class AllocationCandidate(
@@ -1446,6 +1517,8 @@ sealed class AllocationCandidate(
     public long ShapeAllocationBytes { get; set; }
     public bool ShapeMatched { get; set; }
     public bool ExactOffsetObserved { get; set; }
+    public int SameMethodShapeRows { get; set; } = 1;
+    public bool RowAmbiguous => ShapeMatched && SameMethodShapeRows > 1 && !ExactOffsetObserved;
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, long> ObservedAllocatedTypes { get; } = new(StringComparer.Ordinal);
     public long TotalObservedBytes => RuntimeBytes + AllocationBytes;
@@ -1455,7 +1528,7 @@ sealed class AllocationCandidate(
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
     public string Status => ShapeMatched
-        ? "shape-hot"
+        ? RowAmbiguous ? "shape-hot-ambiguous" : "shape-hot"
         : AllocationHits > 0
             ? "allocation-hot"
             : RuntimeHits == 0
@@ -1558,6 +1631,13 @@ sealed class CandidateLookup
     {
         var byTokenOffset = new Dictionary<(int Token, int Offset), List<AllocationCandidate>>();
         var fragments = new List<(string Fragment, AllocationCandidate Candidate)>();
+        foreach (var group in candidates.GroupBy(static c => (c.Method, c.AllocationKind)))
+        {
+            int count = group.Count();
+            foreach (var candidate in group)
+                candidate.SameMethodShapeRows = count;
+        }
+
         foreach (var candidate in candidates)
         {
             if (candidate.MethodToken != 0 && candidate.IlOffset >= 0)
