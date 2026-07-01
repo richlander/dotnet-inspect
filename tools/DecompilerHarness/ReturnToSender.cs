@@ -195,6 +195,20 @@ static class ReturnToSender
         string RecompiledOpcodes,
         string? Detail);
 
+    enum ComparisonDelta
+    {
+        Rescued,
+        Same,
+        Worse,
+        Changed,
+        CurrentMissing,
+    }
+
+    sealed record ComparisonResult(
+        Result ReturnToSender,
+        FidelityCheck.CompileBackResult? Current,
+        ComparisonDelta Delta);
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
         int total = 0, exact = 0, opcodeDiff = 0, recompileFail = 0, contextFail = 0;
@@ -296,6 +310,147 @@ static class ReturnToSender
         }
 
         return recompileFail + contextFail == 0 ? 0 : 1;
+    }
+
+    public static int RunComparison(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    {
+        int total = 0, rescued = 0, same = 0, worse = 0, changed = 0, currentMissing = 0;
+        var examples = new List<ComparisonResult>();
+
+        foreach (var assemblyPath in assemblies)
+        {
+            if (total >= cap)
+                break;
+
+            IReadOnlyList<Result> rtsResults;
+            try
+            {
+                rtsResults = CompileBackPropertyGetters(assemblyPath, cap - total);
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                if (examples.Count < maxExamples)
+                    examples.Add(new ComparisonResult(ContextFailResult(assemblyPath, ex.Message), null, ComparisonDelta.CurrentMissing));
+                currentMissing++;
+                total++;
+                continue;
+            }
+
+            IReadOnlyDictionary<string, FidelityCheck.CompileBackResult> current;
+            try
+            {
+                current = FidelityCheck.Evaluate([assemblyPath], Math.Max(1, rtsResults.Count * 4), lowered: false, includeAllResults: true)
+                    .GroupBy(CurrentKey, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                if (examples.Count < maxExamples)
+                    examples.Add(new ComparisonResult(ContextFailResult(assemblyPath, ex.Message), null, ComparisonDelta.CurrentMissing));
+                currentMissing++;
+                total++;
+                continue;
+            }
+
+            foreach (var rts in rtsResults)
+            {
+                if (total >= cap)
+                    break;
+
+                total++;
+                current.TryGetValue(ReturnToSenderKey(rts), out var currentResult);
+                var delta = ClassifyDelta(currentResult, rts);
+                switch (delta)
+                {
+                    case ComparisonDelta.Rescued:
+                        rescued++;
+                        break;
+                    case ComparisonDelta.Same:
+                        same++;
+                        break;
+                    case ComparisonDelta.Worse:
+                        worse++;
+                        break;
+                    case ComparisonDelta.Changed:
+                        changed++;
+                        break;
+                    case ComparisonDelta.CurrentMissing:
+                        currentMissing++;
+                        break;
+                }
+
+                if (examples.Count < maxExamples
+                    && delta is ComparisonDelta.Rescued or ComparisonDelta.Worse or ComparisonDelta.Changed or ComparisonDelta.CurrentMissing)
+                {
+                    examples.Add(new ComparisonResult(rts, currentResult, delta));
+                }
+            }
+        }
+
+        Console.WriteLine($"RETURNTOSENDER A/B over {total} property getters");
+        Console.WriteLine();
+        Console.WriteLine($"  Rescued       : {rescued}");
+        Console.WriteLine($"  Same          : {same}");
+        Console.WriteLine($"  Changed       : {changed}");
+        Console.WriteLine($"  Worse         : {worse}");
+        Console.WriteLine($"  CurrentMissing: {currentMissing}");
+        if (examples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Examples:");
+            foreach (var example in examples)
+            {
+                var rts = example.ReturnToSender;
+                Console.WriteLine($"  {rts.Plan.TargetMethod.Type}::{rts.Plan.TargetMethod.Method}");
+                Console.WriteLine($"    delta  : {example.Delta}");
+                Console.WriteLine($"    current: {example.Current?.Status.ToString() ?? "missing"} {example.Current?.Detail ?? ""}".TrimEnd());
+                Console.WriteLine($"    rts    : {rts.Status} {rts.Detail ?? ""}".TrimEnd());
+            }
+        }
+
+        return 0;
+    }
+
+    static string CurrentKey(FidelityCheck.CompileBackResult result)
+        => $"{result.Type}::{result.Method}::{result.Overload}";
+
+    static string ReturnToSenderKey(Result result)
+        => $"{result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}::{result.Plan.TargetMethod.Overload}";
+
+    static ComparisonDelta ClassifyDelta(FidelityCheck.CompileBackResult? current, Result rts)
+    {
+        if (current is null)
+            return ComparisonDelta.CurrentMissing;
+
+        if (current.Status == FidelityCheck.CompileBackStatus.Exact
+            && rts.Status != FidelityCheck.CompileBackStatus.Exact)
+        {
+            return ComparisonDelta.Worse;
+        }
+
+        if (current.Status != FidelityCheck.CompileBackStatus.Exact
+            && rts.Status == FidelityCheck.CompileBackStatus.Exact)
+        {
+            return ComparisonDelta.Rescued;
+        }
+
+        bool currentChecked = current.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
+        bool rtsChecked = rts.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
+        if (!currentChecked && rtsChecked)
+            return ComparisonDelta.Rescued;
+        if (currentChecked && !rtsChecked)
+            return ComparisonDelta.Worse;
+        return current.Status == rts.Status ? ComparisonDelta.Same : ComparisonDelta.Changed;
+    }
+
+    static Result ContextFailResult(string assemblyPath, string detail)
+    {
+        var plan = new ReconstructionPlan(
+            assemblyPath,
+            new MethodIdentity(Path.GetFileNameWithoutExtension(assemblyPath), "<assembly>", 0, ""),
+            new ModuleRequirement(["System"], [], []),
+            []);
+        return new Result(plan, "", FidelityCheck.CompileBackStatus.ContextFail, "", "", detail);
     }
 
     static (string Layer, string Detail) ExampleLayerAndDetail(Result result)

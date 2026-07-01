@@ -35,6 +35,7 @@ static class Program
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
         bool returnToSender = false;
+        bool returnToSenderAb = false;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
         bool gaps = false;
@@ -103,6 +104,7 @@ static class Program
                 case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
+                case "--return-to-sender-ab": returnToSenderAb = true; break;
                 case "--fidelity-timings": fidelityTimings = true; break;
                 case "--fidelity-zero-signal-guard": fidelityZeroSignalGuard = int.Parse(args[++i]); break;
                 case "--gaps": gaps = true; break;
@@ -185,6 +187,9 @@ static class Program
 
         if (returnToSender)
             return ReturnToSender.Run(assemblies, cap, maxExamples);
+
+        if (returnToSenderAb)
+            return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1169,6 +1174,8 @@ static class Program
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
                                 opcodes.
+          --return-to-sender-ab   compare current compile-back and ReturnToSender
+                                over the same ReturnToSender property-getter targets.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>
