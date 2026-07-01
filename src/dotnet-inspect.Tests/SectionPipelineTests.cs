@@ -261,7 +261,7 @@ public class SectionPipelineTests
         Assert.Contains("Health Checks", pipeline.AllSectionNames);
         Assert.Contains("Hosting", pipeline.AllSectionNames);
         Assert.Contains("HTTP Client", pipeline.AllSectionNames);
-        Assert.Contains("IL Offset", pipeline.AllSectionNames);
+        Assert.Contains("Source Location", pipeline.AllSectionNames);
         Assert.Contains("Member Context", pipeline.AllSectionNames);
         Assert.Contains("Integration Opportunities", pipeline.AllSectionNames);
         Assert.Contains("Integrations", pipeline.AllSectionNames);
@@ -287,7 +287,7 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["IL Offset", "Member Context"], StringComparer.OrdinalIgnoreCase)
+            ? registered.Except(["Source Location", "Member Context"], StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -538,9 +538,9 @@ public class SectionPipelineTests
         var applicable = pipeline.GetApplicableSections(model);
         var renderable = pipeline.GetAvailableSections(model);
 
-        Assert.DoesNotContain("IL Offset", applicable);
+        Assert.DoesNotContain("Source Location", applicable);
         Assert.DoesNotContain("Member Context", applicable);
-        Assert.DoesNotContain("IL Offset", renderable);
+        Assert.DoesNotContain("Source Location", renderable);
         Assert.DoesNotContain("Member Context", renderable);
 
         model.ILOffset = new ILOffsetResult
@@ -551,9 +551,9 @@ public class SectionPipelineTests
         applicable = pipeline.GetApplicableSections(model);
         renderable = pipeline.GetAvailableSections(model);
 
-        Assert.Contains("IL Offset", applicable);
+        Assert.Contains("Source Location", applicable);
         Assert.Contains("Member Context", applicable);
-        Assert.Contains("IL Offset", renderable);
+        Assert.Contains("Source Location", renderable);
         Assert.Contains("Member Context", renderable);
     }
 

@@ -4348,7 +4348,7 @@ public class CommandExecutionTests
     private static string[] BuildDiscoverySelectionArgs(string[] command, string section)
     {
         List<string> args = [.. command];
-        if (command is ["library", ..] && section == "IL Offset")
+        if (command is ["library", ..] && section == "Source Location")
             args.AddRange(["--il-offset", "0x06000041+0x0"]);
         args.AddRange(["-S", section, "--table", "--tips", "q", "-n", "40"]);
         return [.. args];
@@ -4484,7 +4484,7 @@ public class CommandExecutionTests
                 "Health Checks",
                 "Hosting",
                 "HTTP Client",
-                "IL Offset",
+                "Source Location",
                 "Integration Opportunities",
                 "Integrations",
                 "Logging",
@@ -4564,7 +4564,25 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL Offset", output);
+        Assert.Contains("## Source Location", output);
+        Assert.Contains("| Field | Value |", output);
+        Assert.Contains("| Method | System.HexConverter.FromChar |", output);
+        Assert.Contains("| Token | 0x6000001 |", output);
+        Assert.Contains("| IL Offset | 0x0 |", output);
+        Assert.Contains("HexConverter.cs", output);
+        Assert.Contains("## Member Context", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SourceLocationSectionSelector_UsesFlagParameter()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Location", output);
         Assert.Contains("| Field | Value |", output);
         Assert.Contains("| Method | System.HexConverter.FromChar |", output);
         Assert.Contains("| Token | 0x6000001 |", output);
@@ -4573,7 +4591,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetSectionSelector_UsesFlagParameter()
+    public async Task LibraryCommand_LegacyILOffsetSectionSelector_ResolvesSourceLocation()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
@@ -4581,12 +4599,20 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL Offset", output);
-        Assert.Contains("| Field | Value |", output);
-        Assert.Contains("| Method | System.HexConverter.FromChar |", output);
-        Assert.Contains("| Token | 0x6000001 |", output);
-        Assert.Contains("| IL Offset | 0x0 |", output);
-        Assert.Contains("HexConverter.cs", output);
+        Assert.Contains("## Source Location", output);
+        Assert.DoesNotContain("## IL Offset", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_LegacyILOffsetSectionSelector_RequiresFlagParameter()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "IL Offset", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("IL coordinate sections require --il-offset", error);
     }
 
     [Fact]
@@ -4602,9 +4628,9 @@ public class CommandExecutionTests
         Assert.Equal(0, withExit);
         Assert.Empty(withoutError);
         Assert.Empty(withError);
-        Assert.DoesNotContain("IL Offset", withoutOutput);
+        Assert.DoesNotContain("Source Location", withoutOutput);
         Assert.DoesNotContain("Member Context", withoutOutput);
-        Assert.Contains("IL Offset", withOutput);
+        Assert.Contains("Source Location", withOutput);
         Assert.Contains("Member Context", withOutput);
     }
 
@@ -4657,7 +4683,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--count", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4669,7 +4695,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--fields", "Line", "--value", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--fields", "Line", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4681,11 +4707,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--print", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("## IL Offset", output);
+        Assert.DoesNotContain("## Source Location", output);
         Assert.Contains("CharToHexLookup", output);
     }
 
@@ -4694,12 +4720,12 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--print-all", "--json-array", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print-all", "--json-array", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.StartsWith("[", output.Trim());
-        Assert.Contains("\"section\":\"IL Offset\"", output);
+        Assert.Contains("\"section\":\"Source Location\"", output);
         Assert.Contains("\"label\":\"System.HexConverter.FromChar\"", output);
         Assert.Contains("CharToHexLookup", output);
     }
@@ -4709,7 +4735,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--print-all", "--row", "1", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print-all", "--row", "1", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4721,7 +4747,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--count", "--print", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--count", "--print", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4759,7 +4785,7 @@ public class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "IL Offset", "--tips", "q");
+            "-S", "Source Location", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Contains("IL coordinate sections require --il-offset", error);
@@ -4770,10 +4796,10 @@ public class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "IL Offset:0x06000001+0x0", "--tips", "q");
+            "-S", "Source Location:0x06000001+0x0", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("IL Offset parameters belong in --il-offset", error);
+        Assert.Contains("IL offset parameters belong in --il-offset", error);
     }
 
     [Fact]

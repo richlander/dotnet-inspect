@@ -91,7 +91,7 @@ source-body retrieval follows selected-member `Original Source` / package
 content patterns, availability checks live in `SourceLink Integrity` and
 `SourceLink Availability`, URL shape is selected with `--blob`, and IL offset
 symbolication is now `library --il-offset <token>+<offset>`, which supplies the
-value for the `IL Offset` section.
+value for the `Source Location` section.
 
 Sample URLs are less direct: they should be URL rows from real package or
 documentation metadata rather than calculated links, because some sample URL

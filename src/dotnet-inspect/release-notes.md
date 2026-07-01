@@ -107,7 +107,7 @@
   "Source Locations"` / `member -S "Original Source"` for member-level source
   evidence.
 - Adds `library --il-offset` for MethodDef token + IL offset source
-  symbolication through the `IL Offset` section.
+  symbolication through coordinate-scoped sections such as `Source Location`.
 - Adds `--blob` as the GitHub browser URL toggle for SourceLink URL sections.
 - Adds `-t` type filtering to `package`/`library -S "Source Files"`.
 

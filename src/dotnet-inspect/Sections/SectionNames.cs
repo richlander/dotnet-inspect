@@ -103,7 +103,7 @@ public static class SectionNames
     public const string IL = "IL";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to source.</summary>
-    public const string ILOffset = "IL Offset";
+    public const string ILOffset = "Source Location";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to its owning member/type.</summary>
     public const string MemberContext = "Member Context";

@@ -32,6 +32,7 @@ public static class SelectResolver
     static readonly Dictionary<string, string> LegacySectionAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Optimization Opportunities"] = SectionNames.PerformanceTriage,
+        ["IL Offset"] = SectionNames.ILOffset,
         ["Package README"] = DotnetInspector.Views.PackageSections.PackageReadme,
     };
 
