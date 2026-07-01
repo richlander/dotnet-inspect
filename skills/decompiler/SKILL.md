@@ -32,6 +32,7 @@ calls matter. Use `--bare` for a whole-type listing.
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S @Source
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Annotated Source"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source" --bare
+dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S @Source
 ```
 
 ## Fidelity model
