@@ -3354,6 +3354,34 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void UnionSwitchNullArm_ReadsPreserveDefaultInitializer()
+    {
+        // The null arm is a conditional value path. If it is skipped by the
+        // definite-assignment walk, the printer drops this required initializer.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var petType = TypeRef.Definition("Synthetic", "UnionFixtures", "Pet", ValueTypeHint.ValueType);
+        var catType = TypeRef.Definition("Synthetic", "UnionFixtures", "Cat");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new UnionSwitchExpression(
+            new LoadArgument(0, "pet", petType),
+            [new UnionSwitchExpressionArm(catType, null, new Constant(1, intType))],
+            nullValue: new LoadLocal(0, intType))));
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("pet", petType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("int V_0 = default;", output);
+        Assert.Contains("null => V_0", output);
+    }
+
+    [Fact]
     public void LocalFunctionCall_DemanglesToSourceName()
     {
         // A call to the compiler-generated local function <Outer>g__Helper|0_0
