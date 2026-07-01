@@ -325,6 +325,117 @@ public class OutputFormatterTests
         Assert.Equal(["LoopHighDelegateLowReach"], filtered);
     }
 
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_AppliesWherePredicates()
+    {
+        var opportunities = new[]
+        {
+            Opp("BoxLoop", inLoop: true, confidence: "high", rootReach: 1, shape: "box-value-type") with
+            {
+                RuntimeAllocationType = "boxed System.Int32",
+                PathContext = "loop body",
+            },
+            Opp("ArrayLoop", inLoop: true, confidence: "high", rootReach: 100, shape: "small-array") with
+            {
+                RuntimeAllocationType = "System.Int32[]",
+                PathContext = "loop body",
+            },
+            Opp("BoxCold", inLoop: false, confidence: "medium", rootReach: 1000, shape: "box-value-type") with
+            {
+                RuntimeAllocationType = "boxed System.Guid",
+                PathContext = "straight-line",
+            },
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    Where =
+                    [
+                        "Allocation=boxed *",
+                        "Path=loop body",
+                        "Confidence>=medium",
+                    ],
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["BoxLoop"], filtered);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_AllowsOperatorsInsidePredicateValues()
+    {
+        var opportunities = new[]
+        {
+            Opp("ComparisonEvidence", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with
+            {
+                Evidence = "value >= threshold",
+            },
+            Opp("OtherEvidence", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with
+            {
+                Evidence = "plain value",
+            },
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    Where = ["Evidence=*>=*"],
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["ComparisonEvidence"], filtered);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_AppliesExplicitOrderBeforeTop()
+    {
+        var opportunities = new[]
+        {
+            Opp("LowReach", inLoop: true, confidence: "high", rootReach: 1, shape: "box-value-type"),
+            Opp("HighReach", inLoop: false, confidence: "low", rootReach: 100, shape: "box-value-type"),
+            Opp("MediumReach", inLoop: true, confidence: "medium", rootReach: 50, shape: "small-array"),
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    Where = ["Shape=box-value-type"],
+                    OrderBy = "RootReach desc",
+                    Top = 1,
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["HighReach"], filtered);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_OrdersIlNumerically()
+    {
+        var opportunities = new[]
+        {
+            Opp("OffsetLarge", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with { ILOffset = 0x10000 },
+            Opp("OffsetSmall", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with { ILOffset = 0x2000 },
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    OrderBy = "IL asc",
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["OffsetSmall", "OffsetLarge"], filtered);
+    }
+
     static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape)
     {
         var declaring = ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Type");

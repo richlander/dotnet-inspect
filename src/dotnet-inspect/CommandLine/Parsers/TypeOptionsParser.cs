@@ -140,7 +140,7 @@ public static class TypeOptionsParser
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
         var routePolicy = TypeRoutePolicy.Resolve(sourceSelection.Args, sourceSelection.HasExplicitSource, source);
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
-        if (!PerformanceTriageOptions.TryValidateShapes(performanceTriage, out var triageShapeError))
+        if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
         var select = opts.ParseSelect(parseResult);
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
