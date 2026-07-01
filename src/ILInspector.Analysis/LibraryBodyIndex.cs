@@ -2442,7 +2442,8 @@ public sealed class LibraryBodyIndex
                                 null));
                         }
                         else if (IsStringSliceAllocator(callee, out var sliceOp)
-                            && IsInLoopRegion(offset, loopRegions))
+                            && IsInLoopRegion(offset, loopRegions)
+                            && !StringSliceCallIsProvablyNoOp(decodedBody, offset, callee, callerScope))
                         {
                             var coldRegion = ClassifyColdRegion(decodedBody, offset);
                             opportunities.Add(new OptimizationOpportunity(
@@ -2476,7 +2477,7 @@ public sealed class LibraryBodyIndex
                                 "No allocation when the static type has a struct enumerator; worthwhile only if the concrete type is reachable at this call site."));
                         }
                         else if (IsGrowableCollectionMutation(callee, out var growthCall)
-                            && IsInLoopRegion(offset, loopRegions)
+                            && TryGetContainingLoop(offset, loopRegions, out var growthLoop)
                             && TryGetUnsizedCollectionReceiver(
                                 decodedBody,
                                 GetReachingDefinitions(),
@@ -2484,7 +2485,15 @@ public sealed class LibraryBodyIndex
                                 callee,
                                 callerScope,
                                 unsizedCollectionsByDefinition,
-                                out var construction))
+                                out var construction)
+                            && !HasDominatingPreLoopSizingEvent(
+                                decodedBody,
+                                GetReachingDefinitions(),
+                                offset,
+                                growthLoop,
+                                construction,
+                                callerScope,
+                                unsizedCollectionsByDefinition))
                         {
                             var coldRegion = ClassifyColdRegion(decodedBody, offset);
                             opportunities.Add(new OptimizationOpportunity(
@@ -3086,6 +3095,350 @@ public sealed class LibraryBodyIndex
             return found;
         }
 
+        bool StringSliceCallIsProvablyNoOp(DecodedBody decodedBody, int callOffset, MemberRef callee, GenericScope callerScope)
+        {
+            if (callee.Name != "Substring" || !callee.HasThis)
+                return false;
+            int argumentCount = callee.ParameterTypes.Length;
+            if (argumentCount is not (1 or 2))
+                return false;
+
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(callOffset);
+            if (blockIndex < 0)
+                return false;
+
+            var block = decodedBody.BlockGraph.Blocks[blockIndex];
+            var stack = new List<StringSliceStackValue>();
+            for (int i = decodedBody.IndexAtOrAfter(block.Start); i < decodedBody.Instructions.Length; i++)
+            {
+                var instruction = decodedBody.Instructions[i];
+                if (instruction.Offset >= callOffset || instruction.Offset >= block.End)
+                    break;
+                if (!ApplyStringSliceStackEffect(instruction, stack, callerScope))
+                    return false;
+            }
+
+            int receiverIndex = stack.Count - argumentCount - 1;
+            if (receiverIndex < 0)
+                return false;
+            var receiver = stack[receiverIndex];
+            var start = stack[receiverIndex + 1];
+            if (!start.IsZero)
+                return false;
+            if (argumentCount == 1)
+                return true;
+
+            var length = stack[receiverIndex + 2];
+            return receiver.IsLocal
+                && length.IsLengthOfLocal
+                && SameSlot(receiver.Access, length.Access);
+        }
+
+        bool ApplyStringSliceStackEffect(DecodedInstruction instruction, List<StringSliceStackValue> stack, GenericScope callerScope)
+        {
+            if (TryReadLocalSlot(instruction, out var access))
+            {
+                if (access.IsStore)
+                    return PopStringSliceTracked(stack, 1);
+                stack.Add(StringSliceStackValue.Local(access));
+                return true;
+            }
+
+            switch (instruction.OpCode)
+            {
+                case ILOpCode.Nop:
+                case ILOpCode.Constrained:
+                case ILOpCode.Readonly:
+                case ILOpCode.Tail:
+                case ILOpCode.Unaligned:
+                case ILOpCode.Volatile:
+                    return true;
+                case ILOpCode.Dup:
+                    if (stack.Count == 0)
+                        return false;
+                    stack.Add(stack[^1]);
+                    return true;
+                case ILOpCode.Pop:
+                    return PopStringSliceTracked(stack, 1);
+                case ILOpCode.Ldc_i4_0:
+                    stack.Add(StringSliceStackValue.Zero);
+                    return true;
+                case ILOpCode.Ldc_i4_s:
+                case ILOpCode.Ldc_i4:
+                    stack.Add(OperandInt32(instruction) == 0 ? StringSliceStackValue.Zero : StringSliceStackValue.Unknown);
+                    return true;
+                case ILOpCode.Ldnull:
+                case ILOpCode.Ldstr:
+                case ILOpCode.Ldc_i4_m1:
+                case ILOpCode.Ldc_i4_1:
+                case ILOpCode.Ldc_i4_2:
+                case ILOpCode.Ldc_i4_3:
+                case ILOpCode.Ldc_i4_4:
+                case ILOpCode.Ldc_i4_5:
+                case ILOpCode.Ldc_i4_6:
+                case ILOpCode.Ldc_i4_7:
+                case ILOpCode.Ldc_i4_8:
+                case ILOpCode.Ldc_i8:
+                case ILOpCode.Ldc_r4:
+                case ILOpCode.Ldc_r8:
+                case ILOpCode.Ldtoken:
+                case ILOpCode.Ldsfld:
+                case ILOpCode.Ldsflda:
+                case ILOpCode.Sizeof:
+                    stack.Add(StringSliceStackValue.Unknown);
+                    return true;
+                case ILOpCode.Ldfld:
+                case ILOpCode.Ldflda:
+                case ILOpCode.Ldlen:
+                case ILOpCode.Box:
+                case ILOpCode.Castclass:
+                case ILOpCode.Isinst:
+                case ILOpCode.Unbox:
+                case ILOpCode.Unbox_any:
+                case ILOpCode.Ldind_i:
+                case ILOpCode.Ldind_i1:
+                case ILOpCode.Ldind_i2:
+                case ILOpCode.Ldind_i4:
+                case ILOpCode.Ldind_i8:
+                case ILOpCode.Ldind_u1:
+                case ILOpCode.Ldind_u2:
+                case ILOpCode.Ldind_u4:
+                case ILOpCode.Ldind_r4:
+                case ILOpCode.Ldind_r8:
+                case ILOpCode.Ldind_ref:
+                case ILOpCode.Conv_i:
+                case ILOpCode.Conv_i1:
+                case ILOpCode.Conv_i2:
+                case ILOpCode.Conv_i4:
+                case ILOpCode.Conv_i8:
+                case ILOpCode.Conv_u:
+                case ILOpCode.Conv_u1:
+                case ILOpCode.Conv_u2:
+                case ILOpCode.Conv_u4:
+                case ILOpCode.Conv_u8:
+                case ILOpCode.Conv_r4:
+                case ILOpCode.Conv_r8:
+                case ILOpCode.Conv_r_un:
+                case ILOpCode.Neg:
+                case ILOpCode.Not:
+                    return ReplaceStringSliceTracked(stack, popCount: 1);
+                case ILOpCode.Stfld:
+                case ILOpCode.Stind_i:
+                case ILOpCode.Stind_i1:
+                case ILOpCode.Stind_i2:
+                case ILOpCode.Stind_i4:
+                case ILOpCode.Stind_i8:
+                case ILOpCode.Stind_r4:
+                case ILOpCode.Stind_r8:
+                case ILOpCode.Stind_ref:
+                case ILOpCode.Stobj:
+                case ILOpCode.Cpobj:
+                    return PopStringSliceTracked(stack, 2);
+                case ILOpCode.Add:
+                case ILOpCode.Add_ovf:
+                case ILOpCode.Add_ovf_un:
+                case ILOpCode.And:
+                case ILOpCode.Ceq:
+                case ILOpCode.Cgt:
+                case ILOpCode.Cgt_un:
+                case ILOpCode.Clt:
+                case ILOpCode.Clt_un:
+                case ILOpCode.Div:
+                case ILOpCode.Div_un:
+                case ILOpCode.Mul:
+                case ILOpCode.Mul_ovf:
+                case ILOpCode.Mul_ovf_un:
+                case ILOpCode.Or:
+                case ILOpCode.Rem:
+                case ILOpCode.Rem_un:
+                case ILOpCode.Shl:
+                case ILOpCode.Shr:
+                case ILOpCode.Shr_un:
+                case ILOpCode.Sub:
+                case ILOpCode.Sub_ovf:
+                case ILOpCode.Sub_ovf_un:
+                case ILOpCode.Xor:
+                    return ReplaceStringSliceTracked(stack, popCount: 2);
+                case ILOpCode.Ldelem:
+                case ILOpCode.Ldelem_i:
+                case ILOpCode.Ldelem_i1:
+                case ILOpCode.Ldelem_i2:
+                case ILOpCode.Ldelem_i4:
+                case ILOpCode.Ldelem_i8:
+                case ILOpCode.Ldelem_u1:
+                case ILOpCode.Ldelem_u2:
+                case ILOpCode.Ldelem_u4:
+                case ILOpCode.Ldelem_r4:
+                case ILOpCode.Ldelem_r8:
+                case ILOpCode.Ldelem_ref:
+                case ILOpCode.Ldelema:
+                    return ReplaceStringSliceTracked(stack, popCount: 2);
+                case ILOpCode.Stelem:
+                case ILOpCode.Stelem_i:
+                case ILOpCode.Stelem_i1:
+                case ILOpCode.Stelem_i2:
+                case ILOpCode.Stelem_i4:
+                case ILOpCode.Stelem_i8:
+                case ILOpCode.Stelem_r4:
+                case ILOpCode.Stelem_r8:
+                case ILOpCode.Stelem_ref:
+                    return PopStringSliceTracked(stack, 3);
+                case ILOpCode.Newarr:
+                case ILOpCode.Localloc:
+                case ILOpCode.Mkrefany:
+                    return ReplaceStringSliceTracked(stack, popCount: 1);
+                case ILOpCode.Initobj:
+                    return PopStringSliceTracked(stack, 1);
+                case ILOpCode.Newobj:
+                {
+                    int token = OperandInt32(instruction);
+                    var member = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                    if (member.Kind == MemberKind.Unsupported || !PopStringSliceTracked(stack, member.ParameterTypes.Length))
+                        return false;
+                    stack.Add(StringSliceStackValue.Unknown);
+                    return true;
+                }
+                case ILOpCode.Call:
+                case ILOpCode.Callvirt:
+                {
+                    int token = OperandInt32(instruction);
+                    var member = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                    if (member.Kind == MemberKind.Unsupported)
+                        return false;
+                    int popCount = member.ParameterTypes.Length + (member.HasThis ? 1 : 0);
+                    if (IsStringLengthGetter(member))
+                    {
+                        if (stack.Count < 1)
+                            return false;
+                        var receiver = stack[^1];
+                        stack.RemoveAt(stack.Count - 1);
+                        stack.Add(receiver.IsLocal ? StringSliceStackValue.LengthOf(receiver.Access) : StringSliceStackValue.Unknown);
+                        return true;
+                    }
+                    if (!PopStringSliceTracked(stack, popCount))
+                        return false;
+                    if (!ReturnsVoid(member))
+                        stack.Add(StringSliceStackValue.Unknown);
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        static bool PopStringSliceTracked(List<StringSliceStackValue> stack, int count)
+        {
+            if (count == 0)
+                return true;
+            if (stack.Count < count)
+                return false;
+            stack.RemoveRange(stack.Count - count, count);
+            return true;
+        }
+
+        static bool ReplaceStringSliceTracked(List<StringSliceStackValue> stack, int popCount)
+        {
+            if (!PopStringSliceTracked(stack, popCount))
+                return false;
+            stack.Add(StringSliceStackValue.Unknown);
+            return true;
+        }
+
+        static bool IsStringLengthGetter(MemberRef member)
+            => member.Name == "get_Length"
+                && member.HasThis
+                && member.ParameterTypes.Length == 0
+                && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "String");
+
+        static bool SameSlot(LocalSlotAccess left, LocalSlotAccess right)
+            => left.Slot == right.Slot && left.IsArgument == right.IsArgument;
+
+        bool HasDominatingPreLoopSizingEvent(
+            DecodedBody decodedBody,
+            ReachingDefinitionsResult reachingDefinitions,
+            int growthOffset,
+            (int Start, int End) growthLoop,
+            UnsizedCollectionConstruction construction,
+            GenericScope callerScope,
+            IReadOnlyDictionary<(int Slot, int StoreOffset), UnsizedCollectionConstruction> constructions)
+        {
+            if (!decodedBody.BlockGraph.IsComplete)
+                return false;
+
+            int loopEntryBlock = decodedBody.BlockGraph.BlockIndexAt(growthLoop.Start);
+            if (loopEntryBlock < 0)
+                return false;
+
+            foreach (var instruction in decodedBody.Instructions)
+            {
+                int offset = instruction.Offset;
+                if (offset >= growthLoop.Start || offset >= growthOffset)
+                    break;
+                if (offset <= construction.ConstructorOffset)
+                    continue;
+                if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt))
+                    continue;
+
+                int token = OperandInt32(instruction);
+                var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                if (!IsGrowableCollectionSizingCall(callee)
+                    || !TryGetUnsizedCollectionReceiver(
+                        decodedBody,
+                        reachingDefinitions,
+                        offset,
+                        callee,
+                        callerScope,
+                        constructions,
+                        out var sizedConstruction)
+                    || sizedConstruction.ConstructorOffset != construction.ConstructorOffset)
+                {
+                    continue;
+                }
+
+                int sizingBlock = decodedBody.BlockGraph.BlockIndexAt(offset);
+                if (sizingBlock < 0)
+                    continue;
+                if (sizingBlock == loopEntryBlock || DominatesBlock(decodedBody.BlockGraph, sizingBlock, loopEntryBlock))
+                    return true;
+            }
+
+            return false;
+        }
+
+        static bool DominatesBlock(BlockGraph graph, int dominatorBlock, int dominatedBlock)
+        {
+            if (dominatorBlock == dominatedBlock)
+                return true;
+            if (!graph.IsComplete || graph.Blocks.Length == 0)
+                return false;
+            if (dominatorBlock == 0)
+                return true;
+
+            var seen = new bool[graph.Blocks.Length];
+            var stack = new Stack<int>();
+            stack.Push(0);
+            seen[0] = true;
+            while (stack.Count > 0)
+            {
+                int block = stack.Pop();
+                foreach (int successor in graph.Blocks[block].Edges.Successors)
+                {
+                    if ((uint)successor >= (uint)seen.Length
+                        || successor == dominatorBlock
+                        || seen[successor])
+                    {
+                        continue;
+                    }
+                    if (successor == dominatedBlock)
+                        return false;
+                    seen[successor] = true;
+                    stack.Push(successor);
+                }
+            }
+
+            return true;
+        }
+
         bool LinqMaterializerSourceIsLoopInvariant(
             DecodedBody decodedBody,
             ReachingDefinitionsResult reachingDefinitions,
@@ -3454,6 +3807,14 @@ public sealed class LibraryBodyIndex
             public static TrackedStackValue Unknown { get; } = new(false, default, -1);
         }
 
+        readonly record struct StringSliceStackValue(bool IsLocal, LocalSlotAccess Access, bool IsZero, bool IsLengthOfLocal)
+        {
+            public static StringSliceStackValue Unknown { get; } = new(false, default, false, false);
+            public static StringSliceStackValue Zero { get; } = new(false, default, true, false);
+            public static StringSliceStackValue Local(LocalSlotAccess access) => new(true, access, false, false);
+            public static StringSliceStackValue LengthOf(LocalSlotAccess access) => new(false, access, false, true);
+        }
+
         static bool TryFindPreviousInstruction(DecodedBody decodedBody, int targetOffset, out DecodedInstruction previousInstruction)
         {
             previousInstruction = default!;
@@ -3616,7 +3977,8 @@ public sealed class LibraryBodyIndex
                 {
                     return true;
                 }
-                if (block.Start >= region.HandlerStart
+                if (region.Kind is HandlerKind.Catch or HandlerKind.Filter or HandlerKind.Fault
+                    && block.Start >= region.HandlerStart
                     && block.End <= region.HandlerEnd)
                 {
                     return true;
@@ -3867,6 +4229,14 @@ public sealed class LibraryBodyIndex
             growthCall = $"{member.DeclaringType.ToQualifiedDisplayString()}::{member.Name}";
             return true;
         }
+
+        static bool IsGrowableCollectionSizingCall(MemberRef member)
+            => member.Kind != MemberKind.Unsupported
+                && member.HasThis
+                && member.ParameterTypes.Length == 1
+                && IsInt32(member.ParameterTypes[0])
+                && member.Name is ("EnsureCapacity" or "set_Capacity" or "Capacity")
+                && IsWellKnownGrowableCollectionType(member.DeclaringType, out _);
 
         static bool IsWellKnownGrowableCollectionType(TypeRef type, out string collectionType)
         {

@@ -1399,6 +1399,22 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_RejectsEnsureCapacityBeforeLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.EnsureCapacityListGrownInLoop)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_RejectsCapacitySetterBeforeLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.CapacitySetterListGrownInLoop)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_UnsizedCollectionGrownOutsideLoop_DoesNotFire()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1446,6 +1462,14 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_NoOpSubstringInLoop_DoesNotFire()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.NoOpSubstringInLoop)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_StringSliceOnThrowHelperPath_IsLowAdvisory()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1454,6 +1478,16 @@ public class LibraryBodyIndexTests
         Assert.Equal("low", row.Confidence);
         Assert.True(row.ColdPath);
         Assert.Contains("cold path", row.Caveat, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StringSliceInFinally_StaysMedium()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(StringSliceRows(index, nameof(OptimizationOpportunityFixtures.SubstringInFinally)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.ColdPath);
     }
 
     [Theory]
@@ -2876,6 +2910,24 @@ public class OptimizationOpportunityFixtures
         return list;
     }
 
+    public static System.Collections.Generic.List<int> EnsureCapacityListGrownInLoop(int[] values)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        list.EnsureCapacity(values.Length);
+        foreach (var value in values)
+            list.Add(value);
+        return list;
+    }
+
+    public static System.Collections.Generic.List<int> CapacitySetterListGrownInLoop(int[] values)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        list.Capacity = values.Length;
+        foreach (var value in values)
+            list.Add(value);
+        return list;
+    }
+
     public static System.Collections.Generic.List<int> UnsizedListGrownOnce(int value)
     {
         var list = new System.Collections.Generic.List<int>();
@@ -2916,12 +2968,38 @@ public class OptimizationOpportunityFixtures
     public static int SubstringOnce(string value)
         => value.Substring(1).Length;
 
+    public static int NoOpSubstringInLoop(string[] values)
+    {
+        var total = 0;
+        foreach (var value in values)
+        {
+            total += value.Substring(0).Length;
+            total += value.Substring(0, value.Length).Length;
+        }
+        return total;
+    }
+
     public static void SubstringInLoopBeforeThrow(string[] values)
     {
         var total = 0;
         foreach (var value in values)
             total += value.Substring(1).Length;
         throw new InvalidOperationException(total.ToString());
+    }
+
+    public static int SubstringInFinally(string[] values)
+    {
+        var total = 0;
+        try
+        {
+            GC.KeepAlive(values);
+        }
+        finally
+        {
+            foreach (var value in values)
+                total += value.Substring(1).Length;
+        }
+        return total;
     }
 
     static void ReplaceSource(ref IEnumerable<int> source, IEnumerable<int> replacement)
