@@ -20,14 +20,14 @@ public class AnnotatedCSharpRendererTests
         // The box is invisible in the source (object BoxInt(int x) => x;) yet the
         // annotated view shows it where it happens.
         var output = Render(nameof(AllocSampleClass.BoxInt));
-        Assert.Contains("return x;  // alloc.box(int)", output);
+        Assert.Contains("return x;  // alloc.box(int; alloc=boxed System.Int32; path=straight-line; escape=escapes)", output);
     }
 
     [Fact]
     public void Array_SurfacesTheAllocatedType()
     {
         var output = Render(nameof(AllocSampleClass.MakeArray));
-        Assert.Contains("// alloc.array(int[])", output);
+        Assert.Contains("// alloc.array(int[]; alloc=System.Int32[]; path=straight-line; escape=escapes)", output);
     }
 
     [Fact]
