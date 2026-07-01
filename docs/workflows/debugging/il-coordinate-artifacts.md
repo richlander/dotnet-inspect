@@ -123,7 +123,150 @@ return-address
 return address
 ```
 
-## 2. Explain profiler or trace samples
+## 2. Collect a crash dump, normalize frames, and explain them
+
+> Goal: Show the end-to-end agent workflow: run an app, collect a crash dump,
+> use a debugger-style tool to extract method/offset data, normalize it into the
+> neutral coordinate file, and then ask `dotnet-inspect` to explain the static
+> context.
+
+This scenario intentionally leaves the dump-symbolication command as a
+producer-specific step. The important workflow contract is the handoff from a
+debugger/SOS-like artifact to the neutral coordinate file.
+
+```prompt
+I have a crash dump. Normalize the stack frame IL offsets and explain them with dotnet-inspect.
+```
+
+Create a small app that throws after going through a callsite we can explain:
+
+```bash
+mkdir -p /tmp/dotnet-inspect-coordinate-demo/CrashApp
+cat > /tmp/dotnet-inspect-coordinate-demo/CrashApp/CrashApp.csproj <<'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+EOF
+cat > /tmp/dotnet-inspect-coordinate-demo/CrashApp/Program.cs <<'EOF'
+using System;
+using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+
+class Program
+{
+    public static void Main()
+    {
+        try
+        {
+            Entry();
+        }
+        catch
+        {
+            EmitCoordinates();
+            throw;
+        }
+    }
+
+    public static void Entry() => Caller();
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void Caller() => CrashTarget(42);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void CrashTarget(int value)
+    {
+        var values = new int[value];
+        throw new InvalidOperationException(values.Length.ToString());
+    }
+
+    static void EmitCoordinates()
+    {
+        var caller = typeof(Program).GetMethod(
+            "Caller",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        var crashTarget = typeof(Program).GetMethod(
+            "CrashTarget",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        var callOffset = FindOpcode(caller, 0x28); // call
+        var returnAddress = callOffset + 5;
+        var allocationOffset = FindOpcode(crashTarget, 0x8D); // newarr
+
+        File.WriteAllLines("/tmp/dotnet-inspect-coordinate-demo/crash.coords",
+        [
+            "# normalized from crash stack / dump frames",
+            $"caller-callsite 0x{caller.MetadataToken:X8}+0x{callOffset:X}",
+            $"caller-return-address 0x{caller.MetadataToken:X8}+0x{returnAddress:X}",
+            $"crash-allocation 0x{crashTarget.MetadataToken:X8}+0x{allocationOffset:X}",
+        ]);
+    }
+
+    static int FindOpcode(MethodInfo method, byte opcode)
+    {
+        var il = method.GetMethodBody()!.GetILAsByteArray()!;
+        for (var i = 0; i < il.Length; i++)
+        {
+            if (il[i] == opcode)
+                return i;
+        }
+        throw new InvalidOperationException($"opcode 0x{opcode:X2} not found in {method.Name}");
+    }
+}
+EOF
+dotnet build /tmp/dotnet-inspect-coordinate-demo/CrashApp -c Release
+```
+
+Run the app and collect a dump. This uses `dotnet-dump` if available; the app
+also writes `crash.coords` so the workflow remains executable without requiring
+dump tooling in CI:
+
+```bash
+set +e
+dotnet /tmp/dotnet-inspect-coordinate-demo/CrashApp/bin/Release/net10.0/CrashApp.dll
+app_exit=$?
+set -e
+test "$app_exit" -ne 0
+
+# Optional real collection step when a process is still alive or a dump is needed:
+# dotnet-dump collect --process-id <pid> --output /tmp/dotnet-inspect-coordinate-demo/crash.dmp
+```
+
+In a real dump workflow, the agent would run a debugger/SOS command here and
+normalize the frames:
+
+```text
+# Example shape of external debugger output (tool-specific, not parsed by dotnet-inspect):
+#   Program.Caller() + IL_0000
+#   Program.CrashTarget(int) + IL_0004
+#
+# Agent normalization result:
+#   caller-callsite 0x06000002+0x0
+#   crash-allocation 0x06000003+0x4
+```
+
+Then run `dotnet-inspect` on the normalized coordinate file:
+
+```bash
+dotnet run --project src/dotnet-inspect -c Release -- \
+  library /tmp/dotnet-inspect-coordinate-demo/CrashApp/bin/Release/net10.0/CrashApp.dll \
+  --il-offsets /tmp/dotnet-inspect-coordinate-demo/crash.coords \
+  --markdown --tips q
+```
+
+```expect
+caller-callsite
+callsite
+caller-return-address
+return address
+crash-allocation
+allocation
+```
+
+## 3. Explain profiler or trace samples
 
 > Goal: Given sparse profiler coordinates, separate objective code shapes such
 > as dispatch and allocation without running a ranked triage.
@@ -150,7 +293,7 @@ allocation
 Performance Triage
 ```
 
-## 3. Explain analyzer or CI artifact coordinates
+## 4. Explain analyzer or CI artifact coordinates
 
 > Goal: Given a mixed artifact, preserve malformed rows as visible errors while
 > still explaining coordinates that can be normalized.
