@@ -36,6 +36,7 @@ public static class LibrarySections
             .Add<ILOffset>()
             .Add<MemberContext>()
             .Add<InstructionContext>()
+            .Add<ExceptionContext>()
             .Add<SourceFiles>()
             .Add<SourceLinkAudit>(SourceLinkAuditApplicable)
             .Add<MissingSourceFiles>(SourceLinkAuditApplicable)
@@ -151,6 +152,15 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.InstructionContext != null;
+    }
+
+    public sealed class ExceptionContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ExceptionContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.ExceptionContext is { Count: > 0 };
     }
 
     // ===== Symbol/provenance sections (network-capable, acceptable default cost) =====

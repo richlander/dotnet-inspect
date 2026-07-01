@@ -156,7 +156,8 @@ resolved coordinate can expose multiple sibling sections. The source-location
 section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
 source-line payload; the member-context section projects the same coordinate to
 the owning type and method; the instruction-context section projects it to the
-exact IL instruction.
+exact IL instruction; the exception-context section appears when the coordinate
+falls inside protected exception-handling regions.
 
 The default stays evidence-oriented and renders all applicable coordinate-scoped
 sections:
@@ -208,6 +209,12 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Block | 0 |
 | Terminates Block | No |
 | Falls Through | Yes |
+
+## Exception Context
+
+| Region | Context | Clause | Try Range | Handler Range | Caught Type |
+| ------ | ------- | ------ | --------- | ------------- | ----------- |
+| 1 | try | catch | IL_0010..IL_0045 | IL_0045..IL_0070 | System.TimeoutException |
 ```
 
 Coordinate-scoped sections are discoverable only when the coordinate carrier is
@@ -215,12 +222,13 @@ present:
 
 ```bash
 dotnet-inspect library My.dll -D
-# Source Location, Member Context, and Instruction Context are omitted.
+# Source Location, Member Context, Instruction Context, and Exception Context are omitted.
 
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
 # Source Location
 # Member Context
 # Instruction Context
+# Exception Context (only when applicable)
 ```
 
 The source-location section then projects cleanly:
@@ -254,9 +262,10 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
 
 This keeps the concerns separate: the default fact section shows all
 symbolication evidence, `Member Context` shows the owning metadata context,
-`Instruction Context` shows the exact IL operation, `--urls` returns the
-anchored source location, `--paths` returns the PDB document path, and `--print`
-returns the raw payload at the location rather than a decorated snippet.
+`Instruction Context` shows the exact IL operation, `Exception Context` shows
+active exception-handling regions, `--urls` returns the anchored source
+location, `--paths` returns the PDB document path, and `--print` returns the raw
+payload at the location rather than a decorated snippet.
 
 ## Design discipline for future flags
 
