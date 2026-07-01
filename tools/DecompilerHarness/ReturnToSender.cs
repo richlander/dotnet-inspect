@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
+using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -496,31 +497,21 @@ static class ReturnToSender
     static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string targetName = Path.GetFileNameWithoutExtension(targetPath);
-
-        IEnumerable<string> paths = FidelityCheck.PackageDependencyReferencePaths(targetPath)
-            .Concat((AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
-
-        if (Path.GetDirectoryName(Path.GetFullPath(targetPath)) is { } directory
-            && Directory.Exists(directory))
-            paths = paths.Concat(Directory.EnumerateFiles(directory, "*.dll"));
-
-        foreach (var path in paths)
+        var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
         {
-            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                || !File.Exists(path))
-                continue;
+            ExcludeTargetAssembly = true,
+        });
 
-            string simpleName = Path.GetFileNameWithoutExtension(path);
-            if (simpleName.Equals(targetName, StringComparison.OrdinalIgnoreCase)
-                || !seen.Add(simpleName))
+        foreach (var dependency in resolver.ResolveAll())
+        {
+            string simpleName = Path.GetFileNameWithoutExtension(dependency.Path);
+            if (!seen.Add(simpleName))
                 continue;
 
             MetadataReference reference;
             try
             {
-                reference = MetadataReference.CreateFromFile(Path.GetFullPath(path));
+                reference = MetadataReference.CreateFromFile(dependency.Path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
             {
