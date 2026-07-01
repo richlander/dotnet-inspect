@@ -629,6 +629,11 @@ public class MemberCodeView
     [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
     public List<CallSiteRow>? CallRows { get; set; }
 
+    [MarkoutSection(Name = "Exception Regions", EmptyText = "No exception regions found in this method body.")]
+    [MarkoutIgnoreColumnWhen(nameof(ExceptionRegionFilterRangeIsEmpty), nameof(ExceptionRegionRow.FilterRange))]
+    [MarkoutIgnoreColumnWhen(nameof(ExceptionRegionCaughtTypeIsEmpty), nameof(ExceptionRegionRow.CaughtType))]
+    public List<ExceptionRegionRow>? ExceptionRegionRows { get; set; }
+
     [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
     [MarkoutIgnoreColumnWhen(nameof(CallerSourceIsUniform), nameof(CallerSiteRow.Source))]
     public List<CallerSiteRow>? CallerRows { get; set; }
@@ -640,6 +645,12 @@ public class MemberCodeView
     /// </summary>
     public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
         => rows is null || rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1;
+
+    public static bool ExceptionRegionFilterRangeIsEmpty(List<ExceptionRegionRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.FilterRange));
+
+    public static bool ExceptionRegionCaughtTypeIsEmpty(List<ExceptionRegionRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.CaughtType));
 
     [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
     public List<TreeNode>? CallGraphNodes { get; set; }
@@ -675,6 +686,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ExtensionMethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
 [MarkoutContext(typeof(CallSiteRow))]
+[MarkoutContext(typeof(ExceptionRegionRow))]
 [MarkoutContext(typeof(CallerSiteRow))]
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(FactRow))]
@@ -705,6 +717,17 @@ public partial class ApiViewContext : MarkoutSerializerContext
 
 [MarkoutSerializable]
 public record CallSiteRow(string Callee, string Kind, string IL, string Token);
+
+[MarkoutSerializable]
+public record ExceptionRegionRow(
+    int Region,
+    string Clause,
+    [property: MarkoutPropertyName("Try Range")] string TryRange,
+    [property: MarkoutPropertyName("Handler Range")] string HandlerRange,
+    [property: MarkoutPropertyName("Filter Range")]
+    [property: MarkoutSkipNull] string? FilterRange,
+    [property: MarkoutPropertyName("Caught Type")]
+    [property: MarkoutSkipNull] string? CaughtType);
 
 [MarkoutSerializable]
 public record CallerSiteRow(string Source, string Caller, string Kind, string IL, string Token);

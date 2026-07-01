@@ -1093,6 +1093,28 @@ public static class ApiOutputFormatter
             }
         }
 
+        if (requestedSections.Contains(SectionNames.ExceptionRegions) && singleMethodList is [{ MetadataToken: { } exceptionToken } exceptionMethod])
+        {
+            RequestTelemetry.Breadcrumb("il-analysis.exception-regions", exceptionMethod.Name);
+            using var pdbContext = PdbContext.Open(dllPath);
+            var regions = pdbContext.ResolveExceptionRegions(exceptionToken, out var error)
+                .Select(region => new ExceptionRegionRow(
+                    region.Region,
+                    region.Clause,
+                    FormatILRange(region.TryStart, region.TryEnd),
+                    FormatILRange(region.HandlerStart, region.HandlerEnd),
+                    region.FilterStart is { } filterStart && region.FilterEnd is { } filterEnd
+                        ? FormatILRange(filterStart, filterEnd)
+                        : null,
+                    region.CaughtType))
+                .ToList();
+            if (regions.Count > 0 || ExplicitlySelected(SectionNames.ExceptionRegions))
+            {
+                memberCode.ExceptionRegionRows = regions;
+                hasCode = true;
+            }
+        }
+
         if (request.Callers && methods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
@@ -1420,6 +1442,8 @@ public static class ApiOutputFormatter
         Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
         _ => "calli",
     };
+
+    static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
 
     static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
         => evidence is { Reason: "Unsafe API member", Kind: "api" };

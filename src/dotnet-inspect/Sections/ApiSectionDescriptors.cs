@@ -455,6 +455,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
+            .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
@@ -499,6 +500,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<OriginalSource>()
             .Add<SourceLocations>()
             .Add<Calls>()
+            .Add<ExceptionRegions>()
             .Add<Callers>()
             .Add<CallGraph>()
             .Add<CallerGraph>()
@@ -619,6 +621,17 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.ExceptionRegions;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class Calls : ISectionDescriptor<ApiType>
