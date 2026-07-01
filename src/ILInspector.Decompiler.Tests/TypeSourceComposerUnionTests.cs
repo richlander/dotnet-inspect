@@ -310,6 +310,16 @@ public class TypeSourceComposerUnionTests
                         not null => "not null",
                         _ => "null",
                     };
+                    public static string ValueSwitchNotOlderCat(Pet pet) => pet.Value switch
+                    {
+                        not Cat { Age: > 3 } => "not older cat",
+                        Cat => "cat",
+                    };
+                    public static string SwitchNotOlderCat(Pet pet) => pet switch
+                    {
+                        not Cat { Age: > 3 } => "not older cat",
+                        Cat => "cat",
+                    };
                 }
             }
             """);
@@ -360,6 +370,26 @@ public class TypeSourceComposerUnionTests
                 return "null";
             }
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNull"));
+        Assert.Equal("""
+            if (pet is not Cat { Age: > 3 })
+            {
+                return "not older cat";
+            }
+            else
+            {
+                return "cat";
+            }
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotOlderCat"));
+        Assert.Equal("""
+            if (pet is not Cat { Age: > 3 })
+            {
+                return "not older cat";
+            }
+            else
+            {
+                return "cat";
+            }
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "SwitchNotOlderCat"));
     }
 
     [Fact]
@@ -925,6 +955,11 @@ public class TypeSourceComposerUnionTests
                     not null => "not null",
                     _ => "null",
                 };
+                public static string ValueSwitchNotNamedCat(Pet pet) => pet.Value switch
+                {
+                    not Cat { Name: "cat" } => "not named cat",
+                    Cat => "cat",
+                };
 
                 public static bool SideEffect() => true;
 
@@ -1035,6 +1070,9 @@ public class TypeSourceComposerUnionTests
                 return "null";
             }
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNull"));
+        var classValueSwitchNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNamedCat");
+        Assert.Contains("pet.Value as Cat", classValueSwitchNotNamedCat);
+        Assert.Contains("V_1.Name == \"cat\"", classValueSwitchNotNamedCat);
         var guardedOr = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedOrSideEffect");
         Assert.DoesNotContain("pet is Cat cat || SideEffect() ? \"cat\" : \"other\"", guardedOr);
         Assert.Contains("if (", guardedOr);
