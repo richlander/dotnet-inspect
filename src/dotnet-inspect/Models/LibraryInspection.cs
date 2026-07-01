@@ -506,6 +506,9 @@ public class ILOffsetResult
     public List<ILOffsetExceptionContext>? ExceptionContext { get; init; }
     public ILOffsetCallsiteContext? CallsiteContext { get; init; }
     public ILOffsetReturnAddressContext? ReturnAddressContext { get; init; }
+    public List<ILOffsetAllocationContext>? AllocationContext { get; init; }
+    public List<ILOffsetSafetyContext>? SafetyContext { get; init; }
+    public List<ILOffsetCostContext>? CostContext { get; init; }
 }
 
 public class ILOffsetMemberContext
@@ -568,6 +571,36 @@ public class ILOffsetReturnAddressContext
     public string? CallKind { get; init; }
     public string? Callee { get; init; }
     public string? OperandToken { get; init; }
+}
+
+public class ILOffsetAllocationContext
+{
+    public string? ILOffset { get; init; }
+    public string? AllocationKind { get; init; }
+    public string? AllocatedType { get; init; }
+    public string? CountedAsHeap { get; init; }
+    public string? Frequency { get; init; }
+    public string? Escape { get; init; }
+    public string? InLoop { get; init; }
+    public string? Evidence { get; init; }
+}
+
+public class ILOffsetSafetyContext
+{
+    public string? ILOffset { get; init; }
+    public string? SafetyKind { get; init; }
+    public string? Operation { get; init; }
+    public string? Requirement { get; init; }
+    public string? Evidence { get; init; }
+}
+
+public class ILOffsetCostContext
+{
+    public string? ILOffset { get; init; }
+    public string? CostKind { get; init; }
+    public string? Operation { get; init; }
+    public string? InLoop { get; init; }
+    public string? Evidence { get; init; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);

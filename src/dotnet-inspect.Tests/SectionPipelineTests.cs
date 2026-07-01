@@ -251,12 +251,15 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(42, pipeline.AllSectionNames.Length);
+        Assert.Equal(45, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
         Assert.Contains("Authentication", pipeline.AllSectionNames);
         Assert.Contains("Callsite Context", pipeline.AllSectionNames);
+        Assert.Contains("Allocation Context", pipeline.AllSectionNames);
+        Assert.Contains("Safety Context", pipeline.AllSectionNames);
+        Assert.Contains("Cost Context", pipeline.AllSectionNames);
         Assert.Contains("Configuration", pipeline.AllSectionNames);
         Assert.Contains("Dependency Injection", pipeline.AllSectionNames);
         Assert.Contains("Exception Context", pipeline.AllSectionNames);
@@ -291,7 +294,7 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["Source Location", "Member Context", "Instruction Context", "Exception Context", "Callsite Context", "Return Address Context"], StringComparer.OrdinalIgnoreCase)
+            ? registered.Except(["Source Location", "Member Context", "Instruction Context", "Exception Context", "Callsite Context", "Return Address Context", "Allocation Context", "Safety Context", "Cost Context"], StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -1616,7 +1619,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(25, pipeline.AllSectionNames.Length);
+        Assert.Equal(28, pipeline.AllSectionNames.Length);
     }
 
     [Fact]

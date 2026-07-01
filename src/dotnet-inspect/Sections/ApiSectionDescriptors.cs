@@ -94,6 +94,9 @@ public static class ApiMemberSectionDescriptors
             .Add<UnsafeMembers>()
             .Add<ExceptionRegions>()
             .Add<CalledTypes>()
+            .Add<AllocationFacts>()
+            .Add<SafetyFacts>()
+            .Add<CostFacts>()
             .Add<TopLeverage>()
             .Add<OptimizationOpportunities>()
             .Add<SourceFiles>()
@@ -313,6 +316,36 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike);
     }
 
+    public sealed class AllocationFacts : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.AllocationFacts;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model) => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class SafetyFacts : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.SafetyFacts;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model) => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class CostFacts : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CostFacts;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model) => model.Members.Any(IsMethodLike);
+    }
+
     public sealed class TopLeverage : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.TopLeverage;
@@ -480,6 +513,9 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
+            .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.SafetyFacts>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.CostFacts>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
@@ -525,6 +561,9 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<SourceLocations>()
             .Add<Calls>()
             .Add<ExceptionRegions>()
+            .Add<ApiMemberSectionDescriptors.AllocationFacts>()
+            .Add<ApiMemberSectionDescriptors.SafetyFacts>()
+            .Add<ApiMemberSectionDescriptors.CostFacts>()
             .Add<Callers>()
             .Add<CallGraph>()
             .Add<CallerGraph>()

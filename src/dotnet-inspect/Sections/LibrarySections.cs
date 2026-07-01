@@ -39,6 +39,9 @@ public static class LibrarySections
             .Add<ExceptionContext>()
             .Add<CallsiteContext>()
             .Add<ReturnAddressContext>()
+            .Add<AllocationContext>()
+            .Add<SafetyContext>()
+            .Add<CostContext>()
             .Add<SourceFiles>()
             .Add<SourceLinkAudit>(SourceLinkAuditApplicable)
             .Add<MissingSourceFiles>(SourceLinkAuditApplicable)
@@ -181,6 +184,33 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.ReturnAddressContext != null;
+    }
+
+    public sealed class AllocationContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.AllocationContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.AllocationContext is { Count: > 0 };
+    }
+
+    public sealed class SafetyContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.SafetyContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.SafetyContext is { Count: > 0 };
+    }
+
+    public sealed class CostContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.CostContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.CostContext is { Count: > 0 };
     }
 
     // ===== Symbol/provenance sections (network-capable, acceptable default cost) =====

@@ -4500,12 +4500,14 @@ public class CommandExecutionTests
         Assert.Equal(
             [
                 "AI",
+                "Allocation Context",
                 "ASP.NET Core",
                 "Aspire",
                 "Async Methods",
                 "Authentication",
                 "Callsite Context",
                 "Configuration",
+                "Cost Context",
                 "Custom Attributes",
                 "Dependency Injection",
                 "Exception Context",
@@ -4524,6 +4526,7 @@ public class CommandExecutionTests
                 "Performance Triage",
                 "Resources",
                 "Return Address Context",
+                "Safety Context",
                 "Source Files",
                 "Source Location",
                 "SourceLink Availability",
