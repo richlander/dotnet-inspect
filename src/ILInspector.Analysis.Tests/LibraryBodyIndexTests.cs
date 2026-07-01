@@ -1406,6 +1406,14 @@ public class LibraryBodyIndexTests
         Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.UnsizedListGrownOnce)));
     }
 
+    [Fact]
+    public void OptimizationOpportunities_StaticAddHelperWithCollectionOnStack_DoesNotFire()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.StaticAddHelperInLoop)));
+    }
+
     [Theory]
     // Non-loop delegate on a high-reach method -> lifted from low to medium.
     [InlineData("capturing-delegate", false, "low", LibraryBodyIndex.DelegateHotRootReach, "medium")]
@@ -2827,6 +2835,20 @@ public class OptimizationOpportunityFixtures
         list.Add(value);
         return list;
     }
+
+    public static int StaticAddHelperInLoop(int[] values)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        var total = 0;
+        foreach (var value in values)
+        {
+            if (list.Contains(StaticAdd(value)))
+                total++;
+        }
+        return total;
+    }
+
+    static int StaticAdd(int value) => value + 1;
 
     static void ReplaceSource(ref IEnumerable<int> source, IEnumerable<int> replacement)
     {

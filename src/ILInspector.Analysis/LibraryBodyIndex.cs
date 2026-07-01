@@ -3156,6 +3156,8 @@ public sealed class LibraryBodyIndex
         {
             access = default;
             loadOffset = -1;
+            if (!callee.HasThis)
+                return false;
 
             int blockIndex = decodedBody.BlockGraph.BlockIndexAt(callOffset);
             if (blockIndex < 0)
@@ -3373,7 +3375,7 @@ public sealed class LibraryBodyIndex
                     var member = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                     if (member.Kind == MemberKind.Unsupported)
                         return false;
-                    int popCount = member.ParameterTypes.Length + (opcode == ILOpCode.Callvirt ? 1 : 0);
+                    int popCount = member.ParameterTypes.Length + (member.HasThis ? 1 : 0);
                     if (!PopTracked(stack, popCount))
                         return false;
                     if (!ReturnsVoid(member))
@@ -3728,7 +3730,11 @@ public sealed class LibraryBodyIndex
             growthCall = "";
             if (member.Kind == MemberKind.Unsupported)
                 return false;
+            if (!member.HasThis)
+                return false;
             if (member.Name is not ("Add" or "AddRange" or "Append" or "AppendLine" or "Enqueue" or "Push"))
+                return false;
+            if (!IsWellKnownGrowableCollectionType(member.DeclaringType, out _))
                 return false;
             growthCall = $"{member.DeclaringType.ToQualifiedDisplayString()}::{member.Name}";
             return true;
