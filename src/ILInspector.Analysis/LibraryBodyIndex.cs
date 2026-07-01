@@ -142,8 +142,11 @@ public sealed class LibraryBodyIndex
     {
         var runtimeAllocation = opportunity.RuntimeAllocationType ?? FallbackRuntimeAllocationType(opportunity);
         var pathContext = opportunity.PathContext ?? FallbackPathContext(opportunity);
-        return runtimeAllocation != opportunity.RuntimeAllocationType || pathContext != opportunity.PathContext
-            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext }
+        var pathConfidence = opportunity.PathConfidence;
+        return runtimeAllocation != opportunity.RuntimeAllocationType
+            || pathContext != opportunity.PathContext
+            || pathConfidence != opportunity.PathConfidence
+            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext, PathConfidence = pathConfidence }
             : opportunity;
     }
 
@@ -179,6 +182,14 @@ public sealed class LibraryBodyIndex
             AllocationPathContext.LoopBody => "loop body",
             AllocationPathContext.ErrorPath => "error path",
             _ => "straight-line",
+        };
+
+    static string? FormatPathConfidence(AllocationPathConfidence confidence)
+        => confidence switch
+        {
+            AllocationPathConfidence.DominatesReturn => "dominates-return",
+            AllocationPathConfidence.BehindBranch => "behind-branch",
+            _ => null,
         };
 
     OptimizationOpportunity MarkAmortizedSetup(OptimizationOpportunity opportunity)
@@ -1159,12 +1170,14 @@ public sealed class LibraryBodyIndex
                     _instructionIndexByOffset[instructions[i].Offset] = i;
                 LoopRegions = CollectLoopRegions();
                 PathContexts = AllocationPathContextIndex.Create(this);
+                PathConfidences = AllocationPathConfidenceIndex.Create(this);
             }
 
             public ImmutableArray<DecodedInstruction> Instructions { get; }
             public BlockGraph BlockGraph { get; }
             public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
             public AllocationPathContextIndex PathContexts { get; }
+            public AllocationPathConfidenceIndex PathConfidences { get; }
 
             public bool TryGetInstructionAt(int offset, out DecodedInstruction instruction)
             {
@@ -1361,6 +1374,181 @@ public sealed class LibraryBodyIndex
                 int blockIndex = blockGraph.BlockIndexAt(offset);
                 if ((uint)blockIndex < (uint)branchBlocks.Length && predecessorCounts[blockIndex] <= 1)
                     branchBlocks[blockIndex] = true;
+            }
+        }
+
+        sealed class AllocationPathConfidenceIndex
+        {
+            readonly AllocationPathConfidence[] _confidenceByBlock;
+
+            AllocationPathConfidenceIndex(AllocationPathConfidence[] confidenceByBlock)
+            {
+                _confidenceByBlock = confidenceByBlock;
+            }
+
+            public static AllocationPathConfidenceIndex Create(DecodedBody decodedBody)
+            {
+                var blockGraph = decodedBody.BlockGraph;
+                var confidenceByBlock = new AllocationPathConfidence[blockGraph.Blocks.Length];
+                if (blockGraph.Blocks.Length == 0)
+                    return new AllocationPathConfidenceIndex(confidenceByBlock);
+
+                var dominators = DominatorTree.Create(blockGraph);
+                var returnBlocks = ReturnBlocks(decodedBody);
+                for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
+                {
+                    var pathContext = decodedBody.PathContexts.ContextFor(blockIndex);
+                    if (pathContext == AllocationPathContext.ErrorPath)
+                        continue;
+                    if (pathContext is AllocationPathContext.Branch or AllocationPathContext.SwitchArm)
+                    {
+                        confidenceByBlock[blockIndex] = AllocationPathConfidence.BehindBranch;
+                        continue;
+                    }
+
+                    if (returnBlocks.Length > 0
+                        && returnBlocks.All(returnBlock => dominators.Dominates(blockIndex, returnBlock)))
+                    {
+                        confidenceByBlock[blockIndex] = AllocationPathConfidence.DominatesReturn;
+                    }
+                }
+                return new AllocationPathConfidenceIndex(confidenceByBlock);
+            }
+
+            public AllocationPathConfidence ConfidenceFor(int blockIndex)
+                => (uint)blockIndex < (uint)_confidenceByBlock.Length
+                    ? _confidenceByBlock[blockIndex]
+                    : AllocationPathConfidence.Unknown;
+
+            static int[] ReturnBlocks(DecodedBody decodedBody)
+            {
+                var returns = new List<int>();
+                foreach (var instruction in decodedBody.Instructions)
+                {
+                    if (instruction.OpCode != ILOpCode.Ret)
+                        continue;
+                    int blockIndex = decodedBody.BlockGraph.BlockIndexAt(instruction.Offset);
+                    if (blockIndex >= 0)
+                        returns.Add(blockIndex);
+                }
+                return [.. returns.Distinct().Order()];
+            }
+        }
+
+        sealed class DominatorTree
+        {
+            readonly int[] _idom;
+            readonly int _undefined;
+
+            DominatorTree(int[] idom, int undefined)
+            {
+                _idom = idom;
+                _undefined = undefined;
+            }
+
+            public static DominatorTree Create(BlockGraph blockGraph)
+            {
+                int n = blockGraph.Blocks.Length;
+                int undefined = n + 1;
+                var idom = new int[n];
+                Array.Fill(idom, undefined);
+                if (n == 0)
+                    return new DominatorTree(idom, undefined);
+
+                var predecessors = new List<int>[n];
+                for (int i = 0; i < n; i++)
+                    predecessors[i] = [];
+                for (int i = 0; i < n; i++)
+                {
+                    foreach (int successor in blockGraph.Blocks[i].Edges.Successors)
+                        if ((uint)successor < (uint)n)
+                            predecessors[successor].Add(i);
+                }
+
+                var postorder = new int[n];
+                Array.Fill(postorder, -1);
+                var order = new List<int>(n);
+                var visited = new bool[n];
+                var stack = new Stack<(int Block, int Next)>();
+                stack.Push((0, 0));
+                visited[0] = true;
+                while (stack.Count > 0)
+                {
+                    var (block, next) = stack.Pop();
+                    var successors = blockGraph.Blocks[block].Edges.Successors;
+                    if (next < successors.Count)
+                    {
+                        stack.Push((block, next + 1));
+                        int successor = successors[next];
+                        if ((uint)successor < (uint)n && !visited[successor])
+                        {
+                            visited[successor] = true;
+                            stack.Push((successor, 0));
+                        }
+                    }
+                    else
+                    {
+                        postorder[block] = order.Count;
+                        order.Add(block);
+                    }
+                }
+
+                idom[0] = 0;
+                var reversePostorder = new List<int>(order.Count);
+                for (int i = order.Count - 1; i >= 0; i--)
+                    if (order[i] != 0)
+                        reversePostorder.Add(order[i]);
+
+                bool changed = true;
+                while (changed)
+                {
+                    changed = false;
+                    foreach (int block in reversePostorder)
+                    {
+                        int newIdom = undefined;
+                        foreach (int predecessor in predecessors[block])
+                        {
+                            if (idom[predecessor] == undefined)
+                                continue;
+                            newIdom = newIdom == undefined
+                                ? predecessor
+                                : Intersect(predecessor, newIdom, idom, postorder);
+                        }
+                        if (newIdom != undefined && idom[block] != newIdom)
+                        {
+                            idom[block] = newIdom;
+                            changed = true;
+                        }
+                    }
+                }
+
+                return new DominatorTree(idom, undefined);
+            }
+
+            public bool Dominates(int dominator, int block)
+            {
+                if ((uint)dominator >= (uint)_idom.Length || (uint)block >= (uint)_idom.Length)
+                    return false;
+                for (int cursor = block; cursor != _undefined; cursor = _idom[cursor])
+                {
+                    if (cursor == dominator)
+                        return true;
+                    if (cursor == _idom[cursor])
+                        break;
+                }
+                return false;
+            }
+
+            static int Intersect(int a, int b, int[] idom, int[] postorder)
+            {
+                while (a != b)
+                {
+                    while (postorder[a] < postorder[b])
+                        a = idom[a];
+                    while (postorder[b] < postorder[a])
+                        b = idom[b];
+                }
+                return a;
             }
         }
 
@@ -1995,7 +2183,8 @@ public sealed class LibraryBodyIndex
                     escape,
                     source,
                     RuntimeAllocationType(kind, allocatedType),
-                    AllocationPathContextFor(decodedBody, offset, loopRegions, escape));
+                    AllocationPathContextFor(decodedBody, offset, loopRegions, escape),
+                    AllocationPathConfidenceFor(decodedBody, offset, escape));
 
             bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
             {
@@ -2822,6 +3011,7 @@ public sealed class LibraryBodyIndex
                     {
                         RuntimeAllocationType = runtimeAllocation,
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
+                        PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                     };
                 }
                 return AddFallbackOpportunityMetadata(annotated);
@@ -3239,6 +3429,17 @@ public sealed class LibraryBodyIndex
             return blockContext;
         }
 
+        static AllocationPathConfidence AllocationPathConfidenceFor(
+            DecodedBody decodedBody,
+            int offset,
+            AllocationEscape escape)
+        {
+            if (escape == AllocationEscape.ThrowPath)
+                return AllocationPathConfidence.Unknown;
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            return decodedBody.PathConfidences.ConfidenceFor(blockIndex);
+        }
+
         // Conservative, sound local-escape check for a freshly created array. Returns true
         // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
         // load is an in-place element access / length read — never returned, stored to a
@@ -3328,6 +3529,7 @@ public sealed class LibraryBodyIndex
                     {
                         Escape = escape,
                         PathContext = escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
+                        PathConfidence = escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
                     });
             }
             return builder.MoveToImmutable();

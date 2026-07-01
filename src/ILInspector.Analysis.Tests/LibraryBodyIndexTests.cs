@@ -1159,23 +1159,27 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
-    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath)]
-    public void AllocationOccurrences_IncludeRuntimeTypeAndPathContext(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath)
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
+    public void AllocationOccurrences_IncludeRuntimeTypePathContextAndConfidence(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         var occurrence = index.GetAllocationOccurrences()
             .Where(pair => index.Methods.Any(method => method.MetadataToken == pair.Key && method.Name == methodName))
             .SelectMany(pair => pair.Value)
-            .First(occurrence => occurrence.Kind == kind && occurrence.PathContext == expectedPath);
+            .First(occurrence => occurrence.Kind == kind
+                && occurrence.PathContext == expectedPath
+                && occurrence.RuntimeAllocationType == expectedRuntimeType);
 
         Assert.Equal(expectedRuntimeType, occurrence.RuntimeAllocationType);
         Assert.Equal(expectedPath, occurrence.PathContext);
+        Assert.Equal(expectedConfidence, occurrence.PathConfidence);
     }
 
     [Fact]
@@ -1190,7 +1194,8 @@ public class LibraryBodyIndexTests
                 index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "BranchAllocation"
                     && occurrence.Kind == AllocationKind.Object
-                    && occurrence.PathContext == AllocationPathContext.Branch);
+                    && occurrence.PathContext == AllocationPathContext.Branch
+                    && occurrence.PathConfidence == AllocationPathConfidence.BehindBranch);
             Assert.Contains(
                 index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "SwitchAllocation"
@@ -1202,11 +1207,13 @@ public class LibraryBodyIndexTests
                 .ToArray();
             Assert.Equal(3, switchAllocations.Length);
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathContext.SwitchArm, occurrence.PathContext));
+            Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathConfidence.BehindBranch, occurrence.PathConfidence));
             Assert.Contains(
                 index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "AfterIfJoinAllocation"
                     && occurrence.Kind == AllocationKind.Object
-                    && occurrence.PathContext == AllocationPathContext.StraightLine);
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn);
         }
         finally
         {
@@ -1228,13 +1235,13 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
-    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "System.Int32[]", "straight-line")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot", "newobj/newarr/box", "loop body")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body")]
-    public void OptimizationOpportunities_IncludeAllocationAndPathMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath)
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "System.Int32[]", "straight-line", "dominates-return")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line", "dominates-return")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body", "behind-branch")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body", "behind-branch")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot", "newobj/newarr/box", "loop body", null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body", null)]
+    public void OptimizationOpportunities_IncludeAllocationPathAndConfidenceMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath, string? expectedConfidence)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
@@ -1244,6 +1251,7 @@ public class LibraryBodyIndexTests
 
         Assert.Equal(expectedAllocation, opportunity.RuntimeAllocationType);
         Assert.Equal(expectedPath, opportunity.PathContext);
+        Assert.Equal(expectedConfidence, opportunity.PathConfidence);
     }
 
     [Fact]
@@ -3160,6 +3168,20 @@ public class OptimizationOpportunityFixtures
             }
         }
         return total;
+    }
+
+    public static object CatchAllocatesBeforeOnlyReturn()
+    {
+        object? result = null;
+        try
+        {
+            throw new InvalidOperationException();
+        }
+        catch (InvalidOperationException)
+        {
+            result = new PlainObject(1);
+        }
+        return result;
     }
 
     static void MaybeThrow(int value)

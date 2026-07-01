@@ -57,6 +57,8 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         if (occurrence.RuntimeAllocationType is { Length: > 0 } runtime)
             parts.Add($"alloc={runtime}");
         parts.Add($"path={FormatPathContext(occurrence.PathContext)}");
+        if (FormatPathConfidence(occurrence.PathConfidence) is { } confidence)
+            parts.Add($"path-confidence={confidence}");
         if (occurrence.Escape != AllocationEscape.Unknown)
             parts.Add($"escape={FormatEscape(occurrence.Escape)}");
         return parts.Count == 0 ? null : string.Join("; ", parts);
@@ -70,6 +72,14 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             AllocationPathContext.LoopBody => "loop-body",
             AllocationPathContext.ErrorPath => "error-path",
             _ => "straight-line",
+        };
+
+    static string? FormatPathConfidence(AllocationPathConfidence confidence)
+        => confidence switch
+        {
+            AllocationPathConfidence.DominatesReturn => "dominates-return",
+            AllocationPathConfidence.BehindBranch => "behind-branch",
+            _ => null,
         };
 
     static string FormatEscape(AllocationEscape escape)
