@@ -67,14 +67,54 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
-    static string CompileFixture(string source)
+    [Fact]
+    public void CompileBackFirstPropertyGetter_UsesDependencyReferencesAndNamespaces()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "fixture.dll");
+        var dependencyPath = CompileFixture("""
+            namespace External;
+
+            public class Greeting
+            {
+                public static Greeting Create() => new Greeting();
+            }
+            """, directory, "ExternalLib");
+        var assemblyPath = CompileFixture("""
+            using External;
+
+            public class Class1
+            {
+                public Greeting Method1 => Greeting.Create();
+            }
+            """, directory, "Fixture", [MetadataReference.CreateFromFile(dependencyPath)]);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("External", result.Plan.Module.Usings);
+            Assert.Contains("public External.Greeting Method1", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    static string CompileFixture(
+        string source,
+        string? directory = null,
+        string assemblyName = "fixture",
+        IReadOnlyList<MetadataReference>? additionalReferences = null)
+    {
+        directory ??= Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"{assemblyName}.dll");
         var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => MetadataReference.CreateFromFile(path));
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Concat(additionalReferences ?? []);
         var compilation = CSharpCompilation.Create(
             Path.GetFileNameWithoutExtension(path),
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],

@@ -78,7 +78,7 @@ static class ReturnToSender
             {
                 result = CompileBackFirstPropertyGetter(assemblyPath);
             }
-            catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException)
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
             {
                 total++;
                 contextFail++;
@@ -202,7 +202,7 @@ static class ReturnToSender
             AssemblyPath: Path.GetFullPath(assemblyPath),
             TargetMethod: new MethodIdentity(fullType, methodName, overload, CorpusMethodIdentity.SignatureText(function.Signature)),
             Module: new ModuleRequirement(
-                Usings: ["System"],
+                Usings: RequiredNamespaces(function).Prepend("System").Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
                 AssemblyAttributes: [],
                 ModuleAttributes: []),
             Types:
@@ -226,7 +226,7 @@ static class ReturnToSender
         var compilation = CSharpCompilation.Create(
             "return-to-sender",
             [tree],
-            TrustedPlatformReferences(),
+            CompilationReferences(assemblyPath),
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,
@@ -249,7 +249,7 @@ static class ReturnToSender
 
         ms.Position = 0;
         using var recompiled = new PEReader(ms);
-        var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload)
+        var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
             ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
             .ToArray();
 
@@ -288,6 +288,41 @@ static class ReturnToSender
         return overload;
     }
 
+    static IReadOnlySet<string> RequiredNamespaces(IrFunction function)
+    {
+        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
+
+        void Add(TypeRef? type)
+        {
+            switch (type?.Kind)
+            {
+                case TypeRefKind.Definition:
+                    if (type.Namespace.Length > 0)
+                        namespaces.Add(type.Namespace);
+                    break;
+                case TypeRefKind.GenericInstance:
+                    Add(type.ElementType);
+                    foreach (var argument in type.TypeArguments)
+                        Add(argument);
+                    break;
+                case TypeRefKind.SzArray or TypeRefKind.Array
+                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
+                    Add(type.ElementType);
+                    break;
+            }
+        }
+
+        foreach (var node in function.Descendants.Prepend(function))
+        {
+            foreach (var type in node.DirectTypes)
+                Add(type);
+            if (node is IrExpression expression)
+                Add(expression.ResultType);
+        }
+
+        return namespaces;
+    }
+
     static IReadOnlyList<ILInstruction>? FindAndDisassemble(
         PEReader pe,
         string fullType,
@@ -319,10 +354,43 @@ static class ReturnToSender
         return null;
     }
 
-    static IEnumerable<MetadataReference> TrustedPlatformReferences()
-        => (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => MetadataReference.CreateFromFile(path));
+    static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string targetName = Path.GetFileNameWithoutExtension(targetPath);
+
+        IEnumerable<string> paths = FidelityCheck.PackageDependencyReferencePaths(targetPath)
+            .Concat((AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
+
+        if (Path.GetDirectoryName(Path.GetFullPath(targetPath)) is { } directory
+            && Directory.Exists(directory))
+            paths = paths.Concat(Directory.EnumerateFiles(directory, "*.dll"));
+
+        foreach (var path in paths)
+        {
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                || !File.Exists(path))
+                continue;
+
+            string simpleName = Path.GetFileNameWithoutExtension(path);
+            if (simpleName.Equals(targetName, StringComparison.OrdinalIgnoreCase)
+                || !seen.Add(simpleName))
+                continue;
+
+            MetadataReference reference;
+            try
+            {
+                reference = MetadataReference.CreateFromFile(Path.GetFullPath(path));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
+            {
+                continue;
+            }
+
+            yield return reference;
+        }
+    }
 
     static string? FormatDiagnostic(Diagnostic? diagnostic)
     {
