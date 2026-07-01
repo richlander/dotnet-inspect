@@ -1398,6 +1398,8 @@ public sealed class LibraryBodyIndex
                 for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
                 {
                     var pathContext = decodedBody.PathContexts.ContextFor(blockIndex);
+                    if (pathContext == AllocationPathContext.ErrorPath)
+                        continue;
                     if (pathContext is AllocationPathContext.Branch or AllocationPathContext.SwitchArm)
                     {
                         confidenceByBlock[blockIndex] = AllocationPathConfidence.BehindBranch;

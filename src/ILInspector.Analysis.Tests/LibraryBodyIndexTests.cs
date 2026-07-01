@@ -1165,6 +1165,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch)]
     [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown)]
     public void AllocationOccurrences_IncludeRuntimeTypePathContextAndConfidence(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1172,7 +1173,9 @@ public class LibraryBodyIndexTests
         var occurrence = index.GetAllocationOccurrences()
             .Where(pair => index.Methods.Any(method => method.MetadataToken == pair.Key && method.Name == methodName))
             .SelectMany(pair => pair.Value)
-            .First(occurrence => occurrence.Kind == kind && occurrence.PathContext == expectedPath);
+            .First(occurrence => occurrence.Kind == kind
+                && occurrence.PathContext == expectedPath
+                && occurrence.RuntimeAllocationType == expectedRuntimeType);
 
         Assert.Equal(expectedRuntimeType, occurrence.RuntimeAllocationType);
         Assert.Equal(expectedPath, occurrence.PathContext);
@@ -3165,6 +3168,20 @@ public class OptimizationOpportunityFixtures
             }
         }
         return total;
+    }
+
+    public static object CatchAllocatesBeforeOnlyReturn()
+    {
+        object? result = null;
+        try
+        {
+            throw new InvalidOperationException();
+        }
+        catch (InvalidOperationException)
+        {
+            result = new PlainObject(1);
+        }
+        return result;
     }
 
     static void MaybeThrow(int value)
