@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>runfaster</ToolCommandName>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <PackageId>runfaster</PackageId>
+    <Description>Prototype CLI for correlating dotnet-* runtime diagnostics with static .NET library allocation candidates</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <ToolPackageRuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-arm64;any</ToolPackageRuntimeIdentifiers>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+</Project>
