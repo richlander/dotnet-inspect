@@ -45,6 +45,6 @@ dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Me
 
 - Default output is Markdown; for formats, `-D`/`-S` discovery, projection, and
   limits, load `dotnet-inspect skill query`.
-- Add `--project <csproj|dir|project.assets.json>` when APIs from project-referenced packages should be in scope.
+- Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.
