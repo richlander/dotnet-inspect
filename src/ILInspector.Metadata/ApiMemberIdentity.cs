@@ -38,6 +38,7 @@ public static class ApiMemberIdentity
             : string.IsNullOrWhiteSpace(signature.MemberName)
                 ? member.Name
                 : signature.MemberName!;
+        memberName = NormalizeCanonicalCommas(memberName);
         canonicalSignature = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
         return true;
     }
@@ -45,5 +46,8 @@ public static class ApiMemberIdentity
     static string NormalizeCanonicalParameters(string parameterTypesSummary)
         => string.IsNullOrEmpty(parameterTypesSummary)
             ? "()"
-            : parameterTypesSummary.Replace(", ", ",", StringComparison.Ordinal).Trim();
+            : NormalizeCanonicalCommas(parameterTypesSummary);
+
+    static string NormalizeCanonicalCommas(string value)
+        => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
 }
