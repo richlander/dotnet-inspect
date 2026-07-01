@@ -31,7 +31,7 @@ internal static class SourceFileCollector
         {
             foreach (var type in api.Types.OrderBy(t => t.FullName, StringComparer.Ordinal))
             {
-                var typeDisplayName = ApiOutputFormatter.FormatGenericFullName(type);
+                var typeDisplayName = MetadataTypeNameFormatter.FormatFullName(type);
                 if (!string.IsNullOrWhiteSpace(typeFilter)
                     && !TypeMatcher.MatchesTypeFilter(type.FullName, typeFilter)
                     && !TypeMatcher.MatchesTypeFilter(typeDisplayName, typeFilter))
