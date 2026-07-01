@@ -129,6 +129,37 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ProjectWithoutExplicitSource_BecomesSourceContext()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "Serialize",
+            "--project", "App.csproj");
+
+        Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Equal("App.csproj", options.ProjectPath);
+        Assert.Equal(["Serialize"], options.MemberFilter);
+        Assert.Empty(options.CallerScopeProjects);
+        Assert.False(options.HasCallerScope);
+        Assert.Null(options.PackagePath);
+        Assert.Null(options.AssemblyPath);
+        Assert.Null(options.PlatformAssembly);
+    }
+
+    [Fact]
+    public async Task ProjectWithoutExplicitSource_KeepsAdditionalProjectsAsCallerScope()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "Serialize",
+            "--project", "Source.csproj",
+            "--project", "Caller.csproj");
+
+        Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Equal("Source.csproj", options.ProjectPath);
+        Assert.Equal(["Caller.csproj"], options.CallerScopeProjects);
+        Assert.True(options.HasCallerScope);
+    }
+
+    [Fact]
     public async Task CallerScope_CallerPackage_PopulatesCallerScopePackages()
     {
         var options = await ParseSuccessAsync(

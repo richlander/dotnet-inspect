@@ -53,6 +53,7 @@ public static class ApiCommandDefinitions
         var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, or name@version)" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
+        var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
@@ -78,6 +79,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(assemblyOption);
         typeCommand.Options.Add(platformOption);
+        typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
         typeCommand.Options.Add(allOption);
@@ -103,7 +105,7 @@ public static class ApiCommandDefinitions
         opts.AddNuGetOptionsTo(typeCommand);
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
-            argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
+            argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.OneLine,
             opts.NoHeaders, shapeOption, unsafeOption, memberOption, kindOption);
 
@@ -187,7 +189,7 @@ public static class ApiCommandDefinitions
         binOption.Aliases.Add("--directory");
         var callerProjectOption = new Option<string[]>("--project")
         {
-            Description = "Scan a project's restored dependencies for inbound callers (Callers section). Can repeat.",
+            Description = "Source: restored project.assets.json context when no other source is supplied; also scans restored dependencies for inbound callers. Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var callerPackageOption = new Option<string[]>("--caller-package")
