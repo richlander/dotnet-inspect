@@ -168,7 +168,9 @@ public class ReturnToSenderPrototypeTests
                     Assert.Contains(first.Plan.Types, type => type.Name == "Helper");
                     Assert.Contains(first.Plan.TypeRequirements, requirement =>
                         requirement.Type.DisplayName == "Helper"
-                        && requirement.SourceFacts.Any(fact => fact.Id == "same-assembly-return-type"));
+                        && requirement.SourceFacts.Any(fact => fact.Id == "closure-root"
+                            && fact.Producer == "roslyn"
+                            && fact.Detail.StartsWith("CS0246", StringComparison.Ordinal)));
                 },
                 second =>
                 {
@@ -205,10 +207,40 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Helper"
+                && type.SourceFacts.Any(fact => fact.Id == "closure-root" && fact.Producer == "roslyn")
                 && type.Members.Any(member => member.Name == "Value" && member.Kind == ReturnToSender.TypeMemberShellKind.PropertyGet)
                 && type.Members.Any(member => member.Name == "Create" && member.Kind == ReturnToSender.TypeMemberShellKind.Method && member.IsStatic));
             Assert.Contains("public int Value", result.Source);
             Assert.Contains("public static Helper Create()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsTargetRootSiblingMemberSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int FromSibling => GetValue();
+                public int GetValue() => 42;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.Contains(type.SourceFacts, fact =>
+                fact.Producer == "roslyn"
+                && fact.Id == "closure-root"
+                && fact.Detail.StartsWith("CS0103", StringComparison.Ordinal));
+            Assert.Contains(type.Members, member => member.Name == "GetValue" && member.Kind == ReturnToSender.TypeMemberShellKind.Method);
+            Assert.Contains("public int GetValue()", result.Source);
         }
         finally
         {

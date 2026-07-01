@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
@@ -421,81 +422,124 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
-        var plan = ReturnToSenderPlanner.PlanPropertyGetter(
-            assemblyPath,
-            reader,
-            function,
-            typeHandle,
-            propertyHandle,
-            getterHandle,
-            printed.Output,
-            fullType,
-            methodName,
-            overload);
-
-        if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: OptimizationLevel.Release,
+            nullableContextOptions: NullableContextOptions.Disable,
+            allowUnsafe: true);
+        var references = CompilationReferences(assemblyPath).ToArray();
+        var indexes = ClosureIndexes(reader);
+        var closureRoots = new HashSet<TypeDefinitionHandle>
         {
+            TopLevelRootOf(reader, typeHandle),
+        };
+        var closureFacts = new Dictionary<TypeDefinitionHandle, List<FactIdentity>>();
+        const int maxRoots = 200;
+        const int maxIterations = 80;
+        Diagnostic? firstError = null;
+
+        for (int iteration = 0; iteration < maxIterations; iteration++)
+        {
+            var plan = ReturnToSenderPlanner.PlanPropertyGetter(
+                assemblyPath,
+                reader,
+                function,
+                typeHandle,
+                propertyHandle,
+                getterHandle,
+                printed.Output,
+                fullType,
+                methodName,
+                overload,
+                closureRoots,
+                closureFacts);
+
+            if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
+            {
+                return new Result(
+                    plan,
+                    "",
+                    FidelityCheck.CompileBackStatus.ContextFail,
+                    string.Join(" ", originalOps),
+                    "",
+                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
+            }
+
+            string unit = CSharpDeclarationWriter.Write(ToCompilationUnit(plan));
+            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
+            var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
+            using var ms = new MemoryStream();
+            var emit = compilation.Emit(ms);
+            if (emit.Success)
+            {
+                ms.Position = 0;
+                using var recompiled = new PEReader(ms);
+                var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
+                    ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+                    .ToArray();
+
+                if (recompiledOps is null)
+                {
+                    return new Result(
+                        plan,
+                        unit,
+                        FidelityCheck.CompileBackStatus.ContextFail,
+                        string.Join(" ", originalOps),
+                        "",
+                        "method-not-found");
+                }
+
+                return new Result(
+                    plan,
+                    unit,
+                    originalOps.SequenceEqual(recompiledOps)
+                        ? FidelityCheck.CompileBackStatus.Exact
+                        : FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    string.Join(" ", originalOps),
+                    string.Join(" ", recompiledOps),
+                    null);
+            }
+
+            var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
+            firstError ??= errors.FirstOrDefault();
+            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), closureRoots, closureFacts);
+            if (!grew || closureRoots.Count > maxRoots)
+            {
+                string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
+                var error = errors.FirstOrDefault() ?? firstError;
+                return new Result(
+                    plan,
+                    unit,
+                    FidelityCheck.CompileBackStatus.RecompileFail,
+                    string.Join(" ", originalOps),
+                    "",
+                    $"{reason}: {FormatDiagnostic(error)}");
+            }
+        }
+
+        {
+            var plan = ReturnToSenderPlanner.PlanPropertyGetter(
+                assemblyPath,
+                reader,
+                function,
+                typeHandle,
+                propertyHandle,
+                getterHandle,
+                printed.Output,
+                fullType,
+                methodName,
+                overload,
+                closureRoots,
+                closureFacts);
             return new Result(
                 plan,
-                "",
+                CSharpDeclarationWriter.Write(ToCompilationUnit(plan)),
                 FidelityCheck.CompileBackStatus.ContextFail,
                 string.Join(" ", originalOps),
                 "",
-                $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
+                $"closure-iteration-budget: {FormatDiagnostic(firstError)}");
         }
-
-        string unit = CSharpDeclarationWriter.Write(ToCompilationUnit(plan));
-        var tree = CSharpSyntaxTree.ParseText(unit, new CSharpParseOptions(LanguageVersion.Preview));
-        var compilation = CSharpCompilation.Create(
-            "return-to-sender",
-            [tree],
-            CompilationReferences(assemblyPath),
-            new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                optimizationLevel: OptimizationLevel.Release,
-                nullableContextOptions: NullableContextOptions.Disable,
-                allowUnsafe: true));
-
-        using var ms = new MemoryStream();
-        var emit = compilation.Emit(ms);
-        if (!emit.Success)
-        {
-            var error = emit.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-            return new Result(
-                plan,
-                unit,
-                FidelityCheck.CompileBackStatus.RecompileFail,
-                string.Join(" ", originalOps),
-                "",
-                FormatDiagnostic(error));
-        }
-
-        ms.Position = 0;
-        using var recompiled = new PEReader(ms);
-        var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
-            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
-            .ToArray();
-
-        if (recompiledOps is null)
-        {
-            return new Result(
-                plan,
-                unit,
-                FidelityCheck.CompileBackStatus.ContextFail,
-                string.Join(" ", originalOps),
-                "",
-                "method-not-found");
-        }
-
-        return new Result(
-            plan,
-            unit,
-            originalOps.SequenceEqual(recompiledOps)
-                ? FidelityCheck.CompileBackStatus.Exact
-                : FidelityCheck.CompileBackStatus.OpcodeDiff,
-            string.Join(" ", originalOps),
-            string.Join(" ", recompiledOps),
-            null);
     }
 
     static Result ContextFailResult(
@@ -516,7 +560,7 @@ static class ReturnToSender
         string propertyName = Identifier(reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name));
 
         var plan = new ReconstructionPlan(
-            AssemblyPath: Path.GetFullPath(assemblyPath),
+            AssemblyPath: assemblyPath,
             TargetMethod: new MethodIdentity(fullType, methodName, overload, ""),
             Module: new ModuleRequirement(
                 Usings: ["System"],
@@ -823,6 +867,161 @@ static class ReturnToSender
     static string CanonicalOpcode(string op)
         => HarnessOpcode.Canonicalize(op);
 
+    sealed record ClosureIndex(
+        Dictionary<string, List<TypeDefinitionHandle>> Types,
+        Dictionary<string, List<TypeDefinitionHandle>> FullTypes,
+        Dictionary<string, List<TypeDefinitionHandle>> Methods,
+        Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
+        Dictionary<TypeDefinitionHandle, string> RootNamespaces);
+
+    static ClosureIndex ClosureIndexes(MetadataReader reader)
+    {
+        var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var fullTypes = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var methods = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var namespaces = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var rootNamespaces = new Dictionary<TypeDefinitionHandle, string>();
+
+        static void Add(Dictionary<string, List<TypeDefinitionHandle>> index, string key, TypeDefinitionHandle root)
+        {
+            if (key.Length == 0)
+                return;
+            if (!index.TryGetValue(key, out var list))
+                index[key] = list = [];
+            if (!list.Contains(root))
+                list.Add(root);
+        }
+
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (!IsSupportedClosureRoot(reader, typeDef))
+                continue;
+
+            var root = TopLevelRootOf(reader, handle);
+            var identity = TypeIdentity.FromDefinition(reader, typeDef);
+            rootNamespaces.TryAdd(root, identity.Namespace);
+            Add(types, NormalizeTypeName(reader.GetString(typeDef.Name)), root);
+            Add(fullTypes, identity.FullName, root);
+            if (typeDef.GetDeclaringType().IsNil)
+                Add(namespaces, reader.GetString(typeDef.Namespace), handle);
+            foreach (var methodHandle in typeDef.GetMethods())
+                Add(methods, reader.GetString(reader.GetMethodDefinition(methodHandle).Name), root);
+        }
+
+        return new ClosureIndex(types, fullTypes, methods, namespaces, rootNamespaces);
+    }
+
+    static bool AddClosureRoots(
+        IReadOnlyList<Diagnostic> diagnostics,
+        ClosureIndex indexes,
+        string targetNamespace,
+        HashSet<TypeDefinitionHandle> closureRoots,
+        Dictionary<TypeDefinitionHandle, List<FactIdentity>> closureFacts)
+    {
+        bool grew = false;
+        foreach (var diagnostic in diagnostics)
+        {
+            if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103")
+            {
+                var names = QuotedNames(diagnostic.GetMessage()).ToList();
+                foreach (var name in names)
+                {
+                    var index = name.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
+                    var key = name.Contains('.', StringComparison.Ordinal) ? name : NormalizeTypeName(name);
+                    grew |= AddRoots(indexes, index, key, diagnostic, name, targetNamespace, closureRoots, closureFacts);
+                    if (diagnostic.Id is "CS0103")
+                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, closureRoots, closureFacts);
+                }
+                if (diagnostic.Id is "CS0234" && names.Count == 2)
+                    grew |= AddRoots(indexes, indexes.Namespaces, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, closureRoots, closureFacts);
+            }
+            else if (diagnostic.Id is "CS1061")
+            {
+                foreach (var name in QuotedNames(diagnostic.GetMessage()))
+                    grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, closureRoots, closureFacts);
+            }
+        }
+
+        return grew;
+    }
+
+    static bool AddRoots(
+        ClosureIndex indexes,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> index,
+        string key,
+        Diagnostic diagnostic,
+        string detail,
+        string targetNamespace,
+        HashSet<TypeDefinitionHandle> closureRoots,
+        Dictionary<TypeDefinitionHandle, List<FactIdentity>> closureFacts)
+    {
+        if (!index.TryGetValue(key, out var roots))
+            return false;
+
+        if (!key.Contains('.', StringComparison.Ordinal) && roots.Count > 1)
+        {
+            var sameNamespace = roots
+                .Where(root => indexes.RootNamespaces.TryGetValue(root, out var ns) && ns == targetNamespace)
+                .ToList();
+            if (sameNamespace.Count == 1)
+                roots = sameNamespace;
+            else
+                return false;
+        }
+
+        bool changed = false;
+        foreach (var root in roots)
+        {
+            changed |= closureRoots.Add(root);
+
+            if (!closureFacts.TryGetValue(root, out var facts))
+                closureFacts[root] = facts = [];
+            var fact = new FactIdentity("roslyn", "closure-root", $"{diagnostic.Id}: {detail}");
+            if (!facts.Contains(fact))
+            {
+                facts.Add(fact);
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    static TypeDefinitionHandle TopLevelRootOf(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var declaring = reader.GetTypeDefinition(handle).GetDeclaringType();
+        return declaring.IsNil ? handle : TopLevelRootOf(reader, declaring);
+    }
+
+    static string NormalizeTypeName(string name)
+    {
+        int angle = name.IndexOf('<');
+        if (angle >= 0)
+            name = name[..angle];
+        int dot = name.LastIndexOf('.');
+        if (dot >= 0)
+            name = name[(dot + 1)..];
+        int tick = name.IndexOf('`');
+        return tick >= 0 ? name[..tick] : name;
+    }
+
+    static IEnumerable<string> QuotedNames(string message)
+    {
+        int i = 0;
+        while (true)
+        {
+            int start = message.IndexOf('\'', i);
+            if (start < 0)
+                yield break;
+            int end = message.IndexOf('\'', start + 1);
+            if (end < 0)
+                yield break;
+            yield return message[(start + 1)..end];
+            i = end + 1;
+        }
+    }
+
     sealed class ReturnToSenderPlanner
     {
         public static ReconstructionPlan PlanPropertyGetter(
@@ -835,7 +1034,9 @@ static class ReturnToSender
             string targetBody,
             string fullType,
             string methodName,
-            int overload)
+            int overload,
+            IReadOnlySet<TypeDefinitionHandle> closureRoots,
+            IReadOnlyDictionary<TypeDefinitionHandle, List<FactIdentity>> closureFacts)
         {
             var targetTypeDef = reader.GetTypeDefinition(targetType);
             var property = reader.GetPropertyDefinition(targetProperty);
@@ -845,6 +1046,14 @@ static class ReturnToSender
             var returnType = TypeSignature.Display(signature.ReturnType);
 
             var diagnostics = new List<PlanningDiagnostic>();
+            var targetRoot = TopLevelRootOf(reader, targetType);
+            var targetFacts = new List<FactIdentity>
+            {
+                new("metadata", "target-type", targetIdentity.FullName),
+            };
+            if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+                targetFacts.AddRange(targetClosureFacts);
+
             var requirements = new List<TypeRequirement>
             {
                 new(
@@ -861,11 +1070,14 @@ static class ReturnToSender
                             targetBody,
                             [new FactIdentity("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))])
                     ],
-                    [new FactIdentity("metadata", "target-type", targetIdentity.FullName)])
+                    targetFacts)
             };
 
-            foreach (var dependency in SameAssemblyTypeDependencies(reader, function, targetType, returnType))
+            foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
             {
+                if (dependency == targetRoot)
+                    continue;
+
                 var dependencyDef = reader.GetTypeDefinition(dependency);
                 var dependencyIdentity = TypeIdentity.FromDefinition(reader, dependencyDef);
                 if (requirements.Any(requirement => requirement.Type.FullName == dependencyIdentity.FullName))
@@ -875,7 +1087,9 @@ static class ReturnToSender
                     dependencyIdentity,
                     ShellKind(reader, dependencyDef),
                     RequiredMembers: [],
-                    SourceFacts: [new FactIdentity("metadata", "same-assembly-return-type", returnType.DisplayName)]));
+                    SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
+                        ? facts.ToArray()
+                        : [new FactIdentity("closure", "closure-root", dependencyIdentity.FullName)]));
             }
 
             var module = new ModuleRequirement(
@@ -885,78 +1099,12 @@ static class ReturnToSender
 
             var shells = TypeProducer.Produce(reader, requirements, diagnostics);
             return new ReconstructionPlan(
-                Path.GetFullPath(assemblyPath),
+                assemblyPath,
                 new MethodIdentity(fullType, methodName, overload, CorpusMethodIdentity.SignatureText(function.Signature)),
                 module,
                 shells,
                 requirements,
                 diagnostics);
-        }
-
-        static IEnumerable<TypeDefinitionHandle> SameAssemblyTypeDependencies(
-            MetadataReader reader,
-            IrFunction function,
-            TypeDefinitionHandle targetType,
-            TypeSignature signature)
-        {
-            var requiredNames = new HashSet<string>(StringComparer.Ordinal)
-            {
-                signature.DisplayName,
-            };
-
-            void Add(TypeRef? type)
-            {
-                switch (type?.Kind)
-                {
-                    case TypeRefKind.Definition:
-                        if (type.Assembly == CanonicalAssemblyName(reader))
-                            requiredNames.Add(TypeRefFullName(type));
-                        break;
-                    case TypeRefKind.GenericInstance:
-                        Add(type.ElementType);
-                        foreach (var argument in type.TypeArguments)
-                            Add(argument);
-                        break;
-                    case TypeRefKind.SzArray or TypeRefKind.Array
-                        or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
-                        Add(type.ElementType);
-                        break;
-                }
-            }
-
-            foreach (var node in function.Descendants.Prepend(function))
-            {
-                foreach (var type in node.DirectTypes)
-                    Add(type);
-                if (node is IrExpression expression)
-                    Add(expression.ResultType);
-            }
-
-            foreach (var handle in reader.TypeDefinitions)
-            {
-                if (handle == targetType)
-                    continue;
-
-                var typeDef = reader.GetTypeDefinition(handle);
-                if (!IsSupportedClosureRoot(reader, typeDef))
-                    continue;
-
-                var identity = TypeIdentity.FromDefinition(reader, typeDef);
-                if (requiredNames.Contains(identity.DisplayName) || requiredNames.Contains(identity.FullName))
-                    yield return TopLevelRootOf(reader, handle);
-            }
-        }
-
-        static string TypeRefFullName(TypeRef type)
-        {
-            string name = StripArity(type.Name.Replace('+', '.'));
-            return type.Namespace.Length == 0 ? name : $"{type.Namespace}.{name}";
-        }
-
-        static TypeDefinitionHandle TopLevelRootOf(MetadataReader reader, TypeDefinitionHandle handle)
-        {
-            var declaring = reader.GetTypeDefinition(handle).GetDeclaringType();
-            return declaring.IsNil ? handle : TopLevelRootOf(reader, declaring);
         }
     }
 
@@ -992,7 +1140,8 @@ static class ReturnToSender
                         member.SourceFacts));
                 }
 
-                if (requirement.RequiredMembers.Count == 0)
+                if (requirement.RequiredMembers.Count == 0
+                    || requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root"))
                     AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
 
                 shells.Add(new TypeShell(
@@ -1098,6 +1247,8 @@ static class ReturnToSender
                 {
                     continue;
                 }
+                if (members.Any(member => member.Kind == TypeMemberShellKind.PropertyGet && member.Name == Identifier(propertyName)))
+                    continue;
 
                 MethodSignature<string> signature;
                 try
@@ -1143,6 +1294,11 @@ static class ReturnToSender
                 }
 
                 bool isConstructor = name == ".ctor";
+                string identifierName = Identifier(name);
+                if (members.Any(member =>
+                        member.Kind == (isConstructor ? TypeMemberShellKind.Constructor : TypeMemberShellKind.Method)
+                        && member.Name == identifierName))
+                    continue;
                 if (requirement.RequiredKind == TypeShellKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))
                     continue;
                 if (method.GetGenericParameters().Count != 0)
@@ -1166,7 +1322,7 @@ static class ReturnToSender
 
                 var parameters = Parameters(reader, method, signature);
                 members.Add(new TypeMemberShell(
-                    new MethodIdentity(requirement.Type.FullName, Identifier(name), overload++, MethodSignatureText(name, signature)),
+                    new MethodIdentity(requirement.Type.FullName, identifierName, overload++, MethodSignatureText(name, signature)),
                     isConstructor ? TypeMemberShellKind.Constructor : TypeMemberShellKind.Method,
                     TypeAccessibility.Public,
                     method.Attributes.HasFlag(MethodAttributes.Static),
