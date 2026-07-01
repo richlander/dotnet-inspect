@@ -167,7 +167,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             || !IsUnionValueProperty(function, unionValue)
             || !PlaceIdentity.SameVariable(unionValue.Instance, receiver)
             || testBranch.Condition is not LogicalNot { Operand: var directCondition }
-            || !TryRewriteTempTypeTestCondition(directCondition, valueStore.Index, unionValue, out var rewrittenCondition)
+            || !TryRewriteTempTypeTestCondition(function, directCondition, valueStore.Index, unionValue, out var rewrittenCondition)
             || blocks[2].Children is not [StoreLocal trueStore, Branch joinBranch]
             || blocks[3].Children is not [StoreLocal falseStore]
             || blocks[4].Children is not [Return ret]
@@ -207,15 +207,17 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 || ifStatement.Then.Children is not [StoreLocal thenStore]
                 || ifStatement.Else?.Children is not [StoreLocal elseStore]
                 || children[start + 2] is not Return ret
-                || !StoreReturnMatch(thenStore, ret, thenStore.Index)
+                || !ReturnsBoolLocal(ret, thenStore.Index, out bool returnNegates)
                 || elseStore.Index != thenStore.Index
                 || !TryBoolConstants(thenStore.Value, elseStore.Value, out bool conditionIsTrueArm)
-                || !TryRewriteTempTypeTestCondition(ifStatement.Condition, valueStore.Index, unionValue, out var condition))
+                || !TryRewriteTempTypeTestCondition(function, ifStatement.Condition, valueStore.Index, unionValue, out var condition))
             {
                 continue;
             }
 
             if (!conditionIsTrueArm)
+                condition = Conditions.Negate(condition);
+            if (returnNegates)
                 condition = Conditions.Negate(condition);
 
             if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, valueStore.Index, [valueStore, ifStatement.Condition])
@@ -231,17 +233,21 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         return false;
     }
 
-    static bool TryRewriteTempTypeTestCondition(IrExpression expression, int tempLocal, LoadProperty unionValue, out IrExpression rewritten)
+    static bool TryRewriteTempTypeTestCondition(IrFunction function, IrExpression expression, int tempLocal, LoadProperty unionValue, out IrExpression rewritten)
     {
         switch (expression)
         {
             case IsInstance test when IsTempTypeTest(test, tempLocal):
                 rewritten = new IsInstance(test.Type, (IrExpression)unionValue.Clone());
                 return true;
+            case LogicalNot { Operand: LoadLocal load }
+                when load.Index == tempLocal && IsValueTypeUnionValueProperty(function, unionValue):
+                rewritten = new LogicalNot((IrExpression)unionValue.Clone());
+                return true;
             case LogicalBinary logical:
             {
-                if (!TryRewriteTempTypeTestCondition(logical.Left, tempLocal, unionValue, out var left)
-                    || !TryRewriteTempTypeTestCondition(logical.Right, tempLocal, unionValue, out var right))
+                if (!TryRewriteTempTypeTestCondition(function, logical.Left, tempLocal, unionValue, out var left)
+                    || !TryRewriteTempTypeTestCondition(function, logical.Right, tempLocal, unionValue, out var right))
                 {
                     rewritten = null!;
                     return false;
@@ -1002,6 +1008,24 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     static bool StoreReturnMatch(StoreLocal store, Return ret, int local)
         => store.Index == local && ReturnsLocal(ret, local);
 
+    static bool ReturnsBoolLocal(Return ret, int local, out bool negates)
+    {
+        if (ReturnsLocal(ret, local))
+        {
+            negates = false;
+            return true;
+        }
+
+        if (ret.Value is LogicalNot { Operand: LoadLocal load } && load.Index == local)
+        {
+            negates = true;
+            return true;
+        }
+
+        negates = false;
+        return false;
+    }
+
     static bool IsTempLocal(Arm arm, int tempLocal)
         => arm.LocalRoots.OfType<StoreLocal>().FirstOrDefault()?.Value is IsInstance test
             && IsTempTypeTest(test, tempLocal);
@@ -1430,6 +1454,10 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         && property.IndexArguments.Count == 0
         && function.UnionTypes.Contains(NamedDefinition(property.Accessor.DeclaringType))
         && IsSimpleUnionValueReceiver(property.Instance);
+
+    static bool IsValueTypeUnionValueProperty(IrFunction function, LoadProperty property)
+        => IsUnionValueProperty(function, property)
+        && function.TypeShapes.GetValueOrDefault(NamedDefinition(property.Accessor.DeclaringType)) == TypeShape.ValueType;
 
     static bool IsSimpleUnionValueReceiver(IrExpression? receiver) => receiver switch
     {
