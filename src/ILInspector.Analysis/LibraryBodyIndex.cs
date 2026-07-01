@@ -27,7 +27,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
-        IReadOnlySet<int> nonHeapNewObjOperandTokens)
+        IReadOnlySet<int> nonHeapNewObjOperandTokens,
+        IReadOnlySet<int> compositionRootApiTokens)
     {
         Path = path;
         Methods = methods;
@@ -45,6 +46,7 @@ public sealed class LibraryBodyIndex
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
         _nonHeapNewObjOperandTokens = nonHeapNewObjOperandTokens;
+        _compositionRootApiTokens = compositionRootApiTokens;
     }
 
     public string Path { get; }
@@ -76,22 +78,27 @@ public sealed class LibraryBodyIndex
                 [
                     .. _rawOpportunities.Select(opportunity =>
                     {
-                        int reach = reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach;
-                        var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
-                        adjusted = MarkAmortizedSetup(adjusted);
-                        var confidence = IsLowFrequencyOpportunity(adjusted)
-                            ? "low"
-                            : AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
-                        return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                        return AdjustOpportunity(opportunity, reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach);
                     }),
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
                         .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
-                        .Select(o => o.Method.MetadataToken))),
+                        .Select(o => o.Method.MetadataToken)))
+                        .Select(opportunity => AdjustOpportunity(opportunity, reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach)),
                     .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
             }
             return _opportunities;
         }
+    }
+
+    OptimizationOpportunity AdjustOpportunity(OptimizationOpportunity opportunity, int reach)
+    {
+        var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
+        adjusted = MarkAmortizedSetup(adjusted);
+        var confidence = IsLowFrequencyOpportunity(adjusted)
+            ? "low"
+            : AdjustDelegateConfidenceForReach(adjusted.Shape, adjusted.InLoop, adjusted.Confidence, reach);
+        return confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
     }
 
     bool IsExceptionConstruction(TypeRef type)
@@ -136,10 +143,50 @@ public sealed class LibraryBodyIndex
     static bool IsLowFrequencyOpportunity(OptimizationOpportunity opportunity)
         => opportunity.ColdPath || opportunity.Amortized;
 
+    static readonly IReadOnlySet<string> s_compositionRootApiTypeNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Aspire.Hosting.ApplicationModel.IResourceBuilder<T>",
+        "Aspire.Hosting.IDistributedApplicationBuilder",
+        "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+        "Microsoft.Extensions.Hosting.IHostApplicationBuilder",
+    };
+
+    static bool IsWellKnownCompositionRootType(TypeRef type)
+        => s_compositionRootApiTypeNames.Contains(CompositionRootTypeName(type));
+
+    static string CompositionRootTypeName(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (definition.Kind != TypeRefKind.Definition)
+            return "";
+
+        string name = StripGenericArity(definition.Name);
+        int arity = GenericArity(definition.Name);
+        string qualifiedName = definition.Namespace.Length == 0 ? name : $"{definition.Namespace}.{name}";
+        return arity == 0
+            ? qualifiedName
+            : $"{qualifiedName}<{string.Join(", ", Enumerable.Range(0, arity).Select(i => i == 0 ? "T" : $"T{i + 1}"))}>";
+    }
+
+    static int GenericArity(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick >= 0 && int.TryParse(name[(tick + 1)..], out int arity) ? arity : 0;
+    }
+
     OptimizationOpportunity MarkAmortizedSetup(OptimizationOpportunity opportunity)
     {
         if (opportunity.Amortized)
             return opportunity;
+        if (_compositionRootApiTokens.Contains(opportunity.Method.MetadataToken))
+        {
+            return opportunity with
+            {
+                Amortized = true,
+                SafeFixDirection = "This allocation is in a composition-root API, not a steady-state per-call path. Optimize only if profiles show app composition itself is hot or repeated unexpectedly.",
+                Caveat = "Amortized setup path: composition-root APIs usually run during application startup/registration, not per steady-state operation.",
+            };
+        }
         if (opportunity.Method.Name is not (".ctor" or ".cctor"))
             return opportunity;
         // Type initializers are exact amortized setup: one execution per type.
@@ -480,6 +527,7 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
     readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
+    readonly IReadOnlySet<int> _compositionRootApiTokens;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
@@ -621,7 +669,7 @@ public sealed class LibraryBodyIndex
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.AllocationOccurrences, index.UnsafetyOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
-            index.NonHeapNewObjOperandTokens);
+            index.NonHeapNewObjOperandTokens, index.CompositionRootApiTokens);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -1141,7 +1189,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens, IReadOnlySet<int> CompositionRootApiTokens) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -1153,6 +1201,7 @@ public sealed class LibraryBodyIndex
             var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
             var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
             var suppressedOpportunityTokens = new HashSet<int>();
+            var compositionRootApiTokens = new HashSet<int>();
             var exceptionTypeNames = ComputeExceptionTypeNames();
             int none = 0, impl = 0, expl = 0;
 
@@ -1198,6 +1247,8 @@ public sealed class LibraryBodyIndex
                         if (unsafety.Length > 0)
                             unsafetyOccurrences[caller.MetadataToken] = unsafety;
                         var methodAttributes = methodDef.GetCustomAttributes();
+                        if (IsCompositionRootApi(caller, typeHandle, methodDef, methodAttributes))
+                            compositionRootApiTokens.Add(caller.MetadataToken);
                         if (!typeSourceGenerated
                             && !HasGeneratedCodeAttribute(methodAttributes)
                             && !HasCompilerGeneratedAttribute(methodAttributes)
@@ -1226,7 +1277,7 @@ public sealed class LibraryBodyIndex
             var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
             return (methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, allocationOccurrences, unsafetyOccurrences,
-                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens, compositionRootApiTokens);
         }
 
         // The metadata operand tokens of `newobj` instructions that construct a VALUE TYPE
@@ -1474,6 +1525,42 @@ public sealed class LibraryBodyIndex
         // are user-actionable source-shape rewrite targets, so exclude them from collection.
         bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
             => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
+
+        bool IsCompositionRootApi(MethodIdentity caller, TypeDefinitionHandle typeHandle, MethodDefinition methodDef, CustomAttributeHandleCollection attributes)
+        {
+            bool isExtensionMethod = caller.IsStatic
+                && !caller.ParameterTypes.IsDefaultOrEmpty
+                && HasAttributeNamed(attributes, "ExtensionAttribute", "System.Runtime.CompilerServices");
+            bool isPublicMethod = (methodDef.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
+            if (!isPublicMethod && !isExtensionMethod)
+                return false;
+            if (!IsPublicTypeDefinition(typeHandle))
+                return false;
+            if (isPublicMethod && IsWellKnownCompositionRootType(caller.ReturnType))
+                return true;
+            return isExtensionMethod
+                && IsWellKnownCompositionRootType(caller.ParameterTypes[0]);
+        }
+
+        bool IsPublicTypeDefinition(TypeDefinitionHandle typeHandle)
+        {
+            var current = typeHandle;
+            while (!current.IsNil)
+            {
+                var type = _reader.GetTypeDefinition(current);
+                switch (type.Attributes & TypeAttributes.VisibilityMask)
+                {
+                    case TypeAttributes.Public:
+                        return true;
+                    case TypeAttributes.NestedPublic:
+                        current = type.GetDeclaringType();
+                        continue;
+                    default:
+                        return false;
+                }
+            }
+            return false;
+        }
 
         // True when the method is Razor/Blazor-generated render plumbing: any method that
         // takes a Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder parameter

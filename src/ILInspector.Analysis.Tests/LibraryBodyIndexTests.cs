@@ -1561,6 +1561,68 @@ public class LibraryBodyIndexTests
         Assert.False(op.Amortized);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_CompositionRootExtension_IsAmortizedEvenInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CompositionRootOptimizationFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.DeclaringType.Name == nameof(CompositionRootOptimizationFixtures)
+            && o.Method.Name == nameof(CompositionRootOptimizationFixtures.WithLoopClosure)
+            && o.Shape == "capturing-delegate"));
+
+        Assert.True(op.InLoop);
+        Assert.Equal("low", op.Confidence);
+        Assert.True(op.Amortized);
+        Assert.Contains("composition-root API", op.SafeFixDirection, StringComparison.Ordinal);
+        Assert.Contains("Amortized setup", op.Caveat, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_CompositionRootReturn_IsAmortizedEvenInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CompositionRootOptimizationFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.DeclaringType.Name == nameof(CompositionRootOptimizationFixtures)
+            && o.Method.Name == nameof(CompositionRootOptimizationFixtures.ConfigureHost)
+            && o.Shape == "capturing-delegate"));
+
+        Assert.True(op.InLoop);
+        Assert.Equal("low", op.Confidence);
+        Assert.True(op.Amortized);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_NonCompositionLoopDelegate_RemainsHigh()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CompositionRootOptimizationFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.DeclaringType.Name == nameof(CompositionRootOptimizationFixtures)
+            && o.Method.Name == nameof(CompositionRootOptimizationFixtures.HotLoopClosure)
+            && o.Shape == "capturing-delegate"));
+
+        Assert.True(op.InLoop);
+        Assert.Equal("high", op.Confidence);
+        Assert.False(op.Amortized);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_InternalCompositionReturn_RemainsHigh()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CompositionRootOptimizationFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.DeclaringType.Name == nameof(CompositionRootOptimizationFixtures)
+            && o.Method.Name == nameof(CompositionRootOptimizationFixtures.InternalConfigureHost)
+            && o.Shape == "capturing-delegate"));
+
+        Assert.True(op.InLoop);
+        Assert.Equal("high", op.Confidence);
+        Assert.False(op.Amortized);
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.InstanceMethodGroup))]
     [InlineData(nameof(OptimizationOpportunityFixtures.VirtualInstanceMethodGroup))]
