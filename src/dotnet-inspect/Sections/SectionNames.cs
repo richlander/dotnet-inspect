@@ -136,6 +136,9 @@ public static class SectionNames
     /// <summary>Section for callers (reverse call edges) of the selected member within the assembly.</summary>
     public const string Callers = "Callers";
 
+    /// <summary>Type-level aggregate of distinct callee types touched by members on the selected type.</summary>
+    public const string CalledTypes = "Called Types";
+
     /// <summary>Section for the bounded outbound call tree (callees) rooted at the selected member.</summary>
     public const string CallGraph = "Call Graph";
 

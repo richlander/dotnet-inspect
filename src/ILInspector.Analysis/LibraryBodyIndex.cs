@@ -645,6 +645,48 @@ public sealed class LibraryBodyIndex
         => MethodLeverageRanking.Top(DirectCalls, Methods, count, scope);
 
     /// <summary>
+    /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.
+    /// Callee declaring types are reduced to their open definitions so generic instantiations
+    /// stay bounded and same-type generic self-calls are excluded.
+    /// </summary>
+    public ImmutableArray<CalledTypeSummary> CalledTypes(Func<MethodIdentity, bool> callerScope)
+    {
+        ArgumentNullException.ThrowIfNull(callerScope);
+
+        return
+        [
+            .. DirectCalls
+                .Where(call => callerScope(call.Caller))
+                .Where(call => call.Callee.Kind != MemberKind.Unsupported)
+                .Where(call => !IsObjectConstructor(call.Callee))
+                .Select(call => new
+                {
+                    Call = call,
+                    CalledType = GenericMemberIdentity.OpenDeclaringType(call.Callee.DeclaringType),
+                    CallerType = GenericMemberIdentity.OpenDeclaringType(call.Caller.DeclaringType),
+                    CalleeKey = CallerGraphKey(call.Callee),
+                })
+                .Where(item => !item.CalledType.Equals(item.CallerType))
+                .GroupBy(item => item.CalledType)
+                .Select(group =>
+                {
+                    var type = group.Key;
+                    return new CalledTypeSummary(
+                        type,
+                        FormatCalledTypeAssembly(type.Assembly),
+                        Calls: group.Count(),
+                        Members: group.Select(item => item.CalleeKey).Distinct(StringComparer.Ordinal).Count(),
+                        CallKinds: [.. group
+                            .Select(item => item.Call.Kind)
+                            .Distinct()
+                            .OrderBy(kind => kind)]);
+                })
+                .OrderByDescending(summary => summary.Calls)
+                .ThenBy(summary => summary.Type.ToQualifiedDisplayString(), StringComparer.Ordinal)
+        ];
+    }
+
+    /// <summary>
     /// Requires-unsafe methods whose signature carries no pointer — the unsafe
     /// obligation is visible only via the attribute / <c>unsafe</c> modifier,
     /// hidden from a caller reading the parameter and return types.
@@ -1021,6 +1063,19 @@ public sealed class LibraryBodyIndex
             ? $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{name}|{parameterTypes.Length}|{GenericMemberIdentity.ErasedParameterShape(openParameterTypes)}|{GenericMemberIdentity.KeyFragment(openReturnType)}"
             : $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(openReturnType)}";
     }
+
+    static string FormatCalledTypeAssembly(string assembly)
+        => string.IsNullOrEmpty(assembly) || assembly == TypeRef.CoreLibrary ? "" : assembly;
+
+    static bool IsObjectConstructor(MemberRef member)
+        => member is
+        {
+            Name: ".ctor",
+            DeclaringType.Kind: TypeRefKind.Definition,
+            DeclaringType.Assembly: TypeRef.CoreLibrary,
+            DeclaringType.Namespace: "System",
+            DeclaringType.Name: "Object"
+        };
 
     sealed class IndexBuilder
     {

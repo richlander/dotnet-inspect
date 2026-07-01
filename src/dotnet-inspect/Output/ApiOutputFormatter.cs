@@ -1654,6 +1654,26 @@ public static class ApiOutputFormatter
             view.ExceptionRegionRows = rows;
     }
 
+    internal static void PopulateCalledTypes(
+        TypeView view,
+        ApiType type,
+        string dllPath,
+        IReadOnlySet<string>? explicitSections = null)
+    {
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var rows = index.CalledTypes(method => SameType(method.DeclaringType, type))
+            .Select(summary => new CalledTypeRow(
+                MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
+                string.IsNullOrEmpty(summary.Assembly) ? null : summary.Assembly,
+                summary.Calls,
+                summary.Members,
+                string.Join(", ", summary.CallKinds.Select(FormatCallsiteKind))))
+            .ToList();
+
+        if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CalledTypes))
+            view.CalledTypeRows = rows;
+    }
+
     internal static void PopulateOptimizationOpportunities(
         TypeView view,
         ApiType type,
