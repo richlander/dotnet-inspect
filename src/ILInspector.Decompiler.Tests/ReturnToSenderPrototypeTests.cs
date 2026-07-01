@@ -142,7 +142,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackPropertyGetters_PreservesSuccessesAfterFailingTarget()
+    public void CompileBackPropertyGetters_AddsSameAssemblyReturnTypeClosureRoot()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -164,13 +164,135 @@ public class ReturnToSenderPrototypeTests
                 first =>
                 {
                     Assert.Equal("get_SameAssemblyType", first.Plan.TargetMethod.Method);
-                    Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, first.Status);
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, first.Status);
+                    Assert.Contains(first.Plan.Types, type => type.Name == "Helper");
+                    Assert.Contains(first.Plan.TypeRequirements, requirement =>
+                        requirement.Type.DisplayName == "Helper"
+                        && requirement.SourceFacts.Any(fact => fact.Id == "same-assembly-return-type"));
                 },
                 second =>
                 {
                     Assert.Equal("get_Method1", second.Plan.TargetMethod.Method);
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, second.Status);
                 });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsSameAssemblyClosureMemberSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public int Value => 42;
+                public static Helper Create() => new Helper();
+            }
+
+            public class Class1
+            {
+                public int FromHelper => Helper.Create().Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "Helper"
+                && type.Members.Any(member => member.Name == "Value" && member.Kind == ReturnToSender.TypeMemberShellKind.PropertyGet)
+                && type.Members.Any(member => member.Name == "Create" && member.Kind == ReturnToSender.TypeMemberShellKind.Method && member.IsStatic));
+            Assert.Contains("public int Value", result.Source);
+            Assert.Contains("public static Helper Create()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public static int StaticValue => 42;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var member = Assert.Single(Assert.Single(result.Plan.Types).Members);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(member.IsStatic);
+            Assert.Contains("public static int StaticValue", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsStructClosureRoot()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct StructHelper
+            {
+            }
+
+            public class Class1
+            {
+                public StructHelper FromStruct => default;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type => type.Name == "StructHelper" && type.Kind == ReturnToSender.TypeShellKind.Struct);
+            Assert.Contains("public unsafe struct StructHelper", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsNestedClosureRoot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Outer
+            {
+                public class Inner
+                {
+                }
+            }
+
+            public class Class1
+            {
+                public Outer.Inner FromNested => new Outer.Inner();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "Outer"
+                && type.NestedTypes.Any(nested => nested.Name == "Inner"));
+            Assert.Contains("public unsafe class Outer", result.Source);
+            Assert.Contains("public unsafe class Inner", result.Source);
         }
         finally
         {
