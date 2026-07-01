@@ -506,6 +506,7 @@ public static class MemberCommand
         SectionNames.AnnotatedSource,
         SectionNames.OriginalSource,
         SectionNames.Calls,
+        SectionNames.ExceptionRegions,
         SectionNames.Callers,
         SectionNames.CallGraph,
         SectionNames.CallerGraph,

@@ -63,6 +63,17 @@ public record ILOffsetExceptionContextInfo(
     int? FilterEnd,
     string? CaughtType);
 
+public record MethodExceptionRegionInfo(
+    int Region,
+    string Clause,
+    int TryStart,
+    int TryEnd,
+    int HandlerStart,
+    int HandlerEnd,
+    int? FilterStart,
+    int? FilterEnd,
+    string? CaughtType);
+
 public record ILOffsetCallsiteContextInfo(
     int CallOffset,
     string Opcode,
@@ -436,6 +447,60 @@ public class PdbContext : IDisposable
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
         {
             error = $"Could not resolve exception context for token 0x{methodToken:X}+0x{ilOffset:X}.";
+            return [];
+        }
+    }
+
+    public IReadOnlyList<MethodExceptionRegionInfo> ResolveExceptionRegions(int methodToken, out string? error)
+    {
+        error = null;
+        if (!_peReader.HasMetadata)
+            return [];
+
+        var handle = MetadataTokens.Handle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+        {
+            error = $"Token 0x{methodToken:X} is not a MethodDef token.";
+            return [];
+        }
+
+        try
+        {
+            var reader = _peReader.GetMetadataReader();
+            var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+            if (method.RelativeVirtualAddress == 0)
+            {
+                error = $"Method token 0x{methodToken:X} has no IL body.";
+                return [];
+            }
+
+            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+            List<MethodExceptionRegionInfo> rows = [];
+            var regions = body.ExceptionRegions;
+            for (var i = 0; i < regions.Length; i++)
+            {
+                var region = regions[i];
+                var tryEnd = region.TryOffset + region.TryLength;
+                var handlerEnd = region.HandlerOffset + region.HandlerLength;
+                int? filterStart = region.Kind == ExceptionRegionKind.Filter ? region.FilterOffset : null;
+                int? filterEnd = region.Kind == ExceptionRegionKind.Filter ? region.HandlerOffset : null;
+                rows.Add(new MethodExceptionRegionInfo(
+                    Region: i + 1,
+                    Clause: FormatExceptionClause(region.Kind),
+                    TryStart: region.TryOffset,
+                    TryEnd: tryEnd,
+                    HandlerStart: region.HandlerOffset,
+                    HandlerEnd: handlerEnd,
+                    FilterStart: filterStart,
+                    FilterEnd: filterEnd,
+                    CaughtType: ResolveCatchType(reader, region)));
+            }
+
+            return rows;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            error = $"Could not resolve exception regions for token 0x{methodToken:X}.";
             return [];
         }
     }

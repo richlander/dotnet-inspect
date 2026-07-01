@@ -114,6 +114,9 @@ public static class SectionNames
     /// <summary>Section for resolving a MethodDef token + IL offset to containing exception regions.</summary>
     public const string ExceptionContext = "Exception Context";
 
+    /// <summary>Section for exception regions contained by a selected member body.</summary>
+    public const string ExceptionRegions = "Exception Regions";
+
     /// <summary>Section for resolving a MethodDef token + IL offset to a call-like instruction.</summary>
     public const string CallsiteContext = "Callsite Context";
 

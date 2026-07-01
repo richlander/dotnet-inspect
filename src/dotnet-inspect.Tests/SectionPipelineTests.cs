@@ -355,6 +355,7 @@ public class SectionPipelineTests
         SectionNames.SemanticsOverlay,
         SectionNames.OriginalSource,
         SectionNames.Calls,
+        SectionNames.ExceptionRegions,
         SectionNames.Callers,
         SectionNames.CallGraph,
         SectionNames.CallerGraph,
@@ -1855,16 +1856,19 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Annotated Source", detailed);
         var optIn = pipeline.GetCostAnnotations();
         Assert.Equal("opt-in", Assert.Contains("Calls", optIn));
+        Assert.Equal("opt-in", Assert.Contains("Exception Regions", optIn));
         Assert.Equal("opt-in", Assert.Contains("Callers", optIn));
         Assert.Equal("opt-in", Assert.Contains("Call Graph", optIn));
         Assert.Equal("opt-in", Assert.Contains("Facts", optIn));
         Assert.Equal("opt-in", Assert.Contains("Unsafe Operations", optIn));
         Assert.DoesNotContain("Calls", normal);
+        Assert.DoesNotContain("Exception Regions", normal);
         Assert.DoesNotContain("Callers", normal);
         Assert.DoesNotContain("Call Graph", normal);
         Assert.DoesNotContain("Facts", normal);
         Assert.DoesNotContain("Unsafe Operations", normal);
         Assert.DoesNotContain("Calls", detailed);
+        Assert.DoesNotContain("Exception Regions", detailed);
         Assert.DoesNotContain("Callers", detailed);
         Assert.DoesNotContain("Call Graph", detailed);
         Assert.DoesNotContain("Facts", detailed);
