@@ -958,7 +958,7 @@ public static class ApiOutputFormatter
                     var rows = byName.Select(e =>
                         new MethodSummaryRow(
                             OperatorNames.FormatDisplayName(e.members[0].Name),
-                            SignatureParser.ExtractReturnType(e.members[0].Signature),
+                            MemberReturnType(e.members[0]),
                             e.members.Count.ToString())).ToList();
                     if (hasOverloads)
                         methodGroupsView.RowsWithOverloads = rows;
@@ -973,8 +973,8 @@ public static class ApiOutputFormatter
                         var m = e.members[0];
                         return new PropertySummaryRow(
                             m.Name,
-                            SignatureParser.ExtractReturnType(m.Signature),
-                            SignatureParser.ExtractAccessors(m.Signature));
+                            MemberReturnType(m),
+                            MemberAccessors(m));
                     }).ToList();
                     view.PropertySummaryRows = rows;
                     break;
@@ -2175,13 +2175,13 @@ public static class ApiOutputFormatter
             {
                 "constructor" => "",
                 "event" => m.ReturnType ?? m.Signature ?? "",
-                _ => SignatureParser.ExtractReturnType(m.Signature)
+                _ => MemberReturnType(m)
             };
             var detail = e.kind switch
             {
-                "property" => SignatureParser.ExtractAccessors(m.Signature),
+                "property" => MemberAccessors(m),
                 "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count > 1 => e.members.Count.ToString(),
-                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 => SignatureParser.ExtractParamList(m.Signature),
+                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 => MemberParameterTypes(m),
                 _ => ""
             };
             var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
@@ -2190,6 +2190,19 @@ public static class ApiOutputFormatter
 
         return (new ApiTypeOneLineView { Rows = rows }, truncated);
     }
+
+    private static string MemberReturnType(ApiMember member)
+        => member.SignatureModel?.ReturnType
+           ?? member.ReturnType
+           ?? SignatureParser.ExtractReturnType(member.Signature);
+
+    private static string MemberAccessors(ApiMember member)
+        => member.SignatureModel?.PublicAccessorsSummary
+           ?? SignatureParser.ExtractAccessors(member.Signature);
+
+    private static string MemberParameterTypes(ApiMember member)
+        => member.SignatureModel?.ParameterTypesSummary
+           ?? SignatureParser.ExtractParamList(member.Signature);
 
     /// <summary>
     /// Builds a unified tabular view for a full API surface (all types).
