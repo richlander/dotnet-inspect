@@ -1,32 +1,45 @@
-# Fact-planned compile-back harness
+# ReturnToSender: fact-planned compile-back harness
 
 ## Summary
 
-The next compile-back harness should start fresh alongside the current
+The next compile-back harness, working name **ReturnToSender**, should start
+fresh alongside the current
 `DecompilerHarness` and later cherry-pick proven pieces. The design point is not
 "whole-module skeleton, but with a closure bias." It is a new architecture:
-**fact-planned reconstruction**.
+**fact-planned shell reconstruction**.
+
+The important distinction is closure membership vs shell-shape fidelity:
+
+- closure membership decides which target-assembly roots belong in the compile
+  unit;
+- shell-shape fidelity decides what declarations, interfaces, constraints, and
+  members those roots must expose so the real decompiled method body compiles.
+
+The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
+membership: compile, read the compiler's missing-symbol diagnostics, add the
+named same-assembly roots, and repeat until the closure stops growing or hits a
+budget. The new harness should preserve that compiler-driven membership loop and
+replace ad hoc skeleton patching with typed shell-shape enrichment.
 
 The new harness should:
 
 1. gather typed facts from Metadata, Instructions, Analysis, and Research;
-2. turn those facts into a structured reconstruction plan;
-3. produce structured type shells;
-4. print those shells as C# declarations;
-5. insert the existing `CSharpPrinter` method body;
-6. compile and compare opcode streams.
-
-The current harness mixes planning, source generation, Roslyn diagnostics, and
-opcode comparison in one place. That makes every improvement feel like another
-string-emission patch. The new harness should separate those concerns so fixes
-are typed, reviewable, and reusable.
+2. keep compile-driven closure growth as the generic membership algorithm;
+3. turn facts and membership into a structured reconstruction plan;
+4. produce structured type shells with typed signatures;
+5. print those shells as C# declarations;
+6. insert the existing `CSharpPrinter` method body;
+7. compile and compare opcode streams.
 
 ## Non-goals
 
 - Do not rewrite the product decompiler.
-- Do not put Roslyn, compile-back, or inspected-assembly loading in
-  `ILInspector.Decompiler`.
+- Do not put Roslyn, compile-back, or inspected-assembly loading in shipped
+  product libraries.
+- Do not make `ILInspector.Research` own compile-back orchestration.
 - Do not make the harness a general source generator for arbitrary assemblies.
+- Do not replace compiler-driven closure membership with speculative static
+  closure.
 - Do not create a permanent third type system if a shared type identity substrate
   can serve the role.
 - Do not remove the current harness until the new path proves itself on real
@@ -38,48 +51,57 @@ are typed, reviewable, and reusable.
 | --- | --- |
 | `CSharpPrinter` | Keep rendering target method bodies. |
 | opcode comparison | Keep as the compile-back fidelity oracle. |
+| current `CB_CLUSTER` loop | Keep generic compiler-driven closure membership. |
 | `ILInspector.Instructions` | Shared IL decode, block identity, typed stack (`StackType`) substrate. |
 | `ILInspector.Analysis` | Whole-assembly IL facts, direct calls, body indexes, type/member references. |
-| `ILInspector.Research` | Fact registry and projection layer; becomes the plan orchestration layer. |
-| package/framework resolution | Keep and harden as reference closure. |
+| `ILInspector.Research` | Typed fact registry, joins, and projections only. |
+| assembly/package resolution service | Generalize and reuse for CLI and harness reference closure. |
 | generated fixtures | Keep as reduced, reviewable proof cases. |
-| current `CB_CLUSTER` concept | Keep the idea of target closure; replace ad hoc planning. |
 
 ## Architecture
 
 ```text
-                    +---------------------------+
-                    |  CompileBackPlanner       |
-                    |  (Research orchestration) |
-                    +-------------+-------------+
-                                  |
-                                  v
 Metadata / Instructions / Analysis / Research facts
-                                  |
-                                  v
-                    +---------------------------+
-                    |  ReconstructionPlan       |
-                    +-------------+-------------+
-                                  |
-                                  v
-                    +---------------------------+
-                    |  TypeProducer             |
-                    |  structured type shells   |
-                    +-------------+-------------+
-                                  |
-                                  v
-                    +---------------------------+
-                    |  TypePrinter              |
-                    |  C# declarations          |
-                    +-------------+-------------+
-                                  |
-                                  v
- CSharpPrinter target body ---> compile shell ---> Roslyn ---> opcode compare
+                  |
+                  v
+        +---------------------------+
+        | ReturnToSenderPlanner     |
+        | tools-only reconstruction |
+        +-------------+-------------+
+                      |
+                      v
+        +---------------------------+
+        | ReconstructionPlan        |
+        | roots + shell requirements|
+        +-------------+-------------+
+                      |
+                      v
+        +---------------------------+
+        | TypeProducer              |
+        | typed TypeShell records   |
+        +-------------+-------------+
+                      |
+                      v
+        +---------------------------+
+        | TypePrinter               |
+        | C# declarations           |
+        +-------------+-------------+
+                      |
+                      v
+CSharpPrinter body -> compile shell -> Roslyn -> opcode compare
 ```
+
+`ReturnToSenderPlanner`, `ReconstructionPlan`, `TypeProducer`, `TypeShell`, and
+`TypePrinter` should live in a tools-only reconstruction project under `tools/`
+or another non-shipped harness assembly. They should not live in
+`ILInspector.Research` or `ILInspector.Decompiler`.
+
+Research remains a product library. It can expose generic facts that other
+product consumers also need, but compile-back planning is a harness concern.
 
 ## Layer responsibilities
 
-### Metadata and Services
+### Assembly and package resolution service
 
 Own package, assembly, reference, and dependency resolution.
 
@@ -91,7 +113,15 @@ Responsibilities:
 - locate shared frameworks;
 - expose metadata handles and signature-level type facts.
 
-This layer should stay SRM-only and should not depend on the decompiler.
+This should be a general product service, not a ReturnToSender-only utility. The
+CLI already needs the same answers for package, platform, framework, and source
+selection, and the current harness has reimplemented enough of that behavior to
+show the risk of divergence. ReturnToSender should consume this service for
+reference closure and metadata identity instead of owning a parallel resolver.
+
+The service should stay SRM-only and should not depend on the decompiler,
+Research, Roslyn, or the harness. Harness-only policy, such as "which closure
+roots should be emitted as C# shells", belongs above this service.
 
 ### Instructions
 
@@ -122,31 +152,50 @@ Responsibilities:
 - type/member evidence from IL;
 - generated/synthesized classification inputs;
 - StackType-backed callsite/receiver provenance when useful;
-- closure candidate discovery from actual target method evidence.
+- closure candidate evidence from the target method body.
 
 Analysis should tell us what the method body actually references before the
-harness asks Roslyn to guess what is missing.
+harness asks Roslyn what is missing. It should not decide compile-back bail
+reasons or emit source shells.
 
 ### Research
 
-Own fact registration, joins, and planning.
+Own generic fact registration, joins, and projections.
 
-Today Research projects facts into annotated source/IL/Facts views. In the new
-harness, Research becomes constructive: facts do not merely annotate output; they
-plan the reconstruction shell.
+Today Research projects facts into annotated source/IL/Facts views. It can also
+host reusable ecosystem facts such as "this type is an authentic protobuf
+message" or "this member belongs to a generated family."
 
 Responsibilities:
 
-- register reconstruction fact producers;
-- join Analysis facts with Metadata facts and decompiler projection facts;
-- produce a `ReconstructionPlan`;
-- record bail reasons and incomplete facts;
-- expose plan diagnostics for reports.
+- register fact producers that are useful beyond the harness;
+- join Analysis facts with Metadata facts;
+- expose type/member/offset facts through a typed API;
+- keep facts positive, inspectable, and reusable by multiple consumers.
 
-This is the same architectural move #2033 proposes for integrations: move
-ecosystem knowledge below the CLI, represent it as typed facts, and let multiple
-consumers use it. The new harness is the first large constructive consumer of
-that pattern.
+Research should not:
+
+- own `ReconstructionPlan`;
+- decide compile-back closure membership;
+- choose compile-back bail reasons;
+- reference Roslyn;
+- host `TypeProducer`, `TypeShell`, or `TypePrinter`.
+
+### ReturnToSenderPlanner
+
+Own tools-only reconstruction planning.
+
+Responsibilities:
+
+1. select the target method;
+2. run or reuse compiler-driven closure membership;
+3. query Metadata, Analysis, and Research facts for the target closure;
+4. build a `ReconstructionPlan`;
+5. record missing facts and bail reasons for harness reports.
+
+The planner is the boundary between reusable facts and compile-back-specific
+decisions. It can use Research facts, but Research should not know that a
+particular fact is required to turn `RecompileFail` into `Exact`.
 
 ### TypeProducer
 
@@ -154,36 +203,31 @@ Own structured type shell construction.
 
 Input: `ReconstructionPlan`.
 
-Output: structured declarations, not text.
+Output: typed declarations, not text.
 
-Example shape:
+TypeProducer's job is not merely to reshuffle the plan. It must resolve
+requirements into complete shell records:
 
-```text
-TypeShell
-  identity: Aspire.DashboardService.Proto.V1.ApplicationInformationRequest
-  kind: class
-  base: object
-  interfaces:
-    Google.Protobuf.IMessage<ApplicationInformationRequest>
-  explicitProperties:
-    Google.Protobuf.IMessage.Descriptor : Google.Protobuf.Reflection.MessageDescriptor
-  members:
-    Parser
-    Descriptor
-    MergeFrom(...)
-    WriteTo(...)
-    CalculateSize()
-```
+- type kind, nesting, accessibility, generic parameters, and constraints;
+- base type and interfaces;
+- fields, properties, methods, events, constructors, and explicit interface
+  members needed by the target body;
+- typed parameter, return, receiver, and generic argument signatures;
+- stub behavior that is safe for compile-back.
 
-TypeProducer should be deterministic and auditable. It should not ask Roslyn
-diagnostics what source to print. It should consume typed reconstruction facts.
+If TypeProducer cannot produce a typed signature, it should fail with a named
+planning reason rather than emit a stringly stub such as `MergeFrom(...)`.
 
 ### TypePrinter
 
 Own C# declaration rendering for structured shells.
 
-This is the type-level counterpart to `CSharpPrinter`, which should continue to
-own method bodies. TypePrinter prints:
+TypePrinter is conceptually paired with `CSharpPrinter`, but it should not live
+beside `CSharpPrinter` in `ILInspector.Decompiler` if its input types live above
+Decompiler. The likely owner is the same tools-only reconstruction project as
+`TypeShell`.
+
+TypePrinter prints:
 
 - namespaces;
 - type declarations;
@@ -193,16 +237,17 @@ own method bodies. TypePrinter prints:
 - generated-family explicit stubs;
 - nested type declarations.
 
-TypePrinter should be a renderer, not a planner.
+TypePrinter should be a renderer, not a planner. It should not query Research or
+read Roslyn diagnostics.
 
-### CompileBackHarness vNext
+### ReturnToSender harness
 
 Own orchestration and proof.
 
 Responsibilities:
 
 1. select target method;
-2. ask Research for reconstruction plan;
+2. ask `ReturnToSenderPlanner` for a reconstruction plan;
 3. ask TypeProducer for type shells;
 4. ask TypePrinter for declaration text;
 5. ask CSharpPrinter for the target method body;
@@ -210,8 +255,88 @@ Responsibilities:
 7. compare opcodes;
 8. classify failure if compile-back cannot run.
 
-Roslyn diagnostics remain useful, but as validation/feedback, not as the primary
-planning architecture.
+Roslyn diagnostics remain useful, but as membership growth and validation
+feedback, not as the primary shell-shape architecture.
+
+## Minimal contracts
+
+These are intentionally conceptual, but they need this level of precision before
+implementation starts.
+
+```text
+ReconstructionPlan
+  TargetMethod: MethodIdentity
+  AssemblyReferences: IReadOnlyList<AssemblyReference>
+  ClosureRoots: IReadOnlyList<TypeIdentity>
+  TypeRequirements: IReadOnlyList<TypeRequirement>
+  Diagnostics: IReadOnlyList<PlanningDiagnostic>
+```
+
+```text
+TypeRequirement
+  Type: TypeIdentity
+  RequiredKind: class | struct | interface | enum | delegate
+  RequiredBaseType: TypeSignature?
+  RequiredInterfaces: IReadOnlyList<TypeSignature>
+  RequiredMembers: IReadOnlyList<MemberRequirement>
+  SourceFacts: IReadOnlyList<FactIdentity>
+```
+
+```text
+TypeShell
+  Identity: TypeIdentity
+  Kind: TypeKind
+  Accessibility: Accessibility
+  GenericParameters: IReadOnlyList<GenericParameterShell>
+  BaseType: TypeSignature?
+  Interfaces: IReadOnlyList<TypeSignature>
+  Members: IReadOnlyList<TypeMemberShell>
+  SourceFacts: IReadOnlyList<FactIdentity>
+```
+
+```text
+TypeMemberShell
+  Identity: MemberIdentity
+  Kind: field | property | method | event | constructor
+  Accessibility: Accessibility
+  IsStatic: bool
+  ExplicitInterface: TypeSignature?
+  ReturnType: TypeSignature?
+  Parameters: IReadOnlyList<ParameterShell>
+  GenericParameters: IReadOnlyList<GenericParameterShell>
+  Constraints: IReadOnlyList<GenericConstraintShell>
+  StubBodyKind: none | throw | default-return | auto-property
+  SourceFacts: IReadOnlyList<FactIdentity>
+```
+
+`TypeShell` and `TypeMemberShell` must carry typed signatures. They should never
+store printable fragments as the source of truth.
+
+## Product and dependency boundary
+
+The product path must remain SRM-only, NativeAOT-friendly, Roslyn-free, and free
+of inspected-assembly loading.
+
+Allowed dependencies:
+
+```text
+dotnet-inspect CLI
+  -> ILInspector.Research
+  -> ILInspector.Analysis
+  -> ILInspector.Instructions
+```
+
+Harness-only dependencies:
+
+```text
+tools/CompileBackReconstruction
+  -> ILInspector.Research
+  -> ILInspector.Analysis
+  -> ILInspector.Decompiler
+  -> Roslyn
+```
+
+No product assembly should reference the tools-only reconstruction project.
 
 ## Type identity and the TypeRef duplication
 
@@ -227,30 +352,41 @@ Analysis and Decompiler consume it
 specialized layers add interpretation above it
 ```
 
-For type identity, the likely path is:
-
-1. short term: adapters between `Analysis.TypeRef` and decompiler/harness type
-   structures;
-2. medium term: extract a shared type identity substrate;
-3. long term: keep consumer-specific facts outside that shared identity.
+For type identity, Phase 1 should either extract a shared substrate or define a
+strictly temporary adapter with hard transition criteria. The harness should not
+create a permanent third `ReconstructionTypeRef`.
 
 The shared substrate should carry identity:
 
 - assembly identity;
 - namespace;
 - metadata name;
+- metadata definition token or equivalent stable type-definition identity;
+- generic owner identity for generic parameters;
+- generic parameter index and kind;
 - generic instantiation;
 - array/pointer/byref shape;
-- generic parameter identity.
+- function-pointer shape if the substrate must serve Decompiler parity.
 
 It should not absorb every consumer-specific adornment. Analysis can add trust
 facts such as authentic protobuf/framework identity. Decompiler can add
 rendering/provenance facts such as value-type hints, inline-array facts, custom
-modifiers, and function-pointer rendering.
+modifiers, and printer-specific display rules.
 
-The new harness should not create a permanent third `ReconstructionTypeRef`
-unless it is explicitly transitional. If adapters become painful or lossy, that
-is evidence to continue the de-duplication path and extract shared type identity.
+Placement is not free. `ILInspector.Instructions` is the current shared ancestor
+for Analysis and Decompiler, but it is intentionally coarse. Putting rich type
+identity there risks bloating the instruction substrate. `MetadataPrimitives` is
+another candidate, but using it would require new dependency edges. A new shared
+metadata-identity library may be cleaner if the substrate grows beyond simple
+identity records.
+
+Temporary adapters are acceptable only if:
+
+- they are owned by the tools-only harness layer;
+- every lossy conversion records a diagnostic;
+- no new product API exposes adapter-specific types;
+- the MVP includes a decision point to extract shared identity if adapters become
+  noisy or incomplete.
 
 ## StackType in the new design
 
@@ -262,27 +398,29 @@ Use `StackType` and `StackValue` for:
 - managed-pointer vs object-reference distinctions;
 - value-type vs object-reference evidence;
 - producer-offset provenance;
-- anchoring Research facts to IL offsets.
+- stack-shape evidence when classifying a callsite.
 
 Do not use `StackType` for:
 
 - protobuf `IMessage<TSelf>` identity;
 - generic type arguments;
 - base/interface clauses;
-- member signatures.
+- member signatures;
+- deciding whether a metadata type is trusted framework or generated protobuf.
 
 Example:
 
 ```text
 IL offset IL_0032 calls MessageParser<T>.ParseFrom(...)
-StackType says arg0 is ObjectReference@IL_002A.
+StackType says arg0 is ObjectReference produced at IL_002A.
 Metadata says T is ApplicationInformationRequest.
 Research says ApplicationInformationRequest is protobuf-generated.
 TypeProducer emits IMessage<ApplicationInformationRequest>.
 ```
 
-StackType supplies flow/provenance evidence. Type identity supplies semantic
-facts. Research joins them.
+StackType supplies flow/provenance evidence. Instruction offsets and metadata
+handles anchor facts. Type identity supplies semantic facts. The planner joins
+them for compile-back.
 
 ## Generated-family facts: protobuf pilot
 
@@ -291,7 +429,7 @@ structured, and metadata-visible.
 
 ### Detection facts
 
-A protobuf producer should detect:
+A reusable protobuf fact producer should detect:
 
 - authentic `Google.Protobuf` reference;
 - type implements `Google.Protobuf.IMessage<TSelf>`;
@@ -315,7 +453,7 @@ GeneratedFamilyFact
 
 ### Reconstruction requirements
 
-Research translates those facts into requirements:
+The harness-side planner translates those facts into requirements:
 
 ```text
 TypeRequirement
@@ -324,29 +462,30 @@ TypeRequirement
     IMessage<ApplicationInformationRequest>
   explicitProperties:
     IMessage.Descriptor : MessageDescriptor
-  staticMembers:
-    Parser
-    Descriptor
+  staticProperties:
+    Parser : MessageParser<ApplicationInformationRequest>
+    Descriptor : MessageDescriptor
   methods:
-    MergeFrom(...)
-    WriteTo(...)
-    CalculateSize()
+    MergeFrom(ApplicationInformationRequest other) : void
+    WriteTo(CodedOutputStream output) : void
+    CalculateSize() : int
 ```
 
-TypeProducer consumes requirements and emits the structured shell. TypePrinter
-prints the declarations.
+TypeProducer consumes typed requirements and emits structured shells. TypePrinter
+prints declarations.
 
-## Integrations and #2033 pattern
+## Integrations and issue 2033 pattern
 
-\#2033 proposes moving ecosystem integrations below the CLI and modeling them as
-member/offset-keyed Research facts. The fact-planned harness should follow the
-same pattern, with one addition: some reconstruction facts are type-level rather
-than offset-level.
+Issue 2033 proposes moving ecosystem integration knowledge below the CLI and
+modeling it as typed Research facts keyed by member, type, or IL offset. The
+fact-planned harness should follow the same reusable-fact pattern, with one
+important boundary: the harness consumes facts constructively, but the
+compile-back plan remains outside Research.
 
 Shared pattern:
 
 1. detection below CLI;
-2. typed facts in Research;
+2. typed facts in Research when they are reusable;
 3. multiple consumers;
 4. no product-path contamination.
 
@@ -357,11 +496,28 @@ Consumers:
 | CLI Integrations | assembly/member summaries and rollups |
 | Analysis performance triage | amortization and setup-time heuristics |
 | Offset/Facts views | per-offset explanation |
-| Compile-back harness vNext | reconstruction requirements |
+| ReturnToSender | shell-shape requirements |
 
 The harness is stricter than display-only consumers. If facts are too vague,
-stringly typed, or incomplete, the shell will not compile. That makes it a good
-forcing function for the Research architecture.
+stringly typed, or incomplete, the shell will not compile. That makes the harness
+a useful stress test for Research facts, but not the owner of Research itself.
+
+## Relationship to issue 2030
+
+Issue 2030 documents the current compile-back reconstruction problem space and
+the existing closure-vs-whole-module tradeoff. This spec is narrower and newer:
+it describes a fresh harness architecture for typed shell reconstruction.
+
+The two documents should not conflict:
+
+- issue 2030 explains why the current whole-module skeleton and current closure
+  path exist;
+- this spec keeps the current `CB_CLUSTER` membership algorithm and adds a
+  typed shell-shape architecture beside it.
+
+If both docs land, issue 2030 should point here as the proposed ReturnToSender
+direction
+rather than duplicate the same architecture.
 
 ## Whole-module vs closure
 
@@ -369,24 +525,48 @@ Fact planning does not eliminate the scope distinction.
 
 | Scope | Role with fact planning |
 | --- | --- |
-| Whole-module | Cheap smoke pass. Use TypeProducer facts where safe, but avoid broad speculative surfaces. |
-| Closure | Authoritative hard-row path. Build a target-specific plan from Analysis/Research facts. |
+| Whole-module | Cheap smoke pass. Use safe shell facts only; avoid broad speculative surfaces. |
+| Current `CB_CLUSTER` | Generic hard-row membership path. Keep compiler-driven root growth. |
+| Fact-planned closure | Hard-row shell-shape enrichment for roots selected by target evidence and compiler diagnostics. |
 
-The new design makes closure more principled:
+The new design makes shell shape more principled:
 
 ```text
 Current hard-row loop:
-  compile -> Roslyn error -> patch skeleton -> repeat
+  compile -> Roslyn missing-symbol error -> add root -> emit generic skeleton
 
 Fact-planned loop:
-  target method evidence -> typed facts -> reconstruction plan -> type shell -> compile -> validate
+  compile -> Roslyn missing-symbol error -> add root
+  target evidence + typed facts -> reconstruction plan -> typed shell -> compile
 ```
 
-Roslyn diagnostics become feedback:
+Roslyn diagnostics remain feedback:
 
-- if a planned fact is missing, add a producer or requirement;
+- if a target-assembly root is missing, add it through the generic closure loop;
+- if a shell-shape fact is missing, add a producer or requirement;
 - if growth becomes unsafe, emit a named bail reason;
 - if the body itself is invalid, classify as product/source-shape frontier.
+
+Targets without a matching fact producer must degrade to the current generic
+cluster path, not straight to `RecompileFail`. Fact producers are opt-in shell
+enrichment, not a replacement for generic closure.
+
+## Performance and budgets
+
+The planner should be lazy and bounded.
+
+Rules:
+
+- query facts for the target method and current closure roots, not the whole
+  module by default;
+- preserve root and iteration budgets from the current cluster path;
+- cap producer expansion per target and report when a cap is hit;
+- avoid whole-corpus eager Research scans unless an explicit diagnostic mode asks
+  for them;
+- cache metadata and fact lookups by assembly and target root.
+
+A producer that requires whole-module precomputation needs an explicit cost
+model and should be opt-in until measured.
 
 ## MVP design
 
@@ -400,9 +580,11 @@ the new path proves itself.
    - one generated protobuf fixture;
    - one Aspire resource/builder fixture;
    - one real Aspire witness method from the cap-25 run.
-2. Define `ReconstructionPlan`.
-3. Define `TypeShell` and `TypeMemberShell` records.
-4. Implement TypePrinter for a minimal subset:
+2. Define the tools-only `ReconstructionPlan`.
+3. Define `TypeShell`, `TypeMemberShell`, `TypeSignature`, and related identity
+   records.
+4. Keep current `CB_CLUSTER` membership growth as the closure source.
+5. Implement TypePrinter for a minimal subset:
    - class/interface declarations;
    - namespace nesting;
    - base/interface clauses;
@@ -410,108 +592,146 @@ the new path proves itself.
    - properties;
    - methods as throwing stubs;
    - explicit interface property stubs.
-5. Add fact producers:
-   - protobuf message producer;
-   - Aspire resource collection/resource annotation producer;
-   - generic base/interface constraint producer;
-   - reference closure producer.
-6. Compile shell + method body.
-7. Compare opcode stream.
-8. Emit plan report.
+6. Add reusable fact producers where they belong:
+   - protobuf message facts in Research if reusable by CLI/Analysis views;
+   - Aspire resource collection/resource annotation facts only if they are useful
+     beyond the harness; otherwise keep them harness-local.
+7. Add harness-side shell-shape producers:
+   - protobuf shell producer;
+   - Aspire resource collection/resource annotation shell producer;
+   - generic base/interface constraint producer.
+8. Compile shell + method body.
+9. Compare opcode stream.
+10. Emit plan report.
 
 ### MVP success criteria
 
 The MVP is successful if:
 
 - it matches or beats the current harness on the chosen fixtures;
+- it never regresses no-producer targets below current `CB_CLUSTER` behavior;
 - it converts at least one real Aspire `RecompileFail` into `Exact` or
   `OpcodeDiff`;
-- every emitted type shell can be traced back to a typed fact;
+- every emitted type shell can be traced back to a typed fact, metadata fact, or
+  compiler-requested closure root;
 - every failure has a named layer and reason;
 - no product assembly references Roslyn;
 - no product-path code depends on the new harness.
 
 ## Reporting contract
 
-The new harness should report both proof and planning:
+ReturnToSender should report both proof and planning, but it must still map to
+the existing compile-back status buckets.
+
+| ReturnToSender detail | Existing status |
+| --- | --- |
+| exact opcode match | `Exact` |
+| opcode stream mismatch after successful compile | `OpcodeDiff` |
+| shell compilation failed | `RecompileFail` |
+| target or references cannot be made compile-ready | `ContextFail` |
+| unsupported product body shape before compile | `RecompileFail` or `ContextFail`, with explicit reason |
+
+The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `RecompileFail`, and
+`ContextFail`. ReturnToSender planning reasons should be structured details
+underneath those statuses, not replacement top-level metrics.
+
+Example report:
 
 ```text
-Compile-back vNext over N targets
+ReturnToSender over N targets
 
-  exact opcode match      : X
-  opcode diff             : Y
-  not safely capturable   : Z
-  product-body failure    : A
-  reconstruction failure  : B
+  Exact         : X
+  OpcodeDiff    : Y
+  RecompileFail : Z
+  ContextFail   : A
 
 Plan layers:
-  reference closure       : resolved / failed
-  type identity closure   : resolved / failed
-  member surface closure  : resolved / failed
-  generated-family facts  : resolved / failed
+  closure membership    : resolved / failed
+  reference closure     : resolved / failed
+  type identity         : resolved / failed
+  member surface        : resolved / failed
+  generated-family facts: resolved / failed
 
 Examples:
   Target::Method
-    status: not safely capturable
+    status: RecompileFail
     layer : generated-family
     reason: protobuf message detected but self-interface fact missing
 ```
 
 ## Migration plan
 
-### Phase 1: spec and data model
+### Phase 1: spec, identity, and data model
 
 - Land this design.
-- Define `ReconstructionPlan`, `TypeShell`, `TypePrinter` shape.
-- Decide short-term TypeRef adapter vs shared type identity extraction.
+- Decide shared TypeIdentity extraction vs a strictly temporary adapter.
+- Define `ReconstructionPlan`, `TypeShell`, `TypeMemberShell`, `TypeSignature`,
+  and TypePrinter shape in a tools-only project.
+- Keep Research scoped to reusable facts.
 
 ### Phase 2: protobuf pilot
 
-- Add protobuf generated-family fact producer.
-- Add TypeProducer/TypePrinter support for protobuf shell.
+- Add protobuf generated-family fact producer if the facts are reusable by
+  non-harness consumers.
+- Add harness-side TypeProducer/TypePrinter support for protobuf shells.
 - Prove one fixture and one Aspire witness.
 
 ### Phase 3: Aspire collection/resource pilot
 
-- Add typed Aspire resource facts.
-- Replace hardcoded collection skeleton surfaces with fact-produced shells.
-- Measure cap-25 movement against #2015/#2025 baselines.
+- Add typed Aspire resource facts only where they are reusable.
+- Replace hardcoded collection skeleton surfaces with fact-produced shells in the
+  new harness path.
+- Measure cap-25 movement against the post-2015 and post-2025 baselines.
 
 ### Phase 4: closure integration
 
 - Use the fact-planned shell as a new harness mode, not a replacement yet.
 - Compare whole-module, current closure, and fact-planned closure on the same
   target set.
-- Decide whether fact-planned closure becomes default hard-row path.
+- Decide whether fact-planned shell enrichment becomes the default hard-row path.
 
 ### Phase 5: TypeRef de-duplication
 
-- If adapters are stable, keep them.
+- If adapters are stable, keep them local and transitional.
 - If adapters are lossy or duplicated, extract shared type identity substrate,
   following the ILReader de-dup pattern.
 
 ## Open questions
 
-1. Where should the shared type identity substrate live: `ILInspector.Instructions`,
-   a new shared metadata library, or `ILInspector.MetadataPrimitives`?
-2. Should TypeProducer live in Research, a new harness library, or a new
-   reconstruction library below the harness?
+1. Where should the shared type identity substrate live: a new shared
+   metadata-identity library, `ILInspector.MetadataPrimitives` with new edges, or
+   a carefully bounded addition to `ILInspector.Instructions`?
+2. Which generated-family facts are broadly reusable enough for Research vs
+   harness-local?
 3. Which facts are type-level vs offset-level in Research?
-4. Should #2033 integration facts and compile-back reconstruction facts share one
-   fact registry or use sibling registries?
+4. Should issue 2033 integration facts and compile-back reconstruction facts
+   share one fact registry or use sibling registries?
 5. What is the first real witness set: protobuf-only, Aspire-only, or both?
-6. How should the new harness report bails so they are actionable without becoming
-   another giant diagnostic wall?
+6. How should the new harness report bails so they are actionable without
+   becoming another giant diagnostic wall?
+
+## Adversarial review results incorporated
+
+This revision incorporates adversarial feedback from Claude Opus 4.8,
+Gemini 3.1 Pro, and MAI-Code-1 Flash:
+
+- Research is fact registry/projection only; the planner is tools-only.
+- Current `CB_CLUSTER` membership growth is preserved instead of replaced.
+- TypeProducer and TypePrinter have explicit contracts and typed signatures.
+- TypeRef de-duplication has stronger transition criteria and identity fields.
+- StackType is bounded to stack-shape/provenance evidence.
+- New reporting reasons map back to existing compile-back status buckets.
 
 ## Recommendation
 
-Build a **fact-planned compile-back harness** alongside the current
-DecompilerHarness. Use it as the first large constructive consumer of the
-Research architecture. Start with protobuf and Aspire because they expose the
-right kind of structured, metadata-visible generated-family problems.
+Build **ReturnToSender** alongside the current DecompilerHarness. Keep
+compiler-driven closure membership as the generic
+fallback and make fact producers opt-in shell-shape enrichment. Start with
+protobuf and Aspire because they expose structured, metadata-visible
+generated-family problems.
 
-Use adapters at first, but expect the TypeRef duplication to motivate a shared
-type identity substrate if the adapters become noisy. Keep StackType as flow and
-provenance evidence, not as type identity.
+Use adapters only as a transitional bridge, and expect the TypeRef duplication to
+motivate a shared type identity substrate if the adapters become noisy. Keep
+StackType as flow and provenance evidence, not as type identity.
 
 This is a new harness architecture, not another round of skeleton patching.
