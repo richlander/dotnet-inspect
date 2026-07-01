@@ -72,6 +72,11 @@ public record LibraryOptions
     public string? ILOffsetParameter { get; init; }
 
     /// <summary>
+    /// Path to a text file containing sparse MethodDef token + IL offset coordinates.
+    /// </summary>
+    public string? ILOffsetsPath { get; init; }
+
+    /// <summary>
     /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
     /// </summary>
     public bool BrowsableUrls { get; init; }
