@@ -683,7 +683,8 @@ public sealed class BooleanFoldingPass : IIrPass
         // be reused by earlier live ranges, so look after the whole diamond, not
         // at the first same-number load in the method.
         var mergedType = FirstLoadAfter(function, diamond, thenStore.Slot)?.Type
-            ?? EqualArmType(thenStore.Value, elseStore.Value);
+            ?? EqualArmType(thenStore.Value, elseStore.Value)
+            ?? DiamondArmTypes.ConflictingArmType(thenStore.Value, elseStore.Value, function);
         if (HasNullArmForNonNullableValue(thenStore.Value, elseStore.Value, mergedType, function))
             return false;
 

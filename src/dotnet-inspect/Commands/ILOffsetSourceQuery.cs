@@ -50,6 +50,27 @@ internal static class ILOffsetSourceQuery
             return (1, null);
         }
 
+        var exceptionContext = pdbContext.ResolveExceptionContext(methodToken, ilOffset, out var exceptionError);
+        if (exceptionError is not null && RequiresExceptionContext(options))
+        {
+            Console.Error.WriteLine($"Error: {exceptionError}");
+            return (1, null);
+        }
+
+        var callsiteContext = pdbContext.ResolveCallsiteContext(methodToken, ilOffset, out var callsiteError);
+        if (callsiteError is not null && RequiresCallsiteContext(options))
+        {
+            Console.Error.WriteLine($"Error: {callsiteError}");
+            return (1, null);
+        }
+
+        var returnAddressContext = pdbContext.ResolveReturnAddressContext(methodToken, ilOffset, out var returnAddressError);
+        if (returnAddressError is not null && RequiresReturnAddressContext(options))
+        {
+            Console.Error.WriteLine($"Error: {returnAddressError}");
+            return (1, null);
+        }
+
         SourceLinkResolver.ILOffsetSourceInfo? result = null;
         if (RequiresSourceLocation(options))
         {
@@ -120,6 +141,38 @@ internal static class ILOffsetSourceQuery
                 Block = instructionContext.Block,
                 TerminatesBlock = instructionContext.TerminatesBlock ? "Yes" : "No",
                 FallsThrough = instructionContext.FallsThrough ? "Yes" : "No"
+            },
+            ExceptionContext = exceptionContext
+                .Select(context => new ILOffsetExceptionContext
+                {
+                    Region = context.Region,
+                    Context = context.Context,
+                    Clause = context.Clause,
+                    TryRange = FormatILRange(context.TryStart, context.TryEnd),
+                    HandlerRange = FormatILRange(context.HandlerStart, context.HandlerEnd),
+                    FilterRange = context.FilterStart is { } fs && context.FilterEnd is { } fe
+                        ? FormatILRange(fs, fe)
+                        : null,
+                    CaughtType = context.CaughtType
+                })
+                .ToList(),
+            CallsiteContext = callsiteContext is null ? null : new ILOffsetCallsiteContext
+            {
+                CallOffset = FormatILOffset(callsiteContext.CallOffset),
+                Opcode = callsiteContext.Opcode,
+                CallKind = callsiteContext.CallKind,
+                Callee = callsiteContext.Callee,
+                OperandToken = callsiteContext.OperandToken,
+                ReturnAddress = FormatILOffset(callsiteContext.ReturnAddress)
+            },
+            ReturnAddressContext = returnAddressContext is null ? null : new ILOffsetReturnAddressContext
+            {
+                ILOffset = FormatILOffset(returnAddressContext.ILOffset),
+                CallOffset = FormatILOffset(returnAddressContext.CallOffset),
+                Opcode = returnAddressContext.Opcode,
+                CallKind = returnAddressContext.CallKind,
+                Callee = returnAddressContext.Callee,
+                OperandToken = returnAddressContext.OperandToken
             }
         };
 
@@ -131,6 +184,19 @@ internal static class ILOffsetSourceQuery
 
     private static bool RequiresInstructionContext(LibraryOptions options)
         => options.IncludeSections?.Contains(SectionNames.InstructionContext) == true;
+
+    private static bool RequiresExceptionContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.ExceptionContext) == true;
+
+    private static bool RequiresCallsiteContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.CallsiteContext) == true;
+
+    private static bool RequiresReturnAddressContext(LibraryOptions options)
+        => options.IncludeSections?.Contains(SectionNames.ReturnAddressContext) == true;
+
+    private static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
+
+    private static string FormatILOffset(int offset) => $"IL_{offset:X4}";
 
     public static bool TryParse(string value, out int methodToken, out int ilOffset)
     {

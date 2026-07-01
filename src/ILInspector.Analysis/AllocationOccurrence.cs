@@ -34,6 +34,22 @@ public enum AllocationFactSource
     GetEnumeratorCall,
 }
 
+public enum AllocationPathContext
+{
+    StraightLine,
+    Branch,
+    SwitchArm,
+    LoopBody,
+    ErrorPath,
+}
+
+public enum AllocationPathConfidence
+{
+    Unknown,
+    DominatesReturn,
+    BehindBranch,
+}
+
 /// <summary>
 /// One static heap-allocation occurrence, keyed by IL offset. Presentation layers
 /// project this into hidden-fact annotations, method signals, and triage rows.
@@ -49,7 +65,10 @@ public sealed record AllocationOccurrence(
     AllocationFrequency Frequency,
     bool InLoop,
     AllocationEscape Escape,
-    AllocationFactSource Source)
+    AllocationFactSource Source,
+    string? RuntimeAllocationType = null,
+    AllocationPathContext PathContext = AllocationPathContext.StraightLine,
+    AllocationPathConfidence PathConfidence = AllocationPathConfidence.Unknown)
 {
     public string AnnotationId => Kind switch
     {

@@ -36,6 +36,8 @@ Agents working in this repo should preserve these principles:
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S @All`, and limiter behavior.
+- [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
+- [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.

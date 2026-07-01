@@ -1,3 +1,4 @@
+using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using System.Reflection;
@@ -23,14 +24,21 @@ static class CorpusMetadata
             .Where(d => !string.IsNullOrEmpty(d))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var defaultLocators = assemblyPaths
-            .Select(MetadataSource.DefaultAssemblyLocator)
+        var dependencyResolvers = assemblyPaths
+            .Select(path => new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)
+            {
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeSiblingAssemblies = false,
+                IncludeDepsJsonAssets = false,
+                PreferImplementationAssemblies = true,
+            }))
             .ToList();
         var platformAssemblies = TrustedPlatformAssemblies();
 
         AssemblyLocator locator = (name, trust) =>
         {
-            if (trust == AssemblyTrust.Platform)
+            if (trust == AssemblyResolutionScope.Platform)
             {
                 foreach (var directory in directories)
                 {
@@ -48,8 +56,8 @@ static class CorpusMetadata
                 if (File.Exists(candidate))
                     return candidate;
             }
-            foreach (var locator in defaultLocators)
-                if (locator(name, trust) is { } resolved)
+            foreach (var resolver in dependencyResolvers)
+                if (resolver.Resolve(new AssemblyReferenceIdentity(name, Version: null, Culture: null, PublicKeyToken: null), trust)?.Path is { } resolved)
                     return resolved;
             return null;
         };

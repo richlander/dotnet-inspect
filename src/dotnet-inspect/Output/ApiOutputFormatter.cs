@@ -958,7 +958,7 @@ public static class ApiOutputFormatter
                     var rows = byName.Select(e =>
                         new MethodSummaryRow(
                             OperatorNames.FormatDisplayName(e.members[0].Name),
-                            SignatureParser.ExtractReturnType(e.members[0].Signature),
+                            MemberReturnType(e.members[0]),
                             e.members.Count.ToString())).ToList();
                     if (hasOverloads)
                         methodGroupsView.RowsWithOverloads = rows;
@@ -973,8 +973,8 @@ public static class ApiOutputFormatter
                         var m = e.members[0];
                         return new PropertySummaryRow(
                             m.Name,
-                            SignatureParser.ExtractReturnType(m.Signature),
-                            SignatureParser.ExtractAccessors(m.Signature));
+                            MemberReturnType(m),
+                            MemberAccessors(m));
                     }).ToList();
                     view.PropertySummaryRows = rows;
                     break;
@@ -1081,14 +1081,40 @@ public static class ApiOutputFormatter
                 .Where(call => call.Caller.MetadataToken == token)
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
-                    MarkoutInline.Code(FormatCallee(call.Callee)),
-                    FormatCallKind(call.Kind),
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
-                    MarkoutInline.Code($"0x{call.OperandToken:X8}")))
+                    string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
+                    FormatCallsiteKind(call.Kind),
+                    MarkoutInline.Code(FormatCallee(call.Callee)),
+                    MarkoutInline.Code($"0x{call.OperandToken:X8}"),
+                    call.ReturnAddress is { } returnAddress
+                        ? MarkoutInline.Code($"IL_{returnAddress:X4}")
+                        : null))
                 .ToList();
             if (rows.Count > 0 || ExplicitlySelected(SectionNames.Calls))
             {
                 memberCode.CallRows = rows;
+                hasCode = true;
+            }
+        }
+
+        if (requestedSections.Contains(SectionNames.ExceptionRegions) && singleMethodList is [{ MetadataToken: { } exceptionToken } exceptionMethod])
+        {
+            RequestTelemetry.Breadcrumb("il-analysis.exception-regions", exceptionMethod.Name);
+            using var pdbContext = PdbContext.Open(dllPath);
+            var regions = pdbContext.ResolveExceptionRegions(exceptionToken, out var error)
+                .Select(region => new ExceptionRegionRow(
+                    region.Region,
+                    region.Clause,
+                    FormatILRange(region.TryStart, region.TryEnd),
+                    FormatILRange(region.HandlerStart, region.HandlerEnd),
+                    region.FilterStart is { } filterStart && region.FilterEnd is { } filterEnd
+                        ? FormatILRange(filterStart, filterEnd)
+                        : null,
+                    region.CaughtType))
+                .ToList();
+            if (regions.Count > 0 || ExplicitlySelected(SectionNames.ExceptionRegions))
+            {
+                memberCode.ExceptionRegionRows = regions;
                 hasCode = true;
             }
         }
@@ -1151,11 +1177,11 @@ public static class ApiOutputFormatter
 
             // Deduplicate and sort
             rows = rows
-                .GroupBy(row => (row.Source, row.Caller, row.IL, row.Token))
+                .GroupBy(row => (row.Source, row.Caller, row.ILOffset, row.OperandToken))
                 .Select(g => g.First())
                 .OrderBy(row => row.Source, StringComparer.Ordinal)
                 .ThenBy(row => row.Caller, StringComparer.Ordinal)
-                .ThenBy(row => row.IL, StringComparer.Ordinal)
+                .ThenBy(row => row.ILOffset, StringComparer.Ordinal)
                 .ToList();
 
             if (rows.Count > 0 || ExplicitlySelected(SectionNames.Callers))
@@ -1421,6 +1447,29 @@ public static class ApiOutputFormatter
         _ => "calli",
     };
 
+    static string FormatOpcode(Analysis.CallKind kind) => kind switch
+    {
+        Analysis.CallKind.CallVirtual => "callvirt",
+        Analysis.CallKind.NewObject => "newobj",
+        Analysis.CallKind.LoadFunction => "ldftn",
+        Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
+        Analysis.CallKind.CallIndirect => "calli",
+        _ => "call",
+    };
+
+    static string FormatCallsiteKind(Analysis.CallKind kind) => kind switch
+    {
+        Analysis.CallKind.Call => "direct",
+        Analysis.CallKind.CallVirtual => "virtual",
+        Analysis.CallKind.NewObject => "constructor",
+        Analysis.CallKind.LoadFunction => "method pointer",
+        Analysis.CallKind.LoadVirtualFunction => "virtual method pointer",
+        Analysis.CallKind.CallIndirect => "function pointer",
+        _ => "call",
+    };
+
+    static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
+
     static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
         => evidence is { Reason: "Unsafe API member", Kind: "api" };
 
@@ -1576,6 +1625,55 @@ public static class ApiOutputFormatter
             view.UnsafeMemberRows = rows;
     }
 
+    internal static void PopulateTypeExceptionRegions(
+        TypeView view,
+        ApiType type,
+        string dllPath,
+        IReadOnlySet<string>? explicitSections = null)
+    {
+        using var pdbContext = PdbContext.Open(dllPath);
+        var rows = type.Members
+            .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
+            .OrderBy(member => GetMemberSortOrder(member.Kind))
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+            .SelectMany(member => pdbContext.ResolveExceptionRegions(member.MetadataToken!.Value, out _)
+                .Select(region => new TypeExceptionRegionRow(
+                    MarkoutInline.Code(GetMemberDisplaySignature(type, member)),
+                    region.Region,
+                    region.Clause,
+                    FormatILRange(region.TryStart, region.TryEnd),
+                    FormatILRange(region.HandlerStart, region.HandlerEnd),
+                    region.FilterStart is { } filterStart && region.FilterEnd is { } filterEnd
+                        ? FormatILRange(filterStart, filterEnd)
+                        : null,
+                    region.CaughtType)))
+            .ToList();
+
+        if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.ExceptionRegions))
+            view.ExceptionRegionRows = rows;
+    }
+
+    internal static void PopulateCalledTypes(
+        TypeView view,
+        ApiType type,
+        string dllPath,
+        IReadOnlySet<string>? explicitSections = null)
+    {
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var rows = index.CalledTypes(method => SameType(method.DeclaringType, type))
+            .Select(summary => new CalledTypeRow(
+                MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
+                string.IsNullOrEmpty(summary.Assembly) ? null : summary.Assembly,
+                summary.Calls,
+                summary.Members,
+                string.Join(", ", summary.CallKinds.Select(FormatCallsiteKind))))
+            .ToList();
+
+        if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CalledTypes))
+            view.CalledTypeRows = rows;
+    }
+
     internal static void PopulateOptimizationOpportunities(
         TypeView view,
         ApiType type,
@@ -1602,6 +1700,9 @@ public static class ApiOutputFormatter
                 opportunity.SafeFixDirection,
                 opportunity.Confidence,
                 opportunity.InLoop ? "loop" : "",
+                opportunity.RuntimeAllocationType is { Length: > 0 } allocation ? MarkoutInline.Code(allocation) : null,
+                opportunity.PathContext,
+                opportunity.PathConfidence,
                 opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null))
             .ToList();
 
@@ -1724,9 +1825,13 @@ public static class ApiOutputFormatter
         => new(
             source,
             MarkoutInline.Code(FormatMethod(call.Caller)),
-            FormatCallKind(call.Kind),
             MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
-            MarkoutInline.Code($"0x{call.OperandToken:X8}"));
+            string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
+            FormatCallsiteKind(call.Kind),
+            MarkoutInline.Code($"0x{call.OperandToken:X8}"),
+            call.ReturnAddress is { } returnAddress
+                ? MarkoutInline.Code($"IL_{returnAddress:X4}")
+                : null);
 
     static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
     {
@@ -1784,9 +1889,12 @@ public static class ApiOutputFormatter
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null)
     {
-        var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
-        if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
-            declaration = AddAsyncModifier(declaration);
+        var declaration = FormatMemberDeclaration(
+            type,
+            member,
+            abbreviate: false,
+            methodGenericParameters,
+            forceAsync: requiresAsyncDeclaration);
         var body = lowered.TrimEnd();
 
         // A constructor's base/this initializer is surfaced by the renderer as a
@@ -1820,277 +1928,23 @@ public static class ApiOutputFormatter
         return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }
 
-    private static string AddAsyncModifier(string declaration)
-    {
-        var parts = declaration.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-        if (parts.Contains("async"))
-            return declaration;
-        int insert = 0;
-        while (insert < parts.Count && parts[insert] is
-               "public" or "private" or "protected" or "internal" or "static" or
-               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern" or "unsafe")
-        {
-            insert++;
-        }
-        parts.Insert(insert, "async");
-        return string.Join(" ", parts);
-    }
-
     private static string FormatMemberDeclaration(
         ApiType type,
         ApiMember member,
         bool abbreviate,
-        IReadOnlyList<string>? methodParameters = null)
-    {
-        var signature = member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType)
-            ? $"{member.ReturnType} {member.Name}"
-            : member.Signature ?? member.ReturnType ?? "";
-        if (string.IsNullOrWhiteSpace(signature))
-        {
-            if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
-                signature = $"{member.ReturnType} {member.Name}";
-            else
-                return "";
-        }
-
-        if (abbreviate)
-            signature = SignatureParser.AbbreviateSignature(signature);
-
-        if (member.Kind == "constructor")
-        {
-            var typeName = FormatConstructorTypeName(type.Name);
-            signature = $"{typeName}{SignatureParser.FormatConstructorCall(signature)}";
-        }
-        else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
-        {
-            signature = FormatOperatorSignature(signature, member.Name);
-        }
-        else if (member.Kind is "method" or "extension-method")
-        {
-            if (methodParameters is { Count: > 0 })
-                signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
-            if (member.IsExtension)
-                signature = AddExtensionThisModifier(signature);
-            signature = EscapeMemberNameInSignature(signature, member.Name);
-        }
-        else if (member.Kind == "event" && !signature.StartsWith("event ", StringComparison.Ordinal))
-        {
-            signature = $"event {signature}";
-        }
-
-        signature = EscapeQualifiedKeywordSegments(signature);
-
-        List<string> parts = [];
-        if (member.IsObsolete)
-            parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
-
-        List<string> modifiers = [];
-        if (member.Kind != "explicit-interface-implementation")
-        {
-            modifiers.Add(member.Accessibility ?? "public");
-            if (member.IsConst)
-                modifiers.Add("const");
-            else if (member.IsStatic)
-                modifiers.Add("static");
-            if (!member.IsConst && member.IsReadOnly)
-                modifiers.Add("readonly");
-            if (member.IsSealed)
-                modifiers.Add("sealed");
-            if (member.IsAbstract)
-                modifiers.Add("abstract");
-            if (member.IsOverride)
-                modifiers.Add("override");
-            else if (!member.IsAbstract && member.IsVirtual && !member.IsStatic)
-                modifiers.Add("virtual");
-            if (member.IsUnsafe)
-                modifiers.Add("unsafe");
-        }
-
-        if (modifiers.Count > 0)
-            parts.Add(string.Join(" ", modifiers));
-        parts.Add(signature);
-
-        return string.Join(" ", parts);
-    }
-
-    private static string FormatObsoleteAttribute(string? message)
-        => string.IsNullOrWhiteSpace(message)
-            ? "[Obsolete]"
-            : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
-
-    private static string EscapeCSharpString(string value)
-        => value
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("\"", "\\\"", StringComparison.Ordinal)
-            .Replace("\r", "\\r", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal)
-            .Replace("\t", "\\t", StringComparison.Ordinal);
-
-    private static string FormatOperatorSignature(string signature, string methodName)
-    {
-        var parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return signature;
-
-        var returnType = signature[..nameIndex].TrimEnd();
-        var parameters = signature[parenStart..];
-
-        if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
-            && OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..]) is { } checkedSymbol)
-            return $"{returnType} operator checked {checkedSymbol}{parameters}";
-
-        return methodName switch
-        {
-            "op_Implicit" => $"implicit operator {returnType}{parameters}",
-            "op_Explicit" => $"explicit operator {returnType}{parameters}",
-            "op_CheckedExplicit" => $"explicit operator checked {returnType}{parameters}",
-            _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
-        };
-    }
-
-    private static string FormatConstructorTypeName(string name)
-    {
-        var arityIndex = name.IndexOf('`');
-        var typeName = arityIndex < 0 ? name : name[..arityIndex];
-        return EscapeCSharpIdentifier(typeName);
-    }
-
-    private static string EscapeMemberNameInSignature(string signature, string memberName)
-    {
-        if (string.IsNullOrEmpty(memberName))
-            return signature;
-
-        int parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        int nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return signature;
-
-        string escaped = EscapeCSharpIdentifier(memberName);
-        return escaped == memberName
-            ? signature
-            : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
-    }
-
-    private static string EscapeQualifiedKeywordSegments(string signature)
-    {
-        var sb = new StringBuilder(signature.Length);
-        bool inString = false;
-        bool inChar = false;
-        bool escapedChar = false;
-        for (int i = 0; i < signature.Length; i++)
-        {
-            char c = signature[i];
-            sb.Append(c);
-            if (inString || inChar)
+        IReadOnlyList<string>? methodParameters = null,
+        bool forceAsync = false,
+        bool forceUnsafe = false)
+        => CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            new CSharpDeclarationOptions
             {
-                if (escapedChar)
-                {
-                    escapedChar = false;
-                    continue;
-                }
-                if (c == '\\')
-                {
-                    escapedChar = true;
-                    continue;
-                }
-                if (inString && c == '"')
-                    inString = false;
-                else if (inChar && c == '\'')
-                    inChar = false;
-                continue;
-            }
-            if (c == '"')
-            {
-                inString = true;
-                continue;
-            }
-            if (c == '\'')
-            {
-                inChar = true;
-                continue;
-            }
-            if (c != '.' || i + 1 >= signature.Length || signature[i + 1] == '@' || !IsIdentifierStart(signature[i + 1]))
-                continue;
-
-            int start = i + 1;
-            int end = start + 1;
-            while (end < signature.Length && IsIdentifierPart(signature[end]))
-                end++;
-
-            string segment = signature[start..end];
-            string escaped = EscapeCSharpIdentifier(segment);
-            if (escaped != segment)
-            {
-                sb.Append(escaped);
-                i = end - 1;
-            }
-        }
-        return sb.ToString();
-    }
-
-    private static string EscapeCSharpIdentifier(string name)
-        => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
-
-    private static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
-
-    private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
-
-    static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
-    };
-
-    private static string AddMethodGenericParameters(string signature, string methodName, IReadOnlyList<string> methodParameters)
-    {
-        if (methodParameters.Count == 0 || string.IsNullOrEmpty(methodName))
-            return signature;
-
-        var parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return signature;
-
-        var insertAt = nameIndex + methodName.Length;
-        if (insertAt < parenStart && signature[insertAt] == '<')
-            return signature;
-
-        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters)}>");
-    }
-
-    private static string AddExtensionThisModifier(string signature)
-    {
-        var parenStart = signature.IndexOf('(');
-        var parenEnd = signature.LastIndexOf(')');
-        if (parenStart < 0 || parenEnd <= parenStart + 1)
-            return signature;
-
-        var firstParameterStart = parenStart + 1;
-        while (firstParameterStart < signature.Length && char.IsWhiteSpace(signature[firstParameterStart]))
-            firstParameterStart++;
-
-        if (signature.AsSpan(firstParameterStart).StartsWith("this ".AsSpan(), StringComparison.Ordinal))
-            return signature;
-
-        return signature.Insert(firstParameterStart, "this ");
-    }
+                AbbreviateSignature = abbreviate,
+                ForceAsync = forceAsync,
+                ForceUnsafe = forceUnsafe
+            },
+            methodParameters);
 
     // ===== Helper Methods =====
 
@@ -2115,53 +1969,8 @@ public static class ApiOutputFormatter
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
-    internal static string FormatGenericTypeName(string name, List<TypeParameter>? typeParameters)
-    {
-        if (!name.Contains('`'))
-            return name;
-
-        var typeParameterIndex = 0;
-        var segments = name.Split('.');
-        for (var i = 0; i < segments.Length; i++)
-            segments[i] = FormatGenericTypeNameSegment(segments[i], typeParameters, ref typeParameterIndex);
-
-        return string.Join(".", segments);
-    }
-
-    private static string FormatGenericTypeNameSegment(
-        string name,
-        List<TypeParameter>? typeParameters,
-        ref int typeParameterIndex)
-    {
-        int backtickIndex = name.IndexOf('`');
-        if (backtickIndex < 0)
-            return name;
-
-        var baseName = name[..backtickIndex];
-        if (!int.TryParse(name[(backtickIndex + 1)..], out int arity) || arity <= 0)
-            return name;
-
-        if (typeParameters is { Count: > 0 } && typeParameterIndex + arity <= typeParameters.Count)
-        {
-            var names = typeParameters
-                .Skip(typeParameterIndex)
-                .Take(arity)
-                .Select(tp => tp.Name);
-            typeParameterIndex += arity;
-            return $"{baseName}<{string.Join(", ", names)}>";
-        }
-
-        var fallbackNames = arity == 1
-            ? "T"
-            : string.Join(", ", Enumerable.Range(1, arity).Select(i => $"T{i}"));
-        return $"{baseName}<{fallbackNames}>";
-    }
-
     internal static string FormatGenericFullName(ApiType type)
-    {
-        var displayName = FormatGenericTypeName(type.Name, type.TypeParameters);
-        return string.IsNullOrEmpty(type.Namespace) ? displayName : $"{type.Namespace}.{displayName}";
-    }
+        => MetadataTypeNameFormatter.FormatFullName(type);
 
     internal static string GetMemberSignatureSortKey(ApiMember member)
     {
@@ -2202,6 +2011,9 @@ public static class ApiOutputFormatter
 
         return signature;
     }
+
+    internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
+        => member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}";
 
     private static string GetMemberSelectorName(ApiMember member) => member.Kind switch
     {
@@ -2364,13 +2176,13 @@ public static class ApiOutputFormatter
             {
                 "constructor" => "",
                 "event" => m.ReturnType ?? m.Signature ?? "",
-                _ => SignatureParser.ExtractReturnType(m.Signature)
+                _ => MemberReturnType(m)
             };
             var detail = e.kind switch
             {
-                "property" => SignatureParser.ExtractAccessors(m.Signature),
+                "property" => MemberAccessors(m),
                 "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count > 1 => e.members.Count.ToString(),
-                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 => SignatureParser.ExtractParamList(m.Signature),
+                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 => MemberParameterTypes(m),
                 _ => ""
             };
             var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
@@ -2379,6 +2191,19 @@ public static class ApiOutputFormatter
 
         return (new ApiTypeOneLineView { Rows = rows }, truncated);
     }
+
+    private static string MemberReturnType(ApiMember member)
+        => member.SignatureModel?.ReturnType
+           ?? member.ReturnType
+           ?? SignatureParser.ExtractReturnType(member.Signature);
+
+    private static string MemberAccessors(ApiMember member)
+        => member.SignatureModel?.PublicAccessorsSummary
+           ?? SignatureParser.ExtractAccessors(member.Signature);
+
+    private static string MemberParameterTypes(ApiMember member)
+        => member.SignatureModel?.ParameterTypesSummary
+           ?? SignatureParser.ExtractParamList(member.Signature);
 
     /// <summary>
     /// Builds a unified tabular view for a full API surface (all types).

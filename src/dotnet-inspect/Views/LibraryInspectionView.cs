@@ -533,6 +533,52 @@ public class LibraryInspectionView
             FallsThrough = context.FallsThrough
         };
 
+    [MarkoutIgnore]
+    public bool HasILOffsetExceptionContext => _data.ILOffset?.ExceptionContext is { Count: > 0 };
+
+    [MarkoutSection(Name = SectionNames.ExceptionContext, ShowWhenProperty = nameof(HasILOffsetExceptionContext))]
+    public List<ILOffsetExceptionContextRow>? ILOffsetExceptionContextSection =>
+        _data.ILOffset?.ExceptionContext?
+            .Select(context => new ILOffsetExceptionContextRow(
+                context.Region,
+                context.Context,
+                context.Clause,
+                context.TryRange,
+                context.HandlerRange,
+                context.FilterRange,
+                context.CaughtType))
+            .ToList();
+
+    [MarkoutIgnore]
+    public bool HasILOffsetCallsiteContext => _data.ILOffset?.CallsiteContext != null;
+
+    [MarkoutSection(Name = SectionNames.CallsiteContext, ShowWhenProperty = nameof(HasILOffsetCallsiteContext))]
+    public ILOffsetCallsiteContextSection? ILOffsetCallsiteContextSection =>
+        _data.ILOffset?.CallsiteContext is not { } context ? null : new ILOffsetCallsiteContextSection
+        {
+            CallOffset = context.CallOffset,
+            Opcode = context.Opcode,
+            CallKind = context.CallKind,
+            Callee = context.Callee,
+            OperandToken = context.OperandToken,
+            ReturnAddress = context.ReturnAddress
+        };
+
+    [MarkoutIgnore]
+    public bool HasILOffsetReturnAddressContext => _data.ILOffset?.ReturnAddressContext != null;
+
+    [MarkoutSection(Name = SectionNames.ReturnAddressContext, ShowWhenProperty = nameof(HasILOffsetReturnAddressContext))]
+    public ILOffsetReturnAddressContextSection? ILOffsetReturnAddressContextSection =>
+        _data.ILOffset?.ReturnAddressContext is not { } context ? null : new ILOffsetReturnAddressContextSection
+        {
+            ILOffset = context.ILOffset,
+            CallOffset = context.CallOffset,
+            Opcode = context.Opcode,
+            CallKind = context.CallKind,
+            Callee = context.Callee,
+            OperandToken = context.OperandToken
+        };
+
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
@@ -656,6 +702,9 @@ public class LibraryInspectionView
                 o.Fix,
                 o.Confidence,
                 o.Loop,
+                o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
+                o.Path,
+                o.PathConfidence,
                 o.IL is null ? null : MarkoutInline.Code(o.IL)))
             .ToList();
 
@@ -861,6 +910,52 @@ public class ILOffsetInstructionContextSection
     public string? TerminatesBlock { get; init; }
     [MarkoutPropertyName("Falls Through")]
     public string? FallsThrough { get; init; }
+}
+
+[MarkoutSerializable]
+public record ILOffsetExceptionContextRow(
+    int Region,
+    [property: MarkoutSkipNull] string? Context,
+    [property: MarkoutSkipNull] string? Clause,
+    [property: MarkoutPropertyName("Try Range")]
+    [property: MarkoutSkipNull] string? TryRange,
+    [property: MarkoutPropertyName("Handler Range")]
+    [property: MarkoutSkipNull] string? HandlerRange,
+    [property: MarkoutPropertyName("Filter Range")]
+    [property: MarkoutSkipNull] string? FilterRange,
+    [property: MarkoutPropertyName("Caught Type")]
+    [property: MarkoutSkipNull] string? CaughtType);
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class ILOffsetCallsiteContextSection
+{
+    [MarkoutPropertyName("Call Offset")]
+    public string? CallOffset { get; init; }
+    public string? Opcode { get; init; }
+    [MarkoutPropertyName("Call Kind")]
+    public string? CallKind { get; init; }
+    public string? Callee { get; init; }
+    [MarkoutPropertyName("Operand Token")]
+    public string? OperandToken { get; init; }
+    [MarkoutPropertyName("Return Address")]
+    public string? ReturnAddress { get; init; }
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class ILOffsetReturnAddressContextSection
+{
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; init; }
+    [MarkoutPropertyName("Call Offset")]
+    public string? CallOffset { get; init; }
+    public string? Opcode { get; init; }
+    [MarkoutPropertyName("Call Kind")]
+    public string? CallKind { get; init; }
+    public string? Callee { get; init; }
+    [MarkoutPropertyName("Operand Token")]
+    public string? OperandToken { get; init; }
 }
 
 [MarkoutSerializable]

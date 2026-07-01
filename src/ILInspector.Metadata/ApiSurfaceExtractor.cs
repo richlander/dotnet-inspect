@@ -226,9 +226,10 @@ public static class ApiSurfaceExtractor
                     IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverride,
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
-                    Signature = signature,
+                    Signature = signature.Text,
+                    SignatureModel = signature.Model,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
-                    IsUnsafe = HasUnsafeSignature(signature)
+                    IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
@@ -302,13 +303,14 @@ public static class ApiSurfaceExtractor
                 {
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
-                    Signature = propertySignature,
+                    Signature = propertySignature.Text,
+                    SignatureModel = propertySignature.Model,
                     IsStatic = isStaticProperty,
                     IsVirtual = isVirtualProperty,
                     IsAbstract = isAbstractProperty,
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
-                    IsUnsafe = HasUnsafeSignature(propertySignature),
+                    IsUnsafe = HasUnsafeSignature(propertySignature.Text),
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -358,6 +360,11 @@ public static class ApiSurfaceExtractor
                     Name = fieldName,
                     Kind = "field",
                     ReturnType = fieldType,
+                    SignatureModel = fieldType is null ? null : new ApiSignature
+                    {
+                        ReturnType = fieldType,
+                        MemberName = fieldName
+                    },
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
                     IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
@@ -441,6 +448,11 @@ public static class ApiSurfaceExtractor
                     Kind = "event",
                     ReturnType = eventType,
                     Signature = $"{eventType} {reader.GetString(evt.Name)}",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = eventType,
+                        MemberName = reader.GetString(evt.Name)
+                    },
                     IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
                     IsVirtual = isVirtualEvent,
                     IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
@@ -596,6 +608,7 @@ public static class ApiSurfaceExtractor
                     Kind = "extension-method",
                     ReturnType = extension.ReturnType,
                     Signature = extension.Signature,
+                    SignatureModel = extension.SignatureModel,
                     MetadataToken = extension.MetadataToken,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
@@ -699,7 +712,7 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static string GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, byte typeNullableContext)
+    private static (string Text, ApiSignature Model) GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, byte typeNullableContext)
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
@@ -719,6 +732,7 @@ public static class ApiSurfaceExtractor
         var paramTypes = treeSignature.ParameterTypes;
 
         List<string> parameters = [];
+        List<ApiParameter> parameterModels = [];
         for (int i = 0; i < paramTypes.Length; i++)
         {
             // Apply nullability to this parameter's type tree
@@ -754,6 +768,13 @@ public static class ApiSurfaceExtractor
                 AcceptsNullDefault(paramTypes[i]));
 
             parameters.Add(paramStr);
+            parameterModels.Add(new ApiParameter
+            {
+                Name = paramName,
+                Type = type,
+                Modifier = modifier,
+                HasDefault = hasDefault
+            });
         }
 
         string paramStr2 = string.Join(", ", parameters);
@@ -761,7 +782,12 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", context.MethodParameters)}>"
             : name;
-        return $"{returnType} {methodName}({paramStr2})";
+        return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
+        {
+            ReturnType = returnType,
+            MemberName = methodName,
+            Parameters = parameterModels
+        });
     }
 
     private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
@@ -1191,7 +1217,7 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
+    private static (string Text, ApiSignature Model) GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
@@ -1225,11 +1251,16 @@ public static class ApiSurfaceExtractor
 
         // Build accessor string
         string accessorStr;
+        var accessorModels = new List<ApiAccessor>();
         if (includeAll)
         {
             // Show explicit access levels for non-public accessors
             var getStr = hasGetter ? FormatAccessor("get", getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
             var setStr = hasSetter ? FormatAccessor("set", setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
+            if (hasGetter)
+                accessorModels.Add(new ApiAccessor { Kind = "get", Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) });
+            if (hasSetter)
+                accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) });
             accessorStr = (getStr, setStr) switch
             {
                 (not null, not null) => $"{{ {getStr}; {setStr}; }}",
@@ -1241,20 +1272,38 @@ public static class ApiSurfaceExtractor
         else
         {
             if (hasPublicGetter && hasPublicSetter)
+            {
                 accessorStr = "{ get; set; }";
+                accessorModels.Add(new ApiAccessor { Kind = "get" });
+                accessorModels.Add(new ApiAccessor { Kind = "set" });
+            }
             else if (hasPublicGetter && hasSetter)
+            {
                 accessorStr = "{ get; private set; }";
+                accessorModels.Add(new ApiAccessor { Kind = "get" });
+                accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = "private" });
+            }
             else if (hasPublicGetter)
+            {
                 accessorStr = "{ get; }";
+                accessorModels.Add(new ApiAccessor { Kind = "get" });
+            }
             else if (hasPublicSetter)
+            {
                 accessorStr = "{ set; }";
+                accessorModels.Add(new ApiAccessor { Kind = "set" });
+            }
             else
+            {
                 accessorStr = "{ get; }"; // Fallback
+                accessorModels.Add(new ApiAccessor { Kind = "get" });
+            }
         }
 
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(reader, prop.GetCustomAttributes())
             ? "required "
             : "";
+        var isRequired = requiredPrefix.Length > 0;
 
         var paramHandles = hasGetter
             ? reader.GetMethodDefinition(accessors.Getter).GetParameters()
@@ -1263,6 +1312,7 @@ public static class ApiSurfaceExtractor
                 : default;
         var paramTypes = treeSignature.ParameterTypes;
         List<string> indexerParameters = [];
+        List<ApiParameter> parameterModels = [];
         for (var i = 0; i < paramTypes.Length; i++)
         {
             var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
@@ -1293,13 +1343,29 @@ public static class ApiSurfaceExtractor
                 defaultValue,
                 AcceptsNullDefault(paramTypes[i]));
             indexerParameters.Add(parameter);
+            parameterModels.Add(new ApiParameter
+            {
+                Name = paramName,
+                Type = paramType,
+                Modifier = modifier,
+                HasDefault = hasDefault
+            });
         }
 
         var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
-        if (indexerParameters.Count > 0)
-            return $"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}";
+        var model = new ApiSignature
+        {
+            ReturnType = returnType,
+            MemberName = indexerParameters.Count > 0 ? "this[]" : name,
+            IsRequired = isRequired,
+            Parameters = parameterModels,
+            Accessors = accessorModels
+        };
 
-        return $"{requiredPrefix}{returnType} {name} {accessorStr}";
+        if (indexerParameters.Count > 0)
+            return ($"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}", model);
+
+        return ($"{requiredPrefix}{returnType} {name} {accessorStr}", model);
     }
 
     /// <summary>
@@ -1312,6 +1378,9 @@ public static class ApiSurfaceExtractor
         var prefix = GetAccessibility(access);
         return prefix != null ? $"{prefix} {kind}" : kind;
     }
+
+    private static string? AccessorAccessibility(MethodAttributes access, int bestAccess)
+        => (int)access == bestAccess ? null : GetAccessibility(access);
 
     /// <summary>
     /// Gets the first parameter type for extension methods.

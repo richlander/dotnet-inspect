@@ -41,6 +41,28 @@ public class CommandExecutionTests
         public float FloatConstant() => 1.5f;
     }
 
+    private sealed class ILOffsetExceptionFixture
+    {
+        public int TryCatch(int value)
+        {
+            try
+            {
+                return 100 / value;
+            }
+            catch (DivideByZeroException)
+            {
+                return -1;
+            }
+        }
+    }
+
+    private sealed class ILOffsetFunctionPointerFixture
+    {
+        public Func<int> CreateDelegate() => Target;
+
+        private static int Target() => 1;
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalRefPackage(params string[] assemblyNames)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -2542,7 +2564,7 @@ public class CommandExecutionTests
         Assert.Contains("| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality |", output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
-        Assert.Contains("| offset | Allocation | alloc.box | `int` | Always |", output);
+        Assert.Contains("| offset | Allocation | alloc.box | `int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; escape=escapes` | Always |", output);
     }
 
     [Fact]
@@ -2555,7 +2577,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("FactsTableFixture::BoxInt\tIL_", output);
-        Assert.Contains("\toffset\tAllocation\talloc.box\tint\tAlways", output);
+        Assert.Contains("\toffset\tAllocation\talloc.box\tint; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; escape=escapes\tAlways", output);
     }
 
     [Fact]
@@ -4482,9 +4504,11 @@ public class CommandExecutionTests
                 "Aspire",
                 "Async Methods",
                 "Authentication",
+                "Callsite Context",
                 "Configuration",
                 "Custom Attributes",
                 "Dependency Injection",
+                "Exception Context",
                 "Extension Methods",
                 "Health Checks",
                 "Hosting",
@@ -4499,6 +4523,7 @@ public class CommandExecutionTests
                 "Options",
                 "Performance Triage",
                 "Resources",
+                "Return Address Context",
                 "Source Files",
                 "Source Location",
                 "SourceLink Availability",
@@ -4638,6 +4663,9 @@ public class CommandExecutionTests
         Assert.DoesNotContain("Source Location", withoutOutput);
         Assert.DoesNotContain("Member Context", withoutOutput);
         Assert.DoesNotContain("Instruction Context", withoutOutput);
+        Assert.DoesNotContain("Exception Context", withoutOutput);
+        Assert.DoesNotContain("Callsite Context", withoutOutput);
+        Assert.DoesNotContain("Return Address Context", withoutOutput);
         Assert.Contains("Source Location", withOutput);
         Assert.Contains("Member Context", withOutput);
         Assert.Contains("Instruction Context", withOutput);
@@ -4765,6 +4793,118 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("1.5", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetExceptionContext_RendersContainingRegion()
+    {
+        var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", $"0x{token:X}+0x1", "-S", "Exception Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Exception Context", output);
+        Assert.Contains("| Region | Context | Clause | Try Range | Handler Range |", output);
+        Assert.Contains("| 1 | try | catch |", output);
+        Assert.Contains("System.DivideByZeroException", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetExceptionContext_ValueProjectsClause()
+    {
+        var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", $"0x{token:X}+0x1", "-S", "Exception Context", "--fields", "Clause", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("catch", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetCallsiteContext_RendersCallsite()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x1", "-S", "Callsite Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Callsite Context", output);
+        Assert.Contains("| Call Offset | IL_0001 |", output);
+        Assert.Contains("| Opcode | call |", output);
+        Assert.Contains("| Call Kind | direct |", output);
+        Assert.Contains("| Callee | System.HexConverter::get_CharToHexLookup() |", output);
+        Assert.Contains("| Return Address | IL_0006 |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetCallsiteContext_ValueProjectsCallee()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x1", "-S", "Callsite Context", "--fields", "Callee", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("System.HexConverter::get_CharToHexLookup()", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetReturnAddressContext_RendersPreviousCall()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x6", "-S", "Return Address Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Return Address Context", output);
+        Assert.Contains("| IL Offset | IL_0006 |", output);
+        Assert.Contains("| Call Offset | IL_0001 |", output);
+        Assert.Contains("| Opcode | call |", output);
+        Assert.Contains("| Callee | System.HexConverter::get_CharToHexLookup() |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetReturnAddressContext_ValueProjectsCallOffset()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x6", "-S", "Return Address Context", "--fields", "Call Offset", "--value", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("IL_0001", output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetReturnAddressContext_RequiresInstructionBoundary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x2", "-S", "Return Address Context", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not an instruction boundary", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetReturnAddressContext_IgnoresMethodPointerFallthrough()
+    {
+        var token = typeof(ILOffsetFunctionPointerFixture).GetMethod(nameof(ILOffsetFunctionPointerFixture.CreateDelegate))!.MetadataToken;
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", $"0x{token:X}+0x10", "-S", "Return Address Context", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# dotnet-inspect.Tests.dll", output);
+        Assert.DoesNotContain("## Return Address Context", output);
+        Assert.Contains("matched section has no data", error);
     }
 
     [Fact]

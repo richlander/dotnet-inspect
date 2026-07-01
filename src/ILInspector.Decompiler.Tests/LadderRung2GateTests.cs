@@ -46,7 +46,7 @@ public class LadderRung2GateTests
         .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase));
 
     static readonly AssemblyLocator RuntimeLocator = (name, trust) =>
-        trust == AssemblyTrust.Platform && s_runtimeAssemblies.Value.TryGetValue(name, out var path)
+        trust == AssemblyResolutionScope.Platform && s_runtimeAssemblies.Value.TryGetValue(name, out var path)
             ? path
             : null;
 
