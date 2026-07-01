@@ -217,6 +217,10 @@ dotnet-inspect package Markout --path @agents --content --frontmatter
 dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl
 ```
 
+`project` grounding and API commands with `--project` both use an existing
+`project.assets.json` as the restored-assets context. Passing a project file or
+directory only locates that file; dotnet-inspect does not restore or build.
+
 ## 7. Search NuGet for packages
 
 > Goal: Find packages by keyword, with download counts and descriptions.
