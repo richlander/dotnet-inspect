@@ -1013,13 +1013,13 @@ public static class ApiOutputFormatter
         if (constructors.Count == 0) return;
 
         var sorted = constructors
-            .OrderBy(c => SignatureParser.CountParameters(c.Signature))
+            .OrderBy(ConstructorParameterCount)
             .ToList();
 
         view.ConstructorOverloads = sorted.Select((ctor, i) =>
         {
-            var paramCount = SignatureParser.CountParameters(ctor.Signature);
-            var paramInfo = SignatureParser.ExtractParameterInfo(ctor.Signature);
+            var paramCount = ConstructorParameterCount(ctor);
+            var paramInfo = ConstructorParameterInfo(ctor);
 
             var overloadView = new ConstructorOverloadView
             {
@@ -1037,6 +1037,17 @@ public static class ApiOutputFormatter
             return overloadView;
         }).ToList();
     }
+
+    private static int ConstructorParameterCount(ApiMember constructor)
+        => constructor.SignatureModel?.ParameterCount
+           ?? SignatureParser.CountParameters(constructor.Signature);
+
+    private static List<(string name, string type, bool hasDefault)> ConstructorParameterInfo(ApiMember constructor)
+        => constructor.SignatureModel is { } signature
+            ? signature.Parameters
+                .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
+                .ToList()
+            : SignatureParser.ExtractParameterInfo(constructor.Signature);
 
     internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null, ApiOptions? options = null)
     {
