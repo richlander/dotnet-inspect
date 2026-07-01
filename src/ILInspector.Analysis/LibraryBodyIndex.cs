@@ -3494,6 +3494,29 @@ public sealed class LibraryBodyIndex
         static bool SameSlot(LocalSlotAccess left, LocalSlotAccess right)
             => left.Slot == right.Slot && left.IsArgument == right.IsArgument;
 
+        bool SizingArgumentIsProvablyZero(DecodedBody decodedBody, int callOffset, MemberRef callee, GenericScope callerScope)
+        {
+            if (callee.ParameterTypes.Length != 1)
+                return false;
+
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(callOffset);
+            if (blockIndex < 0)
+                return false;
+
+            var block = decodedBody.BlockGraph.Blocks[blockIndex];
+            var stack = new List<StringSliceStackValue>();
+            for (int i = decodedBody.IndexAtOrAfter(block.Start); i < decodedBody.Instructions.Length; i++)
+            {
+                var instruction = decodedBody.Instructions[i];
+                if (instruction.Offset >= callOffset || instruction.Offset >= block.End)
+                    break;
+                if (!ApplyStringSliceStackEffect(instruction, stack, callerScope))
+                    return false;
+            }
+
+            return stack.Count >= 2 && stack[^1].IsZero;
+        }
+
         bool HasDominatingPreLoopSizingEvent(
             DecodedBody decodedBody,
             ReachingDefinitionsResult reachingDefinitions,
@@ -3519,6 +3542,7 @@ public sealed class LibraryBodyIndex
                 int token = OperandInt32(instruction);
                 var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                 if (!IsGrowableCollectionSizingCall(callee)
+                    || SizingArgumentIsProvablyZero(decodedBody, offset, callee, callerScope)
                     || !TryGetUnsizedCollectionReceiver(
                         decodedBody,
                         reachingDefinitions,

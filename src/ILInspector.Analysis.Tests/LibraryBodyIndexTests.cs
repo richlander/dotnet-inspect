@@ -1450,6 +1450,24 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_ReportsEnsureCapacityZeroBeforeLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.EnsureCapacityZeroListGrownInLoop)));
+        Assert.Equal("medium", row.Confidence);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_ReportsCapacitySetterZeroBeforeLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(UnsizedCollectionRows(index, nameof(OptimizationOpportunityFixtures.CapacitySetterZeroListGrownInLoop)));
+        Assert.Equal("medium", row.Confidence);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_UnsizedCollectionGrownInLoop_RejectsTernarySizedOrUnsizedCtor()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -2992,6 +3010,24 @@ public class OptimizationOpportunityFixtures
     {
         var list = new System.Collections.Generic.List<int>();
         list.Capacity = values.Length;
+        foreach (var value in values)
+            list.Add(value);
+        return list;
+    }
+
+    public static System.Collections.Generic.List<int> EnsureCapacityZeroListGrownInLoop(int[] values)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        list.EnsureCapacity(0);
+        foreach (var value in values)
+            list.Add(value);
+        return list;
+    }
+
+    public static System.Collections.Generic.List<int> CapacitySetterZeroListGrownInLoop(int[] values)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        list.Capacity = 0;
         foreach (var value in values)
             list.Add(value);
         return list;
