@@ -270,16 +270,17 @@ internal static class ApiSourceResolver
         if (Directory.Exists(searchPath))
         {
             var dlls = TfmSelector.GetPackageAssemblies(searchPath);
-            if (dlls.Count > 1)
+            if (dlls.Count > 0)
             {
                 var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
                 if (selectedPath != null)
                 {
                     searchPath = selectedPath;
                     selectedTfm = tfm;
-                    logger.Log($"Auto-selected TFM: {tfm}");
+                    if (tfm != null)
+                        logger.Log($"Auto-selected TFM: {tfm}");
                 }
-                else
+                else if (dlls.Count > 1)
                 {
                     Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
                     return (null!, 1);

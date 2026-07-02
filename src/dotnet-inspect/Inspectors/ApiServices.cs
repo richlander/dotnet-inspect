@@ -200,7 +200,7 @@ internal static class ApiServices
             if (Directory.Exists(searchPath))
             {
                 var dlls = TfmSelector.GetPackageAssemblies(searchPath);
-                if (dlls.Count > 1)
+                if (dlls.Count > 0)
                 {
                     var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
                     if (selectedPath != null)

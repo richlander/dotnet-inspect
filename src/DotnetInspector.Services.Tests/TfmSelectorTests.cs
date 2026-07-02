@@ -48,6 +48,30 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectHighestAssembliesFromPackage_ToolsLayoutExplicitTfm_SelectsMatchingAssemblies()
+    {
+        var tool = WriteDll("tools/net8.0/any/MyTool.dll");
+        WriteDll("tools/net6.0/any/MyTool.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir, "net8.0");
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([tool], paths);
+    }
+
+    [Fact]
+    public void SelectHighestAssembliesFromPackage_RefLayoutExplicitTfm_SelectsMatchingAssemblies()
+    {
+        var referenceAssembly = WriteDll("ref/net8.0/MyLib.dll");
+        WriteDll("ref/net6.0/MyLib.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir, "net8.0");
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([referenceAssembly], paths);
+    }
+
+    [Fact]
     public void SelectHighestAssembliesFromPackage_ExplicitTfmWithoutMatches_ReturnsEmptySelection()
     {
         WriteDll("lib/net8.0/MyLib.dll");
