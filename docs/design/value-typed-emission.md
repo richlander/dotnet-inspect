@@ -272,22 +272,34 @@ With the node in place, well-formedness is checkable: **no value may occupy a
 typed sink except through a `Coerce`** (or be provably already at the target
 type). `CoercionInvariant.Check` asserts it; a violation fails at the pass
 level, in a unit test, instead of being discovered by recompiling corpus
-output. Three structural guarantees keep the assertion honest:
+output. Three structural properties fix what the assertion covers:
 
 - **One sink model.** `CoercionSinks.Enumerate` is the single enumeration of
   typed sinks and their semantic targets; the insertion pass wraps through it
   and the checker asserts through it, so the two cannot disagree about what a
   sink is. The sink set grows in one reviewed place.
 - **One exemption predicate.** "Provably already at the target type" is
-  `CoercionTyping.IsAtTarget` — never a per-sink judgment, or the
+  `CoercionDomain.IsAtTarget` — never a per-sink judgment, or the
   scattered-partial-rule problem reappears one level up as identity checks
   with per-sink blind spots exempting exactly the sinks that need coercion.
 - **A declared domain.** The invariant owns the value-flow class this lane
   treats — integer-family primitives, `bool`/`char`, and resolved enums
-  (`CoercionTyping.InDomain`). Reference and struct conversions join when an
+  (`CoercionDomain.InDomain`). Reference and struct conversions join when an
   inverse conversion-classifier exists; a cross-assembly `Unknown` definition
   cannot be *proven* an enum, so it stays render-time-handled and outside the
   checkable domain.
+
+The assertion's reach is bounded on purpose, and reading "0 violations" as
+"every sink renders faithfully" over-claims it. `CoercionInvariant.Check`
+shares the pass's `CoercionSinks.RequiresCoercion` decision, so the same
+enumerated residuals the pass skips — merge-node values (`Conditional`,
+`Coalesce`, switch expressions), slot loads, `Box` operands, `StoreIndirect`
+targets, `switch` labels, and lambda returns — are outside the checkable set by
+construction, not merely unviolated within it. What the checker guarantees is
+**routing agreement**: for an in-domain, non-residual sink, the pass and the
+checker cannot drift on whether a `Coerce` is required. Each residual stays
+printer-owned — rendered by its own `CoerceText` branch — until it graduates
+into the enumeration.
 
 This proves **routing, not rendering**: the invariant guarantees every sink *reaches*
 the one coercion function, collapsing the leak surface from ~12 sites to one — but it
