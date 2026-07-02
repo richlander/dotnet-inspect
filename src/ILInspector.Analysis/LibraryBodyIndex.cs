@@ -4259,6 +4259,10 @@ public sealed class LibraryBodyIndex
                 case ILOpCode.Stelem_r4:
                 case ILOpCode.Stelem_r8:
                 case ILOpCode.Stelem_ref:
+                    // Collection detection is limited to single-dim array element stores.
+                    // List<T>.Add / multidim Set(...) are calls (fall through to Unknown),
+                    // and span element stores lower to stobj/stind (Escapes(None) below):
+                    // those stay fail-honest rather than being labelled Collection.
                     return EscapeClassification.Escapes(AllocationEscapeKind.Collection);
                 case ILOpCode.Stobj:
                 case ILOpCode.Stind_i:
@@ -4288,31 +4292,54 @@ public sealed class LibraryBodyIndex
         }
 
         // stfld into a compiler-generated closure display class (<>c__DisplayClass) or
-        // async/iterator state machine (>d__) hoists the value into that object's lifetime;
-        // report it as a capture escape. Any other/unresolvable field store is a plain
+        // async/iterator state machine (<...>d__) hoists the value into that object's
+        // lifetime; report it as a capture escape. The iterator result field
+        // `<>2__current` is the exception: it holds the yielded value exposed to the
+        // consumer (not a captured local), and its promotion is genuinely ambiguous,
+        // so it stays fail-honest None. Any other/unresolvable field store is a plain
         // field escape (fail-honest).
         AllocationEscapeKind ClassifyFieldStoreEscapeKind(DecodedInstruction instruction, GenericScope callerScope)
         {
             try
             {
                 var handle = MetadataTokens.EntityHandle(OperandInt32(instruction));
-                TypeRef? declaring = handle.Kind switch
+                TypeRef? declaring;
+                string? fieldName;
+                switch (handle.Kind)
                 {
-                    HandleKind.FieldDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(
-                        _reader,
-                        _reader.GetFieldDefinition((FieldDefinitionHandle)handle).GetDeclaringType(),
-                        0),
-                    HandleKind.MemberReference => ResolveMemberReferenceParentType(handle, callerScope),
-                    _ => null,
-                };
+                    case HandleKind.FieldDefinition:
+                        var field = _reader.GetFieldDefinition((FieldDefinitionHandle)handle);
+                        declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0);
+                        fieldName = _reader.GetString(field.Name);
+                        break;
+                    case HandleKind.MemberReference:
+                        declaring = ResolveMemberReferenceParentType(handle, callerScope);
+                        fieldName = _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name);
+                        break;
+                    default:
+                        declaring = null;
+                        fieldName = null;
+                        break;
+                }
                 if (declaring is null)
                     return AllocationEscapeKind.Field;
 
                 string leaf = DeclaringTypeLeafName(declaring);
-                return leaf.Contains("c__DisplayClass", StringComparison.Ordinal)
-                    || leaf.Contains(">d__", StringComparison.Ordinal)
-                    ? AllocationEscapeKind.Capture
-                    : AllocationEscapeKind.Field;
+                // Match only the compiler-generated unspeakable names: closures are
+                // `<>c__DisplayClass...` and iterator/async state machines are `<...>d__...`.
+                // Both contain '<'/'>' which a user-defined type name cannot, so this
+                // never fires on a real user type that merely echoes the suffix.
+                bool isClosure = leaf.Contains("<>c__DisplayClass", StringComparison.Ordinal);
+                bool isStateMachine = leaf.Contains(">d__", StringComparison.Ordinal);
+                if (!isClosure && !isStateMachine)
+                    return AllocationEscapeKind.Field;
+
+                // The yielded value stored into the iterator's `<>2__current` is exposed
+                // to the consumer, not a hoisted capture; don't over-claim capture.
+                if (isStateMachine && fieldName == "<>2__current")
+                    return AllocationEscapeKind.None;
+
+                return AllocationEscapeKind.Capture;
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
             {

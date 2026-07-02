@@ -1262,6 +1262,8 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField), AllocationKind.Array, AllocationEscapeKind.Field)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscapeKind.Field)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectToStaticField), AllocationKind.Object, AllocationEscapeKind.Static)]
+    // A user type whose name echoes the closure suffix is a plain Field escape, not Capture.
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectToLookalikeDisplayClassField), AllocationKind.Object, AllocationEscapeKind.Field)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectIntoArrayElement), AllocationKind.Object, AllocationEscapeKind.Collection)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CapturesArrayInClosure), AllocationKind.Array, AllocationEscapeKind.Capture)]
     // Multiple distinct escape sinks -> fail-honest None (still an Escapes verdict).
@@ -1293,6 +1295,26 @@ public class LibraryBodyIndexTests
 
         // Escapes to both a static field and the return: the verdict stays Escapes, but
         // the conflicting sinks degrade the refined kind to None (fail-honest).
+        Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
+        Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
+    }
+
+    [Fact]
+    public void AllocationOccurrences_IteratorYieldedValue_IsNotLabeledCapture()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // The yielded value is stored into the iterator state machine's <>2__current
+        // field. That is not a hoisted capture, so the verdict stays Escapes but the
+        // refined kind is fail-honest None rather than Capture.
+        var occurrence = index.Methods
+            .Where(m => m.DeclaringType.Name.Contains("YieldsPlainObject", StringComparison.Ordinal)
+                && m.Name == "MoveNext")
+            .SelectMany(m => index.GetAllocationOccurrences().TryGetValue(m.MetadataToken, out var occ) ? occ : [])
+            .Single(o => o.CountsAsHeapAllocation
+                && o.Kind == AllocationKind.Object
+                && o.AllocatedType?.Name == "PlainObject");
+
         Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
     }
@@ -3828,6 +3850,18 @@ public class OptimizationOpportunityFixtures
     // Stored to a static field -> escapes-static.
     public static void StoresObjectToStaticField() => _staticObjectField = new PlainObject(1);
 
+    // Stored to a field of a user type that merely echoes `c__DisplayClass` in its
+    // name -> plain Field escape (not a false Capture). Container is a parameter so
+    // the only tracked allocation is the stored object.
+    public static void StoresObjectToLookalikeDisplayClassField(Fake_c__DisplayClass target)
+        => target.Field = new object();
+
+    // The yielded allocation is stored into the iterator's <>2__current field.
+    public static IEnumerable<PlainObject> YieldsPlainObject()
+    {
+        yield return new PlainObject(1);
+    }
+
     // Escapes to two distinct sinks (static field + return) -> fail-honest: no single kind.
     // The branch forces the value into a local slot (two distinct ldloc uses) rather than a dup.
     public static object StoresToStaticThenReturns(bool condition)
@@ -4008,6 +4042,14 @@ public class OptimizationOpportunityFixtures
     public sealed class UserDisplayClassTarget
     {
         public int GetValue() => 42;
+    }
+
+    // A user-defined type whose name echoes the closure suffix `c__DisplayClass`
+    // but lacks the compiler-generated `<>` marker. A field store here must be a
+    // plain Field escape, never a false Capture.
+    public sealed class Fake_c__DisplayClass
+    {
+        public object? Field;
     }
 
     private sealed class ColdStackGuard
