@@ -153,8 +153,7 @@ internal static class DependencyGraphService
             }
             else
             {
-                group = nuspec.DependencyGroups
-                    .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
+                group = TfmSelector.OrderByTfmPriorityDescending(nuspec.DependencyGroups, g => g.TargetFramework)
                     .First();
                 tfm = group.TargetFramework;
             }

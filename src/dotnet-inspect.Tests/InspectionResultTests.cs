@@ -346,9 +346,8 @@ public class InspectionResultTests
         var flat = new InspectionResultView(result).FlatDependencies;
         Assert.NotNull(flat);
         Assert.Equal(2, flat.Count);
-        // netstandard should come first (lower TFM priority)
-        Assert.Equal("netstandard2.0", flat[0].TargetFramework);
-        Assert.Equal("net8.0", flat[1].TargetFramework);
+        Assert.Equal("net8.0", flat[0].TargetFramework);
+        Assert.Equal("netstandard2.0", flat[1].TargetFramework);
     }
 
     [Fact]

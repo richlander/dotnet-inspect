@@ -44,11 +44,11 @@ public static class DependencyResolutionService
 
         var targetPriority = TfmResolver.GetTfmPriority(targetTfm);
 
-        return groups
-            .Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
-                        g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                        TfmResolver.GetTfmPriority(g.TargetFramework) <= targetPriority)
-            .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
+        return TfmSelector.OrderByTfmPriorityDescending(
+                groups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
+                                  g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
+                                  TfmResolver.GetTfmPriority(g.TargetFramework) <= targetPriority),
+                g => g.TargetFramework)
             .FirstOrDefault();
     }
 

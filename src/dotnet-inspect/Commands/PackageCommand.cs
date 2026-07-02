@@ -2735,13 +2735,13 @@ public class PackageCommand
     private static void ListPackageTfms(string extractPath, bool tsv, bool jsonl)
     {
         var dlls = TfmSelector.GetPackageDlls(extractPath);
-        var tfms = dlls
-            .Select(d => TfmResolver.ExtractTfmFromPath(
-                Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
-            .Where(t => t != null)
-            .Select(t => t!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(t => TfmResolver.GetTfmPriority(t))
+        var tfms = TfmSelector.OrderByTfmPriorityDescending(
+                dlls.Select(d => TfmResolver.ExtractTfmFromPath(
+                        Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
+                    .Where(t => t != null)
+                    .Select(t => t!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase),
+                tfm => tfm)
             .ToList();
 
         OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", tsv, jsonl, Console.Out);
@@ -2772,8 +2772,7 @@ public class PackageCommand
         }
         else
         {
-            group = result.DependencyGroups
-                .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
+            group = TfmSelector.OrderByTfmPriorityDescending(result.DependencyGroups, g => g.TargetFramework)
                 .First();
             tfm = group.TargetFramework;
         }

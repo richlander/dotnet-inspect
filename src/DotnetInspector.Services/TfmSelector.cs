@@ -11,6 +11,18 @@ public static class TfmSelector
     private static List<string> FilterResourceAssemblies(IEnumerable<string> dlls)
         => dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
 
+    public static IOrderedEnumerable<T> OrderByTfmPriorityDescending<T>(
+        IEnumerable<T> items,
+        Func<T, string?> tfmSelector)
+    {
+        return items.OrderByDescending(item => TfmResolver.GetTfmPriority(tfmSelector(item) ?? ""));
+    }
+
+    public static string? SelectHighestTfm(IEnumerable<string> tfms)
+    {
+        return OrderByTfmPriorityDescending(tfms, tfm => tfm).FirstOrDefault();
+    }
+
     public static List<string> GetPackageDlls(string extractPath)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
@@ -66,12 +78,7 @@ public static class TfmSelector
         if (byTfm.Count == 0)
             return (null, null);
 
-        var sortedTfms = byTfm.Keys
-            .Select(tfm => (tfm, priority: TfmResolver.GetTfmPriority(tfm)))
-            .OrderByDescending(x => x.priority)
-            .ToList();
-
-        var highestTfm = sortedTfms[0].tfm;
+        var highestTfm = SelectHighestTfm(byTfm.Keys)!;
         var assemblies = byTfm[highestTfm];
 
         // Prefer assembly matching the package name
@@ -121,10 +128,7 @@ public static class TfmSelector
         if (byTfm.Count == 0)
             return ([], null);
 
-        var highestTfm = byTfm.Keys
-            .Select(tfm => (tfm, priority: TfmResolver.GetTfmPriority(tfm)))
-            .OrderByDescending(x => x.priority)
-            .First().tfm;
+        var highestTfm = SelectHighestTfm(byTfm.Keys)!;
 
         return (byTfm[highestTfm], highestTfm);
     }

@@ -16,6 +16,26 @@ public class DependencyResolutionServiceTests
         Assert.True(TfmResolver.GetTfmPriority(higher) > TfmResolver.GetTfmPriority(lower));
     }
 
+    [Fact]
+    public void TfmSelector_SelectHighestTfm_UsesSharedPriorityPolicy()
+    {
+        var tfms = new[] { "netstandard2.0", "net472", "net8.0", "net10.0" };
+
+        Assert.Equal("net10.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
+    public void TfmSelector_OrderByTfmPriorityDescending_PreservesCallerTieBreakers()
+    {
+        var tfms = new[] { "net8.0-windows", "net8.0", "netstandard2.0" };
+
+        var ordered = TfmSelector.OrderByTfmPriorityDescending(tfms, tfm => tfm)
+            .ThenBy(tfm => tfm, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Assert.Equal(["net8.0", "net8.0-windows", "netstandard2.0"], ordered);
+    }
+
     [Theory]
     [InlineData("[1.0.0, )", "1.0.0")]
     [InlineData("1.0.0", "1.0.0")]

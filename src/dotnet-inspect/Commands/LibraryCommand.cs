@@ -1603,11 +1603,12 @@ public class LibraryCommand
             {
                 Console.Error.WriteLine($"Error: No library found for TFM '{tfm}'.");
                 Console.Error.WriteLine("Available TFMs:");
-                var tfms = allDlls
-                    .Select(d => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
-                    .Where(t => t != null)
-                    .Distinct()
-                    .OrderByDescending(t => TfmResolver.GetTfmPriority(t!));
+                var tfms = TfmSelector.OrderByTfmPriorityDescending(
+                    allDlls.Select(d => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
+                        .Where(t => t != null)
+                        .Select(t => t!)
+                        .Distinct(),
+                    tfm => tfm);
                 foreach (var t in tfms)
                 {
                     Console.Error.WriteLine($"  {t}");
