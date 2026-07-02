@@ -532,7 +532,9 @@ public static class CSharpDeclarationWriter
         }
         if (member.Kind == "property"
             && model.ReturnType is { Length: > 0 } propertyType
-            && model.Accessors.Count > 0)
+            && model.Accessors.Count > 0
+            && IsOrdinaryPropertyName(member.Name)
+            && IsOrdinaryPropertyName(model.MemberName))
         {
             var head = model.IsRequired ? $"required {propertyType}" : propertyType;
             var propertyMemberName = model.MemberName == "this[]"
@@ -564,6 +566,11 @@ public static class CSharpDeclarationWriter
             => string.IsNullOrWhiteSpace(accessor.Accessibility)
                 ? $"{accessor.Kind};"
                 : $"{accessor.Accessibility} {accessor.Kind};";
+
+        static bool IsOrdinaryPropertyName(string? name)
+            => string.IsNullOrWhiteSpace(name)
+               || name == "this[]"
+               || !name.Contains('.', StringComparison.Ordinal);
     }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)

@@ -295,6 +295,31 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitPropertyDeclaration_KeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "ITest.Prop",
+            Kind = "property",
+            Signature = "string ITest.Prop { get; }",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "ITest.Prop",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public string ITest.Prop { get; }", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsings_KeepsCollidingSimpleNamesQualified()
     {
         var type = new ApiType
