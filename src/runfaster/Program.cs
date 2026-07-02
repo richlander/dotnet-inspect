@@ -1305,6 +1305,8 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteNumber("allocationBytes", candidate.AllocationBytes);
     writer.WriteNumber("shapeAllocationHits", candidate.ShapeAllocationHits);
     writer.WriteNumber("shapeAllocationBytes", candidate.ShapeAllocationBytes);
+    if (candidate.SizeCheck is not null)
+        writer.WriteString("sizeCheck", candidate.SizeCheck);
     writer.WriteBoolean("shapeMatched", candidate.ShapeMatched);
     writer.WriteBoolean("rowAmbiguous", candidate.RowAmbiguous);
     writer.WriteNumber("sameMethodShapeRows", candidate.SameMethodShapeRows);
@@ -1564,6 +1566,14 @@ sealed class AllocationCandidate(
     public long EffectiveObservedBytes => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : TotalObservedBytes;
     public double EffectiveRuntimeWeight => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : RuntimeWeight;
     public int EffectiveAllocationHits => ShapeAllocationHits > 0 ? ShapeAllocationHits : AllocationHits;
+    // Objective consistency check (predict-vs-observe). GCAllocationTick reports ~100KB per-tick
+    // aggregates by type, NOT per-instance sizes, so per-instance "confirmed/diverged" is not reliably
+    // computable from ticks (that needs GCSampledObjectAllocation object sizes — a follow-on). What IS
+    // robust from ticks is a size-coverage GAP: the static objective layer could not size this allocation
+    // (Unknown) yet the runtime observed its shape allocating significantly — a hole in the objective
+    // cost-shape worth filling. This validates/annotates the objective layer; it is not the expensive judgment.
+    public string? SizeCheck
+        => EstimatedSizeBytes is null && ShapeMatched && ShapeAllocationBytes > 0 ? "gap" : null;
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
     public string Status => ShapeMatched
