@@ -145,6 +145,9 @@ public class XmlDocFileParser
         if (!_loaded)
             return null;
 
+        if (ApiMemberIdentity.TryGetXmlDocMemberIdentity(apiType, member, out var identity))
+            return GetMemberDocumentation(identity);
+
         var typeXmlName = ConvertToXmlDocName(apiType.FullName);
         var xmlMemberName = member.Name == ".ctor" ? "#ctor" : member.Name;
         var prefix = member.Kind switch
@@ -209,6 +212,58 @@ public class XmlDocFileParser
             : null;
     }
 
+    private DocCommentParser.DocComment? GetMemberDocumentation(ApiMemberIdentity.XmlDocMemberIdentity identity)
+    {
+        var xmlKey = identity.LookupKey;
+        var prefix = xmlKey.Length > 0 ? xmlKey[0].ToString() : "";
+
+        if (prefix != "M")
+        {
+            if (identity.NormalizedParameters.Count > 0)
+            {
+                var parameterizedCandidates = CandidateKeys(xmlKey)
+                    .Where(k => k.StartsWith($"{xmlKey}(", StringComparison.Ordinal))
+                    .ToList();
+                var matchingKey = parameterizedCandidates.FirstOrDefault(key =>
+                    TryGetXmlDocParameters(key, out var xmlParameters)
+                    && ParametersMatch(identity.NormalizedParameters, xmlParameters));
+                return matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode)
+                    ? ParseMemberNode(matchingNode)
+                    : null;
+            }
+
+            return _members.TryGetValue(xmlKey, out var node)
+                ? ParseMemberNode(node)
+                : null;
+        }
+
+        var candidates = CandidateKeys(xmlKey)
+            .Where(k =>
+                k == xmlKey
+                || k.StartsWith($"{xmlKey}(", StringComparison.Ordinal)
+                || k.StartsWith($"{xmlKey}``", StringComparison.Ordinal))
+            .ToList();
+        if (candidates.Count == 0)
+            return null;
+
+        if (identity.NormalizedParameters.Count > 0)
+        {
+            var matchingKey = candidates.FirstOrDefault(key =>
+                TryGetXmlDocParameters(key, out var xmlParameters)
+                && ParametersMatch(identity.NormalizedParameters, xmlParameters));
+            if (matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode))
+                return ParseMemberNode(matchingNode);
+
+            return null;
+        }
+
+        var fallbackKey = candidates.FirstOrDefault(key => key == xmlKey)
+            ?? candidates.FirstOrDefault();
+        return fallbackKey != null && _members.TryGetValue(fallbackKey, out var fallbackNode)
+            ? ParseMemberNode(fallbackNode)
+            : null;
+    }
+
     private static List<string> GetNormalizedSignatureParameters(
         string? signature,
         IReadOnlyDictionary<string, int> typeParameterMap,
@@ -252,7 +307,7 @@ public class XmlDocFileParser
         parameters = string.IsNullOrWhiteSpace(inner)
             ? []
             : SplitParameters(inner)
-                .Select(p => NormalizeParameterType(p, EmptyTypeParameterMap, EmptyTypeParameterMap))
+                .Select(ApiMemberIdentity.NormalizeXmlDocParameterType)
                 .ToList();
         return true;
     }

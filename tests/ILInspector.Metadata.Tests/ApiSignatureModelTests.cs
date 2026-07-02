@@ -146,6 +146,44 @@ public sealed class ApiSignatureModelTests
             canonical);
     }
 
+    [Fact]
+    public void XmlDocIdentity_UsesStructuredMethodParameters()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithRefKinds));
+
+        Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, source, out var identity));
+
+        Assert.Equal("M:ILInspector.Metadata.Tests.ApiSignatureFixtures.MethodWithRefKinds", identity.LookupKey);
+        Assert.Equal(
+            ["System.Int32", "System.String", "System.Int64", "System.Int32", "System.Byte[]"],
+            identity.NormalizedParameters);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_MapsGenericTypeAndMethodParameters()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.PairGenericMethod));
+
+        Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, source, out var identity));
+
+        Assert.Equal("M:ILInspector.Metadata.Tests.ApiSignatureFixtures.PairGenericMethod", identity.LookupKey);
+        Assert.Equal(["M0", "M1"], identity.NormalizedParameters);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_UsesIndexerParametersForProperties()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), "Item");
+
+        Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, source, out var identity));
+
+        Assert.Equal("P:ILInspector.Metadata.Tests.ApiSignatureFixtures.Item", identity.LookupKey);
+        Assert.Equal(["System.Int32"], identity.NormalizedParameters);
+    }
+
     static ApiType GetType(string typeName)
         => Surface.Types.First(type => type.Name == typeName);
 
