@@ -539,7 +539,7 @@ static class ReturnToSender
             return new Result(
                 plan,
                 sourceResult.Source,
-                FidelityCheck.CompileBackStatus.ContextFail,
+                FidelityCheck.CompileBackStatus.RecompileFail,
                 string.Join(" ", originalOps),
                 "",
                 $"closure-iteration-budget: {FormatDiagnostic(firstError)}");
