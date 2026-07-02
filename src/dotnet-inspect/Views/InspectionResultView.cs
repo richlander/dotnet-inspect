@@ -41,31 +41,19 @@ public class InspectionResultView
     public List<DependencyGroup>? DependencyGroups => _data.DependencyGroups;
 
     [MarkoutSection(Name = PackageSections.Dependencies)]
-    public List<FlatDependency>? FlatDependencies => _data.DependencyGroups?
-        .OrderBy(g => GetTfmSortOrder(g.TargetFramework))
-        .ThenBy(g => g.TargetFramework)
-        .SelectMany(g => g.Dependencies
-            .OrderBy(d => d.Id)
-            .Select(d => new FlatDependency
-            {
-                TargetFramework = g.TargetFramework,
-                Id = d.Id,
-                Version = d.Version
-            }))
-        .ToList();
-
-    private static int GetTfmSortOrder(string tfm)
-    {
-        if (tfm.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) ||
-            tfm.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase))
-            return 0;
-        if (tfm.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) ||
-            tfm.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
-            return 1;
-        if (tfm.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase))
-            return 2;
-        return 3;
-    }
+    public List<FlatDependency>? FlatDependencies => _data.DependencyGroups is { } groups
+        ? TfmSelector.OrderByTfmPriorityDescending(groups, g => g.TargetFramework)
+            .ThenBy(g => g.TargetFramework)
+            .SelectMany(g => g.Dependencies
+                .OrderBy(d => d.Id)
+                .Select(d => new FlatDependency
+                {
+                    TargetFramework = g.TargetFramework,
+                    Id = d.Id,
+                    Version = d.Version
+                }))
+            .ToList()
+        : null;
 
     [MarkoutSection(Name = PackageSections.Files)]
     public List<PackageFileRow>? Files => _data.Files?
@@ -154,10 +142,11 @@ public class InspectionResultView
     public int? VersionCount => _data.VersionCount;
 
     [MarkoutSection(Name = PackageSections.TargetFrameworks)]
-    public List<TargetFrameworkRow>? TargetFrameworkRows => _data.TargetFrameworks?
-        .OrderByDescending(TfmResolver.GetTfmPriority)
-        .Select(tfm => new TargetFrameworkRow(tfm))
-        .ToList();
+    public List<TargetFrameworkRow>? TargetFrameworkRows => _data.TargetFrameworks is { } tfms
+        ? TfmSelector.OrderByTfmPriorityDescending(tfms, tfm => tfm)
+            .Select(tfm => new TargetFrameworkRow(tfm))
+            .ToList()
+        : null;
 
     [MarkoutSection(Name = PackageSections.Vulnerabilities)]
     [MarkoutIgnoreInTable]
@@ -221,7 +210,7 @@ public class InspectionResultView
 
     [MarkoutPropertyName("Highest TFM")]
     public string? HighestTfm => _data.TargetFrameworks is { Count: > 0 }
-        ? _data.TargetFrameworks.OrderByDescending(TfmResolver.GetTfmPriority).First()
+        ? TfmSelector.SelectHighestTfm(_data.TargetFrameworks)
         : null;
 
     [MarkoutJoin(", ")]

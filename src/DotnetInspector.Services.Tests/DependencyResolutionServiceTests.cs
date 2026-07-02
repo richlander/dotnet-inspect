@@ -16,6 +16,42 @@ public class DependencyResolutionServiceTests
         Assert.True(TfmResolver.GetTfmPriority(higher) > TfmResolver.GetTfmPriority(lower));
     }
 
+    [Fact]
+    public void TfmSelector_SelectHighestTfm_UsesSharedPriorityPolicy()
+    {
+        var tfms = new[] { "netstandard2.0", "net472", "net8.0", "net10.0" };
+
+        Assert.Equal("net10.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
+    public void TfmSelector_SelectHighestTfm_NormalizesLongFormTfms()
+    {
+        var tfms = new[] { ".NETFramework4.7.2", ".NETStandard2.0", ".NETCoreApp,Version=v8.0" };
+
+        Assert.Equal(".NETCoreApp,Version=v8.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
+    public void TfmSelector_GetTfmPriority_NormalizesLongFormTfms()
+    {
+        Assert.Equal(TfmResolver.GetTfmPriority("net8.0"), TfmSelector.GetTfmPriority(".NETCoreApp,Version=v8.0/linux-x64"));
+        Assert.Equal(TfmResolver.GetTfmPriority("netstandard2.0"), TfmSelector.GetTfmPriority(".NETStandard2.0"));
+        Assert.Equal(TfmResolver.GetTfmPriority("net472"), TfmSelector.GetTfmPriority(".NETFramework4.7.2"));
+    }
+
+    [Fact]
+    public void TfmSelector_OrderByTfmPriorityDescending_PreservesCallerTieBreakers()
+    {
+        var tfms = new[] { "net8.0-windows", "net8.0", "netstandard2.0" };
+
+        var ordered = TfmSelector.OrderByTfmPriorityDescending(tfms, tfm => tfm)
+            .ThenBy(tfm => tfm, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Assert.Equal(["net8.0", "net8.0-windows", "netstandard2.0"], ordered);
+    }
+
     [Theory]
     [InlineData("[1.0.0, )", "1.0.0")]
     [InlineData("1.0.0", "1.0.0")]
@@ -54,6 +90,34 @@ public class DependencyResolutionServiceTests
         };
 
         var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net9.0");
+        Assert.Equal("net8.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_LongFormGroupDoesNotExceedTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net7.0");
+
+        Assert.Equal("net6.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_NormalizesLongFormTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, ".NETCoreApp,Version=v8.0");
+
         Assert.Equal("net8.0", result?.TargetFramework);
     }
 
