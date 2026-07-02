@@ -130,6 +130,75 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void MethodSignatureModel_ExposesSourceRenderableParameterAttributes()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterMarker(\"id\", Order = 2)"],
+            member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_RendersParameterAttributeTypeAndEscapedStringArguments()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithTypeParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterTypeMarker(typeof(System.Int32), Text = \"System.String\\\\Path\\nNext\")"],
+            member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_RendersNestedTypeParameterAttributeArguments()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithNestedTypeParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterTypeMarker(typeof(ILInspector.Metadata.Tests.ApiSignatureFixtures.Nested))"],
+            member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_SkipsUnspellableGenericTypeParameterAttributeArguments()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithGenericTypeParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Empty(member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_SuppressesCompilerReservedRefReadonlyParameterAttributes()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithRefReadonlyParameter));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Empty(member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_EscapesCharArguments()
+    {
+        var quote = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithQuoteCharAttribute));
+        var backslash = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithBackslashCharAttribute));
+        var newline = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithNewlineCharAttribute));
+
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterCharMarker('\\'')"],
+            quote.SignatureModel?.Parameters[0].Attributes);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterCharMarker('\\\\')"],
+            backslash.SignatureModel?.Parameters[0].Attributes);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterCharMarker('\\n')"],
+            newline.SignatureModel?.Parameters[0].Attributes);
+    }
+
+    [Fact]
     public void CanonicalSignature_NormalizesMultiGenericMethodNameWhitespace()
     {
         var type = GetType(nameof(ApiSignatureFixtures));
@@ -393,9 +462,80 @@ public sealed class ApiSignatureFixtures
     {
     }
 
+    public void MethodWithParameterAttribute([ParameterMarker("id", Order = 2)] string id)
+    {
+    }
+
+    public void MethodWithTypeParameterAttribute([ParameterTypeMarker(typeof(int), Text = "System.String\\Path\nNext")] string value)
+    {
+    }
+
+    public void MethodWithNestedTypeParameterAttribute([ParameterTypeMarker(typeof(Nested))] string value)
+    {
+    }
+
+    public void MethodWithGenericTypeParameterAttribute([ParameterTypeMarker(typeof(List<int>))] string value)
+    {
+    }
+
+    public void MethodWithRefReadonlyParameter(ref readonly int value)
+    {
+    }
+
+    public void MethodWithQuoteCharAttribute([ParameterCharMarker('\'')] string value)
+    {
+    }
+
+    public void MethodWithBackslashCharAttribute([ParameterCharMarker('\\')] string value)
+    {
+    }
+
+    public void MethodWithNewlineCharAttribute([ParameterCharMarker('\n')] string value)
+    {
+    }
+
+    public sealed class Nested
+    {
+    }
+
     public string this[int index]
     {
         get => index.ToString();
         private set { }
     }
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterMarkerAttribute : Attribute
+{
+    public ParameterMarkerAttribute(string name)
+    {
+        Name = name;
+    }
+
+    public string Name { get; }
+    public int Order { get; set; }
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterTypeMarkerAttribute : Attribute
+{
+    public ParameterTypeMarkerAttribute(Type type)
+    {
+        Type = type;
+    }
+
+    public Type Type { get; }
+    public string? Text { get; set; }
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterCharMarkerAttribute : Attribute
+{
+    public ParameterCharMarkerAttribute(char value)
+    {
+        Value = value;
+    }
+
+    public char Value { get; }
 }

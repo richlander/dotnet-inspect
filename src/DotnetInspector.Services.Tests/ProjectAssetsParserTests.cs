@@ -267,6 +267,33 @@ public class ProjectAssetsParserTests
     }
 
     [Fact]
+    public void Parse_WithoutTfmFilter_SelectsHighestLongFormTfm()
+    {
+        var json = """
+        {
+            "targets": {
+                ".NETCoreApp,Version=v8.0": {},
+                "net472": {}
+            },
+            "libraries": {}
+        }
+        """;
+
+        var assetsPath = WriteTempFile(json);
+        List<string> messages = [];
+        try
+        {
+            _ = ProjectAssetsParser.Parse(assetsPath, null, s => messages.Add(s));
+
+            Assert.Contains(messages, m => m.Contains(".NETCoreApp,Version=v8.0"));
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+        }
+    }
+
+    [Fact]
     public void Parse_ReturnsAssemblyPaths_WhenFileExists()
     {
         // Create a temp directory structure that mimics NuGet cache

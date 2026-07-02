@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -284,7 +285,8 @@ public static class AttributeReader
     /// </summary>
     public static List<string> RenderAttributes(
         MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null,
-        Func<string, bool>? skipAttribute = null)
+        Func<string, bool>? skipAttribute = null,
+        bool qualifyNames = false)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -295,7 +297,7 @@ public static class AttributeReader
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
-            if (TryRenderAttribute(reader, attr) is not { } rendered)
+            if (TryRenderAttribute(reader, attr, qualifyNames) is not { } rendered)
                 continue;
             int lastDot = typeName.LastIndexOf('.');
             if (lastDot > 0)
@@ -333,6 +335,14 @@ public static class AttributeReader
     public static List<string> RenderAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
         => RenderAttributes(reader, reader.GetParameter(parameter).GetCustomAttributes(), namespaces);
 
+    public static List<string> RenderParameterAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
+        => RenderAttributes(
+            reader,
+            reader.GetParameter(parameter).GetCustomAttributes(),
+            namespaces,
+            IsParameterSyntaxAttribute,
+            qualifyNames: true);
+
     /// <summary>
     /// Renders the attributes on a method, resolved by the same name + public-only
     /// overload counting the decompiler uses to select the body, so the attributes
@@ -358,11 +368,12 @@ public static class AttributeReader
         return [];
     }
 
-    static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr)
+    static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr, bool qualifyName)
     {
         if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
             return null;
-        string name = TypeMatcher.GetShortAttributeName(GetAttributeTypeName(reader, attr.Constructor)!);
+        var typeName = GetAttributeTypeName(reader, attr.Constructor)!;
+        string name = qualifyName ? GetQualifiedAttributeName(typeName) : TypeMatcher.GetShortAttributeName(typeName);
         var args = new List<string>();
         foreach (var arg in value.FixedArguments)
         {
@@ -379,15 +390,27 @@ public static class AttributeReader
         return args.Count == 0 ? name : $"{name}({string.Join(", ", args)})";
     }
 
+    static string GetQualifiedAttributeName(string fullName)
+    {
+        if (!fullName.EndsWith("Attribute", StringComparison.Ordinal))
+            return fullName;
+
+        var trimmed = fullName[..^9];
+        return trimmed.Length == 0 || trimmed.EndsWith('.', StringComparison.Ordinal)
+            ? fullName
+            : trimmed;
+    }
+
     /// <summary>Renders one attribute-argument value, or null when its shape is not faithfully spellable (arrays, unknown).</summary>
     static string? RenderArgument(string type, object? value) => value switch
     {
         null => "null",
-        string s => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"",
+        // A Type argument decodes to its name string; spell only simple source
+        // type names we can render faithfully.
+        _ when type == "System.Type" && value is string typeName => RenderTypeArgument(typeName),
+        string s => "\"" + EscapeStringLiteral(s) + "\"",
         bool b => b ? "true" : "false",
-        char c => $"'{c}'",
-        // A Type argument decodes to its name string; spell it typeof(...).
-        _ when type == "System.Type" && value is string typeName => $"typeof({typeName})",
+        char c => $"'{EscapeCharLiteral(c)}'",
         // A primitive keyword type came from the provider; render the literal.
         _ when type is "byte" or "sbyte" or "short" or "ushort" or "int" or "uint" or "double" => value.ToString(),
         _ when type == "long" => value + "L",
@@ -400,6 +423,84 @@ public static class AttributeReader
         _ => null,
     };
 
+    static string? RenderTypeArgument(string typeName)
+    {
+        if (typeName.IndexOfAny(['`', '[', ',']) >= 0)
+            return null;
+        return $"typeof({typeName.Replace('+', '.')})";
+    }
+
+    static string EscapeCharLiteral(char value) => value switch
+    {
+        '\\' => "\\\\",
+        '\'' => "\\'",
+        '\0' => "\\0",
+        '\a' => "\\a",
+        '\b' => "\\b",
+        '\f' => "\\f",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        '\v' => "\\v",
+        '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)value:x4}",
+        _ when char.IsControl(value) => $"\\u{(int)value:x4}",
+        _ => value.ToString()
+    };
+
+    static string EscapeStringLiteral(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '\\':
+                    builder.Append("\\\\");
+                    break;
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\0':
+                    builder.Append("\\0");
+                    break;
+                case '\a':
+                    builder.Append("\\a");
+                    break;
+                case '\b':
+                    builder.Append("\\b");
+                    break;
+                case '\f':
+                    builder.Append("\\f");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                case '\v':
+                    builder.Append("\\v");
+                    break;
+                case '\u0085':
+                case '\u2028':
+                case '\u2029':
+                    builder.Append($"\\u{(int)c:x4}");
+                    break;
+                default:
+                    if (char.IsControl(c))
+                        builder.Append($"\\u{(int)c:x4}");
+                    else
+                        builder.Append(c);
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
+
     /// <summary>Attributes the C# compiler re-synthesizes from syntax — emitting them in source is redundant or a duplicate-attribute error.</summary>
     static bool IsReEmittedAttribute(string name) => name switch
     {
@@ -408,6 +509,7 @@ public static class AttributeReader
         KnownAttributeNames.NullableAttribute => true,
         KnownAttributeNames.NullableContextAttribute => true,
         KnownAttributeNames.IsReadOnlyAttribute => true,
+        KnownAttributeNames.RequiresLocationAttribute => true,
         KnownAttributeNames.IsByRefLikeAttribute => true,
         KnownAttributeNames.IsUnmanagedAttribute => true,
         KnownAttributeNames.RefSafetyRulesAttribute => true,
@@ -419,6 +521,15 @@ public static class AttributeReader
         KnownAttributeNames.AsyncStateMachineAttribute => true,
         KnownAttributeNames.IteratorStateMachineAttribute => true,
         "System.Reflection.DefaultMemberAttribute" => true,
+        _ => false,
+    };
+
+    static bool IsParameterSyntaxAttribute(string name) => name switch
+    {
+        "System.ParamArrayAttribute" => true,
+        KnownAttributeNames.ParamCollectionAttribute => true,
+        KnownAttributeNames.DecimalConstantAttribute => true,
+        KnownAttributeNames.DateTimeConstantAttribute => true,
         _ => false,
     };
 

@@ -167,6 +167,90 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void MethodDeclaration_CanRenderStructuredParameterAttributes()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"Regex\")"],
+                        Type = "string",
+                        Name = "pattern"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System.Diagnostics.CodeAnalysis;
+
+            public void Validate([StringSyntax("Regex")] string pattern);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void MethodDeclaration_DoesNotShortenTypeNamesInsideParameterAttributeStringLiterals()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"System.String\")"],
+                        Type = "string",
+                        Name = "pattern"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System.Diagnostics.CodeAnalysis;
+
+            public void Validate([StringSyntax("System.String")] string pattern);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
     public void GenericMethodDeclaration_WithoutGenericParameterFactsKeepsCompatibilitySignature()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
@@ -334,6 +418,39 @@ public sealed class CSharpDeclarationWriterTests
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
 
         Assert.Equal("public string this[int @event] { get; }", declaration);
+    }
+
+    [Fact]
+    public void IndexerDeclaration_CanRenderStructuredParameterAttributes()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Item",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "this[]",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"Uri\")"],
+                        Type = "string",
+                        Name = "key"
+                    }
+                ],
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public string this[[System.Diagnostics.CodeAnalysis.StringSyntax(\"Uri\")] string key] { get; }", declaration);
     }
 
     [Fact]

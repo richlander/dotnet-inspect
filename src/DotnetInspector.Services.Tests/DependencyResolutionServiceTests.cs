@@ -16,6 +16,42 @@ public class DependencyResolutionServiceTests
         Assert.True(TfmResolver.GetTfmPriority(higher) > TfmResolver.GetTfmPriority(lower));
     }
 
+    [Fact]
+    public void TfmSelector_SelectHighestTfm_UsesSharedPriorityPolicy()
+    {
+        var tfms = new[] { "netstandard2.0", "net472", "net8.0", "net10.0" };
+
+        Assert.Equal("net10.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
+    public void TfmSelector_SelectHighestTfm_NormalizesLongFormTfms()
+    {
+        var tfms = new[] { ".NETFramework4.7.2", ".NETStandard2.0", ".NETCoreApp,Version=v8.0" };
+
+        Assert.Equal(".NETCoreApp,Version=v8.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
+    public void TfmSelector_GetTfmPriority_NormalizesLongFormTfms()
+    {
+        Assert.Equal(TfmResolver.GetTfmPriority("net8.0"), TfmSelector.GetTfmPriority(".NETCoreApp,Version=v8.0/linux-x64"));
+        Assert.Equal(TfmResolver.GetTfmPriority("netstandard2.0"), TfmSelector.GetTfmPriority(".NETStandard2.0"));
+        Assert.Equal(TfmResolver.GetTfmPriority("net472"), TfmSelector.GetTfmPriority(".NETFramework4.7.2"));
+    }
+
+    [Fact]
+    public void TfmSelector_OrderByTfmPriorityDescending_PreservesCallerTieBreakers()
+    {
+        var tfms = new[] { "net8.0-windows", "net8.0", "netstandard2.0" };
+
+        var ordered = TfmSelector.OrderByTfmPriorityDescending(tfms, tfm => tfm)
+            .ThenBy(tfm => tfm, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Assert.Equal(["net8.0", "net8.0-windows", "netstandard2.0"], ordered);
+    }
+
     [Theory]
     [InlineData("[1.0.0, )", "1.0.0")]
     [InlineData("1.0.0", "1.0.0")]
@@ -58,6 +94,34 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void FindBestMatchingTfmGroup_LongFormGroupDoesNotExceedTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net7.0");
+
+        Assert.Equal("net6.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_NormalizesLongFormTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, ".NETCoreApp,Version=v8.0");
+
+        Assert.Equal("net8.0", result?.TargetFramework);
+    }
+
+    [Fact]
     public void FindBestMatchingTfmGroup_FallsBackToAny()
     {
         var groups = new List<DotnetInspector.Packages.DependencyGroup>
@@ -92,6 +156,132 @@ public class DependencyResolutionServiceTests
 
         var result = DependencyResolutionService.FindBestMatchingTfmGroup(groups, "net8.0");
         Assert.Equal("netstandard2.1", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_NoGroups_ReturnsNoDependencyGroups()
+    {
+        var result = DependencyResolutionService.SelectDependencyGroup(null, null);
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups, result.Status);
+        Assert.Null(result.Group);
+        Assert.Empty(result.AvailableTargetFrameworks);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_NoRequestedTfm_SelectsHighestTfm()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "netstandard2.0" },
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "net472" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, null);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Group?.TargetFramework);
+        Assert.Equal("net8.0", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_RequestedTfm_AllowsCompatibleFallbackAndPreservesRequestedTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "net9.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Group?.TargetFramework);
+        Assert.Equal("net9.0", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_RequestedTfm_NoMatch_ReturnsAvailableTfms()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "net9.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "net6.0");
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework, result.Status);
+        Assert.Null(result.Group);
+        Assert.Equal("net6.0", result.TargetFramework);
+        Assert.Equal(["net8.0", "net9.0"], result.AvailableTargetFrameworks);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_DoesNotFallbackForRequestedTfm()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net9.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework, result.Status);
+        Assert.Null(result.Group);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_EmptyDependencyGroup_IsStillSelected()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0", Dependencies = [] }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, null);
+
+        Assert.True(result.IsSelected);
+        Assert.Empty(result.Group!.Dependencies);
     }
 
     [Fact]

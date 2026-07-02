@@ -749,7 +749,7 @@ public static class ApiSurfaceExtractor
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            var (paramName, isParams, refKind, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";
 
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
@@ -776,6 +776,7 @@ public static class ApiSurfaceExtractor
             parameters.Add(paramStr);
             parameterModels.Add(new ApiParameter
             {
+                Attributes = attributes,
                 Name = paramName,
                 Type = type,
                 Modifier = modifier,
@@ -829,7 +830,7 @@ public static class ApiSurfaceExtractor
         => AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.IsReadOnlyAttribute)
             || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.RequiresLocationAttribute");
 
-    private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue) GetParameterInfo(
+    private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
         MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
     {
         foreach (var handle in handles)
@@ -839,7 +840,9 @@ public static class ApiSurfaceExtractor
             {
                 string name = reader.GetString(param.Name);
                 var attributes = param.GetCustomAttributes();
-                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute");
+                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
+                    || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
+                var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, handle);
                 string? refKind = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0
                     ? "out"
                     : (param.Attributes & System.Reflection.ParameterAttributes.In) != 0
@@ -864,11 +867,11 @@ public static class ApiSurfaceExtractor
                     }
                 }
 
-                return (name, isParams, refKind, hasDefault, defaultValue);
+                return (name, isParams, refKind, hasDefault, defaultValue, renderedAttributes);
             }
         }
 
-        return (null, false, null, false, null);
+        return (null, false, null, false, null, []);
     }
 
     private sealed record DateTimeConstantDefault(long Ticks);
@@ -1335,7 +1338,7 @@ public static class ApiSurfaceExtractor
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, typeNullableContext);
             var paramType = paramTypes[i].Render();
-            var (paramName, isParams, refKind, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";
 
             var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
@@ -1361,6 +1364,7 @@ public static class ApiSurfaceExtractor
             indexerParameters.Add(parameter);
             parameterModels.Add(new ApiParameter
             {
+                Attributes = attributes,
                 Name = paramName,
                 Type = paramType,
                 Modifier = modifier,
