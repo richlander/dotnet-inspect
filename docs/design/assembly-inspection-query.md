@@ -458,6 +458,31 @@ contract, how assembly-level and method-body-level registries share one context,
 Research types are generalized or paralleled are implementation decisions to settle when the code
 lands.
 
+### Design axis: how facet identity is represented
+
+One decision worth flagging now, because this spec and Research sit at opposite ends of it. A
+facet/producer catalog can be keyed three ways:
+
+- **String ids** (Research today — `Produces = ["alloc.*"]`, `DependsOn`, string fact ids). Open
+  and glob-friendly (a producer owns a whole `alloc.*` family), serialization-native — but no
+  compile-time safety, no discoverable catalog, runtime dependency typos.
+- **Typed enum / records** (this spec — `Facet`, `MemberSelector`). Compile-time catalog,
+  exhaustiveness, refactor-safe — but closed: adding a facet edits a central type.
+- **Generic, type-as-key** (`IFactProducer<TFact>` + `registry.Get<TFact>()` over a
+  `Dictionary<Type, object>`). The reconciliation when the catalog must stay *open*: the fact's
+  .NET type is its identity, so it is extensible without a central enum *and* type-safe to
+  request, with `DependsOn<TOther>` compile-checked. This is the DI-container shape.
+
+Pick by **open vs closed**: this product's facet catalog is closed and product-owned, so **typed
+enum/records** are the right, simplest fit — no generics needed. Research is string-heavy but its
+producer set is closed in practice (`ResearchFactRegistry.Default` wires a fixed six), so it is a
+candidate to move *toward* types; the **generic type-as-key** form is the tool if it should stay
+genuinely open. Two caveats keep a string at the edges either way: glob/namespace ownership
+(`alloc.*`) has no clean generic analog, and serialization/offset-keyed annotations still need one
+stable string id per fact — best pinned in a single canonical place (an attribute or property)
+rather than scattered. Which representation each registry adopts is part of the implementation
+alignment above.
+
 ## What legitimately stays in the CLI / elsewhere
 
 - **Selection and rendering:** building the query from options (source + sections/facets) and
