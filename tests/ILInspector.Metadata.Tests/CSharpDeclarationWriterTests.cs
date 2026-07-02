@@ -243,6 +243,58 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void PropertyDeclaration_EscapesStructuredKeywordMemberName()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "event",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "event",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public string @event { get; }", declaration);
+    }
+
+    [Fact]
+    public void IndexerDeclaration_EscapesStructuredKeywordParameterName()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Item",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "this[]",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int", Name = "event" }
+                ],
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public string this[int @event] { get; }", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsings_KeepsCollidingSimpleNamesQualified()
     {
         var type = new ApiType

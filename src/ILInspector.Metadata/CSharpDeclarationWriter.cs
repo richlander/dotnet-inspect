@@ -551,10 +551,13 @@ public static class CSharpDeclarationWriter
 
         static string ParameterDeclaration(ApiParameter parameter)
         {
+            var head = parameter.TypeWithModifier;
             var declaration = string.IsNullOrWhiteSpace(parameter.Name)
-                ? parameter.TypeWithModifier
-                : parameter.Declaration;
-            return declaration;
+                ? head
+                : $"{head} {EscapeIdentifier(parameter.Name)}";
+            return parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
+                ? $"{declaration} = {parameter.DefaultValueText}"
+                : declaration;
         }
 
         static string AccessorDeclaration(ApiAccessor accessor)
