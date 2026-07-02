@@ -179,7 +179,9 @@ public static class CSharpDeclarationWriter
     {
         var signature = member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType)
             ? $"{member.ReturnType} {member.Name}"
-            : member.Signature ?? member.ReturnType ?? "";
+            : TryRenderSignatureModel(type, member, methodParameters, out var modelSignature)
+                ? modelSignature
+                : member.Signature ?? member.ReturnType ?? "";
         if (string.IsNullOrWhiteSpace(signature))
         {
             if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
@@ -307,6 +309,14 @@ public static class CSharpDeclarationWriter
     {
         if (!string.IsNullOrWhiteSpace(member.ReturnType))
             yield return member.ReturnType!;
+        if (member.SignatureModel is { } signatureModel)
+        {
+            if (!string.IsNullOrWhiteSpace(signatureModel.ReturnType))
+                yield return signatureModel.ReturnType!;
+            foreach (var parameter in signatureModel.Parameters)
+                if (!string.IsNullOrWhiteSpace(parameter.Type))
+                    yield return parameter.Type;
+        }
 
         var signature = member.Signature;
         if (string.IsNullOrWhiteSpace(signature))
@@ -480,6 +490,48 @@ public static class CSharpDeclarationWriter
         }
 
         return declaration;
+    }
+
+    static bool TryRenderSignatureModel(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodParameters,
+        out string signature)
+    {
+        signature = "";
+        if (member.SignatureModel is not { } model)
+            return false;
+
+        // ApiParameter tracks whether a default exists but not its source text.
+        // Keep the compatibility signature for optional parameters until default
+        // value text is modeled.
+        if (model.Parameters.Any(static parameter => parameter.HasDefault))
+            return false;
+
+        var parameters = string.Join(", ", model.Parameters.Select(ParameterDeclaration));
+        if (member.Name == ".cctor")
+        {
+            signature = $"{FormatConstructorTypeName(type.Name)}()";
+            return true;
+        }
+        if (member.Kind == "constructor")
+        {
+            signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
+            return true;
+        }
+
+        // Keep method/property/event rendering on compatibility text until
+        // generic parameters, constraints, attributes, and default-value text are
+        // represented in ApiSignature.
+        return false;
+
+        static string ParameterDeclaration(ApiParameter parameter)
+        {
+            var type = parameter.TypeWithModifier;
+            return string.IsNullOrWhiteSpace(parameter.Name)
+                ? type
+                : $"{type} {parameter.Name}";
+        }
     }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
