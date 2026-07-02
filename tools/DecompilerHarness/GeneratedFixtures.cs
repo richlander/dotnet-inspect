@@ -152,6 +152,102 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "static", "method-call"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalStaticConstructor = new(
+        "minimal.static-constructor",
+        """
+        namespace GeneratedFixtures.MinimalStaticConstructor;
+
+        public class Class1
+        {
+            private static int s_value;
+
+            static Class1()
+            {
+                s_value = 42;
+            }
+
+            public static int Method1() => s_value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStaticConstructor.Class1", ".cctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticConstructor.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticConstructor.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "static", "constructor", "field"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalInterfaceImplementation = new(
+        "minimal.interface-implementation",
+        """
+        namespace GeneratedFixtures.MinimalInterfaceImplementation;
+
+        public interface IValue
+        {
+            int GetValue();
+        }
+
+        public class Class1 : IValue
+        {
+            public int GetValue() => 42;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalInterfaceImplementation.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalInterfaceImplementation.Class1", "GetValue",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "interface", "implementation"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalObjectInitializer = new(
+        "minimal.object-initializer",
+        """
+        namespace GeneratedFixtures.MinimalObjectInitializer;
+
+        public class Helper
+        {
+            public int Value { get; set; }
+        }
+
+        public class Class1
+        {
+            public Helper Method1(int value) => new Helper { Value = value };
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalObjectInitializer.Helper", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Helper", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "object-initializer", "property", "setter"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalCollectionInitializer = new(
+        "minimal.collection-initializer",
+        """
+        namespace GeneratedFixtures.MinimalCollectionInitializer;
+
+        public class Class1
+        {
+            public System.Collections.Generic.List<int> Method1(int value)
+                => new System.Collections.Generic.List<int> { value };
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalCollectionInitializer.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalCollectionInitializer.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "collection", "initializer", "generic"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -231,6 +327,24 @@ internal static class GeneratedFixtureCatalog
                 ExpectedShape: SyntaxKind.SimpleMemberAccessExpression),
         ],
         ["minimal", "array", "length"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalIndexerGetter = new(
+        "minimal.indexer.getter",
+        """
+        namespace GeneratedFixtures.MinimalIndexerGetter;
+
+        public class Class1
+        {
+            public int this[int index] => index + 1;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalIndexerGetter.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIndexerGetter.Class1", "get_Item",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "indexer", "property"]);
 
     public static readonly GeneratedFixtureDefinition MinimalStringLength = new(
         "minimal.string-length",
@@ -529,10 +643,15 @@ internal static class GeneratedFixtureCatalog
         MinimalAutoPropertyGetter,
         MinimalMethodCallSameType,
         MinimalStaticMethodCall,
+        MinimalStaticConstructor,
+        MinimalInterfaceImplementation,
+        MinimalObjectInitializer,
+        MinimalCollectionInitializer,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalArrayIndex,
         MinimalArrayLength,
+        MinimalIndexerGetter,
         MinimalStringLength,
         MinimalNullCoalesce,
         MinimalTryFinally,

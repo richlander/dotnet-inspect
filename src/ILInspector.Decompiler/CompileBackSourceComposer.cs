@@ -218,6 +218,7 @@ public enum CompileBackStubBodyKind
     Throw,
     TargetBody,
     AutoProperty,
+    AutoPropertyGetSet,
     FieldInitializer,
 }
 
@@ -265,7 +266,9 @@ public static class CompileBackSourceComposer
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
+        var getter = reader.GetMethodDefinition(targetGetter);
         var signature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, targetTypeDef));
+        var getterSignature = getter.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, getter));
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string propertyName = Identifier(reader.GetString(property.Name));
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
@@ -289,8 +292,8 @@ public static class CompileBackSourceComposer
                     new CompileBackMemberRequirement(
                         new CompileBackMethodIdentity(targetIdentity.FullName, propertyName, overload, signatureText),
                         CompileBackMemberKind.PropertyGet,
-                        reader.GetMethodDefinition(targetGetter).Attributes.HasFlag(MethodAttributes.Static),
-                        [],
+                        getter.Attributes.HasFlag(MethodAttributes.Static),
+                        MethodParameters(reader, getter, getterSignature),
                         returnType,
                         targetIsAutoProperty ? CompileBackStubBodyKind.AutoProperty : CompileBackStubBodyKind.TargetBody,
                         targetIsAutoProperty ? null : targetBody,
@@ -365,7 +368,7 @@ public static class CompileBackSourceComposer
         var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, method));
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
-        bool isConstructor = methodName == ".ctor";
+        bool isConstructor = methodName is ".ctor" or ".cctor";
         var primaryConstructor = isConstructor
             ? PrimaryConstructorFromPrologue(reader, method, function, targetBody)
             : null;
@@ -582,7 +585,13 @@ public static class CompileBackSourceComposer
                     sb.AppendLine($"{pad}{declaration} {{ get; }}");
                     break;
                 }
+                if (member.StubBody == CompileBackStubBodyKind.AutoPropertyGetSet)
+                {
+                    sb.AppendLine($"{pad}{declaration} {{ get; set; }}");
+                    break;
+                }
 
+                declaration = StripPropertyAccessorBlock(declaration);
                 sb.AppendLine($"{pad}{declaration}");
                 sb.AppendLine($"{pad}{{");
                 sb.AppendLine($"{pad}    get");
@@ -679,6 +688,7 @@ public static class CompileBackSourceComposer
             ReturnType = returnType,
             Signature = member.Kind switch
             {
+                CompileBackMemberKind.PropertyGet when member.Parameters.Count > 0 => $"{returnType ?? "void"} this[{parameterList}] {{ get; }}",
                 CompileBackMemberKind.PropertyGet when type.Kind == CompileBackTypeKind.Interface => $"{returnType ?? "void"} {member.Name} {{ get; }}",
                 CompileBackMemberKind.PropertyGet => $"{returnType ?? "void"} {member.Name}",
                 CompileBackMemberKind.Constructor => $"void .ctor({parameterList})",
@@ -718,6 +728,14 @@ public static class CompileBackSourceComposer
         return inheritance >= 0
             ? head[..inheritance] + $"({parameters})" + head[inheritance..] + tail
             : $"{head}({parameters}){tail}";
+    }
+
+    static string StripPropertyAccessorBlock(string declaration)
+    {
+        const string getOnly = " { get; }";
+        return declaration.EndsWith(getOnly, StringComparison.Ordinal)
+            ? declaration[..^getOnly.Length]
+            : declaration;
     }
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
@@ -1363,6 +1381,7 @@ public static class CompileBackSourceComposer
                 var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
                 bool isAutoProperty = !accessors.Getter.IsNil
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
+                bool hasSetter = !accessors.Setter.IsNil;
                 members.Add(new CompileBackMemberDeclaration(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {signature.ReturnType}"),
                     CompileBackMemberKind.PropertyGet,
@@ -1372,9 +1391,11 @@ public static class CompileBackSourceComposer
                     Parameters: [],
                     requirement.RequiredKind == CompileBackTypeKind.Interface
                         ? CompileBackStubBodyKind.None
-                        : isAutoProperty
-                            ? CompileBackStubBodyKind.AutoProperty
-                            : CompileBackStubBodyKind.Throw,
+                        : hasSetter
+                            ? CompileBackStubBodyKind.AutoPropertyGetSet
+                            : isAutoProperty
+                                ? CompileBackStubBodyKind.AutoProperty
+                                : CompileBackStubBodyKind.Throw,
                     TargetBody: null,
                     [new CompileBackFact("metadata", "closure-property", propertyName)]));
             }
