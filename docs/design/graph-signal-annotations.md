@@ -80,7 +80,9 @@ exception-reachability questions directly:
 ### Cross-assembly Caller Graph
 
 By default the `Caller Graph` reverse tree is single-assembly. Supplying a caller
-scope (`--bin`/`--project`/`--caller-package`) extends it across those assemblies:
+scope (`--bin`/`--project`/`--caller-package`) extends it across those assemblies;
+`--project` reads existing restored assets, so restore/build first if
+dependencies changed:
 the graph is keyed by structural member identity (not assembly-local tokens), so a
 dependency member surfaces the product entry points and callers that reach it.
 Nodes from an assembly other than the selected member's own carry their source in

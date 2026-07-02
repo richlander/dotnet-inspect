@@ -14,10 +14,14 @@ it depends on, and who calls it. Many of these outputs are graph-shaped — add
 dnx dotnet-inspect -y -- <command>
 ```
 
-Scope any of these commands the same way: `--package Foo` (repeatable),
-`--library path.dll`, `--platform` (all in-box frameworks), `--extensions` or
-`--aspnetcore` (curated Microsoft.* sets), `--package-prefix Azure.AI` (every
-package under a NuGet ID prefix), and `--tfm net9.0`.
+Scope any of these commands the same way: `--project path/to.csproj` (restored
+project references), `--package Foo` (repeatable), `--library path.dll`,
+`--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (curated
+Microsoft.* sets), `--package-prefix Azure.AI` (every package under a NuGet ID
+prefix), and `--tfm net9.0`.
+
+`--project` reads existing restored assets; restore/build first if dependencies
+changed.
 
 ## What implements or extends it?
 
@@ -29,7 +33,8 @@ to include extensions on types reachable through properties and methods.
 dnx dotnet-inspect -y -- implements IDisposable --platform
 dnx dotnet-inspect -y -- extensions HttpClient --platform --reachable
 dnx dotnet-inspect -y -- implements ILogger --package-prefix Microsoft.Extensions
-dnx dotnet-inspect -y -- implements IMarkoutFormatter --package Markout
+dnx dotnet-inspect -y -- implements IEquatable --project ./src/App/App.csproj -v:q
+dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 ```
 
 ## What does it depend on?
@@ -41,6 +46,7 @@ diagram.
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
+dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 ```
 
 ## Who calls it? (reverse edges)

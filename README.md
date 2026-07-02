@@ -20,17 +20,18 @@ dnx dotnet-inspect -y -- <command>
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Grounding --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup and package grounding; no restore/build/MSBuild evaluation is run. |
+| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Grounding --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and package grounding; restore/build first if dependencies changed. No restore/build/MSBuild evaluation is run. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
 
-For API commands, `--project` means an existing `project.assets.json`
-restored-assets context. Passing a `.csproj` or project directory only locates
-that file; dotnet-inspect does not restore or build. `--bin` remains the output
-directory context for copied DLLs. A future `--deps` source can represent
-runtime `.deps.json` context.
+For API and relationship commands, `--project` means an existing
+`project.assets.json` restored-assets context. Passing a `.csproj` or project
+directory only locates that file; dotnet-inspect does not restore or build, so
+restore/build first if dependencies changed. `--bin` remains the output directory
+context for copied DLLs. A future `--deps` source can represent runtime
+`.deps.json` context.
 
 ## Capability inventory
 
@@ -41,7 +42,7 @@ runtime `.deps.json` context.
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
-| Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
+| Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally) and actionable rewrite-shape detection. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `IL`) | Raises method bodies to C#, interleaves IL and hidden-fact annotations, and degrades honestly with `DEC####` fidelity diagnostics rather than emitting plausible-but-wrong source. |
@@ -227,6 +228,9 @@ dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
 dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect depends Stream --markdown --mermaid
+dotnet-inspect implements IEquatable --project ./src/App -v:q
+dotnet-inspect extensions string --project ./src/App -v:n
+dotnet-inspect depends Command --project ./src/App -v:q
 ```
 
 ## Requirements
