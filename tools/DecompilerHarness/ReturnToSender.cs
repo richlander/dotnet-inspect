@@ -437,8 +437,6 @@ static class ReturnToSender
                 continue;
             }
 
-            if (target.Method == ".ctor")
-                continue;
             if (TryFindMethod(reader, typeDef, target.Method, target.Overload) is { } methodHandle)
                 results.Add(CompileBackMethodOrContextFail(assemblyPath, pe, reader, source, typeHandle, methodHandle));
         }
@@ -856,6 +854,7 @@ static class ReturnToSender
                     CompileBackTypeKind.Class,
                     CompileBackAccessibility.Public,
                     BaseType: null,
+                    PrimaryConstructorParameters: null,
                     Interfaces: [],
                     Members:
                     [

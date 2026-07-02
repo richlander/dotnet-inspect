@@ -763,6 +763,62 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsConstructorAssigningGetOnlyAutoProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public Class1(string message)
+                {
+                    Message = message;
+                }
+
+                public string Message { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public string Message { get; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesPrimaryConstructorForFieldInitializerPrologue()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1(string message)
+            {
+                private readonly string _message = message;
+
+                public string Message => _message;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public class Class1(string message)", result.Source);
+            Assert.Contains("public string _message = message;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
     {
         var assemblyPath = CompileFixture("""

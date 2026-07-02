@@ -449,7 +449,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("RETURNTOSENDER GENERATED FIXTURE FRONTIER", report);
         Assert.Contains("Passed : 2", report);
         Assert.Contains("Skipped: 0", report);
-        Assert.Contains("constructor-target: 2", report);
+        Assert.DoesNotContain("constructor-target", report);
 
         var propertyGetter = Assert.Single(run.Results, result =>
             result.FixtureId == "minimal.property.literal"
@@ -471,7 +471,7 @@ public class GeneratedFixtureCatalogTests
         Assert.True(document.RootElement.GetProperty("Passed").GetBoolean());
         Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Status").GetString() == "Pass");
-        Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
+        Assert.DoesNotContain(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Reason").GetString() == "constructor-target");
     }
 

@@ -732,7 +732,6 @@ internal static class GeneratedFixtureRunner
         {
             var requestedTargets = fixtures
                 .SelectMany(fixture => fixture.Targets)
-                .Where(target => target.Method != ".ctor")
                 .Select(target => new ReturnToSender.RequestedTarget(target.Type, target.Method, target.Overload))
                 .Distinct()
                 .ToArray();
@@ -746,12 +745,6 @@ internal static class GeneratedFixtureRunner
             {
                 foreach (var target in fixture.Targets)
                 {
-                    if (target.Method == ".ctor")
-                    {
-                        results.Add(Skipped(fixture, target, "constructor-target"));
-                        continue;
-                    }
-
                     if (!rtsResults.TryGetValue(Key(target.Type, target.Method, target.Overload), out var actual))
                     {
                         results.Add(Skipped(fixture, target, "unsupported-rts-target"));
