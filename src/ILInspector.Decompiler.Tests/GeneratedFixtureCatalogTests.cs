@@ -436,6 +436,41 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderCatalogReport_ClassifiesSupportedAndSkippedTargets()
+    {
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+            [
+                GeneratedFixtureCatalog.MinimalPropertyLiteral,
+                GeneratedFixtureCatalog.MinimalMethodCallSameType,
+            ]);
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+
+        Assert.True(run.Passed, report);
+        Assert.Contains("RETURNTOSENDER GENERATED FIXTURE FRONTIER", report);
+        Assert.Contains("Passed : 1", report);
+        Assert.Contains("Skipped: 1", report);
+        Assert.Contains("not-property-getter: 4", report);
+
+        var propertyGetter = Assert.Single(run.Results, result =>
+            result.FixtureId == "minimal.property.literal"
+            && result.Method == "get_Method1");
+        Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, propertyGetter.Status);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, propertyGetter.ActualStatus);
+
+        Assert.All(
+            run.Results.Where(result => result.FixtureId == "minimal.method-call.same-type"),
+            result => Assert.Equal(GeneratedFixtureReturnToSenderStatus.Skip, result.Status));
+
+        string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
+        using var document = JsonDocument.Parse(json);
+        Assert.True(document.RootElement.GetProperty("Passed").GetBoolean());
+        Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
+            result => result.GetProperty("Status").GetString() == "Pass");
+        Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
+            result => result.GetProperty("Reason").GetString() == "not-property-getter");
+    }
+
+    [Fact]
     public void CompilerLoweringFrontiers_AreSelectableButNotInDefaultRun()
     {
         var switchRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));
