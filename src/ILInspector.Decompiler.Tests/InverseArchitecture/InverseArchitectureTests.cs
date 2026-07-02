@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.CompilerServices;
 
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Decompiler.Pipeline.InverseArchitecture;
@@ -48,6 +47,20 @@ public class InverseArchitectureTests
         var unannotated = InverseLedger.Unannotated(TestAssembly);
         Assert.Contains(nameof(SampleUnannotatedNode), unannotated);
         Assert.DoesNotContain(nameof(SampleInverseNode), unannotated);
+        Assert.DoesNotContain(nameof(SampleBoundaryNode), unannotated);
+    }
+
+    [Fact]
+    public void Reflector_RendersBoundary()
+    {
+        var boundary = Assert.Single(
+            InverseLedger.Boundaries(TestAssembly),
+            b => b.Node == nameof(SampleBoundaryNode));
+        Assert.Equal("sample: outside the checkable domain", boundary.Reason);
+
+        var markdown = InverseLedger.RenderMarkdown(TestAssembly);
+        Assert.Contains("## Declared non-inverse boundaries", markdown);
+        Assert.Contains("| `SampleBoundaryNode` | sample: outside the checkable domain |", markdown);
     }
 
     // Rule #4: every [InverseOf(assumes: ...)] must name a runnable, release-capable
@@ -112,12 +125,16 @@ public class InverseArchitectureTests
     [Fact]
     public void GeneratedProductLedger_MatchesCommittedFile()
     {
-        var generated = InverseLedger.RenderMarkdown(ProductAssembly);
-        var path = Path.Combine(RepoRoot(), "docs", "design", "inverse-ledger.generated.md");
+        var root = FindRepoRoot();
+        Assert.SkipUnless(root is not null,
+            "Repo source tree is not co-located with the test binary; the drift gate is a source-tree check.");
 
+        var path = Path.Combine(root!, "docs", "design", "inverse-ledger.generated.md");
         Assert.True(File.Exists(path),
             $"Missing {path}. Regenerate it from InverseLedger.RenderMarkdown(ProductAssembly).");
-        Assert.Equal(Normalize(generated), Normalize(File.ReadAllText(path)));
+        Assert.Equal(
+            Normalize(InverseLedger.RenderMarkdown(ProductAssembly)),
+            Normalize(File.ReadAllText(path)));
     }
 
     static IrFunction EmptyProbeFunction()
@@ -134,8 +151,17 @@ public class InverseArchitectureTests
 
     static string Normalize(string text) => text.Replace("\r\n", "\n").TrimEnd() + "\n";
 
-    static string RepoRoot([CallerFilePath] string thisFile = "")
-        => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", "..", ".."));
+    // Walk up from the running binary's location to the repo root (identified by the
+    // framing doc). Runtime-relative, not [CallerFilePath]: a built exe executed on a
+    // different machine than it was built keeps working, and when the source tree is
+    // absent the drift gate skips rather than false-failing.
+    static string? FindRepoRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            if (File.Exists(Path.Combine(dir.FullName, "docs", "design", "inverse-architecture.md")))
+                return dir.FullName;
+        return null;
+    }
 }
 
 // A stand-in IR node exercising the full annotation pipeline (reflection, ledger
@@ -152,6 +178,14 @@ sealed class SampleInverseNode : IrExpression
 {
     public override TypeRef? ResultType => null;
     public override string Describe() => nameof(SampleInverseNode);
+}
+
+// A stand-in boundary node: proves [NotInverted] renders in the generated ledger.
+[NotInverted("sample: outside the checkable domain")]
+sealed class SampleBoundaryNode : IrExpression
+{
+    public override TypeRef? ResultType => null;
+    public override string Describe() => nameof(SampleBoundaryNode);
 }
 
 // Deliberately unannotated: proves the coverage backlog detection.

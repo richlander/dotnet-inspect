@@ -41,6 +41,16 @@ public static class InverseLedger
                 x.Inverse.Precondition ?? "—",
                 x.Inverse.Witness ?? "—"))];
 
+    /// <summary>One declared non-inverse boundary: a node deliberately outside the checkable domain.</summary>
+    public sealed record Boundary(string Node, string Reason);
+
+    /// <summary>IR node types marked <see cref="NotInvertedAttribute"/> — declared non-inverse boundaries.</summary>
+    public static IReadOnlyList<Boundary> Boundaries(Assembly assembly)
+        => [.. NodeTypes(assembly)
+            .Select(t => (Node: t, NotInverted: t.GetCustomAttribute<NotInvertedAttribute>()))
+            .Where(x => x.NotInverted is not null)
+            .Select(x => new Boundary(x.Node.Name, x.NotInverted!.Reason))];
+
     /// <summary>IR node types carrying neither attribute — the advisory annotation backlog.</summary>
     public static IReadOnlyList<string> Unannotated(Assembly assembly)
         => [.. NodeTypes(assembly)
@@ -53,9 +63,10 @@ public static class InverseLedger
     {
         var sb = new StringBuilder();
         sb.Append("# Inverse node ledger (generated)\n\n");
-        sb.Append("Generated from the `[InverseOf]` annotations in `ILInspector.Decompiler` by the\n");
-        sb.Append("test reflector; drift-gated by a test. Do not edit by hand. See\n");
-        sb.Append("[inverse-architecture.md](inverse-architecture.md) for the framing.\n\n");
+        sb.Append("Generated from the `[InverseOf]` / `[NotInverted]` annotations in\n");
+        sb.Append("`ILInspector.Decompiler` by the test reflector; drift-gated by a test. Do not\n");
+        sb.Append("edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the framing.\n\n");
+        sb.Append("## Type assertions\n\n");
         sb.Append("| Node | Forward construct | Naming | Precondition | Witness |\n");
         sb.Append("| --- | --- | --- | --- | --- |\n");
 
@@ -65,6 +76,17 @@ public static class InverseLedger
         else
             foreach (var row in rows)
                 sb.Append($"| `{row.Node}` | {row.ForwardName} | {row.Naming} | {row.Precondition} | {row.Witness} |\n");
+
+        sb.Append("\n## Declared non-inverse boundaries\n\n");
+        sb.Append("| Node | Reason |\n");
+        sb.Append("| --- | --- |\n");
+
+        var boundaries = Boundaries(assembly);
+        if (boundaries.Count == 0)
+            sb.Append("| _(none yet)_ | — |\n");
+        else
+            foreach (var boundary in boundaries)
+                sb.Append($"| `{boundary.Node}` | {boundary.Reason} |\n");
 
         return sb.ToString();
     }
