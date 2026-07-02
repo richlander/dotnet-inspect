@@ -173,7 +173,7 @@ public sealed partial class CSharpPrinter
     /// — <c>(MethodAttributes)access</c> — so an enum-vs-integer comparison or
     /// bitwise op type-checks (CS0019). The cast reinterprets the integer bits
     /// the IL already carries as the enum, so it is faithful. A negative literal
-    /// is parenthesized (CS0075), mirroring <see cref="CastValue"/>'s enum path.
+    /// is parenthesized (CS0075), mirroring <see cref="Coerce"/>'s enum path.
     /// </summary>
     string EnumIntegerCast(IrExpression value, TypeRef enumType)
     {
@@ -186,6 +186,49 @@ public sealed partial class CSharpPrinter
         return CheckedSafeCast(
             $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
             force: forceUnchecked);
+    }
+
+    /// <summary>
+    /// Renders an integer constant occupying an enum-typed position: the member
+    /// name when the value resolves to a single named member, else the
+    /// overflow-aware enum cast. The one name-or-cast rule for enum constants —
+    /// <c>switch</c> labels, retyped constants, and enum-typed sinks all spell
+    /// through here. The cast path re-types the payload to its raw integer so
+    /// <see cref="EnumIntegerCast"/> renders the literal, not a recursive
+    /// enum-typed spelling.
+    /// </summary>
+    string EnumConstantText(Constant constant, TypeRef enumType)
+    {
+        long value = constant.Value is int i ? i : (long)constant.Value!;
+        if (EnumMemberName(new Constant(value, enumType)) is { } named)
+            return named;
+        var raw = constant.Value is int iv
+            ? new Constant(iv, TypeRef.CoreLib("System", "Int32"))
+            : new Constant(value, TypeRef.CoreLib("System", "Int64"));
+        return EnumIntegerCast(raw, enumType);
+    }
+
+    /// <summary>
+    /// Coerces a value meeting an enum-typed sibling or arm target — the shared
+    /// decision behind bitwise/comparison operands, conditional and switch arms,
+    /// coalesce right sides, and compound assignments. An integer-family value
+    /// takes the enum cast (member name for a nameable constant); a bool — which
+    /// shares the I4 stack family, so IL combines it with an enum freely while
+    /// C# admits neither bare spelling (CS0019/CS0030) — composes the truthiness
+    /// spelling with the cast: <c>(E)(cond ? 1 : 0)</c>. Null when the position
+    /// needs no enum coercion, so the caller keeps its own spelling.
+    /// </summary>
+    string? TryCoerceEnumOperand(IrExpression value, TypeRef? enumSide)
+    {
+        if (enumSide is null || !IsEnumLikeInteger(enumSide))
+            return null;
+        if (TypeFamilies.IsBoolean(EffectiveType(value)))
+            return CheckedSafeCast($"({TypeText(enumSide)})({Condition(value)} ? 1 : 0)");
+        if (value.ResultType is not { } valueType || !TypeFamilies.IsIntegerLike(valueType))
+            return null;
+        return value is Constant { Value: int or long } konst
+            ? EnumConstantText(konst, enumSide)
+            : EnumIntegerCast(value, enumSide);
     }
 
     // True when a constant enum cast is CS0221 as a plain (checked) cast, so it must
@@ -267,16 +310,17 @@ public sealed partial class CSharpPrinter
             return uncheckedOverflow ? $"unchecked({pointerText})" : pointerText;
         }
         // A bitwise &/|/^ of an enum and an integer (`method.Attributes & 7`) is
-        // CS0019 though the IL combines the shared underlying integer; cast the
+        // CS0019 though the IL combines the shared underlying integer; coerce the
         // integer operand to the enum type. A cross-assembly enum is unresolved
-        // (TypeShape.Unknown), so this structural test is what catches it. A
-        // bitwise op is never checked, so it never needs the `wrap` form.
+        // (TypeShape.Unknown), so the structural test inside the coercion is what
+        // catches it. A bitwise op is never checked, so it never needs the `wrap`
+        // form.
         if (binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor)
         {
-            if (IsEnumLikeInteger(binary.Left.ResultType) && TypeFamilies.IsInteger(binary.Right.ResultType))
-                return $"{Operand(binary.Left)} {BinaryOperator(binary)} {EnumIntegerCast(binary.Right, binary.Left.ResultType!)}";
-            if (IsEnumLikeInteger(binary.Right.ResultType) && TypeFamilies.IsInteger(binary.Left.ResultType))
-                return $"{EnumIntegerCast(binary.Left, binary.Right.ResultType!)} {BinaryOperator(binary)} {Operand(binary.Right)}";
+            if (TryCoerceEnumOperand(binary.Right, binary.Left.ResultType) is { } coercedRight)
+                return $"{Operand(binary.Left)} {BinaryOperator(binary)} {coercedRight}";
+            if (TryCoerceEnumOperand(binary.Left, binary.Right.ResultType) is { } coercedLeft)
+                return $"{coercedLeft} {BinaryOperator(binary)} {Operand(binary.Right)}";
         }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or
@@ -334,8 +378,8 @@ public sealed partial class CSharpPrinter
 
         var leftEnumUnderlying = EnumUnderlyingType(binary.Left.ResultType);
         var rightEnumUnderlying = EnumUnderlyingType(binary.Right.ResultType);
-        string left = leftEnumUnderlying is not null ? CastValue(binary.Left, target) : Operand(binary.Left);
-        string right = rightEnumUnderlying is not null ? CastValue(binary.Right, target) : Operand(binary.Right);
+        string left = leftEnumUnderlying is not null ? Coerce(binary.Left, target) : Operand(binary.Left);
+        string right = rightEnumUnderlying is not null ? Coerce(binary.Right, target) : Operand(binary.Right);
         return $"{left} {BinaryOperator(binary)} {right}";
     }
 
@@ -818,13 +862,13 @@ public sealed partial class CSharpPrinter
         }
         // An enum compared to an integer (`access == bestAccess`,
         // `methodAccess == 6`) is CS0019 though the IL compares their shared
-        // underlying integer; cast the integer operand to the enum type. A
-        // cross-assembly enum is unresolved (TypeShape.Unknown), so this is the
-        // path that fixes it.
-        if (IsEnumLikeInteger(left.ResultType) && TypeFamilies.IsInteger(right.ResultType))
-            return $"{Operand(left)} {ComparisonOperator(kind)} {EnumIntegerCast(right, left.ResultType!)}";
-        if (IsEnumLikeInteger(right.ResultType) && TypeFamilies.IsInteger(left.ResultType))
-            return $"{EnumIntegerCast(left, right.ResultType!)} {ComparisonOperator(kind)} {Operand(right)}";
+        // underlying integer; coerce the integer operand to the enum type. A
+        // cross-assembly enum is unresolved (TypeShape.Unknown), so the
+        // structural test inside the coercion is what fixes it.
+        if (TryCoerceEnumOperand(right, left.ResultType) is { } coercedRight)
+            return $"{Operand(left)} {ComparisonOperator(kind)} {coercedRight}";
+        if (TryCoerceEnumOperand(left, right.ResultType) is { } coercedLeft)
+            return $"{coercedLeft} {ComparisonOperator(kind)} {Operand(right)}";
         // An equality test between a same-width signed/unsigned integer pair
         // (`ulong != (long)i`, `nuint == nint`) has no C# common type (CS0034),
         // yet `ceq`/`bne.un` compare the raw bits regardless of sign. Reinterpret
@@ -957,13 +1001,18 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Renders <paramref name="value"/> for a position typed <paramref name="target"/>,
-    /// inserting the explicit numeric cast C# requires when the value's type
-    /// would not implicitly convert (the missing-cast case behind CS0266). The
-    /// cast reinterprets bits the evaluation stack already carries (same family),
-    /// so it is faithful to the IL — see <see cref="TypeFamilies.NeedsNumericCast"/>.
+    /// The coercion choke point (docs/design/value-typed-emission.md, slice 1):
+    /// renders <paramref name="value"/> for a sink typed <paramref name="target"/>,
+    /// inserting the explicit conversion C# requires when the value's type would
+    /// not implicitly convert (the missing-cast case behind CS0266). Every
+    /// typed sink spells its value through here — never an open-coded cast — so
+    /// the cast/`unchecked` rules live once. The cast reinterprets bits the
+    /// evaluation stack already carries (same family), so it is faithful to the
+    /// IL — see <see cref="TypeFamilies.NeedsNumericCast"/>. Operand positions
+    /// reconciling against an enum sibling use <see cref="TryCoerceEnumOperand"/>,
+    /// the operand-shaped door into the same rules.
     /// </summary>
-    string CastValue(IrExpression value, TypeRef? target)
+    string Coerce(IrExpression value, TypeRef? target)
     {
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
@@ -1013,7 +1062,9 @@ public sealed partial class CSharpPrinter
             && EffectiveType(value) is { } enumSource && !enumTarget.Equals(enumSource)
             && TypeFamilies.IsIntegerLike(enumSource))
         {
-            return EnumIntegerCast(value, enumTarget);
+            return value is Constant { Value: int or long } enumKonst
+                ? EnumConstantText(enumKonst, enumTarget)
+                : EnumIntegerCast(value, enumTarget);
         }
         if (value is Binary enumArithmetic
             && target is { } enumArithmeticTarget
@@ -1041,13 +1092,13 @@ public sealed partial class CSharpPrinter
         // without loading the defining assembly, so the cast is the best honest
         // spelling. Constants only: a non-constant integer into such a position is
         // rarer and not needed for the validity defects this targets.
-        if (value is Constant { Value: int or long }
+        if (value is Constant { Value: int or long } unknownKonst
             && target is { Kind: TypeRefKind.Definition, Name: not "Boolean" } unknownEnum
             && _function.TypeShapes.GetValueOrDefault(unknownEnum) == TypeShape.Unknown
             && !TypeFamilies.IsNumericPrimitive(unknownEnum)
             && EffectiveType(value) is { } unknownEnumSource && TypeFamilies.IsIntegerLike(unknownEnumSource))
         {
-            return EnumIntegerCast(value, unknownEnum);
+            return EnumConstantText(unknownKonst, unknownEnum);
         }
         // A bool-valued expression flowing into an integer target is IL's
         // comparison/test result consumed as a number — `cgt.un; ret` from an int
@@ -1154,15 +1205,13 @@ public sealed partial class CSharpPrinter
             ? charText
             // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
             // into StringComparison) is CS0266 — int does not convert to the enum.
-            // A cross-assembly enum is unresolved (TypeShape.Unknown), so
-            // IsEnumLikeInteger catches it; cast each integer arm (constant or not).
-            // IsIntegerLike (not IsInteger) excludes Boolean — which shares the I4
-            // stack family — so a bool arm is never cast to `(Enum)true`. A
-            // same-assembly enum arm is enum-typed (not integer-like) and renders
-            // its member name via Operand.
-            : target is { } enumTarget && IsEnumLikeInteger(enumTarget)
-                && arm.ResultType is { } armType && TypeFamilies.IsIntegerLike(armType)
-                ? EnumIntegerCast(arm, enumTarget)
+            // TryCoerceEnumOperand owns the decision: the enum cast for an integer
+            // arm (constant or not; a cross-assembly enum is unresolved, and its
+            // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
+            // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
+            // and renders its member name via Operand.
+            : TryCoerceEnumOperand(arm, target) is { } coercedArm
+                ? coercedArm
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
                 ? $"({Condition(arm)} ? 1 : 0)"
@@ -1196,9 +1245,7 @@ public sealed partial class CSharpPrinter
             return null;
         if (NullableValueType(coalesce.Left.ResultType)?.Equals(target) == true && IsIntegerArm(coalesce.Right))
             return CoalesceText(coalesce, target);
-        return coalesce.ResultType is { } resultType && TypeFamilies.IsIntegerLike(resultType)
-            ? EnumIntegerCast(coalesce, target)
-            : null;
+        return TryCoerceEnumOperand(coalesce, target);
     }
 
     static bool IsCoreChar(TypeRef type)
@@ -1251,7 +1298,7 @@ public sealed partial class CSharpPrinter
             // C# promotes every sub-int (byte/sbyte/short/ushort/char) binary
             // arithmetic/bitwise/shift result to int: `a - b` over two chars is
             // typed `int`, never `char`. The IR keeps the narrow operand type,
-            // so report int here — otherwise the missing-cast logic (CastValue)
+            // so report int here — otherwise the missing-cast logic (Coerce)
             // sees an implicit char→uint and drops the (uint) cast C# requires,
             // emitting CS0266. A narrowing store back to a sub-int local always
             // carries its own conv (a Convert node, not a bare Binary), so this
@@ -1268,7 +1315,7 @@ public sealed partial class CSharpPrinter
             // pair by reinterpreting the signed side (`(uint)x + count`). Either
             // way the rendered result is unsigned even though the ECMA ResultType
             // keeps a signed operand type. Report it, so a parent (a nested
-            // `1 + (int * uint)`, or a CastValue boundary into a signed target)
+            // `1 + (int * uint)`, or a Coerce boundary into a signed target)
             // sees the unsigned type and reconciles or casts in turn — the
             // propagation that resolves the `int op uint` family up the whole tree.
             if (RendersUnsigned(binary))

@@ -5342,7 +5342,7 @@ public class EnumConstantTests
     {
         // `StringComparison V_0 = flag ? 1 : 0;` is int->enum (CS0266). A ternary
         // of integer arms into an enum local must take the enum cast on the whole
-        // merge — `(MyEnum)(flag ? 1 : 0)` — even though CastValue otherwise
+        // merge — `(MyEnum)(flag ? 1 : 0)` — even though Coerce otherwise
         // leaves merge nodes uncast (the bail's CS0030 risk is type-parameter-only,
         // not a concrete enum).
         var enumType = TypeRef.Definition("asm", "NS", "MyEnum");
