@@ -36,6 +36,17 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectHighestAssembliesFromPackage_KeepsPrimaryAssemblyEndingInResources()
+    {
+        var resourcesAssembly = WriteDll("lib/net8.0/MyCompany.Resources.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([resourcesAssembly], paths);
+    }
+
+    [Fact]
     public void SelectHighestAssembliesFromPackage_ExplicitTfm_SelectsMatchingAssemblies()
     {
         var net6 = WriteDll("lib/net6.0/MyLib.dll");
@@ -143,6 +154,39 @@ public class TfmSelectorTests : IDisposable
     [Fact]
     public void FindAssemblyByTfm_HandlesRuntimeSpecificLibLayout()
     {
+        var runtimeAssembly = WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
+
+        var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0");
+
+        Assert.Equal(runtimeAssembly, result);
+    }
+
+    [Fact]
+    public void FindAssemblyByTfm_PrefersLibPackageNameMatchOverToolsAssembly()
+    {
+        WriteDll("tools/net8.0/MyTool.dll");
+        var libraryAssembly = WriteDll("lib/net8.0/MyLib.dll");
+
+        var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0", "MyLib");
+
+        Assert.Equal(libraryAssembly, result);
+    }
+
+    [Fact]
+    public void FindAssemblyByTfm_FindsLibTfmWhenToolsHasDifferentTfm()
+    {
+        WriteDll("tools/net472/MyTool.dll");
+        var libraryAssembly = WriteDll("lib/net8.0/MyLib.dll");
+
+        var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0");
+
+        Assert.Equal(libraryAssembly, result);
+    }
+
+    [Fact]
+    public void FindAssemblyByTfm_FindsRuntimeSpecificLibWhenLibHasDifferentTfm()
+    {
+        WriteDll("lib/net6.0/MyLib.dll");
         var runtimeAssembly = WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
 
         var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0");

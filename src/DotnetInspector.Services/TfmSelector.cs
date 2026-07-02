@@ -1,3 +1,4 @@
+using System.Globalization;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -9,7 +10,7 @@ namespace DotnetInspector.Services;
 public static class TfmSelector
 {
     private static List<string> FilterResourceAssemblies(IEnumerable<string> dlls)
-        => dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+        => dlls.Where(d => !IsSatelliteResourceAssembly(d)).ToList();
 
     public static List<string> GetPackageDlls(string extractPath)
     {
@@ -260,11 +261,51 @@ public static class TfmSelector
 
     public static string? FindAssemblyByTfm(string extractPath, string tfm, string? packageName = null)
     {
-        var (dlls, _) = SelectHighestAssembliesFromPackage(extractPath, tfm);
+        var dlls = FilterResourceAssemblies(Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories))
+            .Where(path => string.Equals(GetTfm(extractPath, path), tfm, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path => GetExplicitTfmLookupPriority(extractPath, path))
+            .ThenBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (dlls.Count == 0)
             return null;
 
         var (selectedPath, _) = SelectHighestTfmAssembly(dlls, extractPath, packageName);
         return selectedPath ?? dlls[0];
+    }
+
+    private static int GetExplicitTfmLookupPriority(string extractPath, string path)
+    {
+        var parts = Path.GetRelativePath(extractPath, path).Replace('\\', '/').Split('/');
+        if (parts.Length == 0)
+            return 4;
+
+        return parts[0] switch
+        {
+            "ref" => 0,
+            "lib" => 1,
+            "runtimes" => 2,
+            "tools" => 3,
+            _ => 4
+        };
+    }
+
+    private static bool IsSatelliteResourceAssembly(string path)
+    {
+        if (!Path.GetFileName(path).EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var parentDirectory = Directory.GetParent(path)?.Name;
+        if (string.IsNullOrWhiteSpace(parentDirectory))
+            return false;
+
+        try
+        {
+            _ = CultureInfo.GetCultureInfo(parentDirectory);
+            return true;
+        }
+        catch (CultureNotFoundException)
+        {
+            return false;
+        }
     }
 }
