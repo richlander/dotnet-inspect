@@ -583,6 +583,7 @@ public class LibraryInspectionView
     public bool HasILOffsetAllocationContext => _data.ILOffset?.AllocationContext is { Count: > 0 };
 
     [MarkoutSection(Name = SectionNames.AllocationContext, ShowWhenProperty = nameof(HasILOffsetAllocationContext))]
+    [MarkoutIgnoreColumnWhen(nameof(AllocationContextEscapeKindIsEmpty), nameof(ILOffsetAllocationContextRow.EscapeKind))]
     public List<ILOffsetAllocationContextRow>? ILOffsetAllocationContextSection =>
         _data.ILOffset?.AllocationContext?
             .Select(context => new ILOffsetAllocationContextRow(
@@ -841,6 +842,12 @@ public class LibraryInspectionView
     public static bool SwitchKindIsUniform(List<SwitchRow>? rows)
         => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
 
+    // The refined escape kind is only present on Escapes allocations (null for the
+    // ~70% that are Unknown/ThrowPath/LocalOnly), so drop the column when no row
+    // carries one — matching how the fact tables hide uniformly-empty columns.
+    public static bool AllocationContextEscapeKindIsEmpty(List<ILOffsetAllocationContextRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.EscapeKind));
+
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
@@ -1018,7 +1025,7 @@ public record ILOffsetAllocationContextRow(
     [property: MarkoutPropertyName("Counted As Heap")] string? CountedAsHeap,
     string? Frequency,
     string? Escape,
-    [property: MarkoutPropertyName("Escape Kind")] string? EscapeKind,
+    [property: MarkoutPropertyName("Escape Kind")][property: MarkoutSkipNull] string? EscapeKind,
     [property: MarkoutPropertyName("Est Size")] int? EstSize,
     string? SizeTier,
     [property: MarkoutPropertyName("In Loop")] string? InLoop,
