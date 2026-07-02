@@ -175,6 +175,7 @@ public class ApiSignature
     public string? ReturnType { get; set; }
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
+    public List<TypeParameter> TypeParameters { get; set; } = [];
     public List<ApiParameter> Parameters { get; set; } = [];
     public List<ApiAccessor> Accessors { get; set; } = [];
 

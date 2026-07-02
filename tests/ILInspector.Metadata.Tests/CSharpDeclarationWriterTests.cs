@@ -125,7 +125,49 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
-    public void GenericMethodDeclaration_KeepsCompatibilitySignature()
+    public void GenericMethodDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Map",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "TResult",
+                MemberName = "Map<TSource, TResult>",
+                TypeParameters =
+                [
+                    new TypeParameter { Name = "TSource", Constraints = ["unmanaged"] },
+                    new TypeParameter { Name = "TResult", Constraints = ["System.IComparable<TResult>", "new()"] }
+                ],
+                Parameters =
+                [
+                    new ApiParameter { Type = "TSource", Name = "source" }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+
+            public TResult Map<TSource, TResult>(TSource source) where TSource : unmanaged where TResult : IComparable<TResult>, new();
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void GenericMethodDeclaration_WithoutGenericParameterFactsKeepsCompatibilitySignature()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
         var member = new ApiMember
