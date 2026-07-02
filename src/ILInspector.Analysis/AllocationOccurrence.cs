@@ -56,6 +56,13 @@ public enum AllocationPostDominance
     ReturnPostDominates,
 }
 
+public enum AllocationSizeTier
+{
+    Unknown,
+    Exact,
+    Approx,
+}
+
 /// <summary>
 /// One static heap-allocation occurrence, keyed by IL offset. Presentation layers
 /// project this into hidden-fact annotations, method signals, and triage rows.
@@ -74,7 +81,9 @@ public sealed record AllocationOccurrence(
     AllocationFactSource Source,
     string? RuntimeAllocationType = null,
     AllocationPathContext PathContext = AllocationPathContext.StraightLine,
-    AllocationPathConfidence PathConfidence = AllocationPathConfidence.Unknown)
+    AllocationPathConfidence PathConfidence = AllocationPathConfidence.Unknown,
+    int? EstimatedSizeBytes = null,
+    AllocationSizeTier SizeTier = AllocationSizeTier.Unknown)
 {
     public AllocationPostDominance PostDominance { get; init; }
 

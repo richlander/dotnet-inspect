@@ -1161,6 +1161,8 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5AfterUnrelatedBranch))]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField))]
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall))]
@@ -1171,6 +1173,16 @@ public class LibraryBodyIndexTests
 
         var shape = Assert.Single(ArrayShapes(index, methodName));
         Assert.Equal("small-array", shape);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalSmallOrHugeArray))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalHugeOrSmallArray))]
+    public void OptimizationOpportunities_DoesNotTreatConditionalLengthArraysAsSmallArrays(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(ArrayShapes(index, methodName));
     }
 
     [Theory]
@@ -1286,6 +1298,59 @@ public class LibraryBodyIndexTests
         Assert.Equal(expectedPath, occurrence.PathContext);
         Assert.Equal(expectedConfidence, occurrence.PathConfidence);
         Assert.Equal(expectedPostDominance, occurrence.PostDominance);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray10), 64)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5), 48)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5AfterUnrelatedBranch), 48)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsByteArray100), 128)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsStringArray8), 88)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsLongArray4), 56)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntPtrArray3), 48)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsUIntPtrArray3), 48)]
+    public void AllocationOccurrences_EstimatesExactSizeForConstantSzArrays(string methodName, int expectedSizeBytes)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Array);
+
+        Assert.Equal(expectedSizeBytes, occurrence.EstimatedSizeBytes);
+        Assert.Equal(AllocationSizeTier.Exact, occurrence.SizeTier);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalSmallOrHugeArray))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalHugeOrSmallArray))]
+    public void AllocationFacts_LeaveConditionalLengthArraysUnknown(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Array);
+
+        var fact = Assert.Single(SemanticFactProjection.AllocationFacts(
+            index.GetAllocationOccurrences(),
+            occurrence.Method.MetadataToken,
+            occurrence.ILOffset));
+
+        Assert.Null(occurrence.EstimatedSizeBytes);
+        Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
+        Assert.Null(fact.EstimatedSizeBytes);
+        Assert.Null(fact.SizeTier);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.MakesArrayAfterCallAndArgument), AllocationKind.Array)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsGuidArray4), AllocationKind.Array)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object)]
+    public void AllocationOccurrences_LeavesLayoutDependentOrNonConstantSizesUnknown(string methodName, AllocationKind kind)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+
+        Assert.Null(occurrence.EstimatedSizeBytes);
+        Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
     }
 
     [Fact]
@@ -3288,6 +3353,36 @@ public class OptimizationOpportunityFixtures
     // Returned -> escapes.
     public static int[] ReturnsSmallArray() => new int[4];
 
+    public static int[] ReturnsIntArray10() => new int[10];
+
+    public static int[] ReturnsIntArray5() => new int[5];
+
+    public static int[] ReturnsIntArray5AfterUnrelatedBranch(bool condition)
+    {
+        if (condition)
+            ConsumeBoolean(condition);
+
+        return new int[5];
+    }
+
+    public static int[] ReturnsConditionalSmallOrHugeArray(bool condition)
+        => new int[condition ? 5 : 1_000_000];
+
+    public static int[] ReturnsConditionalHugeOrSmallArray(bool condition)
+        => new int[condition ? 1_000_000 : 5];
+
+    public static byte[] ReturnsByteArray100() => new byte[100];
+
+    public static string[] ReturnsStringArray8() => new string[8];
+
+    public static long[] ReturnsLongArray4() => new long[4];
+
+    public static IntPtr[] ReturnsIntPtrArray3() => new IntPtr[3];
+
+    public static UIntPtr[] ReturnsUIntPtrArray3() => new UIntPtr[3];
+
+    public static Guid[] ReturnsGuidArray4() => new Guid[4];
+
     // Constructed and popped without leaving the method -> local-only lifetime.
     public static int DropsPlainObject()
     {
@@ -3697,6 +3792,8 @@ public class OptimizationOpportunityFixtures
     private static void ConsumeArray(int[] data) => Console.WriteLine(data.Length);
 
     private static void ConsumeObject(object? value) => Console.WriteLine(value);
+
+    private static void ConsumeBoolean(bool value) => Console.WriteLine(value);
 
     // --- Delegate allocation (capture detection + de-dup) ---
 
