@@ -514,7 +514,7 @@ static class ReturnToSender
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
             firstError ??= errors.FirstOrDefault();
-            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), closureRoots, closureFacts);
+            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), TopLevelRootOf(reader, typeHandle), closureRoots, closureFacts);
             if (!grew || closureRoots.Count > maxRoots)
             {
                 string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
@@ -755,6 +755,8 @@ static class ReturnToSender
         Dictionary<string, List<TypeDefinitionHandle>> Types,
         Dictionary<string, List<TypeDefinitionHandle>> FullTypes,
         Dictionary<string, List<TypeDefinitionHandle>> Methods,
+        Dictionary<string, List<TypeDefinitionHandle>> Properties,
+        Dictionary<string, List<TypeDefinitionHandle>> Fields,
         Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
         Dictionary<TypeDefinitionHandle, string> RootNamespaces);
 
@@ -763,6 +765,8 @@ static class ReturnToSender
         var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         var fullTypes = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         var methods = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var properties = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var fields = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         var namespaces = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         var rootNamespaces = new Dictionary<TypeDefinitionHandle, string>();
 
@@ -791,39 +795,73 @@ static class ReturnToSender
                 Add(namespaces, reader.GetString(typeDef.Namespace), handle);
             foreach (var methodHandle in typeDef.GetMethods())
                 Add(methods, reader.GetString(reader.GetMethodDefinition(methodHandle).Name), root);
+            foreach (var propertyHandle in typeDef.GetProperties())
+                Add(properties, reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name), root);
+            foreach (var fieldHandle in typeDef.GetFields())
+                Add(fields, reader.GetString(reader.GetFieldDefinition(fieldHandle).Name), root);
         }
 
-        return new ClosureIndex(types, fullTypes, methods, namespaces, rootNamespaces);
+        return new ClosureIndex(types, fullTypes, methods, properties, fields, namespaces, rootNamespaces);
     }
 
     static bool AddClosureRoots(
         IReadOnlyList<Diagnostic> diagnostics,
         ClosureIndex indexes,
         string targetNamespace,
+        TypeDefinitionHandle preferredRoot,
         HashSet<TypeDefinitionHandle> closureRoots,
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
     {
         bool grew = false;
         foreach (var diagnostic in diagnostics)
         {
-            if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103")
+            if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103" or "CS0122")
             {
                 var names = QuotedNames(diagnostic.GetMessage()).ToList();
                 foreach (var name in names)
                 {
                     var index = name.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
                     var key = name.Contains('.', StringComparison.Ordinal) ? name : NormalizeTypeName(name);
-                    grew |= AddRoots(indexes, index, key, diagnostic, name, targetNamespace, closureRoots, closureFacts);
+                    grew |= AddRoots(indexes, index, key, diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
                     if (diagnostic.Id is "CS0103")
-                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, closureRoots, closureFacts);
+                    {
+                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                        grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                        grew |= AddRoots(indexes, indexes.Fields, name, diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    }
                 }
                 if (diagnostic.Id is "CS0234" && names.Count == 2)
-                    grew |= AddRoots(indexes, indexes.Namespaces, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, closureRoots, closureFacts);
+                    grew |= AddRoots(indexes, indexes.Namespaces, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
             }
             else if (diagnostic.Id is "CS1061")
             {
-                foreach (var name in QuotedNames(diagnostic.GetMessage()))
-                    grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, closureRoots, closureFacts);
+                var names = QuotedNames(diagnostic.GetMessage()).ToList();
+                if (names.Count >= 2)
+                {
+                    var typeName = names[0];
+                    var index = typeName.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
+                    var key = typeName.Contains('.', StringComparison.Ordinal) ? typeName : NormalizeTypeName(typeName);
+                    grew |= AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                }
+                else
+                {
+                    foreach (var name in names)
+                    {
+                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                        grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    }
+                }
+            }
+            else if (diagnostic.Id is "CS0117")
+            {
+                var names = QuotedNames(diagnostic.GetMessage()).ToList();
+                if (names.Count >= 2)
+                {
+                    var typeName = names[0];
+                    var index = typeName.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
+                    var key = typeName.Contains('.', StringComparison.Ordinal) ? typeName : NormalizeTypeName(typeName);
+                    grew |= AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                }
             }
         }
 
@@ -837,6 +875,8 @@ static class ReturnToSender
         Diagnostic diagnostic,
         string detail,
         string targetNamespace,
+        TypeDefinitionHandle preferredRoot,
+        bool addMemberSurfaceFact,
         HashSet<TypeDefinitionHandle> closureRoots,
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
     {
@@ -845,13 +885,20 @@ static class ReturnToSender
 
         if (!key.Contains('.', StringComparison.Ordinal) && roots.Count > 1)
         {
-            var sameNamespace = roots
+            if (roots.Contains(preferredRoot))
+            {
+                roots = [preferredRoot];
+            }
+            else
+            {
+                var sameNamespace = roots
                 .Where(root => indexes.RootNamespaces.TryGetValue(root, out var ns) && ns == targetNamespace)
                 .ToList();
-            if (sameNamespace.Count == 1)
-                roots = sameNamespace;
-            else
-                return false;
+                if (sameNamespace.Count == 1)
+                    roots = sameNamespace;
+                else
+                    return false;
+            }
         }
 
         bool changed = false;
@@ -861,11 +908,20 @@ static class ReturnToSender
 
             if (!closureFacts.TryGetValue(root, out var facts))
                 closureFacts[root] = facts = [];
-            var fact = new CompileBackFact("roslyn", "closure-root", $"{diagnostic.Id}: {detail}");
-            if (!facts.Contains(fact))
+            var rootFact = new CompileBackFact("roslyn", "closure-root", $"{diagnostic.Id}: {detail}");
+            if (!facts.Contains(rootFact))
             {
-                facts.Add(fact);
+                facts.Add(rootFact);
                 changed = true;
+            }
+            if (addMemberSurfaceFact)
+            {
+                var memberFact = new CompileBackFact("roslyn", "closure-member", $"{diagnostic.Id}: {detail}");
+                if (!facts.Contains(memberFact))
+                {
+                    facts.Add(memberFact);
+                    changed = true;
+                }
             }
         }
 

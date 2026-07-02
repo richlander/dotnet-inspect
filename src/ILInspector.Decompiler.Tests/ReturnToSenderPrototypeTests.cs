@@ -575,11 +575,103 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackFirstPropertyGetter_DoesNotSurfaceOuterMembersForTypeOnlyNestedClosure()
+    {
+        var assemblyPath = CompileFixture("""
+            internal class Hidden
+            {
+            }
+
+            public class Outer
+            {
+                public class Inner
+                {
+                }
+
+                internal static Hidden Leak() => new Hidden();
+            }
+
+            public class Class1
+            {
+                public Outer.Inner FromNested => new Outer.Inner();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public class Inner", result.Source);
+            Assert.DoesNotContain("Leak", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_SurfacesReferencedInstanceField()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private readonly string _value = "Hello";
+
+                public string Value => _value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public string _value;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsUnsafePointerTargetAndField()
+    {
+        var assemblyPath = CompileFixture("""
+            public unsafe class Class1
+            {
+                private int* _pointer;
+
+                public int* Pointer => _pointer;
+            }
+            """, allowUnsafe: true);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public unsafe int* Pointer", result.Source);
+            Assert.Contains("public unsafe int* _pointer;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
         string assemblyName = "fixture",
-        IReadOnlyList<MetadataReference>? additionalReferences = null)
+        IReadOnlyList<MetadataReference>? additionalReferences = null,
+        bool allowUnsafe = false)
     {
         directory ??= Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -595,7 +687,8 @@ public class ReturnToSenderPrototypeTests
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,
-                nullableContextOptions: NullableContextOptions.Disable));
+                nullableContextOptions: NullableContextOptions.Disable,
+                allowUnsafe: allowUnsafe));
 
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
