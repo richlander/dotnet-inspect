@@ -1264,6 +1264,8 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectToStaticField), AllocationKind.Object, AllocationEscapeKind.Static)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectIntoArrayElement), AllocationKind.Object, AllocationEscapeKind.Collection)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CapturesArrayInClosure), AllocationKind.Array, AllocationEscapeKind.Capture)]
+    // Multiple distinct escape sinks -> fail-honest None (still an Escapes verdict).
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresToStaticThenReturns), AllocationKind.Object, AllocationEscapeKind.None)]
     // Fail-honest: non-escaping / unknown verdicts carry no kind.
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, AllocationEscapeKind.None)]
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall), AllocationKind.Array, AllocationEscapeKind.None)]
@@ -1277,6 +1279,22 @@ public class LibraryBodyIndexTests
         // Kind is only meaningful on an Escapes verdict; otherwise it must be None.
         if (occurrence.Escape != AllocationEscape.Escapes)
             Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
+    }
+
+    [Fact]
+    public void AllocationOccurrences_MultipleDistinctSinks_FailHonestNoneOnEscapesVerdict()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(
+            index,
+            nameof(OptimizationOpportunityFixtures.StoresToStaticThenReturns),
+            AllocationKind.Object);
+
+        // Escapes to both a static field and the return: the verdict stays Escapes, but
+        // the conflicting sinks degrade the refined kind to None (fail-honest).
+        Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
+        Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
     }
 
     [Fact]
@@ -3809,6 +3827,16 @@ public class OptimizationOpportunityFixtures
 
     // Stored to a static field -> escapes-static.
     public static void StoresObjectToStaticField() => _staticObjectField = new PlainObject(1);
+
+    // Escapes to two distinct sinks (static field + return) -> fail-honest: no single kind.
+    // The branch forces the value into a local slot (two distinct ldloc uses) rather than a dup.
+    public static object StoresToStaticThenReturns(bool condition)
+    {
+        var o = new PlainObject(1);
+        if (condition)
+            _staticObjectField = o;
+        return o;
+    }
 
     // Stored into an array element -> escapes-collection.
     public static void StoresObjectIntoArrayElement(object[] target) => target[0] = new PlainObject(1);

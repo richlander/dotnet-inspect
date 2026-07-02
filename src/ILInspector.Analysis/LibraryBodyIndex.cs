@@ -4117,7 +4117,11 @@ public sealed class LibraryBodyIndex
                 }
 
                 verdict = JoinEscape(verdict, useEscape);
-                if (verdict.Escape == AllocationEscape.Escapes)
+                // Escapes(None) is absorbing under JoinEscape (further merges keep it
+                // Escapes/None), so we can stop. A single-kind Escapes must keep scanning
+                // the remaining uses so a conflicting sink can fail honest to None — the
+                // verdict stays Escapes either way, only the kind can degrade.
+                if (verdict.Escape == AllocationEscape.Escapes && verdict.Kind == AllocationEscapeKind.None)
                     break;
             }
 
