@@ -1443,11 +1443,51 @@ public static class IrImporter
             if (source.MergeReferenceTypes(a, b) is { } merged)
                 return merged;
         }
+        // An enum meeting an integer of its underlying family (a
+        // `cond ? RefKind.Ref : local` diamond, a flags accumulator): ECMA-335
+        // verification carries an enum on the evaluation stack as its
+        // underlying's verification type, so the integer path IS the enum's
+        // representation and the semantic type survives the join — the
+        // census's dominant Partial-by-unknown-join class (RefKind/int and
+        // kin, value-typed-emission step 4). Same-assembly resolved enums
+        // only (the underlying map is the proof); asserting enum for an
+        // unresolved definition would outrun the verifier's knowledge. Bool
+        // stays out: a bool path is BooleanFolding's lane, not an enum
+        // representation.
+        if (EnumOverUnderlyingFamily(source, a, b) is { } enumA)
+            return enumA;
+        if (EnumOverUnderlyingFamily(source, b, a) is { } enumB)
+            return enumB;
         var familyA = TypeFamilies.Of(a);
         var familyB = TypeFamilies.Of(b);
         if (familyA is not null && familyB is not null && familyA == familyB)
             return TypeFamilies.Canonical(familyA.Value);
         return null;
+    }
+
+    static TypeRef? EnumOverUnderlyingFamily(MetadataSource source, TypeRef enumSide, TypeRef integerSide)
+    {
+        if (TypeFamilies.Of(integerSide) is not { } integerFamily
+            || integerFamily is not (StackFamily.I4 or StackFamily.I8)
+            || TypeFamilies.IsBoolean(integerSide))
+        {
+            return null;
+        }
+        // Same-assembly: the underlying map is the proof, and the families
+        // must agree.
+        if (source.ResolveEnumUnderlyingType(enumSide) is { } underlying)
+            return TypeFamilies.Of(underlying) == integerFamily ? enumSide : null;
+        // Cross-assembly: the shape is unresolvable, but the pairing is the
+        // proof — verification only merges a named definition with an integer
+        // when the definition is an enum over that family (the same
+        // structural argument as the printer's IsEnumLikeInteger). A
+        // same-assembly definition the map classifies as a non-enum struct or
+        // reference is disproof, not unknown.
+        return enumSide is { Kind: TypeRefKind.Definition }
+            && TypeFamilies.Of(enumSide) is null
+            && source.ResolveShape(enumSide) == TypeShape.Unknown
+            ? enumSide
+            : null;
     }
 
     /// <summary>A reference type: object, string, an array, or a definition (or generic instantiation of one) the source resolves to a reference shape.</summary>
