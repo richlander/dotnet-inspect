@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using NuGetFetch;
@@ -11,10 +12,58 @@ public sealed record ProjectPackageReference(
     string TargetFramework);
 
 /// <summary>
+/// Outcome of locating a project's <c>project.assets.json</c>.
+/// </summary>
+public enum ProjectAssetsStatus
+{
+    /// <summary>The assets file was located.</summary>
+    Found,
+
+    /// <summary>The supplied project path does not exist as a file or directory.</summary>
+    ProjectNotFound,
+
+    /// <summary>The project exists but no <c>project.assets.json</c> was found (needs <c>dotnet restore</c>).</summary>
+    AssetsNotRestored,
+}
+
+/// <summary>
 /// Parses project.assets.json to discover NuGet package assemblies in a project.
 /// </summary>
 public static class ProjectAssetsParser
 {
+    /// <summary>
+    /// Locates a project's <c>project.assets.json</c> and reports why discovery failed.
+    /// Accepts a directory, a project file, or a direct <c>project.assets.json</c> path.
+    /// Returns <see langword="true"/> and a non-null <paramref name="assetsPath"/> when found.
+    /// </summary>
+    public static bool TryFindAssets(string projectPath, [NotNullWhen(true)] out string? assetsPath, out ProjectAssetsStatus status)
+    {
+        assetsPath = FindAssets(projectPath);
+        if (assetsPath is not null)
+        {
+            status = ProjectAssetsStatus.Found;
+            return true;
+        }
+
+        var fullPath = Path.GetFullPath(string.IsNullOrWhiteSpace(projectPath) ? "." : projectPath);
+        status = File.Exists(fullPath) || Directory.Exists(fullPath)
+            ? ProjectAssetsStatus.AssetsNotRestored
+            : ProjectAssetsStatus.ProjectNotFound;
+        return false;
+    }
+
+    /// <summary>
+    /// Returns a human-readable, severity-free explanation for a failed
+    /// <see cref="TryFindAssets"/> lookup. Callers prepend their own
+    /// <c>Warning:</c>/<c>Error:</c> prefix per their control flow.
+    /// </summary>
+    public static string DescribeMissingAssets(string projectPath, ProjectAssetsStatus status) => status switch
+    {
+        ProjectAssetsStatus.ProjectNotFound => $"Project not found '{projectPath}'.",
+        ProjectAssetsStatus.AssetsNotRestored => $"project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Status does not describe a failure."),
+    };
+
     public static string? FindAssets(string projectPath)
     {
         var fullPath = Path.GetFullPath(string.IsNullOrWhiteSpace(projectPath) ? "." : projectPath);

@@ -84,10 +84,9 @@ public static class AssemblyCollector
         // 3. Project assets
         foreach (var projectPath in options.Projects)
         {
-            var assetsPath = ProjectAssetsParser.FindAssets(projectPath);
-            if (assetsPath == null)
+            if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
             {
-                Console.Error.WriteLine($"Warning: project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.");
+                Console.Error.WriteLine($"Warning: {ProjectAssetsParser.DescribeMissingAssets(projectPath, status)}");
                 continue;
             }
 

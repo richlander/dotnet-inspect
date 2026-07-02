@@ -313,6 +313,86 @@ public class ProjectAssetsParserTests
         }
     }
 
+    [Fact]
+    public void TryFindAssets_DirectAssetsJsonPath_ReturnsFound()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var assets = Path.Combine(dir, "project.assets.json");
+        File.WriteAllText(assets, "{}");
+        try
+        {
+            Assert.True(ProjectAssetsParser.TryFindAssets(assets, out var found, out var status));
+            Assert.Equal(ProjectAssetsStatus.Found, status);
+            Assert.Equal(Path.GetFullPath(assets), found);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryFindAssets_DirectoryWithObjAssets_ReturnsFound()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dir, "obj"));
+        File.WriteAllText(Path.Combine(dir, "Sample.csproj"), "<Project/>");
+        var assets = Path.Combine(dir, "obj", "project.assets.json");
+        File.WriteAllText(assets, "{}");
+        try
+        {
+            Assert.True(ProjectAssetsParser.TryFindAssets(dir, out var found, out var status));
+            Assert.Equal(ProjectAssetsStatus.Found, status);
+            Assert.Equal(Path.GetFullPath(assets), found);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryFindAssets_ProjectWithoutRestore_ReturnsAssetsNotRestored()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var csproj = Path.Combine(dir, "Sample.csproj");
+        File.WriteAllText(csproj, "<Project/>");
+        try
+        {
+            Assert.False(ProjectAssetsParser.TryFindAssets(csproj, out var found, out var status));
+            Assert.Null(found);
+            Assert.Equal(ProjectAssetsStatus.AssetsNotRestored, status);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryFindAssets_NonexistentPath_ReturnsProjectNotFound()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"pa-missing-{Guid.NewGuid():N}", "Sample.csproj");
+
+        Assert.False(ProjectAssetsParser.TryFindAssets(missing, out var found, out var status));
+        Assert.Null(found);
+        Assert.Equal(ProjectAssetsStatus.ProjectNotFound, status);
+    }
+
+    [Fact]
+    public void DescribeMissingAssets_ProducesDistinctMessages()
+    {
+        var notFound = ProjectAssetsParser.DescribeMissingAssets("x.csproj", ProjectAssetsStatus.ProjectNotFound);
+        var notRestored = ProjectAssetsParser.DescribeMissingAssets("x.csproj", ProjectAssetsStatus.AssetsNotRestored);
+
+        Assert.Contains("Project not found", notFound);
+        Assert.Contains("dotnet restore", notRestored);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ProjectAssetsParser.DescribeMissingAssets("x", ProjectAssetsStatus.Found));
+    }
+
     private static string CreateTempAssetsFile(object content)
     {
         var json = JsonSerializer.Serialize(content);

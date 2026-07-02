@@ -53,10 +53,9 @@ public static class CallerScopeResolver
         // Projects: restored dependencies via project.assets.json
         foreach (var projectPath in projects)
         {
-            var assetsPath = ProjectAssetsParser.FindAssets(projectPath);
-            if (assetsPath == null)
+            if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
             {
-                Console.Error.WriteLine($"Warning: project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.");
+                Console.Error.WriteLine($"Warning: {ProjectAssetsParser.DescribeMissingAssets(projectPath, status)}");
                 continue;
             }
 

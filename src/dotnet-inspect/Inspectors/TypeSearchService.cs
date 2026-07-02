@@ -414,10 +414,9 @@ internal static class TypeSearchService
         {
             if (ReachedLimit()) break;
 
-            var assetsPath = ProjectAssetsParser.FindAssets(projectPath);
-            if (assetsPath == null)
+            if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
             {
-                Console.Error.WriteLine($"Warning: project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.");
+                Console.Error.WriteLine($"Warning: {ProjectAssetsParser.DescribeMissingAssets(projectPath, status)}");
                 continue;
             }
 
