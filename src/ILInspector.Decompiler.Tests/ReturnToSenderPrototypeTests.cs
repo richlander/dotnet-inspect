@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class ReturnToSenderPrototypeTests
 {
     [Fact]
@@ -445,6 +446,51 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void RunComparison_UsesExactCurrentTargetsPastPerTypeSampleCap()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int P0 => 0;
+                public int P1 => 1;
+                public int P2 => 2;
+                public int P3 => 3;
+                public int P4 => 4;
+                public int P5 => 5;
+                public int P6 => 6;
+                public int P7 => 7;
+                public int P8 => 8;
+                public int P9 => 9;
+            }
+            """);
+        try
+        {
+            var oldOut = Console.Out;
+            using var writer = new StringWriter();
+            try
+            {
+                Console.SetOut(writer);
+                var exitCode = ReturnToSender.RunComparison([assemblyPath], cap: 10, maxExamples: 10);
+
+                Assert.Equal(0, exitCode);
+            }
+            finally
+            {
+                Console.SetOut(oldOut);
+            }
+
+            var output = writer.ToString();
+            Assert.Contains("RETURNTOSENDER A/B over 10 property getters", output);
+            Assert.Contains("  Same          : 10", output);
+            Assert.Contains("  CurrentMissing: 0", output);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
     {
         var assemblyPath = CompileFixture("""
@@ -530,11 +576,203 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackFirstPropertyGetter_DoesNotSurfaceOuterMembersForTypeOnlyNestedClosure()
+    {
+        var assemblyPath = CompileFixture("""
+            internal class Hidden
+            {
+            }
+
+            public class Outer
+            {
+                public class Inner
+                {
+                    internal static Hidden LeakNested() => new Hidden();
+                }
+
+                internal static Hidden Leak() => new Hidden();
+            }
+
+            public class Class1
+            {
+                public Outer.Inner FromNested => new Outer.Inner();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public class Inner", result.Source);
+            Assert.DoesNotContain("Leak", result.Source);
+            Assert.DoesNotContain("LeakNested", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_SurfacesReferencedInstanceField()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private readonly string _value = "Hello";
+
+                public string Value => _value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public string _value;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsClosureConstFieldsWithInitializers()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public const int ConstValue = 42;
+                public int Value => ConstValue;
+                public static Helper Create() => new Helper();
+            }
+
+            public class Class1
+            {
+                public int FromHelper => Helper.Create().Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public const int ConstValue = 42;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsNonFiniteClosureConstFields()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public const float FloatNaN = float.NaN;
+                public const double DoubleInfinity = double.PositiveInfinity;
+                public int Value => 42;
+                public static Helper Create() => new Helper();
+            }
+
+            public class Class1
+            {
+                public int FromHelper => Helper.Create().Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public const float FloatNaN = float.NaN;", result.Source);
+            Assert.Contains("public const double DoubleInfinity = double.PositiveInfinity;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsUnsafePointerTargetAndField()
+    {
+        var assemblyPath = CompileFixture("""
+            public unsafe class Class1
+            {
+                private int* _pointer;
+
+                public int* Pointer => _pointer;
+            }
+            """, allowUnsafe: true);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public unsafe int* Pointer", result.Source);
+            Assert.Contains("public unsafe int* _pointer;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
+    {
+        var assemblyPath = CompileFixture("""
+            public unsafe class Outer
+            {
+                public class Inner
+                {
+                    public static int* GetPointer() => null;
+                }
+            }
+
+            public unsafe class Class1
+            {
+                public int* Pointer => Outer.Inner.GetPointer();
+            }
+            """, allowUnsafe: true);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public static unsafe int* GetPointer()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
         string assemblyName = "fixture",
-        IReadOnlyList<MetadataReference>? additionalReferences = null)
+        IReadOnlyList<MetadataReference>? additionalReferences = null,
+        bool allowUnsafe = false)
     {
         directory ??= Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -550,7 +788,8 @@ public class ReturnToSenderPrototypeTests
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,
-                nullableContextOptions: NullableContextOptions.Disable));
+                nullableContextOptions: NullableContextOptions.Disable,
+                allowUnsafe: allowUnsafe));
 
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
