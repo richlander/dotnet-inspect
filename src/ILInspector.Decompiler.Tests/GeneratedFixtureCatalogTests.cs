@@ -124,6 +124,83 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.static-constructor",
+            "GeneratedFixtures.MinimalStaticConstructor.Class1",
+            ".cctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.static-constructor",
+            "GeneratedFixtures.MinimalStaticConstructor.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.static-constructor",
+            "GeneratedFixtures.MinimalStaticConstructor.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.interface-implementation",
+            "GeneratedFixtures.MinimalInterfaceImplementation.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.interface-implementation",
+            "GeneratedFixtures.MinimalInterfaceImplementation.Class1",
+            "GetValue",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.object-initializer",
+            "GeneratedFixtures.MinimalObjectInitializer.Helper",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.object-initializer",
+            "GeneratedFixtures.MinimalObjectInitializer.Helper",
+            "get_Value",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.object-initializer",
+            "GeneratedFixtures.MinimalObjectInitializer.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.object-initializer",
+            "GeneratedFixtures.MinimalObjectInitializer.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.collection-initializer",
+            "GeneratedFixtures.MinimalCollectionInitializer.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.collection-initializer",
+            "GeneratedFixtures.MinimalCollectionInitializer.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.if-else",
             "GeneratedFixtures.MinimalIfElse.Class1",
             ".ctor",
@@ -176,6 +253,20 @@ public class GeneratedFixtureCatalogTests
             "minimal.array-length",
             "GeneratedFixtures.MinimalArrayLength.Class1",
             "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.indexer.getter",
+            "GeneratedFixtures.MinimalIndexerGetter.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.indexer.getter",
+            "GeneratedFixtures.MinimalIndexerGetter.Class1",
+            "get_Item",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
         AssertTarget(
@@ -310,10 +401,15 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.auto-property.getter", report);
         Assert.Contains("minimal.method-call.same-type", report);
         Assert.Contains("minimal.static-method-call", report);
+        Assert.Contains("minimal.static-constructor", report);
+        Assert.Contains("minimal.interface-implementation", report);
+        Assert.Contains("minimal.object-initializer", report);
+        Assert.Contains("minimal.collection-initializer", report);
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.integer-addition", report);
         Assert.Contains("minimal.array-index", report);
         Assert.Contains("minimal.array-length", report);
+        Assert.Contains("minimal.indexer.getter", report);
         Assert.Contains("minimal.string-length", report);
         Assert.Contains("minimal.null-coalesce", report);
         Assert.Contains("minimal.try-finally", report);
@@ -355,17 +451,22 @@ public class GeneratedFixtureCatalogTests
                 "minimal.array-index",
                 "minimal.array-length",
                 "minimal.auto-property.getter",
+                "minimal.collection-initializer",
                 "minimal.conditional-expression-shape-frontier",
                 "minimal.ctor-field.getter",
                 "minimal.do-while",
                 "minimal.for-loop",
                 "minimal.foreach-array",
                 "minimal.if-else",
+                "minimal.indexer.getter",
                 "minimal.integer-addition",
+                "minimal.interface-implementation",
                 "minimal.method-call.same-type",
                 "minimal.null-coalesce",
+                "minimal.object-initializer",
                 "minimal.primary-ctor.field-init",
                 "minimal.property.literal",
+                "minimal.static-constructor",
                 "minimal.static-method-call",
                 "minimal.string-length",
                 "minimal.switch-int",
@@ -397,10 +498,15 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.conditional-expression-shape-frontier");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.method-call.same-type");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-method-call");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-constructor");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.interface-implementation");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.object-initializer");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.collection-initializer");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.integer-addition");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-index");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-length");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.indexer.getter");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.string-length");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.null-coalesce");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.try-finally");
