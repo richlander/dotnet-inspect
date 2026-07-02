@@ -319,14 +319,17 @@ static bool TryCreateCandidateFromJson(int id, string path, JsonElement element,
         DisplayHelpers.MethodKeyFromText(method),
         DisplayHelpers.MethodStackKeyFromText(method),
         kind,
-        GetJsonString(element, "AllocatedType", "allocatedType", "Type", "type"),
+        GetJsonString(element, "Allocation", "allocation", "AllocatedType", "allocatedType", "Type", "type"),
         detail,
         inLoop,
         GetJsonString(element, "Frequency", "frequency"),
         GetJsonString(element, "Escape", "escape"),
         GetJsonString(element, "Confidence", "confidence"),
         GetJsonString(element, "Fix", "fix"),
-        GetJsonString(element, "Root Reach", "root_reach", "rootReach"));
+        GetJsonString(element, "Root Reach", "root_reach", "rootReach"),
+        GetJsonString(element, "Path", "path"),
+        GetJsonString(element, "Path Confidence", "path_confidence", "pathConfidence"),
+        GetJsonString(element, "Post Dominance", "post_dominance", "postDominance"));
     return true;
 }
 
@@ -1022,6 +1025,8 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
             Confidence = HighestConfidence(g.Select(c => c.Confidence)),
             RootReach = g.Select(c => c.RootReach).FirstOrDefault(static r => !string.IsNullOrWhiteSpace(r)),
             Offsets = string.Join(", ", g.Select(c => DisplayHelpers.FormatOffset(c.IlOffset)).Where(o => !string.IsNullOrWhiteSpace(o)).Distinct(StringComparer.Ordinal).Take(12)),
+            Path = string.Join(", ", g.Select(c => c.PathKind).Where(static p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)),
+            PathConfidence = string.Join(", ", g.Select(c => c.PathConfidence).Where(static p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)),
             Evidence = g.Select(c => c.Detail).FirstOrDefault(static e => !string.IsNullOrWhiteSpace(e)),
             Fix = g.Select(c => c.Fix).FirstOrDefault(static f => !string.IsNullOrWhiteSpace(f)),
             TopTypes = result.MethodAllocations.TryGetValue(g.Key, out var methodAllocations)
@@ -1079,7 +1084,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     {
         Console.WriteLine("## Confirmed paydirt");
         Console.WriteLine();
-        Console.WriteLine("| Runtime Evidence | Method | Static Rows | Row Confidence | Shape | Confidence | Loop | IL Offsets | Top Allocated Types | Why it matters | Fix |");
+        Console.WriteLine("| Runtime Evidence | Method | Static Rows | Row Confidence | Shape | Confidence | Path | IL Offsets | Top Allocated Types | Why it matters | Fix |");
         Console.WriteLine("| ---------------- | ------ | ----------: | -------------- | ----- | ---------- | ---- | ---------- | ------------------- | -------------- | --- |");
         foreach (var group in observedGroups.Take(10))
         {
@@ -1092,7 +1097,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
                     Escape(group.Ambiguity),
                     Escape(group.Shapes),
                     Escape(group.Confidence ?? ""),
-                    group.InLoop ? "yes" : "",
+                    Escape(FormatPathSummary(group.Path, group.PathConfidence, group.InLoop)),
                     Escape(group.Offsets),
                     Escape(group.TopTypes),
                     Escape(group.Evidence ?? ""),
@@ -1277,7 +1282,13 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     if (candidate.RootReach is not null)
         writer.WriteString("rootReach", candidate.RootReach);
     if (candidate.AllocatedType is not null)
-        writer.WriteString("allocatedType", candidate.AllocatedType);
+        writer.WriteString("allocation", candidate.AllocatedType);
+    if (candidate.PathKind is not null)
+        writer.WriteString("path", candidate.PathKind);
+    if (candidate.PathConfidence is not null)
+        writer.WriteString("pathConfidence", candidate.PathConfidence);
+    if (candidate.PostDominance is not null)
+        writer.WriteString("postDominance", candidate.PostDominance);
     if (candidate.Detail is not null)
         writer.WriteString("evidence", candidate.Detail);
     if (candidate.Fix is not null)
@@ -1343,6 +1354,20 @@ static string? HighestConfidence(IEnumerable<string?> values)
     if (confidence.Any(static v => string.Equals(v, "low", StringComparison.OrdinalIgnoreCase)))
         return "low";
     return confidence.FirstOrDefault();
+}
+
+static string FormatPathSummary(string path, string pathConfidence, bool inLoop)
+{
+    var parts = new List<string>();
+    if (!string.IsNullOrWhiteSpace(path))
+        parts.Add(path);
+    else if (inLoop)
+        parts.Add("loop");
+
+    if (!string.IsNullOrWhiteSpace(pathConfidence))
+        parts.Add(pathConfidence);
+
+    return string.Join("; ", parts);
 }
 
 static bool TryParseFlexibleInt(string? value, out int result)
@@ -1487,7 +1512,10 @@ sealed class AllocationCandidate(
     string? escape,
     string? confidence,
     string? fix,
-    string? rootReach)
+    string? rootReach,
+    string? pathKind,
+    string? pathConfidence,
+    string? postDominance)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -1508,6 +1536,9 @@ sealed class AllocationCandidate(
     public string? Confidence { get; } = confidence;
     public string? Fix { get; } = fix;
     public string? RootReach { get; } = rootReach;
+    public string? PathKind { get; } = string.IsNullOrWhiteSpace(pathKind) ? null : pathKind;
+    public string? PathConfidence { get; } = string.IsNullOrWhiteSpace(pathConfidence) ? null : pathConfidence;
+    public string? PostDominance { get; } = string.IsNullOrWhiteSpace(postDominance) ? null : postDominance;
     public int RuntimeHits { get; set; }
     public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
@@ -1610,6 +1641,9 @@ sealed class AllocationCandidate(
         occurrence.Frequency.ToString(),
         occurrence.Escape.ToString(),
         null,
+        null,
+        null,
+        occurrence.InLoop ? "loop body" : null,
         null,
         null);
 }
