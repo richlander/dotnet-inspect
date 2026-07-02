@@ -521,8 +521,7 @@ static class ReturnToSender
             }
 
             if (seen++ == overload
-                && method.RelativeVirtualAddress != 0
-                && method.GetGenericParameters().Count == 0)
+                && method.RelativeVirtualAddress != 0)
             {
                 return methodHandle;
             }
@@ -1070,6 +1069,7 @@ static class ReturnToSender
                             IsStatic: false,
                             ReturnType: null,
                             Parameters: [],
+                            TypeParameters: [],
                             CompileBackStubBodyKind.TargetBody,
                             TargetBody: "",
                             SourceFacts: [])
