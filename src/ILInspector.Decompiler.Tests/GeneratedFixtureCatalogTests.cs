@@ -320,6 +320,111 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.parameter-modifiers",
+            "GeneratedFixtures.MinimalParameterModifiers.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-modifiers",
+            "GeneratedFixtures.MinimalParameterModifiers.Class1",
+            "Increment",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-modifiers",
+            "GeneratedFixtures.MinimalParameterModifiers.Class1",
+            "Set",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-modifiers",
+            "GeneratedFixtures.MinimalParameterModifiers.Class1",
+            "Read",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-modifiers",
+            "GeneratedFixtures.MinimalParameterModifiers.Class1",
+            "Sum",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.default-parameters",
+            "GeneratedFixtures.MinimalDefaultParameters.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.default-parameters",
+            "GeneratedFixtures.MinimalDefaultParameters.Class1",
+            "Add",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.default-parameters",
+            "GeneratedFixtures.MinimalDefaultParameters.Class1",
+            "Format",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.default-parameters",
+            "GeneratedFixtures.MinimalDefaultParameters.Class1",
+            "DecimalDefault",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.default-parameters",
+            "GeneratedFixtures.MinimalDefaultParameters.Class1",
+            "EnumDefault",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.default-parameters",
+            "GeneratedFixtures.MinimalDefaultParameters.Class1",
+            "DateTimeDefault",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-attributes",
+            "GeneratedFixtures.MinimalParameterAttributes.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-attributes",
+            "GeneratedFixtures.MinimalParameterAttributes.Class1",
+            "Length",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-attributes",
+            "GeneratedFixtures.MinimalParameterAttributes.Class1",
+            "Copy",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-attributes",
+            "GeneratedFixtures.MinimalParameterAttributes.Class1",
+            "Update",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.if-else",
             "GeneratedFixtures.MinimalIfElse.Class1",
             ".ctor",
@@ -577,6 +682,9 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.generic-methods", report);
         Assert.Contains("minimal.generic-type", report);
         Assert.Contains("minimal.generic-type-constraints", report);
+        Assert.Contains("minimal.parameter-modifiers", report);
+        Assert.Contains("minimal.default-parameters", report);
+        Assert.Contains("minimal.parameter-attributes", report);
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.integer-addition", report);
         Assert.Contains("minimal.struct-members", report);
@@ -629,6 +737,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.collection-initializer",
                 "minimal.conditional-expression-shape-frontier",
                 "minimal.ctor-field.getter",
+                "minimal.default-parameters",
                 "minimal.do-while",
                 "minimal.for-loop",
                 "minimal.foreach-array",
@@ -643,6 +752,8 @@ public class GeneratedFixtureCatalogTests
                 "minimal.method-call.same-type",
                 "minimal.null-coalesce",
                 "minimal.object-initializer",
+                "minimal.parameter-attributes",
+                "minimal.parameter-modifiers",
                 "minimal.primary-ctor.field-init",
                 "minimal.property.literal",
                 "minimal.static-class",
@@ -688,6 +799,9 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.generic-methods");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.generic-type");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.generic-type-constraints");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.parameter-modifiers");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.default-parameters");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.parameter-attributes");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.integer-addition");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.struct-members");

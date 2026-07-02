@@ -365,6 +365,126 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "generic", "type", "constraints"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalParameterModifiers = new(
+        "minimal.parameter-modifiers",
+        """
+        namespace GeneratedFixtures.MinimalParameterModifiers;
+
+        public class Class1
+        {
+            public void Increment(ref int value)
+            {
+                value++;
+            }
+
+            public void Set(out int value)
+            {
+                value = 42;
+            }
+
+            public int Read(in int value) => value;
+
+            public int Sum(params int[] values)
+            {
+                var sum = 0;
+                foreach (var value in values)
+                    sum += value;
+                return sum;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Increment",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Set",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Read",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Sum",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "parameters", "ref", "out", "in", "params"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalDefaultParameters = new(
+        "minimal.default-parameters",
+        """
+        namespace GeneratedFixtures.MinimalDefaultParameters;
+
+        public enum Choice
+        {
+            None = 0,
+            One = 1,
+        }
+
+        public class Class1
+        {
+            public int Add(int value = 42, bool enabled = true)
+                => enabled ? value + 1 : value;
+
+            public string Format(string text = "hello", object value = null)
+                => value is null ? text : text + value.ToString();
+
+            public decimal DecimalDefault(decimal value = 1.25m)
+                => value;
+
+            public int EnumDefault(Choice choice = Choice.One)
+                => (int)choice;
+
+            public long DateTimeDefault(
+                [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                => when.Ticks;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "Add",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "Format",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "DecimalDefault",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "EnumDefault",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "DateTimeDefault",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "parameters", "defaults"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalParameterAttributes = new(
+        "minimal.parameter-attributes",
+        """
+        namespace GeneratedFixtures.MinimalParameterAttributes;
+
+        public class Class1
+        {
+            public int Length([System.Diagnostics.CodeAnalysis.NotNull] string value)
+                => value.Length;
+
+            public int Copy([System.Runtime.InteropServices.Out] int value)
+                => value;
+
+            public int Update([System.Runtime.InteropServices.In, System.Runtime.InteropServices.Out] ref int value)
+            {
+                value++;
+                return value;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", "Length",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", "Copy",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", "Update",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "parameters", "attributes"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -861,6 +981,9 @@ internal static class GeneratedFixtureCatalog
         MinimalGenericMethods,
         MinimalGenericType,
         MinimalGenericTypeConstraints,
+        MinimalParameterModifiers,
+        MinimalDefaultParameters,
+        MinimalParameterAttributes,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,
