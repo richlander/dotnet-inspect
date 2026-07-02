@@ -144,7 +144,7 @@ public static class ApiMemberIdentity
         IReadOnlyDictionary<string, int> typeParameterMap,
         IReadOnlyDictionary<string, int> methodParameterMap)
     {
-        var type = parameter.Trim();
+        var type = StripLeadingAttributes(parameter.Trim());
         var isByRef = false;
         foreach (var prefix in (string[])["ref ", "out ", "in ", "params ", "this "])
         {
@@ -161,10 +161,24 @@ public static class ApiMemberIdentity
             isByRef = true;
             type = type.TrimEnd('@');
         }
-        type = type.Replace("?", "", StringComparison.Ordinal);
+        var nullableValueType = false;
+        if (type.EndsWith("?", StringComparison.Ordinal))
+        {
+            var unwrapped = type[..^1];
+            if (PrimitiveTypeNames.TryToClrFullName(unwrapped, out var primitive)
+                && primitive is not ("System.String" or "System.Object" or "System.Void"))
+            {
+                type = $"System.Nullable<{primitive}>";
+                nullableValueType = true;
+            }
+            else
+            {
+                type = unwrapped;
+            }
+        }
 
         string normalized;
-        if (TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
+        if (!nullableValueType && TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
         {
             normalized = genericParameter;
         }
@@ -389,11 +403,12 @@ public static class ApiMemberIdentity
             return false;
 
         var rankSpec = type[(open + 1)..^1];
-        if (rankSpec.Any(c => c != ',' && !char.IsWhiteSpace(c)))
+        if (rankSpec.Length == 0)
             return false;
 
         elementType = type[..open];
-        suffix = type[open..];
+        var rank = rankSpec.Count(c => c == ',') + 1;
+        suffix = "[" + new string(',', rank - 1) + "]";
         return true;
     }
 }

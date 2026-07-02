@@ -296,6 +296,12 @@ public sealed class ApiSignatureModelTests
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new Dictionary<string, int>(StringComparer.Ordinal)));
         Assert.Equal(
+            "System.Int32",
+            ApiMemberIdentity.NormalizeXmlDocSignatureParameter(
+                """[System.ComponentModel.DefaultValue("=")] int value = 0""",
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, int>(StringComparer.Ordinal)));
+        Assert.Equal(
             "System.Int32@",
             ApiMemberIdentity.NormalizeXmlDocSignatureParameter(
                 "[System.Runtime.InteropServices.In] ref int value",
@@ -317,6 +323,9 @@ public sealed class ApiSignatureModelTests
     [InlineData("params int[]", "System.Int32[]")]
     [InlineData("int*", "System.Int32*")]
     [InlineData("int[,]", "System.Int32[,]")]
+    [InlineData("System.Int32[0:,0:]", "System.Int32[,]")]
+    [InlineData("int?", "System.Nullable{System.Int32}")]
+    [InlineData("string?", "System.String")]
     public void XmlDocParameterNormalization_PreservesByRefMarkers(string input, string expected)
     {
         Assert.Equal(expected, ApiMemberIdentity.NormalizeXmlDocParameterType(input));
