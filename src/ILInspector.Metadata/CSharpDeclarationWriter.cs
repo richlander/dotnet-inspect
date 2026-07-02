@@ -754,7 +754,9 @@ public static class CSharpDeclarationWriter
             return parameter;
 
         string name = prefix[start..(end + 1)];
-        string escaped = name.StartsWith('@', StringComparison.Ordinal) ? name : EscapeIdentifier(name);
+        // StartsWith(char) — the (char, StringComparison) overload is net11-only
+        // and breaks the net10.0 OfficialBuild package floor (CS1503 in pack).
+        string escaped = name.StartsWith('@') ? name : EscapeIdentifier(name);
         return prefix[..start] + escaped + prefix[(end + 1)..] + suffix;
     }
 

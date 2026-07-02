@@ -279,7 +279,7 @@ public sealed partial class CSharpPrinter
                 // is the element type, so cast the value exactly as a single-dim
                 // StoreElement does.
                 TypeRef? elementType = call.Callee.ParameterTypes.Length > rank ? call.Callee.ParameterTypes[rank] : null;
-                string value = elementType is not null ? CastValue(arguments[^1], elementType) : Expression(arguments[^1]);
+                string value = elementType is not null ? Coerce(arguments[^1], elementType) : Expression(arguments[^1]);
                 return $"{receiver}[{indices}] = {value}";
             }
             default:
@@ -401,7 +401,7 @@ public sealed partial class CSharpPrinter
             var parameter = i < parameterTypes.Count ? parameterTypes[i] : null;
             var refKind = i < refKinds.Length ? refKinds[i] : ArgumentRefKind.Value;
             parts.Add(RefArgument(argument, parameter, refKind, explicitIn)
-                ?? (parameter is not null ? CastValue(argument, parameter) : Expression(argument)));
+                ?? (parameter is not null ? Coerce(argument, parameter) : Expression(argument)));
             i++;
         }
         return string.Join(", ", parts);

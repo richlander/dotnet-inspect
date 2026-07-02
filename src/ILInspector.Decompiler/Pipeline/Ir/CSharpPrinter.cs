@@ -1308,7 +1308,7 @@ public sealed partial class CSharpPrinter
             sb.Append(pad)
                 .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
-                .Append(CastValue(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
+                .Append(Coerce(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
             AppendContainer(sb, usingStatement.Body, indent + 1);
             sb.Append(pad).AppendLine("}");
@@ -1629,12 +1629,12 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {Coerce(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
-        NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
-        NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
-        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
+        NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {Coerce(n.Value, n.LocalType)};",
+        NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {Coerce(n.Value, n.Field.Type)};",
+        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {Coerce(n.Value, n.PropertyType)};",
         StoreArgument s => AssignmentText(CSharpNaming.EscapeIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
@@ -1642,7 +1642,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {CastValue(s.Value, StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {Coerce(s.Value, StackSlotTargetType(s))};"
             : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             FieldTarget(s.Field, s.Instance), s.Value,
@@ -1660,9 +1660,9 @@ public sealed partial class CSharpPrinter
                 && SameLValue(load.Instance, s.Instance)
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
-        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CastValue(e.Value, e.Accessor.ParameterTypes[0])};",
+        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {Coerce(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{Expression(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, StoreElementTargetType(s))};",
+        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {Coerce(s.Value, StoreElementTargetType(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -1736,7 +1736,7 @@ public sealed partial class CSharpPrinter
     // drops an enum-typed integer store below its real element type and prints a
     // bare literal (CS0266). Prefer the array's own element type when it is
     // enum-like — same-assembly (`TypeShape.Enum`) or cross-assembly (an unresolved
-    // non-primitive definition), matching `CastValue`'s enum-cast reasoning.
+    // non-primitive definition), matching `Coerce`'s enum-cast reasoning.
     TypeRef? StoreElementTargetType(StoreElement store)
         => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
             && IsEnumLikeInteger(element)
@@ -1750,18 +1750,14 @@ public sealed partial class CSharpPrinter
         LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => StackSlotName(s),
         Constant { Value: int or long } c when EnumMemberName(c) is { } named => named,
-        // A retyped enum constant with no single named member (a composite flag
-        // value, or one outside the resolved member map) is still that enum — a
-        // bare int is CS0266. Route it through the overflow-aware enum cast so an
-        // unsigned- or narrow-backed enum's out-of-range/negative value is wrapped
-        // in `unchecked` (e.g. `unchecked((U)(-1))`); naming flag combinations is a
-        // later slice. A long-backed enum keeps its `long` payload.
+        // A retyped enum constant is still that enum whether or not a single
+        // member names it — a bare int is CS0266. EnumConstantText owns the
+        // name-or-cast decision (the overflow-aware cast wraps an unsigned- or
+        // narrow-backed enum's out-of-range/negative value in `unchecked`, e.g.
+        // `unchecked((U)(-1))`); naming flag combinations is a later slice. A
+        // long-backed enum keeps its `long` payload.
         Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
-            => EnumIntegerCast(
-                c.Value is int i
-                    ? new Constant(i, TypeRef.CoreLib("System", "Int32"))
-                    : new Constant((long)c.Value!, TypeRef.CoreLib("System", "Int64")),
-                enumType),
+            => EnumConstantText(c, enumType),
         Constant c => ConstantText(c),
         LoadField f => FieldTarget(f.Field, f.Instance),
         Binary b => BinaryText(b),
@@ -1826,7 +1822,7 @@ public sealed partial class CSharpPrinter
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
-        Box b => CastValue(b.Operand, b.Type),
+        Box b => Coerce(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
@@ -1858,12 +1854,7 @@ public sealed partial class CSharpPrinter
     }
 
     string CoalesceRightText(IrExpression right, TypeRef? target)
-        => target is { } enumTarget
-            && IsEnumLikeInteger(enumTarget)
-            && right.ResultType is { } rightType
-            && TypeFamilies.IsIntegerLike(rightType)
-                ? EnumIntegerCast(right, enumTarget)
-                : Operand(right);
+        => TryCoerceEnumOperand(right, target) is { } coerced ? coerced : Operand(right);
 
     static TypeRef? NullableValueType(TypeRef? type)
         => type is
@@ -2608,7 +2599,7 @@ public sealed partial class CSharpPrinter
     string ReturnText(IrExpression value)
         => _function.Signature.ReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
             ? $"return ref {place};"
-            : $"return {CastValue(value, _function.Signature.ReturnType)};";
+            : $"return {Coerce(value, _function.Signature.ReturnType)};";
 
     /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
@@ -2629,7 +2620,7 @@ public sealed partial class CSharpPrinter
             // overflow-honoring operators ever carry IsChecked here.
             return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
         }
-        return $"{target} = {CastValue(value, targetType)};";
+        return $"{target} = {Coerce(value, targetType)};";
     }
 
     /// <summary>
@@ -2652,17 +2643,14 @@ public sealed partial class CSharpPrinter
             ? ShiftCount(binary)
             // A bitwise &=/|=/^= against an enum lvalue whose right operand is still
             // a bare integer (`result |= 512`) is `enum |= int` — CS0019, the
-            // compound sibling of the `enum & int` cast in BinaryBody. A
-            // cross-assembly enum is unresolved (TypeShape.Unknown), so the
-            // structural IsEnumLikeInteger test catches it; cast the integer operand
-            // to the enum. IsIntegerLike (not IsInteger) excludes Boolean — which
-            // shares the I4 stack family — so a bool operand is never cast to
-            // `(Enum)true`. A same-assembly enum already had its operand retyped, so
-            // its right type is the enum (not integer-like) and this is skipped.
+            // compound sibling of the `enum & int` coercion in BinaryBody.
+            // TryCoerceEnumOperand owns the decision (structural enum test for the
+            // cross-assembly case, bool composition, member naming). A
+            // same-assembly enum already had its operand retyped, so its right
+            // type is the enum (not integer-like) and this is skipped.
             : binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
-                && IsEnumLikeInteger(lvalueType)
-                && binary.Right.ResultType is { } rightType && TypeFamilies.IsIntegerLike(rightType)
-                ? EnumIntegerCast(binary.Right, lvalueType!)
+                && TryCoerceEnumOperand(binary.Right, lvalueType) is { } coercedRight
+                ? coercedRight
             // A mixed-sign same-width compound (`nuint -= nint`, `ulong /= long`)
             // has no C# common type, so `target op= right` is CS0034. For the
             // sign-NEUTRAL operators (unchecked +/-/*, bitwise &/|/^) the bit
@@ -2673,7 +2661,7 @@ public sealed partial class CSharpPrinter
             // lvalue's: casting only the right operand is faithful when the opcode
             // signedness matches the lvalue. Checked .ovf compounds stay plain.
             : NeedsCompoundSignCast(binary, lvalueType)
-                ? CastValue(binary.Right, lvalueType)
+                ? Coerce(binary.Right, lvalueType)
                 : Operand(binary.Right);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
@@ -3163,11 +3151,7 @@ public sealed partial class CSharpPrinter
     {
         if (enumType is null || label.Value is not (int or long))
             return ConstantText(label);
-        long value = label.Value is int i ? i : (long)label.Value!;
-        var typed = new Constant(value, enumType);
-        if (EnumMemberName(typed) is { } named)
-            return named;
-        return EnumIntegerCast(label, enumType);
+        return EnumConstantText(label, enumType);
     }
 
     static string ConstantText(Constant constant) => constant.Value switch

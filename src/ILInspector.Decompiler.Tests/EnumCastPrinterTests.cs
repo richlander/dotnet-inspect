@@ -134,16 +134,20 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void EnumConditional_SameAssemblyUnsignedEnum_ForcesUncheckedCast()
+    public void EnumConditional_SameAssemblyUnsignedEnum_NamesHighBitMember()
     {
         // #2076: `c ? CfgFlags.Top : e` where CfgFlags : uint. Top (0x80000000u)
         // is emitted as `ldc.i4` int.MinValue, so the conditional slot's importer
-        // type is unknown; the fold anchors the enum and the printer must wrap the
-        // negative reinterpret in `unchecked`.
+        // type is unknown; the fold anchors the enum. The name-or-cast rule
+        // (EnumConstantText) resolves the payload to the member — `CfgFlags.Top`,
+        // never a bare `-2147483648` (CS0029) or an unchecked cast of the raw
+        // literal. The unnamed-value fallback to `unchecked` is pinned by
+        // CoerceChokePointTests.UnnamedHighBitConstantArm_KeepsUncheckedCast.
         string body = RenderRaisedFixture(nameof(EnumCastSamples.UnsignedEnumConditionalArm));
 
-        Assert.Contains("unchecked((CfgFlags)(-2147483648))", body);
+        Assert.Contains("CfgFlags.Top", body);
         Assert.DoesNotContain(": -2147483648", body);
+        Assert.DoesNotContain("(CfgFlags)(-2147483648)", body);
         AssertCompiles(
             "public static bool M(bool c, CfgFlags e)",
             body,

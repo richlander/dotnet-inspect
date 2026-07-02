@@ -80,9 +80,9 @@ renders a node instead of *deciding* to be a cast. Roslyn calls it
 
 ### Why a node, not a helper
 
-The decompiler already has coercion *helpers* — `CastValue`
-(`CSharpPrinter.Numerics.cs:966`) and `EnumIntegerCast`
-(`CSharpPrinter.Numerics.cs:178`). They are not enough, because a helper the
+The decompiler already has coercion *helpers* — `Coerce` (slice 1's rename of
+`CastValue`, `CSharpPrinter.Numerics.cs`) with its family (`EnumConstantText`,
+`TryCoerceEnumOperand`, `EnumIntegerCast`). They are not enough, because a helper the
 printer *may* call is not an invariant. Because the coercion is a transient string
 and not a node, it is invisible to the rest of the architecture:
 
@@ -98,26 +98,30 @@ render context at a time.
 
 ## Where we are — the leak surface, measured
 
-The cast/coercion decision is spread across the printer. The *rules* now live
-mostly in shared helpers — `CastValue`, `EnumIntegerCast`, and the overflow
-judgment `MayOverflowEnumBackingType` (`CSharpPrinter.Numerics.cs:196`), which
-handles known backing widths, cross-assembly `Unknown` (conservative sbyte),
-missing-`value__` shapes (assume `int`), and sees through widening `Convert`s
-via `TryEnumCastLiteral`. That consolidation is the hard-won product of the
-six-round history below (#2080). What stays scattered is the **routing**: each
-sink independently decides *to* call a helper, and *which target type* to hand
-it:
+The cast/coercion decision lives in one family in `CSharpPrinter.Numerics.cs`
+(slice 1, #2114): `Coerce(value, target)` for typed sinks,
+`TryCoerceEnumOperand` for operands meeting an enum sibling or arm target, and
+`EnumConstantText` (the name-or-cast rule) with the `EnumIntegerCast`/
+`MayOverflowEnumBackingType` internals — which handle known backing widths,
+cross-assembly `Unknown` (conservative sbyte), missing-`value__` shapes (assume
+`int`), and see through widening `Convert`s via `TryEnumCastLiteral`. Those
+rules are the hard-won product of the six-round history below (#2080); the
+guard drift that consolidation surfaced (the binary/comparison sites admitted
+`bool` where the arm sites excluded it — an invalid-C# class) is fixed inside
+the one operand rule. What stays scattered is the **routing**: each sink still
+independently decides *to* call the family, and *which target type* to hand it:
 
-| Site | File | What it decides locally |
-| --- | --- | --- |
-| enum-typed conditional arm | `CSharpPrinter.Numerics.cs:1165` | route each integer arm through `EnumIntegerCast` |
-| `??` coalesce | `CSharpPrinter.Numerics.cs:1200` | route the coalesce through `EnumIntegerCast` |
-| retyped enum constant | `CSharpPrinter.cs:1759` | route `int`/`long` payloads through `EnumIntegerCast` |
-| `switch` case label | `CSharpPrinter.cs:3162` | `SwitchLabelText` — name the member or route to `EnumIntegerCast` |
-| array-element store | `CSharpPrinter.cs:1665` | derive the semantic element type (`StoreElementTargetType`), route through `CastValue` |
-| `box` operand | `CSharpPrinter.cs:1829` | route through `CastValue(operand, boxedType)` |
-| enum bitwise / comparison | `CSharpPrinter.Numerics.cs:277`, `:825` | pick the enum side, route the integer side through `EnumIntegerCast` |
-| constant typing | `TypedConstantsPass.cs:104` | retypes **`int`-only**, does not pierce `Convert` |
+| Site | What it still decides locally |
+| --- | --- |
+| enum-typed conditional / switch arm | route the arm through `TryCoerceEnumOperand` |
+| `??` coalesce right side | route through `TryCoerceEnumOperand` |
+| enum bitwise / comparison operand | pick the enum side, route the other through `TryCoerceEnumOperand` |
+| compound assign right side | route through `TryCoerceEnumOperand` with the lvalue type |
+| retyped enum constant | route through `EnumConstantText` |
+| `switch` case label | route through `EnumConstantText` |
+| array-element store | derive the semantic element type (`StoreElementTargetType`), route through `Coerce` |
+| `box` / `return` / call args / stores | route through `Coerce` with the sink's declared type |
+| constant typing | `TypedConstantsPass` retypes **`int`-only**, does not pierce `Convert` |
 
 Every row is a call site that must *remember* to route, with the right target
 type — a sink added or reshaped without the call silently bypasses the rules,
@@ -380,18 +384,15 @@ This stays inside the decompiler's deliberate ceilings:
 The redesign is landable in slices *because* the invariant makes coverage
 measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxation.
 
-1. **Promote `CastValue` into `Coerce`, one rendering function.** `CastValue` is
-   already the embryonic choke point (it renders a value at a target type and
-   delegates the enum case to `EnumIntegerCast`); this *consolidates*, it does not
-   rewrite. The hard-won rules in `EnumIntegerCast`/`MayOverflowEnumBackingType` become the private
-   internals of the one renderer, and the scattered cast *decisions* at `Box`,
-   `StoreElement`, `SwitchLabelText`, and the retyped-constant branch are replaced by
-   a `Coerce` call — the sinks remain, the decisions leave. This is **not**
-   guaranteed behavior-neutral: the sinks now share helpers (#2080), but they still
-   derive target types independently and constant typing is still partial, so
-   unifying the routing can move outputs at the margins — that is the point. Expect
-   and *measure* net-positive validity movement on the corpus quality-diff card; a
-   fidelity regression on any already-`Full` method is the stop signal.
+1. **Promote `CastValue` into `Coerce`, one rendering function.** Landed
+   (#2114): `Coerce` is the typed-sink renderer, `EnumConstantText` the one
+   name-or-cast rule (switch labels, retyped constants, enum sinks), and
+   `TryCoerceEnumOperand` the one enum-operand decision — with
+   `EnumIntegerCast`/`MayOverflowEnumBackingType` as private internals. The
+   consolidation was measured, not behavior-neutral, exactly as predicted: it
+   surfaced and fixed a guard-drift invalid-C# class (bool operands at enum
+   positions) and extended member naming to un-retyped constants, with the
+   corpus card flat against a same-corpus base A/B.
 2. **Complete constant typing.** Extend `TypedConstantsPass` to retype `int`,
    `long`, and `Convert`-wrapped integer constants into every enum-typed sink, so
    the printer sees enum-typed values uniformly.
