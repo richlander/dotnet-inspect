@@ -36,6 +36,7 @@ static class Program
         bool fidelityCheck = false;
         bool returnToSender = false;
         bool returnToSenderAb = false;
+        bool returnToSenderCatalog = false;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
         bool gaps = false;
@@ -64,6 +65,7 @@ static class Program
         bool classifyDec0009 = false;
         bool generatedFixtures = false;
         string? generatedFixtureSelector = null;
+        string? returnToSenderCatalogSelector = null;
         bool keepGeneratedFixtures = false;
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
@@ -105,6 +107,13 @@ static class Program
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;
+                case "--return-to-sender-catalog":
+                    returnToSenderCatalog = true;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
+                        && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1])
+                        && !LooksLikePath(args[i + 1]))
+                        returnToSenderCatalogSelector = args[++i];
+                    break;
                 case "--fidelity-timings": fidelityTimings = true; break;
                 case "--fidelity-zero-signal-guard": fidelityZeroSignalGuard = int.Parse(args[++i]); break;
                 case "--gaps": gaps = true; break;
@@ -166,6 +175,13 @@ static class Program
             if (inputs.Count > 0)
                 return Fail("--generated-fixtures generates its own temporary input assembly; do not pass assembly paths.");
             return GeneratedFixtures(generatedFixtureSelector, keepGeneratedFixtures, json);
+        }
+
+        if (returnToSenderCatalog)
+        {
+            if (inputs.Count > 0)
+                return Fail("--return-to-sender-catalog generates its own temporary input assembly; do not pass assembly paths.");
+            return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, maxExamples);
         }
 
         var assemblies = ResolveAssemblies(inputs);
@@ -279,6 +295,41 @@ static class Program
         else
         {
             Console.Write(GeneratedFixtureRunner.FormatReport(run));
+        }
+        if (keepArtifacts && !json)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Generated fixture project: {run.ProjectDirectory}");
+            Console.WriteLine($"Generated fixture assembly: {run.AssemblyPath}");
+        }
+        return run.Passed ? 0 : 1;
+    }
+
+    static int ReturnToSenderCatalog(string? selector, bool keepArtifacts, bool json, int maxExamples)
+    {
+        var fixtures = GeneratedFixtureCatalog.Select(selector);
+        if (selector == "list")
+        {
+            if (json)
+                Console.WriteLine(GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.Catalog));
+            else
+                Console.Write(GeneratedFixtureRunner.FormatList(GeneratedFixtureCatalog.Catalog));
+            return 0;
+        }
+
+        if (fixtures.Count == 0)
+            return Fail($"No generated fixture IDs match '{selector}'. Use '--return-to-sender-catalog list'.");
+
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+            fixtures,
+            new GeneratedFixtureRunOptions(KeepArtifacts: keepArtifacts));
+        if (json)
+        {
+            Console.WriteLine(GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run));
+        }
+        else
+        {
+            Console.Write(GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples));
         }
         if (keepArtifacts && !json)
         {
@@ -1176,6 +1227,12 @@ static class Program
                                 opcodes.
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
+          --return-to-sender-catalog [selector]
+                                compile the generated fixture catalog, run
+                                ReturnToSender over supported property getters,
+                                and report pass/skip/fail frontier buckets.
+                                Use selector prefix or "list"; supports --json
+                                and --keep-generated-fixtures.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>

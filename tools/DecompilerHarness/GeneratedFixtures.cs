@@ -626,6 +626,36 @@ internal sealed record GeneratedFixtureResult(
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
 
+internal enum GeneratedFixtureReturnToSenderStatus
+{
+    Pass,
+    Skip,
+    Fail,
+}
+
+internal sealed record GeneratedFixtureReturnToSenderRunResult(
+    string ProjectDirectory,
+    string AssemblyPath,
+    IReadOnlyList<GeneratedFixtureReturnToSenderResult> Results)
+{
+    public bool Passed => Results.All(result => result.Status != GeneratedFixtureReturnToSenderStatus.Fail);
+}
+
+internal sealed record GeneratedFixtureReturnToSenderResult(
+    string FixtureId,
+    string Type,
+    string Method,
+    int Overload,
+    GeneratedFixtureReturnToSenderStatus Status,
+    FidelityCheck.CompileBackStatus? ActualStatus,
+    string Reason,
+    string? Detail,
+    bool IsFrontier,
+    string? Note)
+{
+    public string DisplayMember => $"{Type}::{Method}#{Overload}";
+}
+
 internal sealed record GeneratedFixtureRender(string DecompilerFidelity, string? Body);
 
 internal static class GeneratedFixtureRunner
@@ -659,29 +689,8 @@ internal static class GeneratedFixtureRunner
         IReadOnlyList<GeneratedFixtureDefinition> fixtures,
         GeneratedFixtureRunOptions? options = null)
     {
-        if (fixtures.Count == 0)
-            throw new ArgumentException("At least one generated fixture is required.", nameof(fixtures));
-
-        options ??= GeneratedFixtureRunOptions.Default;
-        var root = Path.Combine(Path.GetTempPath(), "dotnet-inspect-generated-fixtures", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        try
+        return RunWithMaterializedFixtures(fixtures, options, (root, assemblyPath) =>
         {
-            string projectPath = Path.Combine(root, "GeneratedDecompilerFixtures.csproj");
-            File.WriteAllText(projectPath, ProjectFile(options.TargetFramework ?? CurrentTargetFramework()));
-
-            for (int i = 0; i < fixtures.Count; i++)
-            {
-                string sourcePath = Path.Combine(root, $"{i:000}_{SafeFileName(fixtures[i].Id)}.cs");
-                File.WriteAllText(sourcePath, fixtures[i].Source);
-            }
-
-            Build(root);
-            string assemblyPath = Path.Combine(root, "bin", "Release",
-                options.TargetFramework ?? CurrentTargetFramework(), "GeneratedDecompilerFixtures.dll");
-            if (!File.Exists(assemblyPath))
-                throw new InvalidOperationException($"Generated fixture assembly was not produced: {assemblyPath}");
-
             var compileBack = FidelityCheck.Evaluate(assemblyPath)
                 .ToDictionary(result => Key(result.Type, result.Method, result.Overload), StringComparer.Ordinal);
             var renders = DecompilerRenders(assemblyPath, fixtures);
@@ -712,6 +721,115 @@ internal static class GeneratedFixtureRunner
             }
 
             return new GeneratedFixtureRunResult(root, assemblyPath, results);
+        });
+    }
+
+    public static GeneratedFixtureReturnToSenderRunResult RunReturnToSenderCatalog(
+        IReadOnlyList<GeneratedFixtureDefinition> fixtures,
+        GeneratedFixtureRunOptions? options = null)
+    {
+        return RunWithMaterializedFixtures(fixtures, options, (root, assemblyPath) =>
+        {
+            var requestedTargets = fixtures
+                .SelectMany(fixture => fixture.Targets)
+                .Where(target => target.Method != ".ctor")
+                .Select(target => new ReturnToSender.RequestedTarget(target.Type, target.Method, target.Overload))
+                .Distinct()
+                .ToArray();
+            IReadOnlyDictionary<string, ReturnToSender.Result> rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, requestedTargets)
+                .ToDictionary(result => Key(
+                    result.Plan.TargetMethod.Type,
+                    result.Plan.TargetMethod.Method,
+                    result.Plan.TargetMethod.Overload), StringComparer.Ordinal);
+            var results = new List<GeneratedFixtureReturnToSenderResult>();
+            foreach (var fixture in fixtures)
+            {
+                foreach (var target in fixture.Targets)
+                {
+                    if (target.Method == ".ctor")
+                    {
+                        results.Add(Skipped(fixture, target, "constructor-target"));
+                        continue;
+                    }
+
+                    if (!rtsResults.TryGetValue(Key(target.Type, target.Method, target.Overload), out var actual))
+                    {
+                        results.Add(Skipped(fixture, target, "unsupported-rts-target"));
+                        continue;
+                    }
+
+                    var status = actual.Status == FidelityCheck.CompileBackStatus.Exact
+                        ? GeneratedFixtureReturnToSenderStatus.Pass
+                        : GeneratedFixtureReturnToSenderStatus.Fail;
+                    results.Add(new GeneratedFixtureReturnToSenderResult(
+                        fixture.Id,
+                        target.Type,
+                        target.Method,
+                        target.Overload,
+                        status,
+                        actual.Status,
+                        status == GeneratedFixtureReturnToSenderStatus.Pass ? "exact" : FailureReason(actual),
+                        actual.Detail,
+                        target.IsFrontier,
+                        target.Note));
+                }
+            }
+
+            return new GeneratedFixtureReturnToSenderRunResult(root, assemblyPath, results);
+        });
+    }
+
+    static GeneratedFixtureReturnToSenderResult Skipped(GeneratedFixtureDefinition fixture, GeneratedFixtureTarget target, string reason)
+        => new(
+            fixture.Id,
+            target.Type,
+            target.Method,
+            target.Overload,
+            GeneratedFixtureReturnToSenderStatus.Skip,
+            ActualStatus: null,
+            reason,
+            Detail: null,
+            target.IsFrontier,
+            target.Note);
+
+    static string FailureReason(ReturnToSender.Result result)
+        => result.Status switch
+        {
+            FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
+            FidelityCheck.CompileBackStatus.ContextFail => string.IsNullOrWhiteSpace(result.Detail) ? "context-fail" : result.Detail,
+            FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode-diff",
+            _ => result.Status.ToString(),
+        };
+
+    static T RunWithMaterializedFixtures<T>(
+        IReadOnlyList<GeneratedFixtureDefinition> fixtures,
+        GeneratedFixtureRunOptions? options,
+        Func<string, string, T> run)
+    {
+        if (fixtures.Count == 0)
+            throw new ArgumentException("At least one generated fixture is required.", nameof(fixtures));
+
+        options ??= GeneratedFixtureRunOptions.Default;
+        var root = Path.Combine(Path.GetTempPath(), "dotnet-inspect-generated-fixtures", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string projectPath = Path.Combine(root, "GeneratedDecompilerFixtures.csproj");
+            File.WriteAllText(projectPath, ProjectFile(options.TargetFramework ?? CurrentTargetFramework()));
+
+            for (int i = 0; i < fixtures.Count; i++)
+            {
+                string sourcePath = Path.Combine(root, $"{i:000}_{SafeFileName(fixtures[i].Id)}.cs");
+                File.WriteAllText(sourcePath, fixtures[i].Source);
+            }
+
+            Build(root);
+            string assemblyPath = Path.Combine(root, "bin", "Release",
+                options.TargetFramework ?? CurrentTargetFramework(), "GeneratedDecompilerFixtures.dll");
+            if (!File.Exists(assemblyPath))
+                throw new InvalidOperationException($"Generated fixture assembly was not produced: {assemblyPath}");
+
+            return run(root, assemblyPath);
         }
         finally
         {
@@ -750,7 +868,121 @@ internal static class GeneratedFixtureRunner
         return sb.ToString();
     }
 
+    public static string FormatReturnToSenderCatalogReport(GeneratedFixtureReturnToSenderRunResult run, int maxExamples)
+    {
+        var sb = new StringBuilder();
+        var fixtureRows = run.Results
+            .GroupBy(result => result.FixtureId, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var rows = group.ToArray();
+                GeneratedFixtureReturnToSenderStatus status =
+                    rows.Any(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail)
+                        ? GeneratedFixtureReturnToSenderStatus.Fail
+                        : rows.Any(row => row.Status == GeneratedFixtureReturnToSenderStatus.Pass)
+                            ? GeneratedFixtureReturnToSenderStatus.Pass
+                            : GeneratedFixtureReturnToSenderStatus.Skip;
+                return new { FixtureId = group.Key, Status = status, Rows = rows };
+            })
+            .OrderBy(row => row.FixtureId, StringComparer.Ordinal)
+            .ToArray();
+
+        int passedFixtures = fixtureRows.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Pass);
+        int skippedFixtures = fixtureRows.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Skip);
+        int failedFixtures = fixtureRows.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail);
+        int passedTargets = run.Results.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Pass);
+        int skippedTargets = run.Results.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Skip);
+        int failedTargets = run.Results.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail);
+
+        sb.AppendLine($"RETURNTOSENDER GENERATED FIXTURE FRONTIER over {fixtureRows.Length} fixture(s), {run.Results.Count} target(s)");
+        sb.AppendLine();
+        sb.AppendLine("Fixtures:");
+        sb.AppendLine($"  Passed : {passedFixtures}");
+        sb.AppendLine($"  Skipped: {skippedFixtures}");
+        sb.AppendLine($"  Failed : {failedFixtures}");
+        sb.AppendLine();
+        sb.AppendLine("Targets:");
+        sb.AppendLine($"  Passed : {passedTargets}");
+        sb.AppendLine($"  Skipped: {skippedTargets}");
+        sb.AppendLine($"  Failed : {failedTargets}");
+
+        var skipBuckets = run.Results
+            .Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Skip)
+            .GroupBy(row => row.Reason, StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (skipBuckets.Length != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Skipped target reasons:");
+            foreach (var group in skipBuckets)
+                sb.AppendLine($"  {group.Key}: {group.Count()}");
+        }
+
+        var failureBuckets = run.Results
+            .Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail)
+            .GroupBy(row => row.Reason, StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (failureBuckets.Length != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Failed target buckets:");
+            foreach (var group in failureBuckets)
+                sb.AppendLine($"  {group.Key}: {group.Count()}");
+        }
+
+        var failedFixturesToShow = fixtureRows
+            .Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail)
+            .Take(maxExamples)
+            .ToArray();
+        if (failedFixturesToShow.Length != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Failed fixtures (first {failedFixturesToShow.Length} of {failedFixtures}):");
+            foreach (var fixture in failedFixturesToShow)
+            {
+                sb.AppendLine($"  {fixture.FixtureId}");
+                foreach (var row in fixture.Rows.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail))
+                {
+                    string actual = row.ActualStatus?.ToString() ?? "Missing";
+                    sb.AppendLine($"      {row.DisplayMember}  rts={actual}  bucket={row.Reason}");
+                    if (!string.IsNullOrWhiteSpace(row.Detail))
+                        sb.AppendLine($"      detail: {row.Detail}");
+                }
+            }
+        }
+
+        var passedFixturesToShow = fixtureRows
+            .Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Pass)
+            .Take(maxExamples)
+            .ToArray();
+        if (passedFixturesToShow.Length != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Passed fixtures (first {passedFixturesToShow.Length} of {passedFixtures}):");
+            foreach (var fixture in passedFixturesToShow)
+                sb.AppendLine($"  {fixture.FixtureId}");
+        }
+
+        return sb.ToString();
+    }
+
     public static string FormatJson(GeneratedFixtureRunResult run)
+    {
+        var payload = new
+        {
+            ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
+            AssemblyPath = File.Exists(run.AssemblyPath) ? run.AssemblyPath : null,
+            run.Results,
+            run.Passed,
+        };
+        return JsonSerializer.Serialize(payload, s_jsonOptions);
+    }
+
+    public static string FormatReturnToSenderCatalogJson(GeneratedFixtureReturnToSenderRunResult run)
     {
         var payload = new
         {
@@ -805,6 +1037,27 @@ internal static class GeneratedFixtureRunner
     }
 
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
+
+    static string DiagnosticCode(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+            return "recompile-fail";
+
+        for (int i = 0; i <= detail.Length - 6; i++)
+        {
+            if (detail[i] == 'C'
+                && detail[i + 1] == 'S'
+                && char.IsDigit(detail[i + 2])
+                && char.IsDigit(detail[i + 3])
+                && char.IsDigit(detail[i + 4])
+                && char.IsDigit(detail[i + 5]))
+            {
+                return detail.Substring(i, 6);
+            }
+        }
+
+        return "recompile-fail";
+    }
 
     static string ProjectFile(string targetFramework) =>
         $$"""

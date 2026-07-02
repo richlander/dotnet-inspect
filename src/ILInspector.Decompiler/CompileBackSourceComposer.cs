@@ -337,6 +337,94 @@ public static class CompileBackSourceComposer
         return new CompileBackSourceResult(plan, WriteCompilationUnit(plan));
     }
 
+    public static CompileBackSourceResult ComposeMethod(
+        string assemblyPath,
+        MetadataReader reader,
+        IrFunction function,
+        TypeDefinitionHandle targetType,
+        MethodDefinitionHandle targetMethod,
+        string targetBody,
+        string fullType,
+        string methodName,
+        int overload,
+        string signatureText,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+    {
+        var targetTypeDef = reader.GetTypeDefinition(targetType);
+        var method = reader.GetMethodDefinition(targetMethod);
+        var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, method));
+        var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
+        string targetMethodName = Identifier(methodName);
+
+        var diagnostics = new List<CompileBackPlanningDiagnostic>();
+        var targetRoot = TopLevelRootOf(reader, targetType);
+        var targetFacts = new List<CompileBackFact>
+        {
+            new("metadata", "target-type", targetIdentity.FullName),
+        };
+        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+            targetFacts.AddRange(targetClosureFacts);
+
+        var requirements = new List<CompileBackTypeRequirement>
+        {
+            new(
+                targetIdentity,
+                ShellKind(reader, targetTypeDef),
+                [
+                    new CompileBackMemberRequirement(
+                        new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
+                        CompileBackMemberKind.Method,
+                        method.Attributes.HasFlag(MethodAttributes.Static),
+                        MethodParameters(reader, method, signature),
+                        CompileBackTypeSignature.Display(signature.ReturnType),
+                        CompileBackStubBodyKind.TargetBody,
+                        targetBody,
+                        [new CompileBackFact("metadata", "target-method", reader.GetString(method.Name))])
+                ],
+                targetFacts)
+        };
+
+        foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
+        {
+            if (dependency == targetRoot)
+                continue;
+
+            var dependencyDef = reader.GetTypeDefinition(dependency);
+            var dependencyIdentity = CompileBackTypeIdentity.FromDefinition(reader, dependencyDef);
+            if (requirements.Any(requirement => requirement.Type.MetadataFullName == dependencyIdentity.MetadataFullName))
+                continue;
+
+            requirements.Add(new CompileBackTypeRequirement(
+                dependencyIdentity,
+                ShellKind(reader, dependencyDef),
+                RequiredMembers: [],
+                SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
+                    ? facts.ToArray()
+                    : [new CompileBackFact("closure", "closure-root", dependencyIdentity.FullName)]));
+        }
+
+        var declarations = TypeProducer.Produce(reader, requirements, diagnostics);
+        var module = new CompileBackModuleRequirement(
+            Usings: RequiredNamespaces(function)
+                .Concat(DeclarationNamespaces(declarations))
+                .Prepend("System")
+                .Select(CompileBackCSharpNames.EscapeNamespace)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray(),
+            AssemblyAttributes: [],
+            ModuleAttributes: []);
+        var plan = new CompileBackReconstructionPlan(
+            assemblyPath,
+            new CompileBackMethodIdentity(fullType, methodName, overload, signatureText),
+            module,
+            declarations,
+            requirements,
+            diagnostics);
+        return new CompileBackSourceResult(plan, WriteCompilationUnit(plan));
+    }
+
     static string WriteCompilationUnit(CompileBackReconstructionPlan plan)
     {
         var sb = new StringBuilder();
@@ -495,9 +583,25 @@ public static class CompileBackSourceComposer
                 sb.AppendLine($"{pad}{declaration} {{ throw null; }}");
                 break;
             case CompileBackMemberKind.Method:
-                sb.AppendLine(type.Kind == CompileBackTypeKind.Interface
-                    ? $"{pad}{(declaration.EndsWith(';') ? declaration : declaration + ";")}"
-                    : $"{pad}{declaration} {{ throw null; }}");
+                if (type.Kind == CompileBackTypeKind.Interface)
+                {
+                    sb.AppendLine($"{pad}{(declaration.EndsWith(';') ? declaration : declaration + ";")}");
+                    break;
+                }
+                if (member.StubBody == CompileBackStubBodyKind.TargetBody)
+                {
+                    sb.AppendLine($"{pad}{declaration}");
+                    sb.AppendLine($"{pad}{{");
+                    foreach (var line in member.Body.Split('\n'))
+                    {
+                        var text = line.TrimEnd('\r');
+                        if (text.Length > 0)
+                            sb.AppendLine($"{pad}    {text}");
+                    }
+                    sb.AppendLine($"{pad}}}");
+                    break;
+                }
+                sb.AppendLine($"{pad}{declaration} {{ throw null; }}");
                 break;
             default:
                 throw new NotSupportedException($"Unsupported member declaration kind '{member.Kind}'.");
@@ -566,6 +670,26 @@ public static class CompileBackSourceComposer
         }
 
         return "unsafe " + declaration;
+    }
+
+    static IReadOnlyList<CompileBackParameter> MethodParameters(
+        MetadataReader reader,
+        MethodDefinition method,
+        MethodSignature<string> signature)
+    {
+        var names = new Dictionary<int, string>();
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber > 0)
+                names[parameter.SequenceNumber - 1] = reader.GetString(parameter.Name);
+        }
+
+        return signature.ParameterTypes
+            .Select((type, index) => new CompileBackParameter(
+                Identifier(names.TryGetValue(index, out var name) && name.Length > 0 ? name : $"arg{index}"),
+                CompileBackTypeSignature.Display(type)))
+            .ToArray();
     }
 
     static bool IsAutoProperty(
