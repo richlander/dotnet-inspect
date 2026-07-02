@@ -109,6 +109,42 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void UnnamedHighBitConstantArm_KeepsUncheckedCast()
+    {
+        // The cast half of the name-or-cast rule at the #2076 conditional-arm
+        // shape: a negative payload on a uint-backed enum with NO matching member
+        // must still take the overflow-aware unchecked cast (CS0221 otherwise) —
+        // naming only fires on an exact member match (the named twin lives in
+        // EnumCastPrinterTests.EnumConditional_SameAssemblyUnsignedEnum_NamesHighBitMember).
+        var enumType = TypeRef.Definition("synthetic", "", "CfgFlags");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(-2147483647, intType),
+            new LoadArgument(1, "e", enumType))
+        {
+            MergedType = enumType,
+        };
+        string body = RenderReturn(
+            conditional,
+            enumType,
+            [new Parameter("c", boolType), new Parameter("e", enumType)],
+            enumType,
+            underlying: TypeRef.CoreLib("System", "UInt32"),
+            // Top keys by the signed int payload (-2147483648), mirroring how the
+            // real member map resolved the #2076 fixture's `ldc.i4` constant.
+            members: new Dictionary<long, string> { [0] = "None", [-2147483648L] = "Top" });
+
+        Assert.Contains("unchecked((CfgFlags)(-2147483647))", body);
+        Assert.DoesNotContain("CfgFlags.Top", body);
+        AssertCompiles(
+            "public static CfgFlags M(bool c, CfgFlags e)",
+            body,
+            "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    [Fact]
     public void UnretypedNamedConstant_AtKnownEnumSink_RendersMemberName()
     {
         // A long-payload constant TypedConstantsPass (int-only) never retyped:
