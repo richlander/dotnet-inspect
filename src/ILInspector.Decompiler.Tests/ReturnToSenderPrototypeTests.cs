@@ -937,6 +937,69 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsGenericMethodSignatures()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public T Echo<T>(T value) => value;
+
+                public T Choose<T>(T left, T right) where T : class => left;
+
+                public T Create<T>() where T : new() => new T();
+
+                public T DefaultValue<T>() where T : struct => default;
+
+                public T Comparable<T>(T value) where T : System.IComparable<T> => value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Echo", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Choose", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Create", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "DefaultValue", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Comparable", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Echo<T>(T value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Choose<T>(T left, T right) where T : class", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Create<T>() where T : new()", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T DefaultValue<T>() where T : struct", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Comparable<T>(T value) where T : System.IComparable<T>", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsStructPropertyTargets()
     {
         var assemblyPath = CompileFixture("""

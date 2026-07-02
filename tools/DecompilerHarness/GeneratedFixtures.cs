@@ -274,6 +274,40 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "collection", "initializer", "generic"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalGenericMethods = new(
+        "minimal.generic-methods",
+        """
+        namespace GeneratedFixtures.MinimalGenericMethods;
+
+        public class Class1
+        {
+            public T Echo<T>(T value) => value;
+
+            public T Choose<T>(T left, T right) where T : class => left;
+
+            public T Create<T>() where T : new() => new T();
+
+            public T DefaultValue<T>() where T : struct => default;
+
+            public T Comparable<T>(T value) where T : System.IComparable<T> => value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Echo",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Choose",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Create",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "DefaultValue",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Comparable",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "generic", "method", "constraints"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -767,6 +801,7 @@ internal static class GeneratedFixtureCatalog
         MinimalInterfaceImplementation,
         MinimalObjectInitializer,
         MinimalCollectionInitializer,
+        MinimalGenericMethods,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,

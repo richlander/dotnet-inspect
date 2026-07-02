@@ -148,6 +148,7 @@ public sealed record CompileBackMemberDeclaration(
     bool IsStatic,
     CompileBackTypeSignature? ReturnType,
     IReadOnlyList<CompileBackParameter> Parameters,
+    IReadOnlyList<TypeParameter> TypeParameters,
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts)
@@ -245,6 +246,7 @@ public sealed record CompileBackMemberRequirement(
     bool IsStatic,
     IReadOnlyList<CompileBackParameter> Parameters,
     CompileBackTypeSignature? ReturnType,
+    IReadOnlyList<TypeParameter> TypeParameters,
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts);
@@ -300,6 +302,7 @@ public static class CompileBackSourceComposer
                         getter.Attributes.HasFlag(MethodAttributes.Static),
                         MethodParameters(reader, getter, getterSignature),
                         returnType,
+                        TypeParameters: [],
                         targetIsAutoProperty
                             ? CompileBackStubBodyKind.AutoProperty
                             : accessors.Setter.IsNil
@@ -405,6 +408,7 @@ public static class CompileBackSourceComposer
                         setter.Attributes.HasFlag(MethodAttributes.Static),
                         MethodParameters(reader, setter, setterSignature).Take(indexerParameterCount).ToArray(),
                         returnType,
+                        TypeParameters: [],
                         targetIsAutoProperty
                             ? CompileBackStubBodyKind.AutoPropertyGetSet
                             : property.GetAccessors().Getter.IsNil
@@ -509,6 +513,7 @@ public static class CompileBackSourceComposer
                         method.Attributes.HasFlag(MethodAttributes.Static),
                         MethodParameters(reader, method, signature),
                         isConstructor ? null : CompileBackTypeSignature.Display(signature.ReturnType),
+                        MethodTypeParameters(reader, method),
                         CompileBackStubBodyKind.TargetBody,
                         targetBody,
                         [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))])
@@ -841,7 +846,7 @@ public static class CompileBackSourceComposer
     {
         string parameterList = string.Join(", ", member.Parameters.Select(RenderParameter));
         string? returnType = member.ReturnType?.DisplayName;
-        return new ApiMember
+        var apiMember = new ApiMember
         {
             Name = member.Name,
             Kind = member.Kind switch
@@ -869,6 +874,26 @@ public static class CompileBackSourceComposer
             IsStatic = member.IsStatic,
             Accessibility = null,
         };
+        if (member.Kind == CompileBackMemberKind.Method)
+        {
+            apiMember.SignatureModel = new ApiSignature
+            {
+                ReturnType = returnType,
+                MemberName = member.TypeParameters.Count == 0
+                    ? member.Name
+                    : $"{member.Name}<{string.Join(", ", member.TypeParameters.Select(parameter => parameter.Name))}>",
+                TypeParameters = member.TypeParameters.ToList(),
+                Parameters = member.Parameters
+                    .Select(parameter => new ApiParameter
+                    {
+                        Name = parameter.Name,
+                        Type = parameter.Type.DisplayName,
+                    })
+                    .ToList(),
+            };
+        }
+
+        return apiMember;
     }
 
     static bool RequiresUnsafe(CompileBackMemberDeclaration member)
@@ -930,6 +955,55 @@ public static class CompileBackSourceComposer
                 CompileBackTypeSignature.Display(type)))
             .ToArray();
     }
+
+    static IReadOnlyList<TypeParameter> MethodTypeParameters(MetadataReader reader, MethodDefinition method)
+    {
+        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        var context = GenericContext.ForMethod(reader, declaringType, method);
+        var parameters = new List<TypeParameter>();
+        foreach (var handle in method.GetGenericParameters())
+        {
+            var parameter = reader.GetGenericParameter(handle);
+            var constraints = new List<string>();
+            var attributes = parameter.Attributes;
+            bool isStruct = (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
+            if (isStruct)
+                constraints.Add("struct");
+            else if ((attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
+                constraints.Add("class");
+
+            foreach (var constraintHandle in parameter.GetConstraints())
+            {
+                var constraint = reader.GetGenericParameterConstraint(constraintHandle);
+                if (ConstraintTypeName(reader, constraint.Type, context) is { Length: > 0 } constraintName)
+                {
+                    if (isStruct && constraintName is "System.ValueType" or "ValueType")
+                        continue;
+                    constraints.Add(constraintName);
+                }
+            }
+
+            if (!isStruct && (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
+                constraints.Add("new()");
+
+            parameters.Add(new TypeParameter
+            {
+                Name = CompileBackCSharpNames.Identifier(reader.GetString(parameter.Name)),
+                Constraints = constraints,
+            });
+        }
+
+        return parameters;
+    }
+
+    static string? ConstraintTypeName(MetadataReader reader, EntityHandle handle, GenericContext context)
+        => handle.Kind switch
+        {
+            HandleKind.TypeDefinition => CompileBackTypeIdentity.FromDefinition(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)).FullName,
+            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)handle)),
+            HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(SignatureDecoder.Instance, context),
+            _ => null,
+        };
 
     static CompileBackPrimaryConstructor? PrimaryConstructorFromPrologue(
         MetadataReader reader,
@@ -1010,6 +1084,7 @@ public static class CompileBackSourceComposer
                 field.Attributes.HasFlag(FieldAttributes.Static),
                 Parameters: [],
                 CompileBackTypeSignature.Display(fieldType),
+                TypeParameters: [],
                 CompileBackStubBodyKind.FieldInitializer,
                 parameterName,
                 [new CompileBackFact("metadata", "primary-constructor-field-initializer", fieldName)]));
@@ -1326,6 +1401,7 @@ public static class CompileBackSourceComposer
                         member.IsStatic,
                         member.ReturnType,
                         member.Parameters,
+                        member.TypeParameters,
                         member.StubBody,
                         member.TargetBody,
                         member.SourceFacts));
@@ -1469,6 +1545,7 @@ public static class CompileBackSourceComposer
                     field.Attributes.HasFlag(FieldAttributes.Static),
                     CompileBackTypeSignature.Display(fieldType),
                     Parameters: [],
+                    TypeParameters: [],
                     TryFormatConstantField(reader, field, out var constant)
                         ? CompileBackStubBodyKind.TargetBody
                         : CompileBackStubBodyKind.None,
@@ -1528,6 +1605,7 @@ public static class CompileBackSourceComposer
                     isStatic,
                     returnType,
                     Parameters: [],
+                    TypeParameters: [],
                     requirement.RequiredKind == CompileBackTypeKind.Interface
                         ? CompileBackStubBodyKind.None
                         : hasSetter && isAutoProperty
@@ -1597,6 +1675,7 @@ public static class CompileBackSourceComposer
                     method.Attributes.HasFlag(MethodAttributes.Static),
                     isConstructor ? null : CompileBackTypeSignature.Display(signature.ReturnType),
                     parameters,
+                    TypeParameters: [],
                     requirement.RequiredKind == CompileBackTypeKind.Interface ? CompileBackStubBodyKind.None : CompileBackStubBodyKind.Throw,
                     TargetBody: null,
                     [new CompileBackFact("metadata", isConstructor ? "closure-constructor" : "closure-method", name)]));
@@ -1614,6 +1693,7 @@ public static class CompileBackSourceComposer
                     IsStatic: false,
                     ReturnType: null,
                     Parameters: [],
+                    TypeParameters: [],
                     CompileBackStubBodyKind.Throw,
                     TargetBody: null,
                     [new CompileBackFact("metadata", "synthetic-parameterless-ctor", "same-assembly closure root")]));
