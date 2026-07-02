@@ -330,6 +330,37 @@ public class EnumCastPrinterTests
             "public enum CfgLongPriority : long { Low = 0, High = 2 }");
     }
 
+    [Fact]
+    public void ByteEnumIntJoin_KeepsIntSemantics_NoNarrowing()
+    {
+        // Slice-4 adversarial review (GPT-5.5, blocking): the byte-enum/int
+        // join must NOT be typed as the enum — `(CfgTiny)x` would narrow 300
+        // to 44 and flip the boxed type. The join stays integer-typed and the
+        // int path renders uncast.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.ByteEnumOrIntBox));
+
+        Assert.DoesNotContain("(CfgTiny)x", body);
+        Assert.DoesNotContain("(CfgTiny)(x)", body);
+        AssertCompiles(
+            "public static object M(bool c, CfgTiny e, int x)",
+            body,
+            "public enum CfgTiny : byte { A = 1, B = 2 }");
+    }
+
+    [Fact]
+    public void IntEnumJoinThroughSlot_RendersLegalIntSinks()
+    {
+        // The sound half (exact underlying match): the enum-typed join is a
+        // pure reinterpretation, and the slot renders legally at int sinks —
+        // the Gemini finding's CS0266 shape, made valid by width discipline.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.IntEnumJoinThroughSlot));
+
+        AssertCompiles(
+            "public static int M(bool c, CfgPriority e)",
+            body,
+            "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     static string RenderFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);

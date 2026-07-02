@@ -1467,25 +1467,21 @@ public static class IrImporter
 
     static TypeRef? EnumOverUnderlyingFamily(MetadataSource source, TypeRef enumSide, TypeRef integerSide)
     {
-        if (TypeFamilies.Of(integerSide) is not { } integerFamily
-            || integerFamily is not (StackFamily.I4 or StackFamily.I8)
-            || TypeFamilies.IsBoolean(integerSide))
-        {
-            return null;
-        }
-        // Same-assembly: the underlying map is the proof, and the families
-        // must agree.
-        if (source.ResolveEnumUnderlyingType(enumSide) is { } underlying)
-            return TypeFamilies.Of(underlying) == integerFamily ? enumSide : null;
-        // Cross-assembly: the shape is unresolvable, but the pairing is the
-        // proof — verification only merges a named definition with an integer
-        // when the definition is an enum over that family (the same
-        // structural argument as the printer's IsEnumLikeInteger). A
-        // same-assembly definition the map classifies as a non-enum struct or
-        // reference is disproof, not unknown.
-        return enumSide is { Kind: TypeRefKind.Definition }
-            && TypeFamilies.Of(enumSide) is null
-            && source.ResolveShape(enumSide) == TypeShape.Unknown
+        // The integer side must be EXACTLY the enum's underlying type, not
+        // merely its stack family. A family-level match let a byte-backed enum
+        // absorb a full-int path, narrowing values the original program
+        // preserved — `int y = c ? (int)e : x` boxed 300 as int; the enum-typed
+        // join re-emitted `(BE)x` = 44, a recompiles-to-a-different-program
+        // corruption marked Full (slice-4 adversarial review, GPT-5.5 fixture).
+        // With an exact match the merge is a pure reinterpretation: same width,
+        // same sign, and every downstream sink coercion is value-preserving.
+        // Cross-assembly enum-like definitions are deliberately NOT merged:
+        // the pairing proves "an enum over this family" but never the width,
+        // which is exactly the unprovable fact the corruption rode in on.
+        // Bool stays out (BooleanFolding's lane).
+        return !TypeFamilies.IsBoolean(integerSide)
+            && source.ResolveEnumUnderlyingType(enumSide) is { } underlying
+            && underlying.Equals(integerSide)
             ? enumSide
             : null;
     }
