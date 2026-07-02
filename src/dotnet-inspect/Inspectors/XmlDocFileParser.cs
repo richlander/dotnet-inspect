@@ -145,6 +145,10 @@ public class XmlDocFileParser
         if (!_loaded)
             return null;
 
+        if (ApiMemberIdentity.TryGetXmlDocMemberIdentity(apiType, member, out var identity)
+            && GetMemberDocumentation(identity) is { } structuredMatch)
+            return structuredMatch;
+
         var typeXmlName = ConvertToXmlDocName(apiType.FullName);
         var xmlMemberName = member.Name == ".ctor" ? "#ctor" : member.Name;
         var prefix = member.Kind switch
@@ -209,12 +213,67 @@ public class XmlDocFileParser
             : null;
     }
 
+    private DocCommentParser.DocComment? GetMemberDocumentation(ApiMemberIdentity.XmlDocMemberIdentity identity)
+    {
+        var xmlKey = identity.LookupKey;
+        var prefix = xmlKey.Length > 0 ? xmlKey[0].ToString() : "";
+
+        if (prefix != "M")
+        {
+            if (identity.NormalizedParameters.Count > 0)
+            {
+                var parameterizedCandidates = CandidateKeys(xmlKey)
+                    .Where(k => k.StartsWith($"{xmlKey}(", StringComparison.Ordinal))
+                    .ToList();
+                var matchingKey = parameterizedCandidates.FirstOrDefault(key =>
+                    TryGetXmlDocParameters(key, out var xmlParameters)
+                    && ParametersMatch(identity.NormalizedParameters, xmlParameters)
+                    && ReturnTypeMatches(identity.NormalizedReturnType, key));
+                return matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode)
+                    ? ParseMemberNode(matchingNode)
+                    : null;
+            }
+
+            return _members.TryGetValue(xmlKey, out var node)
+                ? ParseMemberNode(node)
+                : null;
+        }
+
+        var candidates = CandidateKeys(xmlKey)
+            .Where(k =>
+                k == xmlKey
+                || k.StartsWith($"{xmlKey}(", StringComparison.Ordinal)
+                || k.StartsWith($"{xmlKey}``", StringComparison.Ordinal))
+            .ToList();
+        if (candidates.Count == 0)
+            return null;
+
+        if (identity.NormalizedParameters.Count > 0)
+        {
+            var matchingKey = candidates.FirstOrDefault(key =>
+                TryGetXmlDocParameters(key, out var xmlParameters)
+                && ParametersMatch(identity.NormalizedParameters, xmlParameters)
+                && ReturnTypeMatches(identity.NormalizedReturnType, key));
+            if (matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode))
+                return ParseMemberNode(matchingNode);
+
+            return null;
+        }
+
+        var fallbackKey = candidates.FirstOrDefault(key => key == xmlKey)
+            ?? candidates.FirstOrDefault();
+        return fallbackKey != null && _members.TryGetValue(fallbackKey, out var fallbackNode)
+            ? ParseMemberNode(fallbackNode)
+            : null;
+    }
+
     private static List<string> GetNormalizedSignatureParameters(
         string? signature,
         IReadOnlyDictionary<string, int> typeParameterMap,
         IReadOnlyDictionary<string, int> methodParameterMap)
     {
         var paramList = SignatureParser.ExtractParamList(signature);
+        var stripParameterNames = false;
         if (string.IsNullOrEmpty(paramList) && !string.IsNullOrEmpty(signature))
         {
             var indexerStart = signature.IndexOf("this[", StringComparison.Ordinal);
@@ -223,7 +282,10 @@ public class XmlDocFileParser
                 var bracketStart = indexerStart + "this".Length;
                 var bracketEnd = signature.IndexOf(']', bracketStart);
                 if (bracketEnd > bracketStart)
+                {
                     paramList = $"({signature[(bracketStart + 1)..bracketEnd]})";
+                    stripParameterNames = true;
+                }
             }
         }
         if (string.IsNullOrEmpty(paramList))
@@ -236,7 +298,9 @@ public class XmlDocFileParser
             return [];
 
         return SplitParameters(inner)
-            .Select(p => NormalizeParameterType(p, typeParameterMap, methodParameterMap))
+            .Select(p => stripParameterNames
+                ? ApiMemberIdentity.NormalizeXmlDocSignatureParameter(p, typeParameterMap, methodParameterMap)
+                : ApiMemberIdentity.NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap))
             .ToList();
     }
 
@@ -252,9 +316,22 @@ public class XmlDocFileParser
         parameters = string.IsNullOrWhiteSpace(inner)
             ? []
             : SplitParameters(inner)
-                .Select(p => NormalizeParameterType(p, EmptyTypeParameterMap, EmptyTypeParameterMap))
+                .Select(ApiMemberIdentity.NormalizeXmlDocParameterType)
                 .ToList();
         return true;
+    }
+
+    private static bool ReturnTypeMatches(string? normalizedReturnType, string key)
+    {
+        if (normalizedReturnType is null)
+            return true;
+
+        var suffixStart = key.LastIndexOf('~');
+        if (suffixStart < 0 || suffixStart == key.Length - 1)
+            return false;
+
+        var keyReturnType = ApiMemberIdentity.NormalizeXmlDocParameterType(key[(suffixStart + 1)..]);
+        return string.Equals(normalizedReturnType, keyReturnType, StringComparison.Ordinal);
     }
 
     private static bool ParametersMatch(IReadOnlyList<string> signatureParameters, IReadOnlyList<string> xmlParameters)
@@ -327,47 +404,6 @@ public class XmlDocFileParser
             .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
     }
 
-    private static string NormalizeParameterType(
-        string parameter,
-        IReadOnlyDictionary<string, int> typeParameterMap,
-        IReadOnlyDictionary<string, int> methodParameterMap)
-    {
-        var type = SignatureParser.ExtractParamType(parameter.Trim());
-        foreach (var prefix in new[] { "ref ", "out ", "in ", "params ", "this " })
-        {
-            if (type.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                type = type[prefix.Length..].TrimStart();
-                break;
-            }
-        }
-
-        type = type.TrimEnd('@');
-        type = RemoveNullableAnnotations(type);
-
-        if (TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
-            return genericParameter;
-
-        if (type.EndsWith("[]", StringComparison.Ordinal))
-            return $"{NormalizeParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
-
-        var genericStart = IndexOfAny(type, '<', '{');
-        if (genericStart >= 0 && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
-        {
-            var normalizedType = NormalizeSimpleTypeName(genericType);
-            var normalizedArgs = SplitParameters(genericArgs)
-                .Select(p => NormalizeParameterType(p, typeParameterMap, methodParameterMap));
-            return $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
-        }
-
-        return NormalizeSimpleTypeName(type);
-    }
-
-    private static string NormalizeSimpleTypeName(string type) => PrimitiveTypeNames.ToClrFullName(type);
-
-    private static string RemoveNullableAnnotations(string type)
-        => type.Replace("?", "", StringComparison.Ordinal);
-
     private static bool TryGetGenericParts(string type, int genericStart, out string genericType, out string genericArgs)
     {
         genericType = type[..genericStart];
@@ -393,53 +429,6 @@ public class XmlDocFileParser
         }
 
         return false;
-    }
-
-    private static bool TryNormalizeGenericParameterReference(
-        string type,
-        IReadOnlyDictionary<string, int> typeParameterMap,
-        IReadOnlyDictionary<string, int> methodParameterMap,
-        out string normalized)
-    {
-        normalized = "";
-        if (type.StartsWith("``", StringComparison.Ordinal) && int.TryParse(type[2..], out var methodIndex))
-        {
-            normalized = $"M{methodIndex}";
-            return true;
-        }
-
-        if (type.StartsWith('`') && int.TryParse(type[1..], out var typeIndex))
-        {
-            normalized = $"T{typeIndex}";
-            return true;
-        }
-
-        if (methodParameterMap.TryGetValue(type, out methodIndex))
-        {
-            normalized = $"M{methodIndex}";
-            return true;
-        }
-
-        if (typeParameterMap.TryGetValue(type, out typeIndex))
-        {
-            normalized = $"T{typeIndex}";
-            return true;
-        }
-
-        return false;
-    }
-
-    private static int IndexOfAny(string value, char first, char second)
-    {
-        var firstIndex = value.IndexOf(first);
-        var secondIndex = value.IndexOf(second);
-        return (firstIndex, secondIndex) switch
-        {
-            (< 0, < 0) => -1,
-            (< 0, _) => secondIndex,
-            (_, < 0) => firstIndex,
-            _ => Math.Min(firstIndex, secondIndex)
-        };
     }
 
     /// <summary>

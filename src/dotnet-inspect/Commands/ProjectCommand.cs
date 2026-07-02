@@ -125,10 +125,9 @@ public class ProjectCommand
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        var assetsPath = ProjectAssetsParser.FindAssets(options.ProjectPath);
-        if (assetsPath == null)
+        if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out var assetsPath, out var assetsStatus))
         {
-            Console.Error.WriteLine($"Error: project.assets.json not found for '{options.ProjectPath}'. Run 'dotnet restore'.");
+            Console.Error.WriteLine($"Error: {ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
             return 1;
         }
 

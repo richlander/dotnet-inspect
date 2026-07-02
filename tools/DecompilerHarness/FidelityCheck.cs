@@ -256,6 +256,13 @@ static class FidelityCheck
         string OriginalOpcodes, string RecompiledOpcodes, string? Detail,
         CaptureMode Capture = CaptureMode.WholeModule);
 
+    internal sealed record CompileBackTarget(
+        string AssemblyPath,
+        string Type,
+        string Method,
+        int Overload,
+        string Signature);
+
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
     /// per rendered method, without printing. This is the testable entry point the
@@ -646,6 +653,27 @@ static class FidelityCheck
 
     static string TargetKey(MethodTarget target)
         => $"{target.AssemblyPath}!{target.Type}::{target.Method}{target.Signature}";
+
+    internal static IReadOnlyList<CompileBackResult> EvaluateTargets(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<CompileBackTarget> targets,
+        bool lowered = false)
+    {
+        var methodTargets = targets
+            .Select(target => new MethodTarget(
+                Assembly: Path.GetFileNameWithoutExtension(target.AssemblyPath),
+                AssemblyPath: PortablePath(target.AssemblyPath),
+                Type: target.Type,
+                Method: target.Method,
+                Overload: target.Overload,
+                Signature: target.Signature,
+                DisplayMethod: $"{target.Type}::{target.Method}"))
+            .ToArray();
+
+        return EvaluateTargets(assemblies, methodTargets, lowered)
+            .Select(row => row.Result)
+            .ToArray();
+    }
 
     static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered)
     {

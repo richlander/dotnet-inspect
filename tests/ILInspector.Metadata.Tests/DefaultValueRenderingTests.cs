@@ -27,12 +27,17 @@ public sealed class DefaultValueRenderingTests
         .First(t => t.Name == nameof(DefaultValueFixtures))
         .Members.First(m => m.Name == method).Signature;
 
+    static ApiParameter Parameter(string method, int index = 0) => Surface.Types
+        .First(t => t.Name == nameof(DefaultValueFixtures))
+        .Members.First(m => m.Name == method).SignatureModel!.Parameters[index];
+
     [Fact]
     public void ValueTypeStruct_Default_RendersDefaultNotNull()
     {
         var sig = Signature(nameof(DefaultValueFixtures.ValueTypeStructDefault));
         Assert.Contains("ct = default", sig);
         Assert.DoesNotContain("ct = null", sig);
+        Assert.Equal("default", Parameter(nameof(DefaultValueFixtures.ValueTypeStructDefault)).DefaultValueText);
     }
 
     [Fact]
@@ -60,11 +65,15 @@ public sealed class DefaultValueRenderingTests
         var sig = Signature(nameof(DefaultValueFixtures.NullableValueNull));
         Assert.Contains("n = null", sig);
         Assert.DoesNotContain("n = default", sig);
+        Assert.Equal("null", Parameter(nameof(DefaultValueFixtures.NullableValueNull)).DefaultValueText);
     }
 
     [Fact]
     public void Int_Default_Unchanged()
-        => Assert.Contains("i = 5", Signature(nameof(DefaultValueFixtures.IntDefault)));
+    {
+        Assert.Contains("i = 5", Signature(nameof(DefaultValueFixtures.IntDefault)));
+        Assert.Equal("5", Parameter(nameof(DefaultValueFixtures.IntDefault)).DefaultValueText);
+    }
 
     [Fact]
     public void Bool_Default_Unchanged()
@@ -76,6 +85,9 @@ public sealed class DefaultValueRenderingTests
         var sig = Signature(nameof(DefaultValueFixtures.EnumNonZeroDefault));
         Assert.Contains("color = ILInspector.Metadata.Tests.DefaultValueFixtures.SampleColor.Green", sig);
         Assert.DoesNotContain("color = 1", sig);
+        Assert.Equal(
+            "ILInspector.Metadata.Tests.DefaultValueFixtures.SampleColor.Green",
+            Parameter(nameof(DefaultValueFixtures.EnumNonZeroDefault)).DefaultValueText);
     }
 
     [Fact]

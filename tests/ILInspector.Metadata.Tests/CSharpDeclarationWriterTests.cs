@@ -83,6 +83,73 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void MethodDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "GetValues",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Collections.Generic.Dictionary<string, System.DateTime>",
+                MemberName = "GetValues",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.Collections.Generic.List<System.Guid>",
+                        Name = "ids"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+            using System.Collections.Generic;
+
+            public Dictionary<string, DateTime> GetValues(List<Guid> ids);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void GenericMethodDeclaration_KeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Echo",
+            Kind = "method",
+            Signature = "T Echo<T>(T value)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "T",
+                MemberName = "Echo<T>",
+                Parameters =
+                [
+                    new ApiParameter { Type = "T", Name = "value" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public T Echo<T>(T value)", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsings_KeepsCollidingSimpleNamesQualified()
     {
         var type = new ApiType
@@ -229,6 +296,102 @@ public sealed class CSharpDeclarationWriterTests
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
 
         Assert.Equal("static Worker()", declaration);
+    }
+
+    [Fact]
+    public void ConstructorDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.Collections.Generic.List<System.Guid>",
+                        Name = "items"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+            using System.Collections.Generic;
+
+            public Widget(List<Guid> items);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void ConstructorDeclaration_WithDefaultParameterUsesStructuredDefaultText()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "int",
+                        Name = "count",
+                        HasDefault = true,
+                        DefaultValueText = "42"
+                    }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public Widget(int count = 42)", declaration);
+    }
+
+    [Fact]
+    public void ConstructorDeclaration_WithUnmodeledDefaultKeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(42L)] System.DateTime when)",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.DateTime",
+                        Name = "when",
+                        HasDefault = true
+                    }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Contains("DateTimeConstant(42L)", declaration);
     }
 
     [Fact]

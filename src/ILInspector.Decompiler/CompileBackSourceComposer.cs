@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -160,6 +161,7 @@ public enum CompileBackMemberKind
     PropertyGet,
     Constructor,
     Method,
+    Field,
 }
 
 public enum CompileBackAccessibility
@@ -436,9 +438,25 @@ public static class CompileBackSourceComposer
     static void WriteMember(StringBuilder sb, CompileBackTypeDeclaration type, CompileBackMemberDeclaration member, int indent)
     {
         string pad = new(' ', indent * 4);
+        if (member.Kind == CompileBackMemberKind.Field)
+        {
+            string staticText = member.IsStatic ? " static" : "";
+            string unsafeText = RequiresUnsafe(member) ? " unsafe" : "";
+            if (member.StubBody == CompileBackStubBodyKind.TargetBody && member.TargetBody is { } initializer)
+            {
+                sb.AppendLine($"{pad}public const {member.ReturnType?.DisplayName ?? "object"} {member.Name} = {initializer};");
+                return;
+            }
+
+            sb.AppendLine($"{pad}public{staticText}{unsafeText} {member.ReturnType?.DisplayName ?? "object"} {member.Name};");
+            return;
+        }
+
         var apiType = ToApiType(type);
         var apiMember = ToApiMember(type, member);
         string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(apiType, apiMember);
+        if (RequiresUnsafe(member))
+            declaration = AddUnsafeModifier(declaration);
         switch (member.Kind)
         {
             case CompileBackMemberKind.PropertyGet:
@@ -514,6 +532,7 @@ public static class CompileBackSourceComposer
                 CompileBackMemberKind.PropertyGet => "property",
                 CompileBackMemberKind.Constructor => "constructor",
                 CompileBackMemberKind.Method => "method",
+                CompileBackMemberKind.Field => "field",
                 _ => throw new NotSupportedException($"Unsupported member declaration kind '{member.Kind}'."),
             },
             ReturnType = returnType,
@@ -523,11 +542,30 @@ public static class CompileBackSourceComposer
                 CompileBackMemberKind.PropertyGet => $"{returnType ?? "void"} {member.Name}",
                 CompileBackMemberKind.Constructor => $"void .ctor({parameterList})",
                 CompileBackMemberKind.Method => $"{returnType ?? "void"} {member.Name}({parameterList})",
+                CompileBackMemberKind.Field => $"{returnType ?? "object"} {member.Name}",
                 _ => null,
             },
             IsStatic = member.IsStatic,
             Accessibility = null,
         };
+    }
+
+    static bool RequiresUnsafe(CompileBackMemberDeclaration member)
+        => member.ReturnType?.DisplayName.Contains('*', StringComparison.Ordinal) == true
+            || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal));
+
+    static string AddUnsafeModifier(string declaration)
+    {
+        if (declaration.Contains(" unsafe ", StringComparison.Ordinal))
+            return declaration;
+
+        foreach (var prefix in new[] { "public static ", "internal static ", "public ", "internal ", "static " })
+        {
+            if (declaration.StartsWith(prefix, StringComparison.Ordinal))
+                return prefix + "unsafe " + declaration[prefix.Length..];
+        }
+
+        return "unsafe " + declaration;
     }
 
     static bool IsAutoProperty(
@@ -781,8 +819,7 @@ public static class CompileBackSourceComposer
                         member.SourceFacts));
                 }
 
-                if (requirement.RequiredMembers.Count == 0
-                    || requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root"))
+                if (requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"))
                     AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
 
                 shells.Add(new CompileBackTypeDeclaration(
@@ -793,7 +830,11 @@ public static class CompileBackSourceComposer
                     Interfaces: InterfaceSignatures(reader, typeDef),
                     members,
                     requirement.SourceFacts,
-                    NestedTypes(reader, typeDef, diagnostics)));
+                    NestedTypes(
+                        reader,
+                        typeDef,
+                        includeMemberSurface: requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"),
+                        diagnostics)));
             }
 
             return shells;
@@ -802,6 +843,7 @@ public static class CompileBackSourceComposer
         static IReadOnlyList<CompileBackTypeDeclaration> NestedTypes(
             MetadataReader reader,
             TypeDefinition typeDef,
+            bool includeMemberSurface,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
             var nestedTypes = new List<CompileBackTypeDeclaration>();
@@ -824,7 +866,8 @@ public static class CompileBackSourceComposer
                     RequiredMembers: [],
                     SourceFacts: [new CompileBackFact("metadata", "nested-closure-type", identity.FullName)]);
                 var members = new List<CompileBackMemberDeclaration>();
-                AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics);
+                if (includeMemberSurface)
+                    AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics, allowUnsafeSurface: true);
                 nestedTypes.Add(new CompileBackTypeDeclaration(
                     identity,
                     kind,
@@ -833,7 +876,7 @@ public static class CompileBackSourceComposer
                     Interfaces: InterfaceSignatures(reader, nestedDef),
                     members,
                     requirement.SourceFacts,
-                    NestedTypes(reader, nestedDef, diagnostics)));
+                    NestedTypes(reader, nestedDef, includeMemberSurface, diagnostics)));
             }
 
             return nestedTypes;
@@ -866,13 +909,58 @@ public static class CompileBackSourceComposer
             TypeDefinition typeDef,
             CompileBackTypeRequirement requirement,
             List<CompileBackMemberDeclaration> members,
-            List<CompileBackPlanningDiagnostic> diagnostics)
+            List<CompileBackPlanningDiagnostic> diagnostics,
+            bool allowUnsafeSurface = false)
         {
             if (requirement.RequiredKind == CompileBackTypeKind.Enum)
                 return;
 
+            allowUnsafeSurface = allowUnsafeSurface
+                || requirement.RequiredMembers.Count != 0
+                || requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
             var typeContext = GenericContext.ForType(reader, typeDef);
+            foreach (var fieldHandle in typeDef.GetFields())
+            {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                string fieldName = reader.GetString(field.Name);
+                if (fieldName.Contains('<', StringComparison.Ordinal)
+                    || fieldName.Contains('>', StringComparison.Ordinal)
+                    || fieldName.Contains('.', StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (members.Any(member => member.Kind == CompileBackMemberKind.Field && member.Name == Identifier(fieldName)))
+                    continue;
+
+                string fieldType;
+                try
+                {
+                    fieldType = field.DecodeSignature(SignatureDecoder.Instance, typeContext);
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                {
+                    diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "field-signature-decode-failed", fieldName));
+                    continue;
+                }
+                if (IsUnsupportedSurfaceSignature(fieldType)
+                    || (!allowUnsafeSurface && IsPointerSignature(fieldType)))
+                    continue;
+
+                members.Add(new CompileBackMemberDeclaration(
+                    new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(fieldName), 0, $"field {fieldType}"),
+                    CompileBackMemberKind.Field,
+                    CompileBackAccessibility.Public,
+                    field.Attributes.HasFlag(FieldAttributes.Static),
+                    CompileBackTypeSignature.Display(fieldType),
+                    Parameters: [],
+                    TryFormatConstantField(reader, field, out var constant)
+                        ? CompileBackStubBodyKind.TargetBody
+                        : CompileBackStubBodyKind.None,
+                    TargetBody: constant,
+                    [new CompileBackFact("metadata", "closure-field", fieldName)]));
+            }
+
             foreach (var propertyHandle in typeDef.GetProperties())
             {
                 var property = reader.GetPropertyDefinition(propertyHandle);
@@ -903,6 +991,9 @@ public static class CompileBackSourceComposer
                 }
 
                 if (signature.ParameterTypes.Length != 0)
+                    continue;
+                if (IsUnsupportedSurfaceSignature(signature.ReturnType)
+                    || (!allowUnsafeSurface && IsPointerSignature(signature.ReturnType)))
                     continue;
 
                 var accessor = accessors.Getter.IsNil ? accessors.Setter : accessors.Getter;
@@ -962,6 +1053,14 @@ public static class CompileBackSourceComposer
                 }
 
                 var parameters = Parameters(reader, method, signature);
+                if (IsUnsupportedSurfaceSignature(signature.ReturnType)
+                    || parameters.Any(parameter => IsUnsupportedSurfaceSignature(parameter.Type.DisplayName))
+                    || (!allowUnsafeSurface
+                        && (IsPointerSignature(signature.ReturnType)
+                            || parameters.Any(parameter => IsPointerSignature(parameter.Type.DisplayName)))))
+                {
+                    continue;
+                }
                 members.Add(new CompileBackMemberDeclaration(
                     new CompileBackMethodIdentity(requirement.Type.FullName, identifierName, overload++, MethodSignatureText(name, signature)),
                     isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
@@ -990,6 +1089,97 @@ public static class CompileBackSourceComposer
                     [new CompileBackFact("metadata", "synthetic-parameterless-ctor", "same-assembly closure root")]));
             }
         }
+
+        static bool IsUnsupportedSurfaceSignature(string signature)
+            => signature.Contains("delegate*", StringComparison.Ordinal)
+                || signature.Contains("@delegate*", StringComparison.Ordinal);
+
+        static bool IsPointerSignature(string signature)
+            => signature.Contains('*', StringComparison.Ordinal);
+
+        static bool TryFormatConstantField(MetadataReader reader, FieldDefinition field, out string? constant)
+        {
+            constant = null;
+            if (!field.Attributes.HasFlag(FieldAttributes.Literal))
+                return false;
+
+            var constantHandle = field.GetDefaultValue();
+            if (constantHandle.IsNil)
+                return false;
+
+            var value = reader.GetConstant(constantHandle);
+            var blob = reader.GetBlobReader(value.Value);
+            constant = value.TypeCode switch
+            {
+                ConstantTypeCode.Boolean => blob.ReadBoolean() ? "true" : "false",
+                ConstantTypeCode.Char => $"'{EscapeCharLiteral(blob.ReadChar())}'",
+                ConstantTypeCode.SByte => blob.ReadSByte().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Byte => blob.ReadByte().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Int16 => blob.ReadInt16().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.UInt16 => blob.ReadUInt16().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Int32 => blob.ReadInt32().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.UInt32 => blob.ReadUInt32().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Int64 => blob.ReadInt64().ToString(CultureInfo.InvariantCulture) + "L",
+                ConstantTypeCode.UInt64 => blob.ReadUInt64().ToString(CultureInfo.InvariantCulture) + "UL",
+                ConstantTypeCode.Single => FormatSingleConstant(blob.ReadSingle()),
+                ConstantTypeCode.Double => FormatDoubleConstant(blob.ReadDouble()),
+                ConstantTypeCode.String => StringLiteral(blob.ReadUTF16(blob.Length)),
+                ConstantTypeCode.NullReference => "null",
+                _ => null,
+            };
+
+            return constant is not null;
+        }
+
+        static string FormatSingleConstant(float value)
+        {
+            if (float.IsNaN(value))
+                return "float.NaN";
+            if (float.IsPositiveInfinity(value))
+                return "float.PositiveInfinity";
+            if (float.IsNegativeInfinity(value))
+                return "float.NegativeInfinity";
+            return value.ToString("R", CultureInfo.InvariantCulture) + "f";
+        }
+
+        static string FormatDoubleConstant(double value)
+        {
+            if (double.IsNaN(value))
+                return "double.NaN";
+            if (double.IsPositiveInfinity(value))
+                return "double.PositiveInfinity";
+            if (double.IsNegativeInfinity(value))
+                return "double.NegativeInfinity";
+            return value.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        static string StringLiteral(string value)
+        {
+            var sb = new StringBuilder(value.Length + 2);
+            sb.Append('"');
+            foreach (char ch in value)
+                sb.Append(EscapeCharLiteral(ch));
+            sb.Append('"');
+            return sb.ToString();
+        }
+
+        static string EscapeCharLiteral(char ch)
+            => ch switch
+            {
+                '\'' => "\\'",
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\0' => "\\0",
+                '\a' => "\\a",
+                '\b' => "\\b",
+                '\f' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\v' => "\\v",
+                _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+                _ => ch.ToString(),
+            };
 
         static IReadOnlyList<CompileBackParameter> Parameters(
             MetadataReader reader,
