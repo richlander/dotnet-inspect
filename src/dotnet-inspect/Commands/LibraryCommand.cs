@@ -1702,7 +1702,7 @@ public class LibraryCommand
         var toolsDir = Path.Combine(extractPath, "tools");
         if (Directory.Exists(toolsDir))
         {
-            var settings = ToolsAnalyzer.ReadToolSettings(toolsDir);
+            var settings = DotnetToolSettingsParser.FindAndParse(toolsDir);
             var anyPayload = settings?.RuntimeIdentifierPackages?
                 .FirstOrDefault(r => r.RuntimeIdentifier.Equals("any", StringComparison.OrdinalIgnoreCase));
             if (!string.IsNullOrWhiteSpace(anyPayload?.PackageId))
