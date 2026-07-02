@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
@@ -19,58 +20,35 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class ReturnToSender
 {
-    public sealed record ReconstructionPlan(
-        string AssemblyPath,
-        MethodIdentity TargetMethod,
-        ModuleRequirement Module,
-        IReadOnlyList<TypeShell> Types);
-
-    public sealed record MethodIdentity(
-        string Type,
-        string Method,
-        int Overload,
-        string Signature);
-
-    public sealed record ModuleRequirement(
-        IReadOnlyList<string> Usings,
-        IReadOnlyList<AttributeRequirement> AssemblyAttributes,
-        IReadOnlyList<AttributeRequirement> ModuleAttributes);
-
-    public sealed record AttributeRequirement(string Text, string Reason);
-
-    public sealed record TypeShell(
-        string Namespace,
-        string Name,
-        TypeShellKind Kind,
-        IReadOnlyList<TypeMemberShell> Members);
-
-    public enum TypeShellKind
-    {
-        Class,
-    }
-
-    public sealed record TypeMemberShell(
-        string Name,
-        TypeMemberShellKind Kind,
-        string Type,
-        string Body);
-
-    public enum TypeMemberShellKind
-    {
-        PropertyGet,
-    }
-
     public sealed record Result(
-        ReconstructionPlan Plan,
+        CompileBackReconstructionPlan Plan,
         string Source,
         FidelityCheck.CompileBackStatus Status,
         string OriginalOpcodes,
         string RecompiledOpcodes,
         string? Detail);
 
+    sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
+
+    enum ComparisonDelta
+    {
+        Rescued,
+        Same,
+        Worse,
+        Changed,
+        CurrentMissing,
+    }
+
+    sealed record ComparisonResult(
+        Result ReturnToSender,
+        FidelityCheck.CompileBackResult? Current,
+        ComparisonDelta Delta);
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
         int total = 0, exact = 0, opcodeDiff = 0, recompileFail = 0, contextFail = 0;
+        int closureRoots = 0, closureMembers = 0;
+        var planningDiagnostics = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var examples = new List<string>();
 
         foreach (var assemblyPath in assemblies)
@@ -82,6 +60,10 @@ static class ReturnToSender
             try
             {
                 results = CompileBackPropertyGetters(assemblyPath, cap - total);
+            }
+            catch (NoSupportedReturnToSenderTargetsException)
+            {
+                continue;
             }
             catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
             {
@@ -98,6 +80,16 @@ static class ReturnToSender
                     break;
 
                 total++;
+                closureRoots += Math.Max(0, result.Plan.Types.Count - 1);
+                closureMembers += result.Plan.Types
+                    .Skip(1)
+                    .Sum(type => type.Members.Count);
+                foreach (var diagnostic in result.Plan.Diagnostics)
+                {
+                    string key = $"{diagnostic.Layer}/{diagnostic.Reason}";
+                    planningDiagnostics[key] = planningDiagnostics.GetValueOrDefault(key) + 1;
+                }
+
                 switch (result.Status)
                 {
                     case FidelityCheck.CompileBackStatus.Exact:
@@ -116,22 +108,38 @@ static class ReturnToSender
 
                 if (examples.Count < maxExamples)
                 {
+                    var (layer, detail) = ExampleLayerAndDetail(result);
                     examples.Add($"""
                         {result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}
                             status: {result.Status}
-                            layer : identity transform, module/type shell
-                            detail: {result.Detail ?? "ok"}
+                            layer : {layer}
+                            detail: {detail}
                         """);
                 }
             }
         }
 
-        Console.WriteLine($"RETURNTOSENDER prototype over {total} property getters");
+        Console.WriteLine($"RETURNTOSENDER over {total} property getters");
         Console.WriteLine();
         Console.WriteLine($"  Exact         : {exact}");
         Console.WriteLine($"  OpcodeDiff    : {opcodeDiff}");
         Console.WriteLine($"  RecompileFail : {recompileFail}");
         Console.WriteLine($"  ContextFail   : {contextFail}");
+        Console.WriteLine();
+        Console.WriteLine("Plan layers:");
+        Console.WriteLine($"  closure roots   : {closureRoots}");
+        Console.WriteLine($"  closure members : {closureMembers}");
+        if (planningDiagnostics.Count == 0)
+        {
+            Console.WriteLine("  diagnostics     : 0");
+        }
+        else
+        {
+            Console.WriteLine("  diagnostics:");
+            foreach (var (key, count) in planningDiagnostics)
+                Console.WriteLine($"    {key}: {count}");
+        }
+
         if (examples.Count > 0)
         {
             Console.WriteLine();
@@ -141,6 +149,164 @@ static class ReturnToSender
         }
 
         return recompileFail + contextFail == 0 ? 0 : 1;
+    }
+
+    public static int RunComparison(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    {
+        int total = 0, rescued = 0, same = 0, worse = 0, changed = 0, currentMissing = 0;
+        var examples = new List<ComparisonResult>();
+
+        foreach (var assemblyPath in assemblies)
+        {
+            if (total >= cap)
+                break;
+
+            IReadOnlyList<Result> rtsResults;
+            try
+            {
+                rtsResults = CompileBackPropertyGetters(assemblyPath, cap - total);
+            }
+            catch (NoSupportedReturnToSenderTargetsException)
+            {
+                continue;
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                if (examples.Count < maxExamples)
+                    examples.Add(new ComparisonResult(ContextFailResult(assemblyPath, ex.Message), null, ComparisonDelta.CurrentMissing));
+                currentMissing++;
+                total++;
+                continue;
+            }
+
+            IReadOnlyDictionary<string, FidelityCheck.CompileBackResult> current;
+            try
+            {
+                current = FidelityCheck.Evaluate([assemblyPath], Math.Max(1, rtsResults.Count * 4), lowered: false, includeAllResults: true)
+                    .GroupBy(CurrentKey, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                if (examples.Count < maxExamples)
+                    examples.Add(new ComparisonResult(ContextFailResult(assemblyPath, ex.Message), null, ComparisonDelta.CurrentMissing));
+                currentMissing++;
+                total++;
+                continue;
+            }
+
+            foreach (var rts in rtsResults)
+            {
+                if (total >= cap)
+                    break;
+
+                total++;
+                current.TryGetValue(ReturnToSenderKey(rts), out var currentResult);
+                var delta = ClassifyDelta(currentResult, rts);
+                switch (delta)
+                {
+                    case ComparisonDelta.Rescued:
+                        rescued++;
+                        break;
+                    case ComparisonDelta.Same:
+                        same++;
+                        break;
+                    case ComparisonDelta.Worse:
+                        worse++;
+                        break;
+                    case ComparisonDelta.Changed:
+                        changed++;
+                        break;
+                    case ComparisonDelta.CurrentMissing:
+                        currentMissing++;
+                        break;
+                }
+
+                if (examples.Count < maxExamples
+                    && delta is ComparisonDelta.Rescued or ComparisonDelta.Worse or ComparisonDelta.Changed or ComparisonDelta.CurrentMissing)
+                {
+                    examples.Add(new ComparisonResult(rts, currentResult, delta));
+                }
+            }
+        }
+
+        Console.WriteLine($"RETURNTOSENDER A/B over {total} property getters");
+        Console.WriteLine();
+        Console.WriteLine($"  Rescued       : {rescued}");
+        Console.WriteLine($"  Same          : {same}");
+        Console.WriteLine($"  Changed       : {changed}");
+        Console.WriteLine($"  Worse         : {worse}");
+        Console.WriteLine($"  CurrentMissing: {currentMissing}");
+        if (examples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Examples:");
+            foreach (var example in examples)
+            {
+                var rts = example.ReturnToSender;
+                Console.WriteLine($"  {rts.Plan.TargetMethod.Type}::{rts.Plan.TargetMethod.Method}");
+                Console.WriteLine($"    delta  : {example.Delta}");
+                Console.WriteLine($"    current: {example.Current?.Status.ToString() ?? "missing"} {example.Current?.Detail ?? ""}".TrimEnd());
+                Console.WriteLine($"    rts    : {rts.Status} {rts.Detail ?? ""}".TrimEnd());
+            }
+        }
+
+        return 0;
+    }
+
+    static string CurrentKey(FidelityCheck.CompileBackResult result)
+        => $"{result.Type}::{result.Method}::{result.Overload}";
+
+    static string ReturnToSenderKey(Result result)
+        => $"{result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}::{result.Plan.TargetMethod.Overload}";
+
+    static ComparisonDelta ClassifyDelta(FidelityCheck.CompileBackResult? current, Result rts)
+    {
+        if (current is null)
+            return ComparisonDelta.CurrentMissing;
+
+        if (current.Status == FidelityCheck.CompileBackStatus.Exact
+            && rts.Status != FidelityCheck.CompileBackStatus.Exact)
+        {
+            return ComparisonDelta.Worse;
+        }
+
+        if (current.Status != FidelityCheck.CompileBackStatus.Exact
+            && rts.Status == FidelityCheck.CompileBackStatus.Exact)
+        {
+            return ComparisonDelta.Rescued;
+        }
+
+        bool currentChecked = current.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
+        bool rtsChecked = rts.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
+        if (!currentChecked && rtsChecked)
+            return ComparisonDelta.Rescued;
+        if (currentChecked && !rtsChecked)
+            return ComparisonDelta.Worse;
+        return current.Status == rts.Status ? ComparisonDelta.Same : ComparisonDelta.Changed;
+    }
+
+    static Result ContextFailResult(string assemblyPath, string detail)
+    {
+        var plan = new CompileBackReconstructionPlan(
+            assemblyPath,
+            new CompileBackMethodIdentity(Path.GetFileNameWithoutExtension(assemblyPath), "<assembly>", 0, ""),
+            new CompileBackModuleRequirement(["System"], [], []),
+            [],
+            [],
+            []);
+        return new Result(plan, "", FidelityCheck.CompileBackStatus.ContextFail, "", "", detail);
+    }
+
+    static (string Layer, string Detail) ExampleLayerAndDetail(Result result)
+    {
+        if (result.Plan.Diagnostics.FirstOrDefault() is { } diagnostic)
+            return (diagnostic.Layer, $"{diagnostic.Reason}: {diagnostic.Detail}");
+        if (!string.IsNullOrWhiteSpace(result.Detail))
+            return (result.Status == FidelityCheck.CompileBackStatus.RecompileFail ? "compile" : "context", result.Detail);
+        if (result.Plan.Types.Count > 1)
+            return ("closure membership + member surface", "resolved");
+        return ("identity transform + target type shell", "resolved");
     }
 
     public static Result CompileBackFirstPropertyGetter(string assemblyPath)
@@ -163,8 +329,11 @@ static class ReturnToSender
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
+            string typeName = reader.GetString(typeDef.Name);
             if (!typeDef.GetDeclaringType().IsNil
-                || reader.GetString(typeDef.Name) == "<Module>"
+                || typeName == "<Module>"
+                || typeName.Contains('<', StringComparison.Ordinal)
+                || typeName.Contains('`', StringComparison.Ordinal)
                 || !IsSupportedClass(reader, typeDef))
             {
                 continue;
@@ -204,7 +373,7 @@ static class ReturnToSender
         }
 
         if (results.Count == 0)
-            throw new InvalidOperationException("No supported property getter with a method body was found.");
+            throw new NoSupportedReturnToSenderTargetsException("No supported property getter with a method body was found.");
         return results;
     }
 
@@ -223,7 +392,7 @@ static class ReturnToSender
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, ex.Message);
+            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -253,87 +422,128 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
-        var propertySignature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
-        string propertyType = Clean(propertySignature.ReturnType);
-        string propertyName = Identifier(reader.GetString(property.Name));
-        string typeName = Identifier(StripArity(reader.GetString(typeDef.Name)));
-        string ns = reader.GetString(typeDef.Namespace);
-
-        var plan = new ReconstructionPlan(
-            AssemblyPath: Path.GetFullPath(assemblyPath),
-            TargetMethod: new MethodIdentity(fullType, methodName, overload, CorpusMethodIdentity.SignatureText(function.Signature)),
-            Module: new ModuleRequirement(
-                Usings: RequiredNamespaces(function).Prepend("System").Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
-                AssemblyAttributes: [],
-                ModuleAttributes: []),
-            Types:
-            [
-                new TypeShell(
-                    Namespace: ns,
-                    Name: typeName,
-                    Kind: TypeShellKind.Class,
-                    Members:
-                    [
-                        new TypeMemberShell(
-                            Name: propertyName,
-                            Kind: TypeMemberShellKind.PropertyGet,
-                            Type: propertyType,
-                            Body: printed.Output)
-                    ])
-            ]);
-
-        string unit = ModuleWriter.Write(plan);
-        var tree = CSharpSyntaxTree.ParseText(unit, new CSharpParseOptions(LanguageVersion.Preview));
-        var compilation = CSharpCompilation.Create(
-            "return-to-sender",
-            [tree],
-            CompilationReferences(assemblyPath),
-            new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                optimizationLevel: OptimizationLevel.Release,
-                nullableContextOptions: NullableContextOptions.Disable,
-                allowUnsafe: true));
-
-        using var ms = new MemoryStream();
-        var emit = compilation.Emit(ms);
-        if (!emit.Success)
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: OptimizationLevel.Release,
+            nullableContextOptions: NullableContextOptions.Disable,
+            allowUnsafe: true);
+        var references = CompilationReferences(assemblyPath).ToArray();
+        var indexes = ClosureIndexes(reader);
+        var closureRoots = new HashSet<TypeDefinitionHandle>
         {
-            var error = emit.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+            TopLevelRootOf(reader, typeHandle),
+        };
+        var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
+        const int maxRoots = 200;
+        const int maxIterations = 80;
+        Diagnostic? firstError = null;
+
+        for (int iteration = 0; iteration < maxIterations; iteration++)
+        {
+            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
+                assemblyPath,
+                reader,
+                function,
+                typeHandle,
+                propertyHandle,
+                getterHandle,
+                printed.Output,
+                fullType,
+                methodName,
+                overload,
+                CorpusMethodIdentity.SignatureText(function.Signature),
+                closureRoots,
+                closureFacts);
+            var plan = sourceResult.Plan;
+
+            if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
+            {
+                return new Result(
+                    plan,
+                    "",
+                    FidelityCheck.CompileBackStatus.ContextFail,
+                    string.Join(" ", originalOps),
+                    "",
+                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
+            }
+
+            string unit = sourceResult.Source;
+            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
+            var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
+            using var ms = new MemoryStream();
+            var emit = compilation.Emit(ms);
+            if (emit.Success)
+            {
+                ms.Position = 0;
+                using var recompiled = new PEReader(ms);
+                var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
+                    ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+                    .ToArray();
+
+                if (recompiledOps is null)
+                {
+                    return new Result(
+                        plan,
+                        unit,
+                        FidelityCheck.CompileBackStatus.ContextFail,
+                        string.Join(" ", originalOps),
+                        "",
+                        "method-not-found");
+                }
+
+                return new Result(
+                    plan,
+                    unit,
+                    originalOps.SequenceEqual(recompiledOps)
+                        ? FidelityCheck.CompileBackStatus.Exact
+                        : FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    string.Join(" ", originalOps),
+                    string.Join(" ", recompiledOps),
+                    null);
+            }
+
+            var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
+            firstError ??= errors.FirstOrDefault();
+            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), closureRoots, closureFacts);
+            if (!grew || closureRoots.Count > maxRoots)
+            {
+                string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
+                var error = errors.FirstOrDefault() ?? firstError;
+                return new Result(
+                    plan,
+                    unit,
+                    FidelityCheck.CompileBackStatus.RecompileFail,
+                    string.Join(" ", originalOps),
+                    "",
+                    $"{reason}: {FormatDiagnostic(error)}");
+            }
+        }
+
+        {
+            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
+                assemblyPath,
+                reader,
+                function,
+                typeHandle,
+                propertyHandle,
+                getterHandle,
+                printed.Output,
+                fullType,
+                methodName,
+                overload,
+                CorpusMethodIdentity.SignatureText(function.Signature),
+                closureRoots,
+                closureFacts);
+            var plan = sourceResult.Plan;
             return new Result(
                 plan,
-                unit,
+                sourceResult.Source,
                 FidelityCheck.CompileBackStatus.RecompileFail,
                 string.Join(" ", originalOps),
                 "",
-                FormatDiagnostic(error));
+                $"closure-iteration-budget: {FormatDiagnostic(firstError)}");
         }
-
-        ms.Position = 0;
-        using var recompiled = new PEReader(ms);
-        var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
-            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
-            .ToArray();
-
-        if (recompiledOps is null)
-        {
-            return new Result(
-                plan,
-                unit,
-                FidelityCheck.CompileBackStatus.ContextFail,
-                string.Join(" ", originalOps),
-                "",
-                "method-not-found");
-        }
-
-        return new Result(
-            plan,
-            unit,
-            originalOps.SequenceEqual(recompiledOps)
-                ? FidelityCheck.CompileBackStatus.Exact
-                : FidelityCheck.CompileBackStatus.OpcodeDiff,
-            string.Join(" ", originalOps),
-            string.Join(" ", recompiledOps),
-            null);
     }
 
     static Result ContextFailResult(
@@ -350,31 +560,38 @@ static class ReturnToSender
         string methodName = reader.GetString(getter.Name);
         int overload = OverloadIndex(reader, typeDef, getterHandle, methodName);
         string ns = reader.GetString(typeDef.Namespace);
-        string typeName = Identifier(StripArity(reader.GetString(typeDef.Name)));
-        string propertyName = Identifier(reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name));
+        string typeName = reader.GetString(typeDef.Name);
+        string propertyName = reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name);
 
-        var plan = new ReconstructionPlan(
-            AssemblyPath: Path.GetFullPath(assemblyPath),
-            TargetMethod: new MethodIdentity(fullType, methodName, overload, ""),
-            Module: new ModuleRequirement(
-                Usings: ["System"],
-                AssemblyAttributes: [],
-                ModuleAttributes: []),
-            Types:
+        var plan = new CompileBackReconstructionPlan(
+            assemblyPath,
+            new CompileBackMethodIdentity(fullType, methodName, overload, ""),
+            new CompileBackModuleRequirement(["System"], [], []),
             [
-                new TypeShell(
-                    Namespace: ns,
-                    Name: typeName,
-                    Kind: TypeShellKind.Class,
+                new CompileBackTypeDeclaration(
+                    new CompileBackTypeIdentity(ns, typeName, typeName, string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}", string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}"),
+                    CompileBackTypeKind.Class,
+                    CompileBackAccessibility.Public,
+                    BaseType: null,
+                    Interfaces: [],
                     Members:
                     [
-                        new TypeMemberShell(
-                            Name: propertyName,
-                            Kind: TypeMemberShellKind.PropertyGet,
-                            Type: "",
-                            Body: "")
-                    ])
-            ]);
+                        new CompileBackMemberDeclaration(
+                            new CompileBackMethodIdentity(fullType, propertyName, overload, ""),
+                            CompileBackMemberKind.PropertyGet,
+                            CompileBackAccessibility.Public,
+                            IsStatic: false,
+                            ReturnType: null,
+                            Parameters: [],
+                            CompileBackStubBodyKind.TargetBody,
+                            TargetBody: "",
+                            SourceFacts: [])
+                    ],
+                    SourceFacts: [],
+                    NestedTypes: [])
+            ],
+            [],
+            []);
 
         return new Result(
             plan,
@@ -414,6 +631,30 @@ static class ReturnToSender
             and not "System.MulticastDelegate" and not "System.Delegate";
     }
 
+    static bool IsSupportedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
+    {
+        string name = reader.GetString(typeDef.Name);
+        return name is not "<Module>"
+            && !name.Contains('<', StringComparison.Ordinal)
+            && !name.Contains('`', StringComparison.Ordinal)
+            && !IsDelegate(reader, typeDef);
+    }
+
+    static bool IsDelegate(MetadataReader reader, TypeDefinition typeDef)
+    {
+        if (typeDef.BaseType.IsNil)
+            return false;
+
+        string baseName = typeDef.BaseType.Kind switch
+        {
+            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)typeDef.BaseType)),
+            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType)),
+            _ => "",
+        };
+
+        return baseName is "System.MulticastDelegate" or "System.Delegate";
+    }
+
     static string FullName(MetadataReader reader, TypeReference type)
     {
         string ns = reader.GetString(type.Namespace);
@@ -426,41 +667,6 @@ static class ReturnToSender
         string ns = reader.GetString(type.Namespace);
         string name = reader.GetString(type.Name);
         return ns.Length == 0 ? name : $"{ns}.{name}";
-    }
-
-    static IReadOnlySet<string> RequiredNamespaces(IrFunction function)
-    {
-        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
-
-        void Add(TypeRef? type)
-        {
-            switch (type?.Kind)
-            {
-                case TypeRefKind.Definition:
-                    if (type.Namespace.Length > 0)
-                        namespaces.Add(type.Namespace);
-                    break;
-                case TypeRefKind.GenericInstance:
-                    Add(type.ElementType);
-                    foreach (var argument in type.TypeArguments)
-                        Add(argument);
-                    break;
-                case TypeRefKind.SzArray or TypeRefKind.Array
-                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
-                    Add(type.ElementType);
-                    break;
-            }
-        }
-
-        foreach (var node in function.Descendants.Prepend(function))
-        {
-            foreach (var type in node.DirectTypes)
-                Add(type);
-            if (node is IrExpression expression)
-                Add(expression.ResultType);
-        }
-
-        return namespaces;
     }
 
     static IReadOnlyList<ILInstruction>? FindAndDisassemble(
@@ -533,100 +739,164 @@ static class ReturnToSender
             : $"{diagnostic.Id}: {message}";
     }
 
-    static string Clean(string type)
-        => type.Replace("modreq(", "", StringComparison.Ordinal)
-            .Replace("modopt(", "", StringComparison.Ordinal)
-            .Replace(")", "", StringComparison.Ordinal)
-            .Replace("System.String", "string", StringComparison.Ordinal)
-            .Replace("System.Int32", "int", StringComparison.Ordinal)
-            .Replace("System.Void", "void", StringComparison.Ordinal);
+    static string CanonicalOpcode(string op)
+        => HarnessOpcode.Canonicalize(op);
 
-    static string StripArity(string name)
+    sealed record ClosureIndex(
+        Dictionary<string, List<TypeDefinitionHandle>> Types,
+        Dictionary<string, List<TypeDefinitionHandle>> FullTypes,
+        Dictionary<string, List<TypeDefinitionHandle>> Methods,
+        Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
+        Dictionary<TypeDefinitionHandle, string> RootNamespaces);
+
+    static ClosureIndex ClosureIndexes(MetadataReader reader)
     {
+        var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var fullTypes = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var methods = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var namespaces = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var rootNamespaces = new Dictionary<TypeDefinitionHandle, string>();
+
+        static void Add(Dictionary<string, List<TypeDefinitionHandle>> index, string key, TypeDefinitionHandle root)
+        {
+            if (key.Length == 0)
+                return;
+            if (!index.TryGetValue(key, out var list))
+                index[key] = list = [];
+            if (!list.Contains(root))
+                list.Add(root);
+        }
+
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (!IsSupportedClosureRoot(reader, typeDef))
+                continue;
+
+            var root = TopLevelRootOf(reader, handle);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            rootNamespaces.TryAdd(root, identity.Namespace);
+            Add(types, NormalizeTypeName(reader.GetString(typeDef.Name)), root);
+            Add(fullTypes, identity.FullName, root);
+            if (typeDef.GetDeclaringType().IsNil)
+                Add(namespaces, reader.GetString(typeDef.Namespace), handle);
+            foreach (var methodHandle in typeDef.GetMethods())
+                Add(methods, reader.GetString(reader.GetMethodDefinition(methodHandle).Name), root);
+        }
+
+        return new ClosureIndex(types, fullTypes, methods, namespaces, rootNamespaces);
+    }
+
+    static bool AddClosureRoots(
+        IReadOnlyList<Diagnostic> diagnostics,
+        ClosureIndex indexes,
+        string targetNamespace,
+        HashSet<TypeDefinitionHandle> closureRoots,
+        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+    {
+        bool grew = false;
+        foreach (var diagnostic in diagnostics)
+        {
+            if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103")
+            {
+                var names = QuotedNames(diagnostic.GetMessage()).ToList();
+                foreach (var name in names)
+                {
+                    var index = name.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
+                    var key = name.Contains('.', StringComparison.Ordinal) ? name : NormalizeTypeName(name);
+                    grew |= AddRoots(indexes, index, key, diagnostic, name, targetNamespace, closureRoots, closureFacts);
+                    if (diagnostic.Id is "CS0103")
+                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, closureRoots, closureFacts);
+                }
+                if (diagnostic.Id is "CS0234" && names.Count == 2)
+                    grew |= AddRoots(indexes, indexes.Namespaces, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, closureRoots, closureFacts);
+            }
+            else if (diagnostic.Id is "CS1061")
+            {
+                foreach (var name in QuotedNames(diagnostic.GetMessage()))
+                    grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, closureRoots, closureFacts);
+            }
+        }
+
+        return grew;
+    }
+
+    static bool AddRoots(
+        ClosureIndex indexes,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> index,
+        string key,
+        Diagnostic diagnostic,
+        string detail,
+        string targetNamespace,
+        HashSet<TypeDefinitionHandle> closureRoots,
+        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+    {
+        if (!index.TryGetValue(key, out var roots))
+            return false;
+
+        if (!key.Contains('.', StringComparison.Ordinal) && roots.Count > 1)
+        {
+            var sameNamespace = roots
+                .Where(root => indexes.RootNamespaces.TryGetValue(root, out var ns) && ns == targetNamespace)
+                .ToList();
+            if (sameNamespace.Count == 1)
+                roots = sameNamespace;
+            else
+                return false;
+        }
+
+        bool changed = false;
+        foreach (var root in roots)
+        {
+            changed |= closureRoots.Add(root);
+
+            if (!closureFacts.TryGetValue(root, out var facts))
+                closureFacts[root] = facts = [];
+            var fact = new CompileBackFact("roslyn", "closure-root", $"{diagnostic.Id}: {detail}");
+            if (!facts.Contains(fact))
+            {
+                facts.Add(fact);
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    static TypeDefinitionHandle TopLevelRootOf(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var declaring = reader.GetTypeDefinition(handle).GetDeclaringType();
+        return declaring.IsNil ? handle : TopLevelRootOf(reader, declaring);
+    }
+
+    static string NormalizeTypeName(string name)
+    {
+        int angle = name.IndexOf('<');
+        if (angle >= 0)
+            name = name[..angle];
+        int dot = name.LastIndexOf('.');
+        if (dot >= 0)
+            name = name[(dot + 1)..];
         int tick = name.IndexOf('`');
         return tick >= 0 ? name[..tick] : name;
     }
 
-    static string Identifier(string name) => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None
-        || SyntaxFacts.GetContextualKeywordKind(name) != SyntaxKind.None
-            ? "@" + name
-            : name;
-
-    static string CanonicalOpcode(string op)
-        => HarnessOpcode.Canonicalize(op);
-
-    sealed class ModuleWriter
+    static IEnumerable<string> QuotedNames(string message)
     {
-        public static string Write(ReconstructionPlan plan)
+        int i = 0;
+        while (true)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("#pragma warning disable");
-            foreach (var attribute in plan.Module.AssemblyAttributes)
-                sb.AppendLine($"[assembly: {attribute.Text}]");
-            foreach (var attribute in plan.Module.ModuleAttributes)
-                sb.AppendLine($"[module: {attribute.Text}]");
-            foreach (var ns in plan.Module.Usings.OrderBy(ns => ns, StringComparer.Ordinal))
-                sb.AppendLine($"using {ns};");
-            foreach (var group in plan.Types.GroupBy(type => type.Namespace, StringComparer.Ordinal))
-            {
-                if (group.Key.Length > 0)
-                {
-                    sb.AppendLine($"namespace {group.Key}");
-                    sb.AppendLine("{");
-                    foreach (var type in group)
-                        TypePrinter.Write(type, sb, indent: 1);
-                    sb.AppendLine("}");
-                }
-                else
-                {
-                    foreach (var type in group)
-                        TypePrinter.Write(type, sb, indent: 0);
-                }
-            }
-            return sb.ToString();
+            int start = message.IndexOf('\'', i);
+            if (start < 0)
+                yield break;
+            int end = message.IndexOf('\'', start + 1);
+            if (end < 0)
+                yield break;
+            yield return message[(start + 1)..end];
+            i = end + 1;
         }
     }
 
-    sealed class TypePrinter
-    {
-        public static void Write(TypeShell type, StringBuilder sb, int indent)
-        {
-            string pad = new(' ', indent * 4);
-            string keyword = type.Kind switch
-            {
-                TypeShellKind.Class => "class",
-                _ => throw new NotSupportedException($"Unsupported type shell kind '{type.Kind}'.")
-            };
 
-            sb.AppendLine($"{pad}public unsafe {keyword} {type.Name}");
-            sb.AppendLine($"{pad}{{");
-            foreach (var member in type.Members)
-                WriteMember(member, sb, indent + 1);
-            sb.AppendLine($"{pad}}}");
-        }
 
-        static void WriteMember(TypeMemberShell member, StringBuilder sb, int indent)
-        {
-            string pad = new(' ', indent * 4);
-            switch (member.Kind)
-            {
-                case TypeMemberShellKind.PropertyGet:
-                    sb.AppendLine($"{pad}public {member.Type} {member.Name}");
-                    sb.AppendLine($"{pad}{{");
-                    sb.AppendLine($"{pad}    get");
-                    sb.AppendLine($"{pad}    {{");
-                    foreach (var line in member.Body.Split('\n'))
-                    {
-                        var text = line.TrimEnd('\r');
-                        if (text.Length > 0)
-                            sb.AppendLine($"{pad}        {text}");
-                    }
-                    sb.AppendLine($"{pad}    }}");
-                    sb.AppendLine($"{pad}}}");
-                    break;
-                default:
-                    throw new NotSupportedException($"Unsupported member shell kind '{member.Kind}'.");
-            }
-        }
-    }
 }
