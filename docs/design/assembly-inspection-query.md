@@ -409,6 +409,44 @@ files and forwarding loose provenance. Together they realize the same principle 
 **the command forms a query; the service returns the final shape** — at both ends of the
 pipeline.
 
+## Prior art: the Research producer registry
+
+This is a **producer model**, and the repo already implements one — the facet model should
+generalize it rather than invent a new mechanism. `ILInspector.Research` has
+`IResearchFactProducer` + `ResearchFactRegistry` over a shared, build-once context:
+
+```csharp
+interface IResearchFactProducer {
+    IReadOnlyList<string> Produces { get; }   // fact kinds it owns, e.g. ["alloc.*"]
+    IReadOnlyList<string> DependsOn { get; }  // other producers' outputs it needs
+    IReadOnlyList<Annotation> Produce(ResearchFactContext context);
+}
+// ResearchFactRegistry holds the producers and Collect()s them;
+// ResearchAssemblyContext.Create(LibraryBodyIndex) builds the shared inputs once.
+```
+
+The mapping to this spec is nearly 1:1:
+
+| This spec | Research API |
+| --- | --- |
+| **facet** (one owner) | a producer's `Produces` set — one producer per fact id |
+| **shared PE-owner, parsed once** | `ResearchAssemblyContext.Create(index)` — built once, read by all producers |
+| **session / hub** | `ResearchFactRegistry` — holds producers, `Collect`s over the shared context |
+| **facet dependencies** | producer `DependsOn` |
+| **CLI selects + renders; service produces** | Research's own contract: *"Producers contribute projection-neutral facts; presenters render the merged set."* |
+
+So the session is a **facet registry** (a hub that delegates to per-facet producers over the
+shared owner), not a god-object — the same shape as `ResearchFactRegistry`, and the same shape
+`ResearchFactRegistry` uses to delegate to `AllocationOccurrenceFactProducer`,
+`CallSiteCostFactProducer`, and friends. (The separate `TypeProducer` in the compile-back
+harness is the same producer *family* but a different domain — C# type shells, not facts.)
+
+**We will seek further alignment at implementation time.** The intent here is to reuse this
+producer/registry pattern for facets, not to bless a specific interface: the exact producer
+contract, how assembly-level and method-body-level registries share one context, and whether the
+Research types are generalized or paralleled are implementation decisions to settle when the code
+lands.
+
 ## What legitimately stays in the CLI / elsewhere
 
 - **Selection and rendering:** building the query from options (source + sections/facets) and
