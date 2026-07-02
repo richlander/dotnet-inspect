@@ -1307,6 +1307,11 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteNumber("shapeAllocationBytes", candidate.ShapeAllocationBytes);
     if (candidate.SizeCheck is not null)
         writer.WriteString("sizeCheck", candidate.SizeCheck);
+    if (candidate.IsObserved)
+    {
+        writer.WriteNumber("promotionFactor", candidate.PromotionFactor);
+        writer.WriteNumber("costWeight", candidate.CostWeight);
+    }
     writer.WriteBoolean("shapeMatched", candidate.ShapeMatched);
     writer.WriteBoolean("rowAmbiguous", candidate.RowAmbiguous);
     writer.WriteNumber("sameMethodShapeRows", candidate.SameMethodShapeRows);
@@ -1574,6 +1579,22 @@ sealed class AllocationCandidate(
     // cost-shape worth filling. This validates/annotates the objective layer; it is not the expensive judgment.
     public string? SizeCheck
         => EstimatedSizeBytes is null && ShapeMatched && ShapeAllocationBytes > 0 ? "gap" : null;
+    // Gen-aware expensive judgment: weight observed cost by promotion likelihood, using the static escape
+    // verdict as the prior. Raw allocation volume over-weights gen0-cheap churn; a promoting allocation
+    // (escapes) is genuinely expensive, a cold/throw-path or provably-local one is cheap. This is the
+    // subjective judgment layer (approximate, pending real gen-survivorship data), driven by the static prior.
+    public double PromotionFactor
+    {
+        get
+        {
+            var e = Escape?.ToLowerInvariant() ?? "";
+            if (e.Contains("throw")) return 0.1;   // cold / exception path
+            if (e.Contains("local")) return 0.15;  // provably local -> gen0-cheap
+            if (e.Contains("escap")) return 1.0;   // escapes -> likely promotes -> genuinely expensive
+            return 0.5;                            // unknown escape -> undiscounted-but-uncertain
+        }
+    }
+    public double CostWeight => EffectiveObservedBytes * PromotionFactor;
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
     public string Status => ShapeMatched
