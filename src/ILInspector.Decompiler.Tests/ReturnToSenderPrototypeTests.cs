@@ -923,6 +923,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_EmitsGetterStubForSetterBodyThatReadsProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private int _value;
+
+                public int Value
+                {
+                    get => _value;
+                    set
+                    {
+                        if (Value != value)
+                            _value = value;
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("get", result.Source);
+            Assert.Contains("throw null", result.Source);
+            Assert.Contains("Value != value", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
     {
         var assemblyPath = CompileFixture("""

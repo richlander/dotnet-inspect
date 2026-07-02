@@ -218,6 +218,8 @@ public enum CompileBackStubBodyKind
     None,
     Throw,
     TargetBody,
+    TargetGetterWithSetter,
+    TargetSetterWithGetter,
     AutoProperty,
     AutoPropertyGetSet,
     FieldInitializer,
@@ -270,6 +272,7 @@ public static class CompileBackSourceComposer
         var getter = reader.GetMethodDefinition(targetGetter);
         var signature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, targetTypeDef));
         var getterSignature = getter.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, getter));
+        var accessors = property.GetAccessors();
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string propertyName = Identifier(reader.GetString(property.Name));
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
@@ -296,7 +299,11 @@ public static class CompileBackSourceComposer
                         getter.Attributes.HasFlag(MethodAttributes.Static),
                         MethodParameters(reader, getter, getterSignature),
                         returnType,
-                        targetIsAutoProperty ? CompileBackStubBodyKind.AutoProperty : CompileBackStubBodyKind.TargetBody,
+                        targetIsAutoProperty
+                            ? CompileBackStubBodyKind.AutoProperty
+                            : accessors.Setter.IsNil
+                                ? CompileBackStubBodyKind.TargetBody
+                                : CompileBackStubBodyKind.TargetGetterWithSetter,
                         targetIsAutoProperty ? null : targetBody,
                         targetIsAutoProperty
                             ? [
@@ -397,7 +404,11 @@ public static class CompileBackSourceComposer
                         setter.Attributes.HasFlag(MethodAttributes.Static),
                         MethodParameters(reader, setter, setterSignature).Take(indexerParameterCount).ToArray(),
                         returnType,
-                        targetIsAutoProperty ? CompileBackStubBodyKind.AutoPropertyGetSet : CompileBackStubBodyKind.TargetBody,
+                        targetIsAutoProperty
+                            ? CompileBackStubBodyKind.AutoPropertyGetSet
+                            : property.GetAccessors().Getter.IsNil
+                                ? CompileBackStubBodyKind.TargetBody
+                                : CompileBackStubBodyKind.TargetSetterWithGetter,
                         targetIsAutoProperty ? null : targetBody,
                         targetIsAutoProperty
                             ? [
@@ -713,6 +724,13 @@ public static class CompileBackSourceComposer
                     }
                 }
                 sb.AppendLine($"{pad}    }}");
+                if (member.StubBody == CompileBackStubBodyKind.TargetGetterWithSetter)
+                {
+                    sb.AppendLine($"{pad}    set");
+                    sb.AppendLine($"{pad}    {{");
+                    sb.AppendLine($"{pad}        throw null;");
+                    sb.AppendLine($"{pad}    }}");
+                }
                 sb.AppendLine($"{pad}}}");
                 break;
             case CompileBackMemberKind.PropertySet:
@@ -726,6 +744,13 @@ public static class CompileBackSourceComposer
                 declaration = StripPropertyAccessorBlock(declaration);
                 sb.AppendLine($"{pad}{declaration}");
                 sb.AppendLine($"{pad}{{");
+                if (member.StubBody == CompileBackStubBodyKind.TargetSetterWithGetter)
+                {
+                    sb.AppendLine($"{pad}    get");
+                    sb.AppendLine($"{pad}    {{");
+                    sb.AppendLine($"{pad}        throw null;");
+                    sb.AppendLine($"{pad}    }}");
+                }
                 sb.AppendLine($"{pad}    set");
                 sb.AppendLine($"{pad}    {{");
                 foreach (var line in member.Body.Split('\n'))
