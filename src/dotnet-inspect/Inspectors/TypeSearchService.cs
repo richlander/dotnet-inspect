@@ -420,7 +420,9 @@ internal static class TypeSearchService
                 continue;
             }
 
-            var projectName = Path.GetFileNameWithoutExtension(projectPath);
+            var projectName = Directory.Exists(projectPath)
+                ? new DirectoryInfo(Path.GetFullPath(projectPath)).Name
+                : Path.GetFileNameWithoutExtension(projectPath);
             logger.Log($"Using assets: {assetsPath}");
             var assemblies = ProjectAssetsParser.Parse(assetsPath, options.Tfm, logger.Log);
             logger.Log($"Searching {assemblies.Count} libraries from {projectName}");
