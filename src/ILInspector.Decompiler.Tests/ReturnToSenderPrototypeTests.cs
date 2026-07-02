@@ -977,6 +977,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_SurfacesStructNonAutoPropertyWithoutBackingField()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Counter
+            {
+                private int _value;
+
+                public int Value
+                {
+                    get => _value;
+                    set => _value = value;
+                }
+            }
+
+            public class Class1
+            {
+                public int Read(Counter counter) => counter.Value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Read", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int Value", result.Source);
+            Assert.Contains("throw null", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsStaticClassTargets()
     {
         var assemblyPath = CompileFixture("""
