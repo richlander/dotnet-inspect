@@ -937,6 +937,81 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsStructPropertyTargets()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Counter
+            {
+                private int _value;
+
+                public int Value
+                {
+                    get => _value;
+                    set => _value = value;
+                }
+
+                public int Add(int value) => _value + value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Counter", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Counter", "set_Value", 0),
+                    new ReturnToSender.RequestedTarget("Counter", "Add", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+            Assert.All(results, result => Assert.Contains("public struct Counter", result.Source));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsStaticClassTargets()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class Class1
+            {
+                private static int s_value = 42;
+
+                public static int Value => s_value;
+
+                public static int Method1(int value) => value + s_value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", ".cctor", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Method1", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_DoesNotDuplicateBodyBackedSetterDuringClosureSurface()
     {
         var assemblyPath = CompileFixture("""
