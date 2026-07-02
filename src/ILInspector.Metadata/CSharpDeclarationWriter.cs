@@ -40,6 +40,9 @@ public sealed record CSharpRenderedDeclaration(
 /// </summary>
 public static class CSharpDeclarationWriter
 {
+    public static string RenderParameterDeclaration(ApiParameter parameter)
+        => ParameterDeclaration(parameter);
+
     public static CSharpRenderedDeclaration RenderMemberUnit(
         ApiType type,
         ApiMember member,
@@ -581,20 +584,6 @@ public static class CSharpDeclarationWriter
         // declaration-level facts are represented in ApiSignature.
         return false;
 
-        static string ParameterDeclaration(ApiParameter parameter)
-        {
-            var head = parameter.TypeWithModifier;
-            var declaration = string.IsNullOrWhiteSpace(parameter.Name)
-                ? head
-                : $"{head} {EscapeIdentifier(parameter.Name)}";
-            declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
-                ? $"{declaration} = {parameter.DefaultValueText}"
-                : declaration;
-            return parameter.Attributes.Count == 0
-                ? declaration
-                : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
-        }
-
         static string AccessorDeclaration(ApiAccessor accessor)
             => string.IsNullOrWhiteSpace(accessor.Accessibility)
                 ? $"{accessor.Kind};"
@@ -604,6 +593,20 @@ public static class CSharpDeclarationWriter
             => string.IsNullOrWhiteSpace(name)
                || name == "this[]"
                || !name.Contains('.', StringComparison.Ordinal);
+    }
+
+    static string ParameterDeclaration(ApiParameter parameter)
+    {
+        var head = parameter.TypeWithModifier;
+        var declaration = string.IsNullOrWhiteSpace(parameter.Name)
+            ? head
+            : $"{head} {EscapeIdentifier(parameter.Name)}";
+        declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
+            ? $"{declaration} = {parameter.DefaultValueText}"
+            : declaration;
+        return parameter.Attributes.Count == 0
+            ? declaration
+            : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
     }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)

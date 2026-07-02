@@ -1028,7 +1028,7 @@ public static class ApiOutputFormatter
             var overloadView = new ConstructorOverloadView
             {
                 Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
-                Signature = new CodeSection("csharp", $"new {type.Name}{ConstructorCall(type, ctor)}")
+                Signature = new CodeSection("csharp", $"new {type.Name}{ConstructorCall(ctor)}")
             };
 
             if (paramInfo.Count > 0)
@@ -1053,16 +1053,17 @@ public static class ApiOutputFormatter
                 .ToList()
             : SignatureParser.ExtractParameterInfo(constructor.Signature);
 
-    private static string ConstructorCall(ApiType type, ApiMember constructor)
+    private static string ConstructorCall(ApiMember constructor)
     {
         if (constructor.SignatureModel is { } signature
             && signature.Parameters.All(static parameter => !parameter.HasDefault || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
         {
-            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, constructor);
-            if (!string.IsNullOrWhiteSpace(declaration))
-                return SignatureParser.FormatConstructorCall(declaration);
+            var parameters = string.Join(", ", signature.Parameters.Select(CSharpDeclarationWriter.RenderParameterDeclaration));
+            return $"({parameters})";
         }
 
+        // Compatibility-only fallback for legacy signatures without complete
+        // structured default-value facts.
         return SignatureParser.FormatConstructorCall(constructor.Signature);
     }
 

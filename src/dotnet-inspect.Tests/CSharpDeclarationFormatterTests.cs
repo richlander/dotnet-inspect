@@ -311,4 +311,48 @@ public sealed class CSharpDeclarationFormatterTests
 
         Assert.Equal("new Widget(int count = 42)", view.ConstructorOverloads![0].Signature.Content);
     }
+
+    [Fact]
+    public void ConstructorOverloadSnippet_UsesStructuredParameterDeclarations()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Attributes = ["System.Diagnostics.CodeAnalysis.NotNull"],
+                                Type = "string",
+                                Name = "event"
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new TypeOptions());
+
+        ApiOutputFormatter.PopulateConstructorOverloads(view, type, new TypeOptions());
+
+        Assert.Equal("new Widget([System.Diagnostics.CodeAnalysis.NotNull] string @event)", view.ConstructorOverloads![0].Signature.Content);
+    }
 }
