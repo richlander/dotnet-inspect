@@ -109,24 +109,42 @@ hold a `PEReader` and never re-derive provenance.
 ```text
               AssemblyQuery                         AssemblyInspection
  CLI  ───────────────────────────►  Service  ──────────────────────────►  CLI
-      (source selector + which             (resolve → open → scan →
-       sections/scanners + options)         assemble the final shape)
+      (assembly location + which           (resolve → open → scan →
+       sections/lenses + options)          assemble the final shape)
 ```
 
 Three types carry this:
 
 ### 1. `AssemblyQuery` — the request
 
-What to inspect and what to produce. The CLI builds it from parsed options; it names a source
-(package `id[@version]`, dll path, project, platform framework) and the sections/scanners the
-current verbosity actually needs.
+What to inspect and what to produce. The CLI builds it from parsed options; it names an
+assembly **location** (package `id[@version]`, dll path, project, or platform framework) and
+the sections/lenses the current verbosity needs.
 
 ```csharp
 public sealed record AssemblyQuery(
-    AssemblySource Source,          // package | file | project | platform
-    IReadOnlySet<string> Sections,  // which scans are requested (verbosity-driven)
+    AssemblyLocation Location,      // package | file | project | platform
+    IReadOnlySet<string> Lenses,    // which scans/lenses are requested (verbosity-driven)
     AssemblyQueryOptions Options);  // tfm, rid, includeAll, …
 ```
+
+**Terminology.** Two roles recur and are worth naming precisely:
+
+- **location** — *which assembly* (the resolver's input; the assembly part). "Locate the
+  assembly."
+- **selector** — *which member / IL coordinate inside it* (`MemberQuery` / `ILCoordinateQuery`;
+  the type/member part). "Select the member."
+
+So a plain assembly inspection is a *location* + lenses. A member or coordinate inspection is a
+*location* + a *selector* + lenses.
+
+**One request object, threaded to owners.** The service does not take a long discrete parameter
+list, and it does not re-parse anything. The CLI builds a **single request** — location (+
+optional selector) + lenses — and the pipeline destructures it, handing each typed slice to the
+layer that owns it: the resolver takes only the **location**; `AssemblyInspectionSession.Open`
+takes the resulting **reference**; the method-body session takes the **selector + lenses**. One
+object crosses the CLI→service boundary; each service downstream receives just its own slice, not
+the whole request.
 
 ### 2. `ResolvedAssemblyReference` — the resolution output (reuse what #2051 built)
 
@@ -202,7 +220,7 @@ query) and renders the returned shape, but it does not construct facts, hold PE 
 re-derive provenance:
 
 ```csharp
-foreach (var resolved in await resolver.ResolveAsync(query.Source))  // rich descriptors, nothing discarded
+foreach (var resolved in await resolver.ResolveAsync(query.Location))  // rich descriptors, nothing discarded
 {
     using var asm = AssemblyInspectionSession.Open(resolved);
     inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // final, section-shaped result
@@ -234,7 +252,7 @@ out, over the *same* shared PE-owner (so the body path does not re-open the imag
 ```text
    MemberQuery / ILCoordinateQuery                 MethodBodyInspection
  CLI  ─────────────────────────────►  Service  ──────────────────────────►  CLI
-      (assembly + member or IL coord;        (locate member → import body →
+      (assembly + member or IL coord;        (select member → import body →
        which body sections)                   source / IL / facts → final shape)
 ```
 
@@ -257,33 +275,36 @@ cross-library composition is a higher layer.
 Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --platform System.Text.Json`.
 
 1. **Parse (CLI).** The positional `JsonSerializer.Serialize:1` splits into a `Type.Member`
-   selector plus the overload shorthand `:N`; the source comes from `--platform System.Text.Json`
-   (or `--package`, or a dll path). No PE is opened. The CLI produces three plain values:
-   - a **source selector** — `platform: System.Text.Json`;
-   - a **member locator** — `MemberQuery(TypeName: "…JsonSerializer", MemberName: "Serialize",
+   selector plus the overload shorthand `:N`; the assembly comes from `--platform System.Text.Json`
+   (or `--package`, or a dll path). No PE is opened. The CLI assembles **one request** from three
+   typed pieces:
+   - an **assembly location** — `platform: System.Text.Json`;
+   - a **member selector** — `MemberQuery(TypeName: "…JsonSerializer", MemberName: "Serialize",
      OverloadIndex: 1, PublicOnly: true)`;
    - a **lens set** derived from the requested sections / verbosity.
 
    The positional `:1` is now just `MemberQuery.OverloadIndex` — a carried value, never
    re-parsed downstream. (A bare fully-qualified `Type.Member:N` with no `--platform`/`--package`
-   uses the existing type-lookup path to find the *defining* assembly first.)
-2. **Resolve (service).** The resolver turns the source selector into a
-   `ResolvedAssemblyReference`: `PlatformResolver` locates the `System.Text.Json` assembly in the
-   shared framework and records its identity + provenance (framework, version). Nothing is
-   discarded to `_`.
+   uses the existing type-lookup path to supply the location — the *defining* assembly — first.)
+2. **Resolve (service).** The pipeline hands **only the location** to the resolver (not the
+   selector, not the lenses). For `platform: System.Text.Json`, `PlatformResolver` locates the
+   assembly in the shared framework and returns a `ResolvedAssemblyReference` carrying its
+   identity + provenance (framework, version). Nothing is discarded to `_`. The selector and
+   lenses stay with the request, untouched, for the body step.
 3. **Open once (service).** `AssemblyInspectionSession.Open(resolved)` opens the shared PE-owner.
    This is the single open for the entire query.
-4. **Locate + inspect the body (service).** `MethodBodyInspectionSession` — over that *same*
-   owner — resolves the `MethodDef` for `Serialize` overload `1`, then runs the requested lenses
-   (source, IL, calls, allocation/safety/cost, decompiled/annotated source, …) and returns a
-   section-ready `MethodBodyInspection`. See [Method Body Inspection](method-body-inspection.md).
+4. **Select + inspect the body (service).** `MethodBodyInspectionSession` — over that *same*
+   owner — takes the **selector + lenses**, resolves the `MethodDef` for `Serialize` overload
+   `1`, runs the requested lenses (source, IL, calls, allocation/safety/cost, decompiled/annotated
+   source, …), and returns a section-ready `MethodBodyInspection`. See
+   [Method Body Inspection](method-body-inspection.md).
 5. **Render (CLI).** The CLI maps requested sections onto lenses and renders the returned shape
    (Markout / writers). It never opened a `PEReader`, never classified an opcode, never
    re-derived the assembly's identity.
 
-The positional argument's whole journey: a string the CLI parses once into a typed `MemberQuery`
-(`:1` → `OverloadIndex`), paired with a source selector that resolves to a descriptor — after
-which everything downstream operates on values and one shared open.
+The positional argument's whole journey: a string the CLI parses once into a typed **selector**
+(`:1` → `MemberQuery.OverloadIndex`), paired with an assembly **location** that resolves to a
+reference — after which every service operates on typed slices and one shared open.
 
 ## Passing the reference across services (one open, many consumers)
 
@@ -411,7 +432,7 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 - **One query type or two.** Model `AssemblyQuery` as always-many, or split a single-assembly
   `AssemblyQuery` from a `PackageInspectionQuery` that fans out to many
   `ResolvedAssemblyReference`s? The package/`--tfm all` flows force multi-assembly either way.
-- **Query granularity.** Is `AssemblyQuery.Sections` the right knob, or should the session be
+- **Query granularity.** Is `AssemblyQuery.Lenses` the right knob, or should the session be
   lazy (scan on first access) so the query only needs the source? Laziness may make the section
   set redundant.
 - **Shape of the shared PE-owner.** Should the new owner be a thin `PEReader`/`MetadataReader`
