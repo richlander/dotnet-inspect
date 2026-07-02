@@ -581,6 +581,11 @@ public class ILOffsetAllocationContext
     public string? CountedAsHeap { get; init; }
     public string? Frequency { get; init; }
     public string? Escape { get; init; }
+    [JsonPropertyName("est_size")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? EstimatedSizeBytes { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SizeTier { get; init; }
     public string? InLoop { get; init; }
     public string? Evidence { get; init; }
 }
@@ -676,13 +681,6 @@ public record class OptimizationOpportunitySummary
     public string Loop { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Allocation { get; init; }
-    [JsonPropertyName("est_size")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? EstimatedSizeBytes { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? SizeTier { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Escape { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

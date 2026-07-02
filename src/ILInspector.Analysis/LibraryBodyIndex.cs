@@ -198,15 +198,6 @@ public sealed class LibraryBodyIndex
             _ => null,
         };
 
-    static string? FormatEscape(AllocationEscape escape)
-        => escape switch
-        {
-            AllocationEscape.LocalOnly => "local-only",
-            AllocationEscape.Escapes => "escapes",
-            AllocationEscape.ThrowPath => "throw-path",
-            _ => null,
-        };
-
     static string? FormatPostDominance(AllocationPostDominance postDominance)
         => postDominance switch
         {
@@ -2958,7 +2949,7 @@ public sealed class LibraryBodyIndex
         ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, DecodedBody decodedBody, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-            var allocationByOffset = CollectAllocationOccurrences(il, decodedBody, exceptionRegions, caller, callerScope, loopRegions, classifyEscapes: true)
+            var allocationByOffset = CollectAllocationOccurrences(il, decodedBody, exceptionRegions, caller, callerScope, loopRegions, classifyEscapes: false)
                 .ToDictionary(occurrence => occurrence.ILOffset);
             ReachingDefinitionsResult? reachingDefinitions = null;
             ReachingDefinitionsResult GetReachingDefinitions()
@@ -3386,13 +3377,6 @@ public sealed class LibraryBodyIndex
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                         PostDominance = opportunity.PostDominance ?? FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
-                        EstimatedSizeBytes = allocation?.EstimatedSizeBytes ?? opportunity.EstimatedSizeBytes,
-                        SizeTier = allocation?.SizeTier == AllocationSizeTier.Unknown
-                            ? opportunity.SizeTier
-                            : allocation?.SizeTier.ToString(),
-                        Escape = allocation is null
-                            ? opportunity.Escape
-                            : FormatEscape(allocation.Escape),
                     };
                 }
                 return AddFallbackOpportunityMetadata(annotated);

@@ -11,6 +11,8 @@ public sealed record AllocationFact(
     string Frequency,
     bool InLoop,
     string Escape,
+    int? EstimatedSizeBytes,
+    string? SizeTier,
     string Evidence);
 
 public sealed record SafetyFact(
@@ -65,6 +67,8 @@ public static class SemanticFactProjection
                 FormatFrequency(occurrence.Frequency),
                 occurrence.InLoop,
                 FormatEscape(occurrence.Escape),
+                occurrence.EstimatedSizeBytes,
+                occurrence.SizeTier == AllocationSizeTier.Unknown ? null : occurrence.SizeTier.ToString(),
                 occurrence.Detail ?? FormatSource(occurrence.Source)))];
 
     public static ImmutableArray<SafetyFact> SafetyFacts(

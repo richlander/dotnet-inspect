@@ -104,7 +104,7 @@ internal static class ILOffsetSourceQuery
         if (RequiresSemanticContext(options))
         {
             if (RequiresAllocationContext(options))
-                allocationContext = BuildAllocationContext(instructionContext);
+                allocationContext = BuildAllocationContext(pdbContext.AssemblyPath, methodToken, ilOffset, instructionContext);
             if (RequiresSafetyContext(options))
                 safetyContext = BuildSafetyContext(instructionContext);
             if (RequiresCostContext(options))
@@ -260,7 +260,30 @@ internal static class ILOffsetSourceQuery
 
     private static string FormatILOffset(int offset) => $"IL_{offset:X4}";
 
-    private static List<ILOffsetAllocationContext> BuildAllocationContext(ILOffsetInstructionContextInfo? instruction)
+    private static List<ILOffsetAllocationContext> BuildAllocationContext(
+        string assemblyPath,
+        int methodToken,
+        int ilOffset,
+        ILOffsetInstructionContextInfo? instruction)
+    {
+        try
+        {
+            var index = Analysis.LibraryBodyIndex.Open(assemblyPath);
+            var facts = Analysis.SemanticFactProjection
+                .AllocationFacts(index.GetAllocationOccurrences(), methodToken, ilOffset)
+                .Select(ToILOffsetAllocationContext)
+                .ToList();
+            if (facts.Count > 0)
+                return facts;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or ArgumentException or UnauthorizedAccessException)
+        {
+        }
+
+        return BuildInstructionAllocationContext(instruction);
+    }
+
+    private static List<ILOffsetAllocationContext> BuildInstructionAllocationContext(ILOffsetInstructionContextInfo? instruction)
     {
         if (instruction is null)
             return [];
@@ -369,6 +392,8 @@ internal static class ILOffsetSourceQuery
             CountedAsHeap = fact.CountedAsHeap ? "Yes" : "No",
             Frequency = fact.Frequency,
             Escape = fact.Escape,
+            EstimatedSizeBytes = fact.EstimatedSizeBytes,
+            SizeTier = fact.SizeTier,
             InLoop = fact.InLoop ? "Yes" : "No",
             Evidence = fact.Evidence
         };

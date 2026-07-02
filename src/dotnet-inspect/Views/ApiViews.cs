@@ -886,10 +886,6 @@ public record OptimizationOpportunityRow(
     string Confidence,
     string Loop,
     [property: MarkoutSkipNull] string? Allocation,
-    [property: MarkoutPropertyName("Est Size")]
-    [property: MarkoutSkipNull] int? EstSize,
-    [property: MarkoutSkipNull] string? SizeTier,
-    [property: MarkoutSkipNull] string? Escape,
     [property: MarkoutSkipNull] string? Path,
     [property: MarkoutSkipNull] string? PathConfidence,
     [property: MarkoutPropertyName("Post Dominance")]

@@ -79,6 +79,32 @@ public class SemanticFactsSectionTests
     }
 
     [Fact]
+    public async Task LibraryIlOffsetAllocationContext_RendersEstimatedSize()
+    {
+        var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.ConstArray))!;
+        var index = LibraryBodyIndex.Open(TestAssemblyPath);
+        var allocationOffset = index.GetAllocationOccurrences()[method.MetadataToken][0].ILOffset;
+
+        var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
+        {
+            AssemblyName = TestAssemblyPath,
+            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{allocationOffset:X}",
+            IncludeSections = [SectionNames.AllocationContext],
+            Select = [SectionNames.AllocationContext],
+            Verbosity = Verbosity.Minimal,
+            Markdown = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Est Size", result.Output);
+        Assert.Contains("Size Tier", result.Output);
+        Assert.Contains("40", result.Output);
+        Assert.Contains("Exact", result.Output);
+        Assert.Contains("escapes", result.Output);
+    }
+
+    [Fact]
     public async Task LibraryIlOffsetSafetyContext_FlagsUnsafeCall()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.UnsafeAs))!;
@@ -203,6 +229,8 @@ public static class SemanticFactsFixture
     }
 
     public static int SafeSpan(Span<int> values) => values.Slice(0).Length;
+
+    public static int[] ConstArray() => new int[4];
 
     public static int SafeSpanOfUnsafeNamedType(Span<System.Runtime.CompilerServices.UnsafeAccessorAttribute> values)
         => values.Slice(0).Length;

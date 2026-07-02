@@ -1319,33 +1319,6 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_SurfaceExactSizeMetadataFromArrayOccurrence()
-    {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(o =>
-            o.Method.Name == nameof(OptimizationOpportunityFixtures.ReturnsSmallArray)
-            && o.Shape == "small-array"));
-
-        Assert.Equal(40, opportunity.EstimatedSizeBytes);
-        Assert.Equal(nameof(AllocationSizeTier.Exact), opportunity.SizeTier);
-    }
-
-    [Theory]
-    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "local-only")]
-    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray), "small-array", "escapes")]
-    public void OptimizationOpportunities_SurfaceAllocationEscapeMetadata(string methodName, string shape, string expectedEscape)
-    {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(o =>
-            o.Method.Name == methodName
-            && o.Shape == shape));
-
-        Assert.Equal(expectedEscape, opportunity.Escape);
-    }
-
-    [Fact]
     public void AllocationOccurrences_IncludeBranchAndSwitchPathContext()
     {
         var (path, directory) = BuildPathContextFixture();

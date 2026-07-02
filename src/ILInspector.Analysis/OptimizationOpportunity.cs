@@ -13,10 +13,7 @@ public sealed record OptimizationOpportunity(
     bool ColdPath = false,
     string? RuntimeAllocationType = null,
     string? PathContext = null,
-    string? PathConfidence = null,
-    int? EstimatedSizeBytes = null,
-    string? SizeTier = null,
-    string? Escape = null)
+    string? PathConfidence = null)
 {
     public bool Amortized { get; init; }
     public string? PostDominance { get; init; }
