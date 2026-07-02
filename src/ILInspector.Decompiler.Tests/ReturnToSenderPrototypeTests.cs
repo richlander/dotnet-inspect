@@ -833,6 +833,66 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsAutoPropertySetter()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Value { get; set; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int Value { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsIndexerSetter()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private readonly int[] _values;
+
+                public Class1()
+                {
+                    _values = new int[4];
+                }
+
+                public int this[int index]
+                {
+                    get => _values[index];
+                    set => _values[index] = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Item", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int this[int index]", result.Source);
+            Assert.Contains("set", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
     {
         var assemblyPath = CompileFixture("""

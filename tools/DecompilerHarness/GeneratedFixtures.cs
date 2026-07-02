@@ -222,6 +222,8 @@ internal static class GeneratedFixtureCatalog
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalObjectInitializer.Helper", "get_Value",
                 FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Helper", "set_Value",
+                FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalObjectInitializer.Class1", ".ctor",
                 FidelityCheck.CompileBackStatus.Exact),
             new("GeneratedFixtures.MinimalObjectInitializer.Class1", "Method1",
@@ -345,6 +347,37 @@ internal static class GeneratedFixtureCatalog
                 FidelityCheck.CompileBackStatus.Exact),
         ],
         ["minimal", "indexer", "property"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalIndexerSetter = new(
+        "minimal.indexer.setter",
+        """
+        namespace GeneratedFixtures.MinimalIndexerSetter;
+
+        public class Class1
+        {
+            private readonly int[] _values;
+
+            public Class1()
+            {
+                _values = new int[4];
+            }
+
+            public int this[int index]
+            {
+                get => _values[index];
+                set => _values[index] = value;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalIndexerSetter.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIndexerSetter.Class1", "get_Item",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIndexerSetter.Class1", "set_Item",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "indexer", "property", "setter"]);
 
     public static readonly GeneratedFixtureDefinition MinimalStringLength = new(
         "minimal.string-length",
@@ -652,6 +685,7 @@ internal static class GeneratedFixtureCatalog
         MinimalArrayIndex,
         MinimalArrayLength,
         MinimalIndexerGetter,
+        MinimalIndexerSetter,
         MinimalStringLength,
         MinimalNullCoalesce,
         MinimalTryFinally,
