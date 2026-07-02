@@ -245,6 +245,95 @@ composing `MetadataSource` for decompilation) is the target. The explicit goal i
 method-body seam is its sibling and should follow the same query → session → final-shape
 pattern. Treat them as one program of work under #2122, not two.
 
+That sibling seam is specified in full — lens ownership, layer boundaries, and its own
+migration — in [Method Body Inspection](method-body-inspection.md). One caveat it sharpens:
+the method-body *composition* (which joins Metadata + Analysis + Decompiler + Research) must
+sit **above** those libraries — it cannot live in `ILInspector.Metadata` and must not live in
+`DotnetInspector.Services`. The *shared PE-owner* below is what both seams reuse; the
+cross-library composition is a higher layer.
+
+## Worked example: `JsonSerializer.Serialize:1`
+
+Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --platform System.Text.Json`.
+
+1. **Parse (CLI).** The positional `JsonSerializer.Serialize:1` splits into a `Type.Member`
+   selector plus the overload shorthand `:N`; the source comes from `--platform System.Text.Json`
+   (or `--package`, or a dll path). No PE is opened. The CLI produces three plain values:
+   - a **source selector** — `platform: System.Text.Json`;
+   - a **member locator** — `MemberQuery(TypeName: "…JsonSerializer", MemberName: "Serialize",
+     OverloadIndex: 1, PublicOnly: true)`;
+   - a **lens set** derived from the requested sections / verbosity.
+
+   The positional `:1` is now just `MemberQuery.OverloadIndex` — a carried value, never
+   re-parsed downstream. (A bare fully-qualified `Type.Member:N` with no `--platform`/`--package`
+   uses the existing type-lookup path to find the *defining* assembly first.)
+2. **Resolve (service).** The resolver turns the source selector into a
+   `ResolvedAssemblyReference`: `PlatformResolver` locates the `System.Text.Json` assembly in the
+   shared framework and records its identity + provenance (framework, version). Nothing is
+   discarded to `_`.
+3. **Open once (service).** `AssemblyInspectionSession.Open(resolved)` opens the shared PE-owner.
+   This is the single open for the entire query.
+4. **Locate + inspect the body (service).** `MethodBodyInspectionSession` — over that *same*
+   owner — resolves the `MethodDef` for `Serialize` overload `1`, then runs the requested lenses
+   (source, IL, calls, allocation/safety/cost, decompiled/annotated source, …) and returns a
+   section-ready `MethodBodyInspection`. See [Method Body Inspection](method-body-inspection.md).
+5. **Render (CLI).** The CLI maps requested sections onto lenses and renders the returned shape
+   (Markout / writers). It never opened a `PEReader`, never classified an opcode, never
+   re-derived the assembly's identity.
+
+The positional argument's whole journey: a string the CLI parses once into a typed `MemberQuery`
+(`:1` → `OverloadIndex`), paired with a source selector that resolves to a descriptor — after
+which everything downstream operates on values and one shared open.
+
+## Passing the reference across services (one open, many consumers)
+
+A single inspection calls several services against the *same* PE — scanners, the method-body
+session, SourceLink. The key design choice is **what currency crosses those calls**. There are
+two, and they are different:
+
+- `ResolvedAssemblyReference` — *how to open* the assembly (identity + `Path` + `Func<Stream>
+  OpenRead` + provenance). Resolution-time currency.
+- the **session / shared PE-owner** — the assembly *already opened*. Inspection-time currency.
+
+The reference is passed **once**, into `AssemblyInspectionSession.Open`. After that, downstream
+services take the **session/owner**, not the reference — so they share the single open rather
+than each re-opening (the fix for [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)):
+
+```text
+resolved: ResolvedAssemblyReference          (how to open — passed once)
+   │
+   ▼
+AssemblyInspectionSession.Open(resolved)      (opens the shared PE-owner ONCE)
+   │  owner
+   ├──► assembly scanners            (Resources, CustomAttributes, …)
+   ├──► MethodBodyInspectionSession  (member / coordinate lenses)
+   └──► PdbContext / SourceLink      (source, sequence points)
+```
+
+### Do the services need `(path)` vs `(reference)` overloads?
+
+No — proliferating overloads is the wrong answer, and optional/nullable parameters are worse.
+Three rules keep the surface flat:
+
+1. **Inspection-time services take the session/owner — one signature.** A scanner or the
+   method-body session consumes the already-open owner; it does not accept a path *or* a
+   reference, because by then the assembly is open.
+2. **Value-boundary services take the `ResolvedAssemblyReference` — and a path lifts into one.**
+   Where a service genuinely accepts an assembly by value (the resolution boundary, or a
+   standalone call), it takes the reference. A path-only caller wraps it in a line —
+   `new ResolvedAssemblyReference(identity, path, () => File.OpenRead(path))`, exactly what the
+   #2051 `AssemblyLocator` adapter already does — so there is **one** input type, and "I only
+   have a path" is a trivial lift, not a second overload per service.
+3. **Never take `(path, ResolvedAssemblyReference? reference = null)`.** That optional/nullable
+   both-or-neither shape is precisely the loose-parameter smell this design removes; it invites
+   callers to pass a path and re-open. Prefer one required, typed input.
+
+The only sanctioned duplication is **transitional**: during migration a service may expose both
+`Open(path)` and `Open(ResolvedAssemblyReference)` (see the path-backed adapter in
+[Method Body Inspection](method-body-inspection.md)'s migration) — but the path overload is
+scaffolding to delete, not the target. Steady state: **resolve → reference (passed once) →
+open once → session/owner (shared by every service)**.
+
 ## Relationship to the `AssemblyRef` boundary (#2051 / #2052)
 
 This is not a new idea in the repo. [#2051 / #2052](https://github.com/richlander/dotnet-inspect/issues/2052)
