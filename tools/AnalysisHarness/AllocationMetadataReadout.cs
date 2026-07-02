@@ -55,6 +55,7 @@ public static class AllocationMetadataReadout
         sb.AppendLine($"ALLOCATION METADATA READOUT: {readout.Opened}/{readout.Assemblies} assemblies opened ({readout.Failed} failed)");
         sb.AppendLine($"  methods={readout.Methods} allocation-occurrences={readout.AllocationOccurrences} optimization-opportunities={readout.OptimizationOpportunities}");
         AppendCounts(sb, "occurrence kind", readout.OccurrenceKind, top);
+        AppendCounts(sb, "occurrence allocation", readout.OccurrenceAllocation, top);
         AppendCounts(sb, "occurrence path", readout.OccurrencePath, top);
         AppendCounts(sb, "occurrence path confidence", readout.OccurrencePathConfidence, top);
         AppendCounts(sb, "occurrence post dominance", readout.OccurrencePostDominance, top);
