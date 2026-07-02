@@ -14,14 +14,68 @@ public static class CoercionSinks
 {
     public readonly record struct TypedSink(IrExpression Value, TypeRef Target);
 
+    /// <summary>
+    /// One shared decision for pass and checker: an enumerated sink requires a
+    /// <see cref="Coerce"/> when its target is in the invariant's domain, the
+    /// value is not provably at the target, and the value's type is not owned
+    /// by a later decider — a <see cref="LoadStackSlot"/>'s C# type belongs to
+    /// the printer's slot unifier until instance 2 materializes typed locals,
+    /// and wrapping it breaks the unifier's structural pattern matches
+    /// (review finding: phantom split locals).
+    /// </summary>
+    public static bool RequiresCoercion(TypedSink sink, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => sink.Value is not (Coerce or LoadStackSlot)
+            && CoercionDomain.InDomain(sink.Target, shapes)
+            && !CoercionDomain.IsAtTarget(sink.Value, sink.Target);
+
+    /// <summary>
+    /// The one semantic target for an array-element store, shared by the
+    /// printer's cast decision and this sink model: the stelem opcode carries a
+    /// storage width (`stelem.i8` says Int64, not the long-backed enum), so the
+    /// array's element type wins exactly when it is an enum-like definition —
+    /// a named type with no primitive stack family that the shape map does not
+    /// class as a reference or non-enum struct. TypedConstantsPass's ungated
+    /// preference is a different question (identity recovery for bool/char,
+    /// where the storage width is never the semantic type).
+    /// </summary>
+    public static TypeRef? StoreElementTarget(StoreElement store, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
+            && element is { Kind: TypeRefKind.Definition }
+            && TypeFamilies.Of(element) is null
+            && shapes.GetValueOrDefault(element) is not (TypeShape.Reference or TypeShape.ValueType)
+            ? element
+            : store.ElementType;
+
     public static IEnumerable<TypedSink> Enumerate(IrFunction function)
+        => Enumerate(function.Body, function.Signature.ReturnType, function);
+
+    /// <summary>
+    /// Walks one body scope. Nested bodies carry their own return types: a
+    /// <see cref="LocalFunctionStatement"/> declares its, a <see cref="Lambda"/>
+    /// does not expose one (the delegate's Invoke signature is not resolved
+    /// here), so lambda returns are skipped rather than mis-attributed to the
+    /// outer signature (review finding: a bool predicate return coerced to the
+    /// outer method's int).
+    /// </summary>
+    static IEnumerable<TypedSink> Enumerate(IrNode scope, TypeRef? returnType, IrFunction function)
     {
-        foreach (var node in function.Descendants)
+        foreach (var child in scope.Children)
         {
-            switch (node)
+            switch (child)
             {
-                case Return { Value: { } value } when function.Signature.ReturnType is { } returnType:
-                    yield return new(value, returnType);
+                case Lambda lambda:
+                    foreach (var nested in Enumerate(lambda, returnType: null, function))
+                        yield return nested;
+                    continue;
+                case LocalFunctionStatement local:
+                    foreach (var nested in Enumerate(local, local.ReturnType, function))
+                        yield return nested;
+                    continue;
+            }
+            switch (child)
+            {
+                case Return { Value: { } value } when returnType is { } scopeReturn:
+                    yield return new(value, scopeReturn);
                     break;
                 case StoreLocal { Value: { } value, Type: { } type }:
                     yield return new(value, type);
@@ -48,15 +102,9 @@ public static class CoercionSinks
                 case Box { Operand: { } operand, Type: { } type }:
                     yield return new(operand, type);
                     break;
-                // The stelem opcode carries a storage width; the array's element
-                // type is the semantic target (the printer's
-                // StoreElementTargetType split, and TypedConstantsPass's).
-                case StoreElement { Value: { } value } store:
-                    var element = store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } semantic }
-                        ? semantic
-                        : store.ElementType;
-                    if (element is { } elementType)
-                        yield return new(value, elementType);
+                case StoreElement store when store.Value is { } value
+                    && StoreElementTarget(store, function.TypeShapes) is { } elementType:
+                    yield return new(value, elementType);
                     break;
                 // StoreIndirect is deliberately absent: the printer's target
                 // derivation (IndirectStoreType) carries special cases this
@@ -82,18 +130,24 @@ public static class CoercionSinks
                     yield return new(conditional.WhenTrue, merged);
                     yield return new(conditional.WhenFalse, merged);
                     break;
+                // Switch case labels are deliberately not enumerated:
+                // SwitchSection holds them outside the child tree (ReplaceWith
+                // cannot reach them) and the printer spells labels through
+                // EnumConstantText.
             }
+            foreach (var nested in Enumerate(child, returnType, function))
+                yield return nested;
         }
     }
 }
 
 /// <summary>
-/// The one type-identity predicate gating the coercion invariant's exemption:
-/// "provably already at the target type" is decided here, never per sink —
-/// otherwise the scattered-partial-judgment problem reappears one level up as
-/// per-sink identity checks with blind spots.
+/// The invariant's declared domain and its one type-identity exemption
+/// predicate. "Provably already at the target type" is decided here, never per
+/// sink — otherwise the scattered-partial-judgment problem reappears one level
+/// up as per-sink identity checks with blind spots.
 /// </summary>
-public static class CoercionTyping
+public static class CoercionDomain
 {
     /// <summary>
     /// The value-flow class the invariant owns: integer-family primitives,
@@ -106,7 +160,6 @@ public static class CoercionTyping
     public static bool InDomain(TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => TypeFamilies.IsNumericPrimitive(target)
             || TypeFamilies.IsBoolean(target)
-            || target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" }
             || shapes.GetValueOrDefault(target) == TypeShape.Enum;
 
     public static bool IsAtTarget(IrExpression value, TypeRef target)
@@ -114,11 +167,12 @@ public static class CoercionTyping
 }
 
 /// <summary>
-/// Wraps every in-domain typed-sink value that is not provably at its target in
-/// a <see cref="Coerce"/> node (value-typed-emission.md, slice 3). Runs last:
-/// the tree the printer receives is the decided tree. Output-neutral by
-/// construction — sinks already render through CoerceText(value, target), and
-/// the node renders through the same function with the same target.
+/// Wraps every typed-sink value that requires coercion in a
+/// <see cref="Coerce"/> node (value-typed-emission.md, slice 3). Runs last: the
+/// tree the printer receives is the decided tree. Output-neutral for sinks that
+/// render through CoerceText — the node renders through the same function with
+/// the same target; the render-text corpus A/B is the empirical gate on that
+/// claim.
 /// </summary>
 public sealed class CoercionInsertionPass : IIrPass
 {
@@ -132,9 +186,7 @@ public sealed class CoercionInsertionPass : IIrPass
         // original (the same stale-match hazard BitwiseBoolOperandPass reverses
         // for).
         var sinks = CoercionSinks.Enumerate(function)
-            .Where(s => s.Value is not Coerce
-                && CoercionTyping.InDomain(s.Target, shapes)
-                && !CoercionTyping.IsAtTarget(s.Value, s.Target))
+            .Where(s => CoercionSinks.RequiresCoercion(s, shapes))
             .OrderByDescending(s => Depth(s.Value))
             .ToList();
         foreach (var (value, target) in sinks)
@@ -167,12 +219,12 @@ public static class CoercionInvariant
     {
         var shapes = function.TypeShapes;
         List<string>? violations = null;
-        foreach (var (value, target) in CoercionSinks.Enumerate(function))
+        foreach (var sink in CoercionSinks.Enumerate(function))
         {
-            if (value is Coerce || !CoercionTyping.InDomain(target, shapes) || CoercionTyping.IsAtTarget(value, target))
+            if (!CoercionSinks.RequiresCoercion(sink, shapes))
                 continue;
             (violations ??= []).Add(
-                $"{function.Name}: {value.Describe()} occupies a {target.ToDisplayString()} sink without a Coerce");
+                $"{function.Name}: {sink.Value.Describe()} occupies a {sink.Target.ToDisplayString()} sink without a Coerce");
         }
         return violations ?? [];
     }

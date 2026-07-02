@@ -5,10 +5,11 @@ using Convert = ILInspector.Decompiler.Pipeline.Convert;
 namespace ILInspector.Decompiler.Tests;
 
 // Slice 3 of docs/design/value-typed-emission.md: the Coerce node, the
-// insertion pass, and the invariant. The insertion is output-neutral by
-// construction (sinks already render through CoerceText; the node renders
-// through the same function with the same target) — the full suite is that
-// proof. These tests pin the routing machinery itself.
+// insertion pass, and the invariant. Neutrality is proven empirically by the
+// corpus render-text A/B (adversarial review: "by construction" held only for
+// pure-CoerceText sinks — lambda returns and slot-carried values needed
+// scope exclusions), plus the full suite. These tests pin the routing
+// machinery itself.
 public class CoercionInvariantTests
 {
     static readonly TypeRef Enum32 = TypeRef.Definition("synthetic", "", "E32");
@@ -61,7 +62,7 @@ public class CoercionInvariantTests
     public void AtTargetValue_IsExemptThroughTheOnePredicate()
     {
         // The exemption ("provably already at the target type") is
-        // CoercionTyping.IsAtTarget — one predicate, no per-sink judgment.
+        // CoercionDomain.IsAtTarget — one predicate, no per-sink judgment.
         var function = Function(
             Returning(new LoadArgument(0, "e", Enum32)),
             Enum32,
@@ -137,6 +138,58 @@ public class CoercionInvariantTests
         Assert.IsType<LoadArgument>(live.WhenFalse);
         Assert.Empty(CoercionInvariant.Check(function));
         Assert.Contains("(E32)raw", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void SlotCarriedValue_IsExcluded_UntilInstanceTwoTypesIt()
+    {
+        // Review finding #1: wrapping a LoadStackSlot breaks the printer's slot
+        // unifier's structural pattern matches (phantom split locals in
+        // ApiSurfaceExtractor::Extract). Slot-carried values stay excluded from
+        // both wrap and check until instance 2 materializes typed locals.
+        var function = Function(
+            Returning(new LoadStackSlot(0, Int32Type)),
+            TypeRef.CoreLib("System", "Boolean"));
+
+        Assert.Empty(CoercionInvariant.Check(function));
+        new CoercionInsertionPass().Run(function, PassContext.None);
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+    }
+
+    [Fact]
+    public void LambdaBodyReturn_IsNotAttributedToTheOuterSignature()
+    {
+        // Review finding #2: a bool predicate return inside a lambda embedded in
+        // an int-returning method must not be coerced to the outer return type
+        // (`t => t.Type != 4` became `t => t.Type != 4 ? 1 : 0`).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var lambdaBody = Returning(new Comparison(
+            ComparisonKind.NotEqual,
+            isUnsigned: false,
+            new LoadArgument(0, "t", Int32Type),
+            new Constant(4, Int32Type)));
+        var lambda = new Lambda(
+            TypeRef.Definition("System.Private.CoreLib", "System", "Func`2"),
+            [new Parameter("t", Int32Type)],
+            [], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false,
+            lambdaBody);
+        var function = Function(
+            SingleStatementBody(new StoreLocal(0, TypeRef.Definition("System.Private.CoreLib", "System", "Func`2"), lambda)),
+            Int32Type);
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        Assert.Empty(CoercionInvariant.Check(function));
+    }
+
+    static BlockContainer SingleStatementBody(IrNode statement)
+    {
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(statement);
+        container.Add(block);
+        return container;
     }
 
     [Fact]

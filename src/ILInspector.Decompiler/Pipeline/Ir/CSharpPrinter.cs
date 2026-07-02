@@ -1738,10 +1738,7 @@ public sealed partial class CSharpPrinter
     // enum-like — same-assembly (`TypeShape.Enum`) or cross-assembly (an unresolved
     // non-primitive definition), matching `Coerce`'s enum-cast reasoning.
     TypeRef? StoreElementTargetType(StoreElement store)
-        => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
-            && IsEnumLikeInteger(element)
-            ? element
-            : store.ElementType;
+        => CoercionSinks.StoreElementTarget(store, _function.TypeShapes);
 
     string Expression(IrExpression node) => node switch
     {
