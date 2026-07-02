@@ -1072,10 +1072,19 @@ public sealed partial class CSharpPrinter
         {
             return EnumArithmeticValueText(enumArithmetic) ?? Expression(value);
         }
+        // An enum value at an integer-typed sink: cast to the target whenever
+        // the cast is value-preserving — same stack family (a byte-backed enum
+        // at an int sink widens losslessly; exact equality here left it BARE,
+        // CS0266 — slice-4 cross-check review) or an I4 underlying at an I8
+        // target. Narrowing (I8 underlying, I4 target) never gets a silent
+        // cast; a real narrowing in the IL arrives as a Convert node instead.
         if (target is { } primitiveTarget
             && TypeFamilies.IsIntegerLike(primitiveTarget)
             && EnumUnderlyingType(EffectiveType(value)) is { } underlying
-            && underlying.Equals(primitiveTarget))
+            && TypeFamilies.Of(underlying) is { } underlyingFamily
+            && TypeFamilies.Of(primitiveTarget) is { } targetFamily
+            && (underlyingFamily == targetFamily
+                || (underlyingFamily == StackFamily.I4 && targetFamily == StackFamily.I8)))
         {
             return $"({TypeText(primitiveTarget)}){Operand(value)}";
         }

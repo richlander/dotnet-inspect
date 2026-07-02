@@ -4392,6 +4392,24 @@ public static class EnumCastSamples
         return x;
     }
 
+    // Slice-4 cross-check review (Opus 4.8, verified against real IL): a
+    // byte-backed enum arm in an int-typed switch dispatch. The raised switch
+    // expression must cast the enum arm (`0 => (int)e`) and the statement
+    // form's int store must cast at the sink — bare renders are
+    // CS0029/CS0266 while graded Full.
+    public static int SwitchEnumOrInt(int k, CfgTiny e, int x)
+    {
+        int r;
+        switch (k)
+        {
+            case 0: r = (int)e; break;
+            case 1: r = x; break;
+            case 2: r = 300; break;
+            default: r = 9; break;
+        }
+        return r;
+    }
+
     // #2076 (review): long-backed enum constants in array-element and box
     // positions. The `stelem.i8` element type and `box` drop the enum type, so a
     // long constant printed bare is CS0266/CS0029 unless cast.

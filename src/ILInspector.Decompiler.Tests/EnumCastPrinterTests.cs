@@ -370,6 +370,26 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void ByteEnumSwitchDispatch_CastsEnumArmAtIntSinks()
+    {
+        // Slice-4 cross-check review (Opus 4.8): a byte-backed enum flowing
+        // into an int-typed switch dispatch — the raised switch-expression arm
+        // (or the statement form's int store) must cast, never render `e`
+        // bare (CS0029/CS0266 while graded Full). The widening enum→int cast
+        // is value-preserving; the sink rule now accepts same-family widening
+        // rather than demanding the exact underlying type.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.SwitchEnumOrInt));
+
+        Assert.Contains("(int)e", body);
+        Assert.DoesNotContain("=> e,", body);
+        Assert.DoesNotContain("= e;", body);
+        AssertCompiles(
+            "public static int M(int k, CfgTiny e, int x)",
+            body,
+            "public enum CfgTiny : byte { A = 1, B = 2 }");
+    }
+
+    [Fact]
     public void ByteEnumIntJoin_KeepsIntSemantics_NoNarrowing()
     {
         // Slice-4 adversarial review (GPT-5.5, blocking): the byte-enum/int
