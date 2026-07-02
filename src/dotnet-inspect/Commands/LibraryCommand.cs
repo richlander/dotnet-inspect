@@ -1751,9 +1751,7 @@ public class LibraryCommand
 
     private static string? GetNuspecVersion(string extractPath)
     {
-        var nuspec = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly)
-            .FirstOrDefault();
-        return nuspec == null ? null : NuspecParser.Parse(nuspec).Version;
+        return NuspecParser.FindAndParse(extractPath)?.Version;
     }
 
     private static void DeleteTempDir(string? tempDir)

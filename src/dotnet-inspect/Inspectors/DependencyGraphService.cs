@@ -131,11 +131,10 @@ internal static class DependencyGraphService
 
             var version = extracted.Version ?? "";
 
-            string[] nuspecFiles = Directory.GetFiles(extracted.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length == 0)
+            var nuspec = NuspecParser.FindAndParse(extracted.ExtractPath);
+            if (nuspec == null)
                 return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
 
-            var nuspec = NuspecParser.Parse(nuspecFiles[0]);
             if (nuspec.DependencyGroups is not { Count: > 0 })
                 return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
 
