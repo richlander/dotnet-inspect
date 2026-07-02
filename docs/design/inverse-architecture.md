@@ -85,11 +85,11 @@ lambda return mis-attributed to the outer signature, was a scope-attribution bug
 the sink enumerator, not a stack-model violation. Both were caught by the slice's
 adversarial render A/B in branch review; neither landed.)
 
-## The stage ledger (the vertical)
+## The stage ledger — the reversed pipeline
 
-The reversed pipeline. `emit ∘ decompile ≈ id` decomposes stage by stage, in reverse
-order (`(f ∘ g)⁻¹ = g⁻¹ ∘ f⁻¹`): each decompiler stage re-establishes the invariant
-its forward counterpart consumed.
+An ordered chain: `emit ∘ decompile ≈ id` decomposes stage by stage, in reverse
+order (`(f ∘ g)⁻¹ = g⁻¹ ∘ f⁻¹`), each decompiler stage re-establishing the invariant
+its forward counterpart consumed. The rows depend on each other in sequence.
 
 | Forward (Roslyn) | Inverse stage (decompiler) | Invariant re-established | Primary assumption |
 | --- | --- | --- | --- |
@@ -99,17 +99,20 @@ its forward counterpart consumed.
 | Constant handling / typed constants | **typed-constants** | a constant carries its semantic (e.g. enum) type | the sink's semantic type is resolved in the current assembly |
 
 The **structuring** and **coercion insertion** rows are the two pass exemplars that
-complete the "full vertical" from IL up to C#. The others are
+complete the full IL-to-C# path. The others are
 governed by their own design notes ([control-flow-structuring.md](control-flow-structuring.md),
 [value-typed-emission.md](value-typed-emission.md)).
 
-## The node ledger (the horizontal)
+## The node ledger — the type assertions
 
-The per-construct correspondence. Each row is a **local inverse**: a decompiler node,
-the forward construct it undoes, the precondition under which the inverse is exact,
-and the **executable witness** that proves it (a fixture or harness mode — the
-inverse is only as real as its runnable check). This table *is* the proof: a
-collection of small, witnessed inverses.
+An unordered set of **type assertions**, one row per inverse node. Each row is a
+**local inverse** read as a claim: the forward construct the node inverts, the type it
+asserts, the precondition under which that assertion is sound, and the **executable
+witness** that proves it (a fixture or harness mode — the inverse is only as real as its
+runnable check). "Assertion" is the operative word — an assertion can be *false*, which
+is exactly where the RyuJIT oracle bounds it and the failure map bites: a fidelity gap
+is a false assertion. This table *is* the proof: a collection of small, witnessed
+inverses.
 
 The seed rows below are the **conversion family**, where the theory is sharpest and
 the RyuJIT-sibling point lands hardest. The full ledger is generated from the
@@ -236,6 +239,37 @@ Two design rules keep this sound and cheap:
 The reflector that reads the annotations and emits the ledger lives in tools/tests,
 never in the shipped decompiler.
 
+## From affordance to capability: the assertion dump
+
+The doc and the annotations, on their own, are a review affordance: a static audit of
+which inverse asserts what, under which precondition. What turns that into a
+**capability** — even though it lives in the harness — is executing the assertions on a
+real method. The harness `--dump` already walks a method through every stage (raw IL →
+typed → structured → IR after each pass → C#).
+
+An opt-in assertion lane annotates each IR node in that staged view with its
+`[InverseOf]` forward construct and `assumes:` predicate, evaluates the predicate in
+place (the release-capable `Check()` the load-bearing rule requires), and flags the
+first node whose assertion is unsound. Three properties make this more than a pretty
+print:
+
+- **It is the executable failure map.** A method that `OpcodeDiff`s shows a red
+  assertion at the first unsound rewrite — the "violated assumption" of the failure
+  map, made observable instead of argued.
+- **It slots into the existing stepper audit.** `--dump --steps --diff --cfg --facts
+  --remarks` already exists to *identify the first illegal intermediate rewrite*; the
+  assertion lane keys that same goal on soundness rather than on eyeballing.
+- **Assertions are stage-relative.** A `Coerce` assertion exists only after coercion
+  insertion; before that there is nothing to check. So the lane reads as claims coming
+  into being and being checked at the moment they are made — the dynamic instantiation
+  of the node ledger on one method: the stack of type claims a value accumulates as it
+  is rewritten.
+
+Guardrails: the lane is opt-in, and it lives in the harness, where attribute reflection
+is fine. The shipped decompiler stays SRM-only and NativeAOT-clean — the product
+`--il-offset` / CLI path does not reflect assertions. It is sequenced last: it needs
+both the annotations and the `Check()` predicates in place.
+
 ## Declared non-inverse boundaries
 
 The inverse is confident only inside its declared domain. Outside it, the decompiler is
@@ -266,3 +300,7 @@ a `[NotInverted(reason)]` row so the boundary is visible, not implicit.
   actively edit, the annotation slice is sequenced *after* the slice-3 merge and the
   follow-up infra, to keep the churn on that file serialized.
 - **Generated ledger:** planned; will replace the hand-written seed rows above.
+- **Assertion dump (capability):** planned, last. An opt-in `--dump` lane that annotates
+  each node with its `[InverseOf]` assertion, evaluates the `assumes:` predicate in
+  place, and pinpoints the first unsound rewrite. Depends on the annotations and the
+  `Check()` predicates.
