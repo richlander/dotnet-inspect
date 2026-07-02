@@ -550,10 +550,21 @@ public static class CSharpDeclarationWriter
             signature = $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
             return true;
         }
+        if (member.Kind == "event"
+            && model.ReturnType is { Length: > 0 } eventType
+            && IsOrdinaryPropertyName(member.Name)
+            && IsOrdinaryPropertyName(model.MemberName))
+        {
+            var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
+                ? member.Name
+                : model.MemberName!;
+            signature = $"{eventType} {eventMemberName}";
+            return true;
+        }
 
         // Keep extension projections, explicit implementations, operators, and
-        // events on compatibility text until the remaining declaration-level
-        // facts are represented in ApiSignature.
+        // unsupported event shapes on compatibility text until the remaining
+        // declaration-level facts are represented in ApiSignature.
         return false;
 
         static string ParameterDeclaration(ApiParameter parameter)
