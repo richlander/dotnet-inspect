@@ -118,6 +118,38 @@ public class TfmSelectorTests : IDisposable
         Assert.Equal([root], paths);
     }
 
+    [Fact]
+    public void FindAssemblyByTfm_UsesPackageNameMatch()
+    {
+        WriteDll("lib/net8.0/Companion.dll");
+        var primary = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0", "MyPackage");
+
+        Assert.Equal(primary, result);
+    }
+
+    [Fact]
+    public void FindAssemblyByTfm_FiltersResourceAssemblies()
+    {
+        var primary = WriteDll("tools/net8.0/any/MyTool.dll");
+        WriteDll("tools/net8.0/any/MyTool.resources.dll");
+
+        var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0");
+
+        Assert.Equal(primary, result);
+    }
+
+    [Fact]
+    public void FindAssemblyByTfm_HandlesRuntimeSpecificLibLayout()
+    {
+        var runtimeAssembly = WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
+
+        var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0");
+
+        Assert.Equal(runtimeAssembly, result);
+    }
+
     private string WriteDll(string relativePath)
     {
         var path = Path.Combine(_tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));

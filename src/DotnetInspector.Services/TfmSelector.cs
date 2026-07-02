@@ -260,43 +260,11 @@ public static class TfmSelector
 
     public static string? FindAssemblyByTfm(string extractPath, string tfm, string? packageName = null)
     {
-        var refDir = Path.Combine(extractPath, "ref");
-        var libDir = Path.Combine(extractPath, "lib");
-        var toolsDir = Path.Combine(extractPath, "tools");
+        var (dlls, _) = SelectHighestAssembliesFromPackage(extractPath, tfm);
+        if (dlls.Count == 0)
+            return null;
 
-        // Check ref/ first (ref packages), then lib/
-        foreach (var dir in new[] { refDir, libDir })
-        {
-            if (Directory.Exists(dir))
-            {
-                var tfmDir = Path.Combine(dir, tfm);
-                if (Directory.Exists(tfmDir))
-                {
-                    var dlls = Directory.GetFiles(tfmDir, "*.dll");
-                    if (dlls.Length > 0)
-                    {
-                        if (packageName != null)
-                        {
-                            var match = dlls.FirstOrDefault(d =>
-                                Path.GetFileNameWithoutExtension(d).Equals(packageName, StringComparison.OrdinalIgnoreCase));
-                            if (match != null)
-                                return match;
-                        }
-                        return dlls[0];
-                    }
-                }
-            }
-        }
-
-        if (Directory.Exists(toolsDir))
-        {
-            var dlls = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories)
-                .Where(f => f.Replace('\\', '/').Contains($"/{tfm}/", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (dlls.Count > 0)
-                return dlls[0];
-        }
-
-        return null;
+        var (selectedPath, _) = SelectHighestTfmAssembly(dlls, extractPath, packageName);
+        return selectedPath ?? dlls[0];
     }
 }
