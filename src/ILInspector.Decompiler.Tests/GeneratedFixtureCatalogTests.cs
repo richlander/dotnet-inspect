@@ -425,6 +425,48 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "I4",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "LpStr",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "Bool",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "Sum",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "FirstFour",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.if-else",
             "GeneratedFixtures.MinimalIfElse.Class1",
             ".ctor",
@@ -685,6 +727,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.parameter-modifiers", report);
         Assert.Contains("minimal.default-parameters", report);
         Assert.Contains("minimal.parameter-attributes", report);
+        Assert.Contains("minimal.parameter-marshalling", report);
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.integer-addition", report);
         Assert.Contains("minimal.struct-members", report);
@@ -753,6 +796,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.null-coalesce",
                 "minimal.object-initializer",
                 "minimal.parameter-attributes",
+                "minimal.parameter-marshalling",
                 "minimal.parameter-modifiers",
                 "minimal.primary-ctor.field-init",
                 "minimal.property.literal",
@@ -802,6 +846,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.parameter-modifiers");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.default-parameters");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.parameter-attributes");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.parameter-marshalling");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.integer-addition");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.struct-members");

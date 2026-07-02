@@ -485,6 +485,73 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "parameters", "attributes"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalParameterMarshalling = new(
+        "minimal.parameter-marshalling",
+        """
+        namespace GeneratedFixtures.MinimalParameterMarshalling;
+
+        public class Class1
+        {
+            public int I4([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] int value)
+                => value;
+
+            public int LpStr([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string value)
+                => value.Length;
+
+            public int Bool([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool value)
+                => value ? 1 : 0;
+
+            public int Sum(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)] int[] values,
+                int count)
+            {
+                var sum = 0;
+                for (var i = 0; i < count; i++)
+                    sum += values[i];
+                return sum;
+            }
+
+            public int FirstFour(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)] int[] values)
+                => values[0] + values[1] + values[2] + values[3];
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "I4",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "LpStr",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "Bool",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "Sum",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "FirstFour",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)",
+                ]),
+        ],
+        ["minimal", "parameters", "marshalling"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -984,6 +1051,7 @@ internal static class GeneratedFixtureCatalog
         MinimalParameterModifiers,
         MinimalDefaultParameters,
         MinimalParameterAttributes,
+        MinimalParameterMarshalling,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,
@@ -1043,7 +1111,8 @@ internal sealed record GeneratedFixtureTarget(
     bool IsFrontier = false,
     string? Note = null,
     SyntaxKind? ExpectedShape = null,
-    SyntaxKind? FrontierShape = null)
+    SyntaxKind? FrontierShape = null,
+    IReadOnlyList<string>? ExpectedSourceFragments = null)
 {
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
@@ -1210,9 +1279,11 @@ internal static class GeneratedFixtureRunner
                         continue;
                     }
 
+                    var missingSourceFragment = MissingSourceFragment(actual.Source, target.ExpectedSourceFragments);
                     var status = actual.Status == FidelityCheck.CompileBackStatus.Exact
-                        ? GeneratedFixtureReturnToSenderStatus.Pass
-                        : GeneratedFixtureReturnToSenderStatus.Fail;
+                        && missingSourceFragment is null
+                            ? GeneratedFixtureReturnToSenderStatus.Pass
+                            : GeneratedFixtureReturnToSenderStatus.Fail;
                     results.Add(new GeneratedFixtureReturnToSenderResult(
                         fixture.Id,
                         target.Type,
@@ -1220,8 +1291,14 @@ internal static class GeneratedFixtureRunner
                         target.Overload,
                         status,
                         actual.Status,
-                        status == GeneratedFixtureReturnToSenderStatus.Pass ? "exact" : FailureReason(actual),
-                        actual.Detail,
+                        status == GeneratedFixtureReturnToSenderStatus.Pass
+                            ? "exact"
+                            : missingSourceFragment is not null
+                                ? "source-fragment-missing"
+                                : FailureReason(actual),
+                        missingSourceFragment is null
+                            ? actual.Detail
+                            : $"missing expected source fragment: {missingSourceFragment}",
                         target.IsFrontier,
                         target.Note));
                 }
@@ -1229,6 +1306,20 @@ internal static class GeneratedFixtureRunner
 
             return new GeneratedFixtureReturnToSenderRunResult(root, assemblyPath, results);
         });
+    }
+
+    static string? MissingSourceFragment(string source, IReadOnlyList<string>? expectedSourceFragments)
+    {
+        if (expectedSourceFragments is not { Count: > 0 })
+            return null;
+
+        foreach (var expected in expectedSourceFragments)
+        {
+            if (!source.Contains(expected, StringComparison.Ordinal))
+                return expected;
+        }
+
+        return null;
     }
 
     static GeneratedFixtureReturnToSenderResult Skipped(GeneratedFixtureDefinition fixture, GeneratedFixtureTarget target, string reason)
