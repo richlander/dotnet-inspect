@@ -139,6 +139,17 @@ public static class ApiMemberIdentity
     static readonly IReadOnlyDictionary<string, int> EmptyParameterMap =
         new Dictionary<string, int>(StringComparer.Ordinal);
 
+    static readonly HashSet<string> KnownNullableValueTypes = new(StringComparer.Ordinal)
+    {
+        "System.DateTime",
+        "System.DateTimeOffset",
+        "System.Decimal",
+        "System.Guid",
+        "System.TimeSpan",
+        "System.IntPtr",
+        "System.UIntPtr"
+    };
+
     internal static string NormalizeXmlDocParameterType(
         string parameter,
         IReadOnlyDictionary<string, int> typeParameterMap,
@@ -169,6 +180,11 @@ public static class ApiMemberIdentity
                 && primitive is not ("System.String" or "System.Object" or "System.Void"))
             {
                 type = $"System.Nullable<{primitive}>";
+                nullableValueType = true;
+            }
+            else if (KnownNullableValueTypes.Contains(unwrapped))
+            {
+                type = $"System.Nullable<{unwrapped}>";
                 nullableValueType = true;
             }
             else

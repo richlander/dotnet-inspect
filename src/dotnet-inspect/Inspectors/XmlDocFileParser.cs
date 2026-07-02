@@ -145,8 +145,9 @@ public class XmlDocFileParser
         if (!_loaded)
             return null;
 
-        if (ApiMemberIdentity.TryGetXmlDocMemberIdentity(apiType, member, out var identity))
-            return GetMemberDocumentation(identity);
+        if (ApiMemberIdentity.TryGetXmlDocMemberIdentity(apiType, member, out var identity)
+            && GetMemberDocumentation(identity) is { } structuredMatch)
+            return structuredMatch;
 
         var typeXmlName = ConvertToXmlDocName(apiType.FullName);
         var xmlMemberName = member.Name == ".ctor" ? "#ctor" : member.Name;

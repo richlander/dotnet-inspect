@@ -325,6 +325,7 @@ public sealed class ApiSignatureModelTests
     [InlineData("int[,]", "System.Int32[,]")]
     [InlineData("System.Int32[0:,0:]", "System.Int32[,]")]
     [InlineData("int?", "System.Nullable{System.Int32}")]
+    [InlineData("System.DateTime?", "System.Nullable{System.DateTime}")]
     [InlineData("string?", "System.String")]
     public void XmlDocParameterNormalization_PreservesByRefMarkers(string input, string expected)
     {
