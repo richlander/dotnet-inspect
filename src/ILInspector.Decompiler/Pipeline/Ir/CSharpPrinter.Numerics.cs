@@ -177,30 +177,71 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string EnumIntegerCast(IrExpression value, TypeRef enumType)
     {
+        // A negative literal needs parentheses after the cast (CS0075); whether it
+        // (or an out-of-range positive) also needs `unchecked` is decided entirely
+        // by MayOverflowEnumBackingType against the backing width.
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
-        bool forceUnchecked = negativeLiteral || MayOverflowUnknownEnumBackingType(value, enumType);
-        // A constant can be CS0221 as a plain cast even outside a checked region:
-        // negative into an unsigned-backed enum (`(U)(-1)`) or positive values that
-        // may overflow a signed- or unsigned-byte-backed unknown enum
-        // (`(Tiny)128` for sbyte, `(Tiny)300` for byte).
-        // Force `unchecked` when the target shape cannot prove the backing width;
-        // negative literals also need parentheses after the cast (CS0075).
+        bool forceUnchecked = MayOverflowEnumBackingType(value, enumType);
         return CheckedSafeCast(
             $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
             force: forceUnchecked);
     }
 
-    bool MayOverflowUnknownEnumBackingType(IrExpression value, TypeRef enumType)
+    // True when a constant enum cast is CS0221 as a plain (checked) cast, so it must
+    // be wrapped in `unchecked`: a value outside the backing type's range — negative
+    // into an unsigned backing (`(U)(-1)`) or a magnitude a narrow backing cannot
+    // hold (`(Tiny)128` for sbyte, `(Tiny)300` for byte). A value that fits (e.g. a
+    // negative into a signed backing, `(Color)int.MinValue`) stays a bare cast.
+    bool MayOverflowEnumBackingType(IrExpression value, TypeRef enumType)
     {
-        if (_function.TypeShapes.GetValueOrDefault(enumType) != TypeShape.Unknown)
+        if (!TryEnumCastLiteral(value, out long literal))
             return false;
-        return value switch
+        // A known backing width: the cast is a constant-expression conversion, so it
+        // needs `unchecked` exactly when the value is out of that width's range.
+        if (EnumUnderlyingType(enumType) is { } underlying)
+            return !TypeFamilies.ConstantFits(literal, underlying);
+        // A cross-assembly enum: the width is genuinely unknown and framework enums
+        // are often byte/sbyte-backed [Flags], so conservatively assume the narrowest
+        // (sbyte) backing and wrap a negative or a value above sbyte's max.
+        if (_function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Unknown)
+            return literal < 0 || literal > sbyte.MaxValue;
+        // A same-assembly enum shape whose underlying is not in the map (e.g. no
+        // `value__` field): assume C#'s default `int` backing, so an int-range value
+        // (including a negative high-bit constant like int.MinValue) stays a bare
+        // cast and only a genuinely out-of-int value is wrapped.
+        return !TypeFamilies.ConstantFits(literal, TypeRef.CoreLib("System", "Int32"));
+    }
+
+    // The integer literal an enum cast will carry, seeing through a widening
+    // `conv.i8`/`conv.u8` over an integer constant — a long-backed enum's small or
+    // unsigned members lower as `ldc.i4; conv.i8`, so the raw operand is a `Convert`,
+    // not a bare `Constant`. Returns false for a non-constant operand (a runtime
+    // value never needs an out-of-range constant wrap).
+    static bool TryEnumCastLiteral(IrExpression value, out long literal)
+    {
+        switch (value)
         {
-            Constant { Value: int iv } => iv > sbyte.MaxValue,
-            Constant { Value: long lv } => lv > sbyte.MaxValue,
-            _ => false,
-        };
+            case Constant { Value: int i }:
+                literal = i;
+                return true;
+            case Constant { Value: long l }:
+                literal = l;
+                return true;
+            case Convert { Target: { } target } convert
+                when TypeFamilies.IsIntegerLike(target) && TryEnumCastLiteral(convert.Operand, out var inner):
+                // A widening to an unsigned target (`conv.u8`) zero-extends a 32-bit
+                // source, carrying its unsigned bit pattern; a signed widening
+                // (`conv.i8`) keeps the value. `Convert.IsUnsigned` marks a `.un`
+                // overflow opcode, not the target signedness — so key off the target.
+                literal = TypeFamilies.IsUnsignedIntegerPrimitive(target) && convert.Operand is Constant { Value: int u }
+                    ? (uint)u
+                    : inner;
+                return true;
+            default:
+                literal = 0;
+                return false;
+        }
     }
 
     string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)

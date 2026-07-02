@@ -114,6 +114,83 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void RetypedUnsignedEnumConstant_ForcesUncheckedCast()
+    {
+        // A same-assembly unsigned-enum constant retyped by TypedConstantsPass with
+        // no named member, in comparison / bitwise / coalesce positions.
+        const string declaration = "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }";
+
+        string comparison = RenderFixture(nameof(EnumCastSamples.UnsignedEnumConstantComparison));
+        Assert.Contains("unchecked((CfgFlags)(-1))", comparison);
+        AssertCompiles("public static bool M(CfgFlags f)", comparison, declaration);
+
+        string bitwise = RenderFixture(nameof(EnumCastSamples.UnsignedEnumConstantBitwise));
+        Assert.Contains("unchecked((CfgFlags)(-1))", bitwise);
+        AssertCompiles("public static CfgFlags M(CfgFlags f)", bitwise, declaration);
+
+        string coalesce = RenderFixture(nameof(EnumCastSamples.UnsignedEnumConstantCoalesce));
+        Assert.Contains("unchecked((CfgFlags)(-1))", coalesce);
+        AssertCompiles("public static CfgFlags M(CfgFlags? f)", coalesce, declaration);
+    }
+
+    [Fact]
+    public void EnumConditional_SameAssemblyUnsignedEnum_ForcesUncheckedCast()
+    {
+        // #2076: `c ? CfgFlags.Top : e` where CfgFlags : uint. Top (0x80000000u)
+        // is emitted as `ldc.i4` int.MinValue, so the conditional slot's importer
+        // type is unknown; the fold anchors the enum and the printer must wrap the
+        // negative reinterpret in `unchecked`.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.UnsignedEnumConditionalArm));
+
+        Assert.Contains("unchecked((CfgFlags)(-2147483648))", body);
+        Assert.DoesNotContain(": -2147483648", body);
+        AssertCompiles(
+            "public static bool M(bool c, CfgFlags e)",
+            body,
+            "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    [Fact]
+    public void KnownEnumPositiveConstantOutOfRange_ForcesUncheckedCast()
+    {
+        // A same-assembly enum with a known narrow underlying type: an out-of-range
+        // constant cast is CS0221 unless wrapped, while an in-range one stays bare.
+        string outOfRange = RenderKnownEnumReturnConstant(300, TypeRef.CoreLib("System", "Byte"));
+        Assert.Contains("return unchecked((Tiny)300);", outOfRange);
+        AssertCompiles("public static Tiny M()", outOfRange, "public enum Tiny : byte { }");
+
+        string inRange = RenderKnownEnumReturnConstant(4, TypeRef.CoreLib("System", "Byte"));
+        Assert.Contains("return (Tiny)4;", inRange);
+        Assert.DoesNotContain("unchecked", inRange);
+        AssertCompiles("public static Tiny M()", inRange, "public enum Tiny : byte { }");
+    }
+
+    [Fact]
+    public void EnumWithUnresolvedBackingWidth_AssumesIntBacking()
+    {
+        // An enum classified TypeShape.Enum but whose underlying width is not in the
+        // map (e.g. no value__ field) assumes C#'s default `int` backing: an
+        // int-range negative constant stays a bare cast (matching ExactMember), and
+        // only a genuinely out-of-int value would be wrapped.
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var block = new Block(0);
+        block.Add(new Return(new Constant(-1, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            // EnumUnderlyingTypes intentionally left empty.
+        };
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+        Assert.Contains("(Tiny)(-1)", body);
+        Assert.DoesNotContain("unchecked", body);
+    }
+
+    [Fact]
     public void UnknownEnumPositiveConstantThatMayOverflow_ForcesUncheckedCast()
     {
         string sbyteBody = RenderUnknownEnumReturnConstant(128);
@@ -158,6 +235,92 @@ public class EnumCastPrinterTests
         AssertCompiles("public static Tiny M(int? value)", body, "public enum Tiny { }");
     }
 
+    [Fact]
+    public void EnumSwitchLabel_LongConstant_CastsInsteadOfBareLiteral()
+    {
+        // #2076 (review): a long case label on a long-backed enum switch must cast
+        // (`case (LEnum)...:`), not render a bare `case 1311768467463790320:`
+        // (CS0266). Member names still win when the value is named.
+        const long value = 1311768467463790320L;
+        var enumType = TypeRef.Definition("synthetic", "", "LEnum");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Switch(
+            new LoadArgument(0, "value", enumType),
+            [
+                new SwitchSection(ImmutableArray.Create(new Constant(value, longType)), isDefault: false, SingleReturnContainer()),
+                new SwitchSection(ImmutableArray<Constant>.Empty, isDefault: true, SingleReturnContainer()),
+            ]));
+        body.Add(block);
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "Void"),
+            [new Parameter("value", enumType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], body)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = longType },
+        };
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+        Assert.Contains("case (LEnum)1311768467463790320:", output);
+        Assert.DoesNotContain("case 1311768467463790320:", output);
+    }
+
+    [Fact]
+    public void CrossAssemblyEnumArray_CastsElementStore()
+    {
+        // A cross-assembly enum array element store must cast to the enum, not emit
+        // a bare `int` (CS0266) off the `stelem.i4` storage type.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.CrossAssemblyEnumArray));
+        Assert.Contains("(StringComparison)4", body);
+        Assert.DoesNotContain("= 4;", body);
+        AssertCompiles("public static System.StringComparison[] M()", body);
+    }
+
+    [Fact]
+    public void UnsignedLongEnumConstant_ConvertWrapped_ForcesUncheckedCast()
+    {
+        // ulong.MaxValue lowers as `ldc.i4.m1; conv.i8`, so the enum cast operand is
+        // a Convert; the overflow decision must pierce it and wrap `unchecked`.
+        const string declaration = "public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }";
+
+        string boxed = RenderRaisedFixture(nameof(EnumCastSamples.ULongEnumBoxedMax));
+        Assert.Contains("unchecked((CfgULong)", boxed);
+        AssertCompiles("public static System.Enum M()", boxed, declaration);
+
+        string array = RenderRaisedFixture(nameof(EnumCastSamples.ULongEnumArrayMax));
+        Assert.Contains("unchecked((CfgULong)", array);
+        AssertCompiles("public static CfgULong[] M()", array, declaration);
+    }
+
+    [Fact]
+    public void LongBackedEnumConstants_InArrayAndBox_CastOrName()
+    {
+        // Array elements: long constants render as enum casts, never a bare `long`
+        // (CS0266). AssertCompiles is the real validity gate.
+        string array = RenderRaisedFixture(nameof(EnumCastSamples.LongEnumArray));
+        Assert.Contains("(CfgLongPriority)5000000000", array);
+        Assert.DoesNotContain("= 5000000000;", array);
+        AssertCompiles(
+            "public static CfgLongPriority[] M()",
+            array,
+            "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+
+        // Box target: the enum value must keep its type (bare long is CS0029 for
+        // System.Enum). A small value arrives as `Convert(long, ...)`, so it casts
+        // rather than names.
+        string boxed = RenderRaisedFixture(nameof(EnumCastSamples.LongEnumBoxed));
+        Assert.Contains("(CfgLongPriority)", boxed);
+        Assert.DoesNotContain("return (long)", boxed);
+        AssertCompiles(
+            "public static System.Enum M()",
+            boxed,
+            "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
     static string RenderFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
@@ -165,6 +328,19 @@ public class EnumCastPrinterTests
         Assert.NotNull(function);
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
         var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+        Assert.NotNull(result.Output);
+        return result.Output!;
+    }
+
+    // As RenderFixture, but for a body that is only Partial at import (e.g. a slot
+    // whose int/enum join the importer cannot type) and is raised to valid C# by
+    // the pipeline — so it skips the import-time Full precondition.
+    static string RenderRaisedFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(EnumCastSamples).FullName!, methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
         Assert.NotNull(result.Output);
         return result.Output!;
     }
@@ -207,6 +383,24 @@ public class EnumCastPrinterTests
         container.Add(block);
         var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container);
+
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    static string RenderKnownEnumReturnConstant(int value, TypeRef underlying)
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var block = new Block(0);
+        block.Add(new Return(new Constant(value, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = underlying },
+        };
 
         return CSharpPrinter.Print(function).Output!.Trim();
     }

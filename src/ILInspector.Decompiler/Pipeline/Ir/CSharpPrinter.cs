@@ -1662,7 +1662,7 @@ public sealed partial class CSharpPrinter
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CastValue(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{Expression(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
+        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, StoreElementTargetType(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -1731,19 +1731,37 @@ public sealed partial class CSharpPrinter
     static TypeRef? StorePropertyTargetType(StoreProperty store)
         => store.Accessor.ParameterTypes.Length > 0 ? store.Accessor.ParameterTypes[^1] : null;
 
+    // The `stelem` opcode records a storage-primitive element type (e.g. `long` for
+    // a long-backed enum array, or `int` for a cross-assembly enum array), which
+    // drops an enum-typed integer store below its real element type and prints a
+    // bare literal (CS0266). Prefer the array's own element type when it is
+    // enum-like — same-assembly (`TypeShape.Enum`) or cross-assembly (an unresolved
+    // non-primitive definition), matching `CastValue`'s enum-cast reasoning.
+    TypeRef? StoreElementTargetType(StoreElement store)
+        => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
+            && IsEnumLikeInteger(element)
+            ? element
+            : store.ElementType;
+
     string Expression(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
         LoadArgument a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => StackSlotName(s),
-        Constant { Value: int } c when EnumMemberName(c) is { } named => named,
+        Constant { Value: int or long } c when EnumMemberName(c) is { } named => named,
         // A retyped enum constant with no single named member (a composite flag
         // value, or one outside the resolved member map) is still that enum — a
-        // bare int is CS0266. Cast it; naming flag combinations is a later slice.
-        // A negative value must be parenthesized after the cast (else CS0075).
-        Constant { Value: int value, Type: { } enumType } when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
-            => $"({TypeText(enumType)}){(value < 0 ? $"({value})" : value.ToString(CultureInfo.InvariantCulture))}",
+        // bare int is CS0266. Route it through the overflow-aware enum cast so an
+        // unsigned- or narrow-backed enum's out-of-range/negative value is wrapped
+        // in `unchecked` (e.g. `unchecked((U)(-1))`); naming flag combinations is a
+        // later slice. A long-backed enum keeps its `long` payload.
+        Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
+            => EnumIntegerCast(
+                c.Value is int i
+                    ? new Constant(i, TypeRef.CoreLib("System", "Int32"))
+                    : new Constant((long)c.Value!, TypeRef.CoreLib("System", "Int64")),
+                enumType),
         Constant c => ConstantText(c),
         LoadField f => FieldTarget(f.Field, f.Instance),
         Binary b => BinaryText(b),
@@ -1808,7 +1826,7 @@ public sealed partial class CSharpPrinter
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
-        Box b => Expression(b.Operand),
+        Box b => CastValue(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
@@ -3101,9 +3119,9 @@ public sealed partial class CSharpPrinter
     /// the raw integer — naming those is a later slice.
     /// </summary>
     string? EnumMemberName(Constant constant)
-        => constant.Value is int value
+        => constant.Value is int or long
             && _function.EnumMembers.TryGetValue(constant.Type, out var members)
-            && members.TryGetValue(value, out var name)
+            && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
             ? $"{TypeText(constant.Type)}.{name}"
             : null;
 
@@ -3143,8 +3161,9 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string SwitchLabelText(Constant label, TypeRef? enumType)
     {
-        if (enumType is null || label.Value is not int value)
+        if (enumType is null || label.Value is not (int or long))
             return ConstantText(label);
+        long value = label.Value is int i ? i : (long)label.Value!;
         var typed = new Constant(value, enumType);
         if (EnumMemberName(typed) is { } named)
             return named;
