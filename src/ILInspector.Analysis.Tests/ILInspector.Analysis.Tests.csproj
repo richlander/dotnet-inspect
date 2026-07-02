@@ -38,6 +38,7 @@
     <ProjectReference Include="..\DiffAsmFixtures.Target\DiffAsmFixtures.Target.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffAsmFixtures.Caller\DiffAsmFixtures.Caller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\tools\AnalysisHarness\AnalysisHarness.csproj" />
   </ItemGroup>
 

@@ -16,8 +16,13 @@
   <!-- System.Reflection.Metadata is part of net10.0 BCL -->
 
   <ItemGroup>
+    <InternalsVisibleTo Include="ILInspector.Analysis.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
   </ItemGroup>
 
 </Project>
