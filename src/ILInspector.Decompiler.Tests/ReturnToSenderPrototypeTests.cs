@@ -23,7 +23,7 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact, $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Equal("Class1", result.Plan.TargetMethod.Type);
             Assert.Equal("get_Method1", result.Plan.TargetMethod.Method);
             Assert.Contains("public class Class1", result.Source);
@@ -97,7 +97,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("External", result.Plan.Module.Usings);
             Assert.Contains("public External.Greeting Method1", result.Source);
         }
@@ -240,7 +242,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             var type = Assert.Single(result.Plan.Types);
             Assert.Contains(type.SourceFacts, fact =>
                 fact.Producer == "roslyn"

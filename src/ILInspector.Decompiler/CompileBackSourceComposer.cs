@@ -988,7 +988,7 @@ public static class CompileBackSourceComposer
 
             parameters.Add(new TypeParameter
             {
-                Name = CompileBackCSharpNames.Identifier(reader.GetString(parameter.Name)),
+                Name = reader.GetString(parameter.Name),
                 Constraints = constraints,
             });
         }
