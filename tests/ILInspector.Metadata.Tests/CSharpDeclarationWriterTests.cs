@@ -150,6 +150,99 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void PropertyDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Current",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Collections.Generic.List<System.Guid>",
+                MemberName = "Current",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" },
+                    new ApiAccessor { Kind = "set", Accessibility = "private" }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+            using System.Collections.Generic;
+
+            public List<Guid> Current { get; private set; }
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void RequiredPropertyDeclaration_UsesStructuredRequiredFact()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Name",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "Name",
+                IsRequired = true,
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" },
+                    new ApiAccessor { Kind = "set" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public required string Name { get; set; }", declaration);
+    }
+
+    [Fact]
+    public void IndexerDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Item",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "this[]",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int", Name = "index" }
+                ],
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public string this[int index] { get; }", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsings_KeepsCollidingSimpleNamesQualified()
     {
         var type = new ApiType

@@ -52,7 +52,7 @@ public static class CSharpDeclarationWriter
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
 
-        if (options.TerminateMemberDeclaration && !declaration.EndsWith(';'))
+        if (options.TerminateMemberDeclaration && NeedsTerminator(declaration))
             declaration += ";";
 
         var source = ComposeUnit([declaration], plan.GeneratedUsings, options);
@@ -70,7 +70,7 @@ public static class CSharpDeclarationWriter
         var plan = TypeNamePlan.Create(references, options);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
-        return options.TerminateMemberDeclaration && !declaration.EndsWith(';')
+        return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
             ? declaration + ";"
             : declaration;
     }
@@ -94,7 +94,7 @@ public static class CSharpDeclarationWriter
                 type,
                 member,
                 options with { TerminateMemberDeclaration = true });
-            if (declaration.Length > 0 && !declaration.EndsWith(';'))
+            if (declaration.Length > 0 && NeedsTerminator(declaration))
                 declaration += ";";
             if (declaration.Length > 0)
                 lines.Add("    " + plan.Apply(declaration));
@@ -170,6 +170,9 @@ public static class CSharpDeclarationWriter
 
         return AppendTypeParameterConstraints(declaration, type.TypeParameters);
     }
+
+    static bool NeedsTerminator(string declaration)
+        => !declaration.EndsWith(';') && !declaration.EndsWith('}');
 
     static string RenderMemberDeclarationCore(
         ApiType type,
@@ -527,10 +530,23 @@ public static class CSharpDeclarationWriter
             signature = $"{returnType} {memberName}({parameters})";
             return true;
         }
+        if (member.Kind == "property"
+            && model.ReturnType is { Length: > 0 } propertyType
+            && model.Accessors.Count > 0)
+        {
+            var head = model.IsRequired ? $"required {propertyType}" : propertyType;
+            var propertyMemberName = model.MemberName == "this[]"
+                ? $"this[{parameters}]"
+                : string.IsNullOrWhiteSpace(model.MemberName)
+                    ? member.Name
+                    : model.MemberName!;
+            signature = $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
+            return true;
+        }
 
-        // Keep generic methods, extension methods, explicit implementations,
-        // operators, properties, and events on compatibility text until the
-        // remaining declaration-level facts are represented in ApiSignature.
+        // Keep generic methods, extension projections, explicit implementations,
+        // operators, and events on compatibility text until the remaining
+        // declaration-level facts are represented in ApiSignature.
         return false;
 
         static string ParameterDeclaration(ApiParameter parameter)
@@ -540,6 +556,11 @@ public static class CSharpDeclarationWriter
                 : parameter.Declaration;
             return declaration;
         }
+
+        static string AccessorDeclaration(ApiAccessor accessor)
+            => string.IsNullOrWhiteSpace(accessor.Accessibility)
+                ? $"{accessor.Kind};"
+                : $"{accessor.Accessibility} {accessor.Kind};";
     }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
