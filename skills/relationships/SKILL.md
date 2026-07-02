@@ -15,10 +15,9 @@ dnx dotnet-inspect -y -- <command>
 ```
 
 Scope any of these commands the same way: `--package Foo` (repeatable),
-`--library path.dll`, `--platform` (all in-box frameworks), `--project App.csproj`
-(project-referenced packages), `--extensions` or `--aspnetcore` (curated
-Microsoft.* sets), `--package-prefix Azure.AI` (every package under a NuGet ID
-prefix), and `--tfm net9.0`.
+`--library path.dll`, `--platform` (all in-box frameworks), `--extensions` or
+`--aspnetcore` (curated Microsoft.* sets), `--package-prefix Azure.AI` (every
+package under a NuGet ID prefix), and `--tfm net9.0`.
 
 ## What implements or extends it?
 
@@ -30,6 +29,7 @@ to include extensions on types reachable through properties and methods.
 dnx dotnet-inspect -y -- implements IDisposable --platform
 dnx dotnet-inspect -y -- extensions HttpClient --platform --reachable
 dnx dotnet-inspect -y -- implements ILogger --package-prefix Microsoft.Extensions
+dnx dotnet-inspect -y -- implements IMarkoutFormatter --package Markout
 ```
 
 ## What does it depend on?

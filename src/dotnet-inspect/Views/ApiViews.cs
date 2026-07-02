@@ -888,6 +888,8 @@ public record OptimizationOpportunityRow(
     [property: MarkoutSkipNull] string? Allocation,
     [property: MarkoutSkipNull] string? Path,
     [property: MarkoutSkipNull] string? PathConfidence,
+    [property: MarkoutPropertyName("Post Dominance")]
+    [property: MarkoutSkipNull] string? PostDominance,
     [property: MarkoutSkipNull] string? IL);
 
 [MarkoutSerializable]

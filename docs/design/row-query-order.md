@@ -8,9 +8,9 @@ describe behavior that exists today.
 ## Problem
 
 Table sections are becoming richer. `Performance Triage` now has columns such as
-`Allocation`, `Path`, and `Path Confidence`, and future sections will add more
-domain-specific columns. Adding one flag per column, such as `--allocation` or
-`--path-confidence`, does not scale:
+`Allocation`, `Path`, `Path Confidence`, and `Post Dominance`, and future
+sections will add more domain-specific columns. Adding one flag per column, such
+as `--allocation` or `--path-confidence`, does not scale:
 
 - the command surface grows without bound;
 - field names become less discoverable than table schemas;
@@ -112,6 +112,7 @@ Examples:
 --where "Allocation=boxed *"
 --where "Path=loop body"
 --where "PathConfidence=dominates-return"
+--where "PostDominance=return-post-dominates"
 --where "RootReach>=10"
 --where "Confidence>=medium"
 ```
@@ -158,11 +159,11 @@ Default order:
 
 Filterable fields:
   Member, RootReach, Shape, Evidence, Fix, Confidence, Loop, Allocation, Path,
-  PathConfidence, IL
+  PathConfidence, PostDominance, IL
 
 Sortable fields:
   Triage, RootReach, Confidence, Loop, Member, Shape, IL, Allocation, Path,
-  PathConfidence
+  PathConfidence, PostDominance
 ```
 
 This makes the default sort order visible exactly where users and agents already
@@ -195,7 +196,7 @@ dotnet-inspect library MyApp.dll -S "Performance Triage" \
   --where "Path=loop body" \
   --order-by "RootReach desc" \
   --top 10 \
-  --columns "Member,Shape,Allocation,Path,PathConfidence,RootReach,IL"
+  --columns "Member,Shape,Allocation,Path,PathConfidence,PostDominance,RootReach,IL"
 ```
 
 Compact note in human output when `--top` is used:
@@ -284,7 +285,7 @@ rendered rows.
 1. Should `--where "Field=glob *"` use glob matching automatically when `*` or
    `?` appears, or require an explicit glob operator?
 2. Should field names normalize aliases such as `PathConfidence` and
-   `Path Confidence`?
+   `Path Confidence`, or `PostDominance` and `Post Dominance`?
 3. Should `--order-by Confidence` default to descending for ranked fields?
 4. Should a selected section with no default order allow `--top`, or should
    `--top` require a default or explicit order?

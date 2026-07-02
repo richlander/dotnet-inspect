@@ -37,8 +37,8 @@ public class MixedSourceRendererTests
         var lines = output.Split('\n');
         var cs = lines.Single(l => l.Contains("new int[n]"));
         var il = lines.Single(l => l.Contains("newarr"));
-        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; escape=escapes)", cs);
-        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; escape=escapes)", il);
+        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes)", cs);
+        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes)", il);
     }
 
     [Fact]

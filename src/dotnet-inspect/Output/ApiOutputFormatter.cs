@@ -1813,6 +1813,7 @@ public static class ApiOutputFormatter
                 opportunity.RuntimeAllocationType is { Length: > 0 } allocation ? MarkoutInline.Code(allocation) : null,
                 opportunity.PathContext,
                 opportunity.PathConfidence,
+                opportunity.PostDominance,
                 opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null))
             .ToList();
 

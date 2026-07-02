@@ -20,55 +20,81 @@ internal static class ILOffsetSourceQuery
         HttpClient httpClient,
         VerboseLogger logger)
     {
+        using var service = SourceLinkService.Open(dllPath, logger.Log);
+        return await ResolveAsync(service, packageName, packageVersion, isPlatformAssembly, options, httpClient, logger, writeErrors: true);
+    }
+
+    internal static async Task<(int ExitCode, ILOffsetResult? Result, string? Error)> ResolveBatchAsync(
+        SourceLinkService service,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        var (exitCode, result) = await ResolveAsync(service, packageName, packageVersion, isPlatformAssembly, options, httpClient, logger, writeErrors: false);
+        return (exitCode, result, exitCode == 0 ? null : "could not resolve");
+    }
+
+    private static async Task<(int ExitCode, ILOffsetResult? Result)> ResolveAsync(
+        SourceLinkService service,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool writeErrors)
+    {
         if (!TryParse(options.ILOffsetParameter!, out var methodToken, out var ilOffset))
         {
-            Console.Error.WriteLine($"Error: Invalid --il-offset value '{options.ILOffsetParameter}'.");
-            Console.Error.WriteLine("Expected format: 0x6000001+0x5 (method token + IL offset)");
+            WriteError(writeErrors, $"Error: Invalid --il-offset value '{options.ILOffsetParameter}'.");
+            WriteError(writeErrors, "Expected format: 0x6000001+0x5 (method token + IL offset)");
             return (1, null);
         }
 
-        using var service = SourceLinkService.Open(dllPath, logger.Log);
         var pdbContext = service.Context;
 
         if (!pdbContext.HasMetadata)
         {
-            Console.Error.WriteLine("Error: No metadata in library.");
+            WriteError(writeErrors, "Error: No metadata in library.");
             return (1, null);
         }
 
         var memberContext = pdbContext.ResolveMemberContext(methodToken, ilOffset);
         if (memberContext == null)
         {
-            Console.Error.WriteLine($"Error: Could not resolve member context for token 0x{methodToken:X}.");
-            Console.Error.WriteLine("The method token may be invalid or may not identify a MethodDef row.");
+            WriteError(writeErrors, $"Error: Could not resolve member context for token 0x{methodToken:X}.");
+            WriteError(writeErrors, "The method token may be invalid or may not identify a MethodDef row.");
             return (1, null);
         }
 
         var instructionContext = pdbContext.ResolveInstructionContext(methodToken, ilOffset, out var instructionError);
         if (instructionContext == null && RequiresInstructionContext(options))
         {
-            Console.Error.WriteLine($"Error: {instructionError ?? $"Could not resolve instruction context for token 0x{methodToken:X}+0x{ilOffset:X}."}");
+            WriteError(writeErrors, $"Error: {instructionError ?? $"Could not resolve instruction context for token 0x{methodToken:X}+0x{ilOffset:X}."}");
             return (1, null);
         }
 
         var exceptionContext = pdbContext.ResolveExceptionContext(methodToken, ilOffset, out var exceptionError);
         if (exceptionError is not null && RequiresExceptionContext(options))
         {
-            Console.Error.WriteLine($"Error: {exceptionError}");
+            WriteError(writeErrors, $"Error: {exceptionError}");
             return (1, null);
         }
 
         var callsiteContext = pdbContext.ResolveCallsiteContext(methodToken, ilOffset, out var callsiteError);
         if (callsiteError is not null && RequiresCallsiteContext(options))
         {
-            Console.Error.WriteLine($"Error: {callsiteError}");
+            WriteError(writeErrors, $"Error: {callsiteError}");
             return (1, null);
         }
 
         var returnAddressContext = pdbContext.ResolveReturnAddressContext(methodToken, ilOffset, out var returnAddressError);
         if (returnAddressError is not null && RequiresReturnAddressContext(options))
         {
-            Console.Error.WriteLine($"Error: {returnAddressError}");
+            WriteError(writeErrors, $"Error: {returnAddressError}");
             return (1, null);
         }
 
@@ -98,7 +124,8 @@ internal static class ILOffsetSourceQuery
 
             if (!pdbContext.HasPdb)
             {
-                WritePdbWarning(pdbContext);
+                if (writeErrors)
+                    WritePdbWarning(pdbContext);
                 return (1, null);
             }
 
@@ -108,8 +135,8 @@ internal static class ILOffsetSourceQuery
             result = service.ResolveByILOffset(methodToken, ilOffset);
             if (result == null)
             {
-                Console.Error.WriteLine($"Error: Could not resolve source location for token 0x{methodToken:X}+0x{ilOffset:X}.");
-                Console.Error.WriteLine("The method token may be invalid or the PDB may not contain sequence points for this method.");
+                WriteError(writeErrors, $"Error: Could not resolve source location for token 0x{methodToken:X}+0x{ilOffset:X}.");
+                WriteError(writeErrors, "The method token may be invalid or the PDB may not contain sequence points for this method.");
                 return (1, null);
             }
         }
@@ -194,6 +221,12 @@ internal static class ILOffsetSourceQuery
         };
 
         return (0, resolved);
+    }
+
+    private static void WriteError(bool enabled, string message)
+    {
+        if (enabled)
+            Console.Error.WriteLine(message);
     }
 
     private static bool RequiresSourceLocation(LibraryOptions options)

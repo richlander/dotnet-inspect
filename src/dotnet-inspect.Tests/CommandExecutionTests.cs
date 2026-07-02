@@ -410,6 +410,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceTriageWhere_FiltersByPostDominance()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Post Dominance=return-post-dominates",
+            "--order-by", "PostDominance desc,RootReach desc",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var rows = output.TrimEnd().Split('\n').Skip(1).ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row => Assert.Contains("\treturn-post-dominates\t", row));
+    }
+
+    [Fact]
     public async Task PerformanceTriageCount_AppliesWhereBeforeTop()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2715,7 +2733,7 @@ public class CommandExecutionTests
         Assert.Contains("| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality |", output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
-        Assert.Contains("| offset | Allocation | alloc.box | `int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; escape=escapes` | Always |", output);
+        Assert.Contains("| offset | Allocation | alloc.box | `int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes` | Always |", output);
     }
 
     [Fact]
@@ -2728,7 +2746,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("FactsTableFixture::BoxInt\tIL_", output);
-        Assert.Contains("\toffset\tAllocation\talloc.box\tint; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; escape=escapes\tAlways", output);
+        Assert.Contains("\toffset\tAllocation\talloc.box\tint; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes\tAlways", output);
     }
 
     [Fact]
@@ -4761,6 +4779,91 @@ public class CommandExecutionTests
         Assert.Contains("HexConverter.cs", output);
         Assert.Contains("## Member Context", output);
         Assert.Contains("## Instruction Context", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            # label coordinate
+            profiler-sample 0x06000001+0x1
+            return-address 0x06000001+0x6
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## IL Coordinates", output);
+            Assert.Contains("Coordinate", output);
+            Assert.Contains("IL Offset", output);
+            Assert.Contains("Meaning", output);
+            Assert.Contains("Evidence", output);
+            Assert.Contains("profiler-sample", output);
+            Assert.Contains("callsite", output);
+            Assert.Contains("return-address", output);
+            Assert.Contains("return address", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            bad debugger frame
+            good 0x06000001+0x1
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(error);
+            Assert.Contains(Path.GetFileName(path), output);
+            Assert.Contains("expected a MethodDef token + IL offset coordinate", output);
+            Assert.Contains("good", output);
+            Assert.Contains("callsite", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_JsonUsesSnakeCaseEnvelope()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "sample 0x06000001+0x1", TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--json", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("\"rows\"", output);
+            Assert.Contains("\"il_offset\"", output);
+            Assert.DoesNotContain("\"ILOffset\"", output);
+            Assert.DoesNotContain("\"Coordinate\"", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
