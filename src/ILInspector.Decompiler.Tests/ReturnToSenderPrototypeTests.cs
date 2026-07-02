@@ -893,6 +893,36 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DoesNotDuplicateBodyBackedSetterDuringClosureSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private int _value;
+
+                public int Value
+                {
+                    set => _value = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int Value", result.Source);
+            Assert.DoesNotContain("throw null", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
     {
         var assemblyPath = CompileFixture("""

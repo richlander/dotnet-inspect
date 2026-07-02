@@ -1526,7 +1526,9 @@ public static class CompileBackSourceComposer
                 {
                     continue;
                 }
-                if (members.Any(member => member.Kind == CompileBackMemberKind.PropertyGet && member.Name == Identifier(propertyName)))
+                if (members.Any(member =>
+                        member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                        && member.Name == Identifier(propertyName)))
                     continue;
 
                 MethodSignature<string> signature;
