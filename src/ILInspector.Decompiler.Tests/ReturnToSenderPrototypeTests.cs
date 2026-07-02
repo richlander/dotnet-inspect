@@ -643,6 +643,38 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsClosureConstFieldsWithInitializers()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public const int ConstValue = 42;
+                public int Value => ConstValue;
+                public static Helper Create() => new Helper();
+            }
+
+            public class Class1
+            {
+                public int FromHelper => Helper.Create().Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public const int ConstValue = 42;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_EmitsUnsafePointerTargetAndField()
     {
         var assemblyPath = CompileFixture("""

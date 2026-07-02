@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -441,6 +442,12 @@ public static class CompileBackSourceComposer
         {
             string staticText = member.IsStatic ? " static" : "";
             string unsafeText = RequiresUnsafe(member) ? " unsafe" : "";
+            if (member.StubBody == CompileBackStubBodyKind.TargetBody && member.TargetBody is { } initializer)
+            {
+                sb.AppendLine($"{pad}public const {member.ReturnType?.DisplayName ?? "object"} {member.Name} = {initializer};");
+                return;
+            }
+
             sb.AppendLine($"{pad}public{staticText}{unsafeText} {member.ReturnType?.DisplayName ?? "object"} {member.Name};");
             return;
         }
@@ -947,8 +954,10 @@ public static class CompileBackSourceComposer
                     field.Attributes.HasFlag(FieldAttributes.Static),
                     CompileBackTypeSignature.Display(fieldType),
                     Parameters: [],
-                    CompileBackStubBodyKind.None,
-                    TargetBody: null,
+                    TryFormatConstantField(reader, field, out var constant)
+                        ? CompileBackStubBodyKind.TargetBody
+                        : CompileBackStubBodyKind.None,
+                    TargetBody: constant,
                     [new CompileBackFact("metadata", "closure-field", fieldName)]));
             }
 
@@ -1087,6 +1096,68 @@ public static class CompileBackSourceComposer
 
         static bool IsPointerSignature(string signature)
             => signature.Contains('*', StringComparison.Ordinal);
+
+        static bool TryFormatConstantField(MetadataReader reader, FieldDefinition field, out string? constant)
+        {
+            constant = null;
+            if (!field.Attributes.HasFlag(FieldAttributes.Literal))
+                return false;
+
+            var constantHandle = field.GetDefaultValue();
+            if (constantHandle.IsNil)
+                return false;
+
+            var value = reader.GetConstant(constantHandle);
+            var blob = reader.GetBlobReader(value.Value);
+            constant = value.TypeCode switch
+            {
+                ConstantTypeCode.Boolean => blob.ReadBoolean() ? "true" : "false",
+                ConstantTypeCode.Char => $"'{EscapeCharLiteral(blob.ReadChar())}'",
+                ConstantTypeCode.SByte => blob.ReadSByte().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Byte => blob.ReadByte().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Int16 => blob.ReadInt16().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.UInt16 => blob.ReadUInt16().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Int32 => blob.ReadInt32().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.UInt32 => blob.ReadUInt32().ToString(CultureInfo.InvariantCulture),
+                ConstantTypeCode.Int64 => blob.ReadInt64().ToString(CultureInfo.InvariantCulture) + "L",
+                ConstantTypeCode.UInt64 => blob.ReadUInt64().ToString(CultureInfo.InvariantCulture) + "UL",
+                ConstantTypeCode.Single => blob.ReadSingle().ToString("R", CultureInfo.InvariantCulture) + "f",
+                ConstantTypeCode.Double => blob.ReadDouble().ToString("R", CultureInfo.InvariantCulture),
+                ConstantTypeCode.String => StringLiteral(blob.ReadUTF16(blob.Length)),
+                ConstantTypeCode.NullReference => "null",
+                _ => null,
+            };
+
+            return constant is not null;
+        }
+
+        static string StringLiteral(string value)
+        {
+            var sb = new StringBuilder(value.Length + 2);
+            sb.Append('"');
+            foreach (char ch in value)
+                sb.Append(EscapeCharLiteral(ch));
+            sb.Append('"');
+            return sb.ToString();
+        }
+
+        static string EscapeCharLiteral(char ch)
+            => ch switch
+            {
+                '\'' => "\\'",
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\0' => "\\0",
+                '\a' => "\\a",
+                '\b' => "\\b",
+                '\f' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\v' => "\\v",
+                _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+                _ => ch.ToString(),
+            };
 
         static IReadOnlyList<CompileBackParameter> Parameters(
             MetadataReader reader,
