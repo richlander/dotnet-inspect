@@ -349,10 +349,10 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "struct", "value-type", "property", "setter"]);
 
-    public static readonly GeneratedFixtureDefinition MinimalStructConstructorFieldInitFrontier = new(
-        "minimal.struct-constructor-field-init-frontier",
+    public static readonly GeneratedFixtureDefinition MinimalStructConstructorFieldInit = new(
+        "minimal.struct-constructor.field-init",
         """
-        namespace GeneratedFixtures.MinimalStructConstructorFieldInitFrontier;
+        namespace GeneratedFixtures.MinimalStructConstructorFieldInit;
 
         public struct Counter
         {
@@ -372,13 +372,11 @@ internal static class GeneratedFixtureCatalog
         """,
         [
             new(
-                "GeneratedFixtures.MinimalStructConstructorFieldInitFrontier.Counter",
+                "GeneratedFixtures.MinimalStructConstructorFieldInit.Counter",
                 ".ctor",
-                FidelityCheck.CompileBackStatus.OpcodeDiff,
-                IsFrontier: true,
-                Note: "RTS currently broad-surfaces sibling auto-properties after field-closure growth, introducing a backing-field initialization before the target struct constructor body."),
+                FidelityCheck.CompileBackStatus.Exact),
         ],
-        ["minimal", "struct", "constructor", "frontier", "value-type"]);
+        ["minimal", "struct", "constructor", "value-type"]);
 
     public static readonly GeneratedFixtureDefinition MinimalArrayIndex = new(
         "minimal.array-index",
@@ -772,6 +770,7 @@ internal static class GeneratedFixtureCatalog
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,
+        MinimalStructConstructorFieldInit,
         MinimalArrayIndex,
         MinimalArrayLength,
         MinimalIndexerGetter,
@@ -791,7 +790,6 @@ internal static class GeneratedFixtureCatalog
     [
         MinimalSwitchTwoCaseLowersIf,
         MinimalConditionalExpressionShapeFrontier,
-        MinimalStructConstructorFieldInitFrontier,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Catalog { get; } =

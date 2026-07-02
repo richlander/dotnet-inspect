@@ -1503,6 +1503,8 @@ public static class CompileBackSourceComposer
                 var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
                 bool isAutoProperty = !accessors.Getter.IsNil
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
+                if (requirement.RequiredKind == CompileBackTypeKind.Struct && !isAutoProperty)
+                    continue;
                 bool hasSetter = !accessors.Setter.IsNil;
                 members.Add(new CompileBackMemberDeclaration(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {signature.ReturnType}"),
