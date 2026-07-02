@@ -110,7 +110,7 @@ hold a `PEReader` and never re-derive provenance.
               InspectionQuery                       AssemblyInspection
  CLI  ───────────────────────────►  Service  ──────────────────────────►  CLI
       (target [location + selector]        (resolve → open → scan →
-       + lenses + options)                 assemble the final shape)
+       + facets + options)                 assemble the final shape)
 ```
 
 Three types carry this:
@@ -122,7 +122,7 @@ What to inspect and what to produce. The CLI builds it from parsed options:
 ```csharp
 public sealed record InspectionQuery(
     InspectionTarget Target,      // what to inspect
-    IReadOnlySet<Lens> Lenses,    // what to produce (mapped from -v / -S)
+    IReadOnlySet<Facet> Facets,    // what to produce (mapped from -v / -S)
     QueryOptions Options);        // how to narrow: tfm, rid, includeAll, …
 
 public sealed record InspectionTarget(
@@ -140,7 +140,7 @@ leaves `Selector` null; a member or coordinate inspection sets it.
 - **selector** — *which member / IL coordinate inside it* (`MemberQuery` / `ILCoordinateQuery`;
   the type/member part). "Select the member." Lives in `Target.Selector`, next to the location —
   together they are the *address*.
-- **lens** — *what capability to produce* — one canonical fact producer owned by a single layer
+- **facet** — *what capability to produce* — one canonical fact producer owned by a single layer
   (e.g. `Resources`, `CustomAttributes`, `AllocationFacts`, `DecompiledSource`; the full
   method-body set is the ownership table in [Method Body Inspection](method-body-inspection.md)).
 
@@ -148,18 +148,18 @@ leaves `Selector` null; a member or coordinate inspection sets it.
 includeAll), kept separate because it narrows which assembly variant rather than naming a new
 thing to inspect.
 
-A **lens is neither a verbosity level nor a CLI section name.** Verbosity (`-v:q/m/n/d`) and
+A **facet is neither a verbosity level nor a CLI section name.** Verbosity (`-v:q/m/n/d`) and
 section selection (`-S`) are CLI-facing *inputs*; at the command boundary the CLI **maps**
-`(verbosity + selected sections)` to a **set of lenses**, and the request carries the lenses.
-The service produces each lens once; the CLI renders sections from the results. Many sections
-can project the same lens (e.g. `Allocation Facts` and `Allocation Context` both render
-`AllocationFacts`), and a lens has exactly one owner, so no two sections recompute it.
+`(verbosity + selected sections)` to a **set of facets**, and the request carries the facets.
+The service produces each facet once; the CLI renders sections from the results. Many sections
+can project the same facet (e.g. `Allocation Facts` and `Allocation Context` both render
+`AllocationFacts`), and a facet has exactly one owner, so no two sections recompute it.
 
 **One request object, threaded to owners.** The service does not take a long discrete parameter
 list, and it does not re-parse anything. The CLI builds a **single `InspectionQuery`** and the
 pipeline destructures it, handing each typed slice to the layer that owns it: the resolver takes
 only `Target.Location`; `AssemblyInspectionSession.Open` takes the resulting **reference**; the
-method-body session takes `Target.Selector` + the **lenses**. One object crosses the CLI→service
+method-body session takes `Target.Selector` + the **facets**. One object crosses the CLI→service
 boundary; each service downstream receives just its own slice, not the whole request.
 
 ### 2. `ResolvedAssemblyReference` — the resolution output (reuse what #2051 built)
@@ -245,9 +245,9 @@ foreach (var resolved in await resolver.ResolveAsync(query.Target.Location))  //
 
 The boundary is deliberate: per [`service-model-refactoring.md`](service-model-refactoring.md)
 the returned shape should already be *view-compatible* (section-shaped), so the CLI selects
-lenses and renders (Markout / writers) rather than transforming service data into view models.
+facets and renders (Markout / writers) rather than transforming service data into view models.
 "Mapping" that constructs inspection facts or section shapes belongs **below** the CLI; only
-lens selection and rendering stay above it. This is what keeps the "service returns the final
+facet selection and rendering stay above it. This is what keeps the "service returns the final
 shape" promise from quietly regressing into today's formatter/service leakage.
 
 ## The sibling seam: method-body / coordinate inspection
@@ -279,7 +279,7 @@ composing `MetadataSource` for decompilation) is the target. The explicit goal i
 method-body seam is its sibling and should follow the same query → session → final-shape
 pattern. Treat them as one program of work under #2122, not two.
 
-That sibling seam is specified in full — lens ownership, layer boundaries, and its own
+That sibling seam is specified in full — facet ownership, layer boundaries, and its own
 migration — in [Method Body Inspection](method-body-inspection.md). One caveat it sharpens:
 the method-body *composition* (which joins Metadata + Analysis + Decompiler + Research) must
 sit **above** those libraries — it cannot live in `ILInspector.Metadata` and must not live in
@@ -297,7 +297,7 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
    - a **target** — `InspectionTarget(Location: platform System.Text.Json, Selector:
      MemberQuery(TypeName: "…JsonSerializer", MemberName: "Serialize", OverloadIndex: 1,
      PublicOnly: true))`. The location is the assembly; the selector rides alongside it.
-   - a **lens set** — the product capabilities that the requested sections / verbosity map to
+   - a **facet set** — the product capabilities that the requested sections / verbosity map to
      at the command boundary.
    - **options** — tfm / rid / includeAll as applicable.
 
@@ -305,18 +305,18 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
    re-parsed downstream. (A bare fully-qualified `Type.Member:N` with no `--platform`/`--package`
    uses the existing type-lookup path to supply the location — the *defining* assembly — first.)
 2. **Resolve (service).** The pipeline hands **only `Target.Location`** to the resolver (not the
-   selector, not the lenses). For `platform: System.Text.Json`, `PlatformResolver` locates the
+   selector, not the facets). For `platform: System.Text.Json`, `PlatformResolver` locates the
    assembly in the shared framework and returns a `ResolvedAssemblyReference` carrying its
    identity + provenance (framework, version). Nothing is discarded to `_`. The selector and
-   lenses stay with the request, untouched, for the body step.
+   facets stay with the request, untouched, for the body step.
 3. **Open once (service).** `AssemblyInspectionSession.Open(resolved)` opens the shared PE-owner.
    This is the single open for the entire query.
 4. **Select + inspect the body (service).** `MethodBodyInspectionSession` — over that *same*
-   owner — takes the **selector + lenses**, resolves the `MethodDef` for `Serialize` overload
-   `1`, runs the requested lenses (source, IL, calls, allocation/safety/cost, decompiled/annotated
+   owner — takes the **selector + facets**, resolves the `MethodDef` for `Serialize` overload
+   `1`, runs the requested facets (source, IL, calls, allocation/safety/cost, decompiled/annotated
    source, …), and returns a section-ready `MethodBodyInspection`. See
    [Method Body Inspection](method-body-inspection.md).
-5. **Render (CLI).** The CLI maps requested sections onto lenses and renders the returned shape
+5. **Render (CLI).** The CLI maps requested sections onto facets and renders the returned shape
    (Markout / writers). It never opened a `PEReader`, never classified an opcode, never
    re-derived the assembly's identity.
 
@@ -345,7 +345,7 @@ resolved: ResolvedAssemblyReference          (how to open — passed once)
 AssemblyInspectionSession.Open(resolved)      (opens the shared PE-owner ONCE)
    │  owner
    ├──► assembly scanners            (Resources, CustomAttributes, …)
-   ├──► MethodBodyInspectionSession  (member / coordinate lenses)
+   ├──► MethodBodyInspectionSession  (member / coordinate facets)
    └──► PdbContext / SourceLink      (source, sequence points)
 ```
 
@@ -400,7 +400,7 @@ pipeline.
 
 ## What legitimately stays in the CLI / elsewhere
 
-- **Selection and rendering:** building the query from options (source + sections/lenses) and
+- **Selection and rendering:** building the query from options (source + sections/facets) and
   rendering the returned section-shaped result (Markout / writers) is CLI work. Constructing
   the inspection facts / section shapes is **not** — that lives in the service (see the
   boundary note above).
@@ -450,8 +450,8 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 - **One query type or two.** Model `InspectionQuery` as always-many, or split a single-assembly
   `InspectionQuery` from a `PackageInspectionQuery` that fans out to many
   `ResolvedAssemblyReference`s? The package/`--tfm all` flows force multi-assembly either way.
-- **Query granularity.** Is `InspectionQuery.Lenses` the right knob, or should the session be
-  lazy (scan on first access) so the query only needs the target? Laziness may make the lens
+- **Query granularity.** Is `InspectionQuery.Facets` the right knob, or should the session be
+  lazy (scan on first access) so the query only needs the target? Laziness may make the facet
   set redundant.
 - **Shape of the shared PE-owner.** Should the new owner be a thin `PEReader`/`MetadataReader`
   holder that `PdbContext` and `MetadataSource` compose, or should `PdbContext` itself be
