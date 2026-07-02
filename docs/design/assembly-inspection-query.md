@@ -123,7 +123,7 @@ What to inspect and what to produce. The CLI builds it from parsed options:
 public sealed record InspectionQuery(
     InspectionTarget Target,      // what to inspect
     IReadOnlySet<Facet> Facets,    // what to produce (mapped from -v / -S)
-    QueryOptions Options);        // how to narrow: tfm, rid, includeAll, …
+    InspectionOptions Options);   // how to narrow: tfm, rid, includeAll, …
 
 public sealed record InspectionTarget(
     AssemblyLocation Location,          // which assembly: package | file | project | platform
