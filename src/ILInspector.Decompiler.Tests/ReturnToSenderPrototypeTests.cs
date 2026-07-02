@@ -445,6 +445,51 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void RunComparison_UsesExactCurrentTargetsPastPerTypeSampleCap()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int P0 => 0;
+                public int P1 => 1;
+                public int P2 => 2;
+                public int P3 => 3;
+                public int P4 => 4;
+                public int P5 => 5;
+                public int P6 => 6;
+                public int P7 => 7;
+                public int P8 => 8;
+                public int P9 => 9;
+            }
+            """);
+        try
+        {
+            var oldOut = Console.Out;
+            using var writer = new StringWriter();
+            try
+            {
+                Console.SetOut(writer);
+                var exitCode = ReturnToSender.RunComparison([assemblyPath], cap: 10, maxExamples: 10);
+
+                Assert.Equal(0, exitCode);
+            }
+            finally
+            {
+                Console.SetOut(oldOut);
+            }
+
+            var output = writer.ToString();
+            Assert.Contains("RETURNTOSENDER A/B over 10 property getters", output);
+            Assert.Contains("  Same          : 10", output);
+            Assert.Contains("  CurrentMissing: 0", output);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
     {
         var assemblyPath = CompileFixture("""

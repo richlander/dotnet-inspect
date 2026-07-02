@@ -182,7 +182,16 @@ static class ReturnToSender
             IReadOnlyDictionary<string, FidelityCheck.CompileBackResult> current;
             try
             {
-                current = FidelityCheck.Evaluate([assemblyPath], Math.Max(1, rtsResults.Count * 4), lowered: false, includeAllResults: true)
+                var currentTargets = rtsResults
+                    .Select(result => new FidelityCheck.CompileBackTarget(
+                        assemblyPath,
+                        result.Plan.TargetMethod.Type,
+                        result.Plan.TargetMethod.Method,
+                        result.Plan.TargetMethod.Overload,
+                        result.Plan.TargetMethod.Signature))
+                    .Distinct()
+                    .ToArray();
+                current = FidelityCheck.EvaluateTargets([assemblyPath], currentTargets)
                     .GroupBy(CurrentKey, StringComparer.Ordinal)
                     .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             }
