@@ -422,6 +422,29 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackPropertyGetters_UsesAutoPropertyShellForRecordPropertyGetter()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed record Snapshot(string Assembly, int Count);
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 8)
+                .Single(item => item.Plan.TargetMethod.Method == "get_Assembly");
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var member = Assert.Single(Assert.Single(result.Plan.Types).Members, member => member.Name == "Assembly");
+            Assert.Equal(CompileBackStubBodyKind.AutoProperty, member.StubBody);
+            Assert.Contains("public string Assembly { get; }", result.Source);
+            Assert.DoesNotContain("return this.Assembly;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
     {
         var assemblyPath = CompileFixture("""

@@ -214,6 +214,7 @@ public enum CompileBackStubBodyKind
     None,
     Throw,
     TargetBody,
+    AutoProperty,
 }
 
 public sealed record CompileBackFact(string Producer, string Id, string Detail);
@@ -259,6 +260,7 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string propertyName = Identifier(reader.GetString(property.Name));
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
+        bool targetIsAutoProperty = IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
         var diagnostics = new List<CompileBackPlanningDiagnostic>();
         var targetRoot = TopLevelRootOf(reader, targetType);
@@ -281,9 +283,14 @@ public static class CompileBackSourceComposer
                         reader.GetMethodDefinition(targetGetter).Attributes.HasFlag(MethodAttributes.Static),
                         [],
                         returnType,
-                        CompileBackStubBodyKind.TargetBody,
-                        targetBody,
-                        [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))])
+                        targetIsAutoProperty ? CompileBackStubBodyKind.AutoProperty : CompileBackStubBodyKind.TargetBody,
+                        targetIsAutoProperty ? null : targetBody,
+                        targetIsAutoProperty
+                            ? [
+                                new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name)),
+                                new CompileBackFact("metadata", "auto-property", propertyName)
+                            ]
+                            : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))])
                 ],
                 targetFacts)
         };
@@ -440,6 +447,11 @@ public static class CompileBackSourceComposer
                     sb.AppendLine($"{pad}{declaration}");
                     return;
                 }
+                if (member.StubBody == CompileBackStubBodyKind.AutoProperty)
+                {
+                    sb.AppendLine($"{pad}{declaration} {{ get; }}");
+                    break;
+                }
 
                 sb.AppendLine($"{pad}{declaration}");
                 sb.AppendLine($"{pad}{{");
@@ -516,6 +528,46 @@ public static class CompileBackSourceComposer
             IsStatic = member.IsStatic,
             Accessibility = null,
         };
+    }
+
+    static bool IsAutoProperty(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        PropertyDefinition property,
+        MethodDefinitionHandle getterHandle,
+        string propertyType)
+    {
+        var accessors = property.GetAccessors();
+        if (accessors.Getter.IsNil || accessors.Getter != getterHandle)
+            return false;
+        var getter = reader.GetMethodDefinition(getterHandle);
+        if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, getter.GetCustomAttributes()))
+            return false;
+
+        string propertyName = reader.GetString(property.Name);
+        string backingName = $"<{propertyName}>k__BackingField";
+        bool isStatic = getter.Attributes.HasFlag(MethodAttributes.Static);
+        var context = GenericContext.ForType(reader, typeDef);
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) != backingName)
+                continue;
+            if (field.Attributes.HasFlag(FieldAttributes.Static) != isStatic)
+                continue;
+            if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, field.GetCustomAttributes()))
+                return false;
+            try
+            {
+                return CompileBackTypeSignature.Display(field.DecodeSignature(SignatureDecoder.Instance, context)).DisplayName == propertyType;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     static CompileBackTypeKind ShellKind(MetadataReader reader, TypeDefinition typeDef)
