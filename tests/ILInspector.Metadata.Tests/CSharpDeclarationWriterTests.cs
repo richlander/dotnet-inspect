@@ -232,6 +232,74 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ConstructorDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.Collections.Generic.List<System.Guid>",
+                        Name = "items"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+            using System.Collections.Generic;
+
+            public Widget(List<Guid> items);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void ConstructorDeclaration_WithDefaultParameterKeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor(int count = 42)",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "int",
+                        Name = "count",
+                        HasDefault = true
+                    }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public Widget(int count = 42)", declaration);
+    }
+
+    [Fact]
     public void AbbreviatedMemberDeclaration_PreservesParameterModifiers()
     {
         var type = new ApiType { Namespace = "Samples", Name = "RefKinds", Kind = "class" };
