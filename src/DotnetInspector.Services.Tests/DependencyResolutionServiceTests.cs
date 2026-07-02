@@ -159,6 +159,132 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void SelectDependencyGroup_NoGroups_ReturnsNoDependencyGroups()
+    {
+        var result = DependencyResolutionService.SelectDependencyGroup(null, null);
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups, result.Status);
+        Assert.Null(result.Group);
+        Assert.Empty(result.AvailableTargetFrameworks);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_NoRequestedTfm_SelectsHighestTfm()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "netstandard2.0" },
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "net472" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, null);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Group?.TargetFramework);
+        Assert.Equal("net8.0", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_RequestedTfm_AllowsCompatibleFallbackAndPreservesRequestedTarget()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net6.0" },
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "net9.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Group?.TargetFramework);
+        Assert.Equal("net9.0", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_RequestedTfm_NoMatch_ReturnsAvailableTfms()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "net9.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "net6.0");
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework, result.Status);
+        Assert.Null(result.Group);
+        Assert.Equal("net6.0", result.TargetFramework);
+        Assert.Equal(["net8.0", "net9.0"], result.AvailableTargetFrameworks);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_DoesNotFallbackForRequestedTfm()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net9.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework, result.Status);
+        Assert.Null(result.Group);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_EmptyDependencyGroup_IsStillSelected()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0", Dependencies = [] }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, null);
+
+        Assert.True(result.IsSelected);
+        Assert.Empty(result.Group!.Dependencies);
+    }
+
+    [Fact]
     public void DependencyNode_Record_Properties()
     {
         var child = new DependencyNode("ChildPkg", "1.0.0", "Author1", []);

@@ -135,29 +135,18 @@ internal static class DependencyGraphService
             if (nuspec == null)
                 return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
 
-            if (nuspec.DependencyGroups is not { Count: > 0 })
+            var selection = DependencyResolutionService.SelectDependencyGroup(nuspec.DependencyGroups, requestedTfm);
+            if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
                 return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
-
-            var tfm = requestedTfm;
-            DependencyGroup? group;
-            if (!string.IsNullOrEmpty(tfm))
+            if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
             {
-                group = DependencyResolutionService.FindBestMatchingTfmGroup(nuspec.DependencyGroups, tfm);
-                if (group == null)
-                {
-                    return new PackageDependencyGraphResult.Error(
-                        $"No dependencies found for TFM '{tfm}'.",
-                        "Available TFMs: " + string.Join(", ",
-                            nuspec.DependencyGroups.Select(g => g.TargetFramework)));
-                }
-            }
-            else
-            {
-                group = TfmSelector.OrderByTfmPriorityDescending(nuspec.DependencyGroups, g => g.TargetFramework)
-                    .First();
-                tfm = group.TargetFramework;
+                return new PackageDependencyGraphResult.Error(
+                    $"No dependencies found for TFM '{selection.TargetFramework}'.",
+                    "Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
             }
 
+            var group = selection.Group!;
+            var tfm = selection.TargetFramework ?? group.TargetFramework;
             if (group.Dependencies.Count == 0)
                 return new PackageDependencyGraphResult.Empty($"No additional dependencies for {tfm}.");
 

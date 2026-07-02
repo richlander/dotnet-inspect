@@ -2750,32 +2750,25 @@ public class PackageCommand
     private static async Task<int> ShowDependencyTreeAsync(
         HttpClient client, InspectionResult result, InspectionOptions options, VerboseLogger logger)
     {
-        if (result.DependencyGroups is not { Count: > 0 })
+        var selection = DependencyResolutionService.SelectDependencyGroup(
+            result.DependencyGroups,
+            options.Tfm,
+            allowCompatibleFallbackForRequestedTfm: false);
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
         {
             Console.Error.WriteLine("No dependencies declared in package.");
             return 0;
         }
 
-        // Pick TFM: explicit --tfm, or highest available
-        var tfm = options.Tfm;
-        DependencyGroup? group;
-        if (!string.IsNullOrEmpty(tfm))
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
         {
-            group = result.DependencyGroups.FirstOrDefault(g =>
-                g.TargetFramework.Equals(tfm, StringComparison.OrdinalIgnoreCase));
-            if (group == null)
-            {
-                Console.Error.WriteLine($"Error: No dependencies found for TFM '{tfm}'.");
-                Console.Error.WriteLine("Available TFMs: " + string.Join(", ", result.DependencyGroups.Select(g => g.TargetFramework)));
-                return 1;
-            }
+            Console.Error.WriteLine($"Error: No dependencies found for TFM '{selection.TargetFramework}'.");
+            Console.Error.WriteLine("Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
+            return 1;
         }
-        else
-        {
-            group = TfmSelector.OrderByTfmPriorityDescending(result.DependencyGroups, g => g.TargetFramework)
-                .First();
-            tfm = group.TargetFramework;
-        }
+
+        var group = selection.Group!;
+        var tfm = selection.TargetFramework ?? group.TargetFramework;
 
         if (group.Dependencies.Count == 0)
         {
