@@ -221,6 +221,23 @@ public sealed class ApiSignatureModelTests
                 methodParameters));
     }
 
+    [Fact]
+    public void XmlDocSignatureParameterNormalization_StripsParameterNamesForFallback()
+    {
+        Assert.Equal(
+            "System.Int32",
+            ApiMemberIdentity.NormalizeXmlDocSignatureParameter(
+                "int index",
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, int>(StringComparer.Ordinal)));
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary{System.String,System.Int32}",
+            ApiMemberIdentity.NormalizeXmlDocSignatureParameter(
+                "System.Collections.Generic.Dictionary<string, int> values = null",
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, int>(StringComparer.Ordinal)));
+    }
+
     static ApiType GetType(string typeName)
         => Surface.Types.First(type => type.Name == typeName);
 

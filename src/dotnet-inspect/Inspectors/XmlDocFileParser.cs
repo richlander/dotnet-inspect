@@ -270,6 +270,7 @@ public class XmlDocFileParser
         IReadOnlyDictionary<string, int> methodParameterMap)
     {
         var paramList = SignatureParser.ExtractParamList(signature);
+        var stripParameterNames = false;
         if (string.IsNullOrEmpty(paramList) && !string.IsNullOrEmpty(signature))
         {
             var indexerStart = signature.IndexOf("this[", StringComparison.Ordinal);
@@ -278,7 +279,10 @@ public class XmlDocFileParser
                 var bracketStart = indexerStart + "this".Length;
                 var bracketEnd = signature.IndexOf(']', bracketStart);
                 if (bracketEnd > bracketStart)
+                {
                     paramList = $"({signature[(bracketStart + 1)..bracketEnd]})";
+                    stripParameterNames = true;
+                }
             }
         }
         if (string.IsNullOrEmpty(paramList))
@@ -291,7 +295,9 @@ public class XmlDocFileParser
             return [];
 
         return SplitParameters(inner)
-            .Select(p => ApiMemberIdentity.NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap))
+            .Select(p => stripParameterNames
+                ? ApiMemberIdentity.NormalizeXmlDocSignatureParameter(p, typeParameterMap, methodParameterMap)
+                : ApiMemberIdentity.NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap))
             .ToList();
     }
 

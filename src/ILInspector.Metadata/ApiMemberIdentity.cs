@@ -124,6 +124,12 @@ public static class ApiMemberIdentity
     public static string NormalizeXmlDocParameterType(string parameter)
         => NormalizeXmlDocParameterType(parameter, EmptyParameterMap, EmptyParameterMap);
 
+    internal static string NormalizeXmlDocSignatureParameter(
+        string parameter,
+        IReadOnlyDictionary<string, int> typeParameterMap,
+        IReadOnlyDictionary<string, int> methodParameterMap)
+        => NormalizeXmlDocParameterType(ExtractSignatureParameterType(parameter), typeParameterMap, methodParameterMap);
+
     static readonly IReadOnlyDictionary<string, int> EmptyParameterMap =
         new Dictionary<string, int>(StringComparer.Ordinal);
 
@@ -161,6 +167,26 @@ public static class ApiMemberIdentity
         }
 
         return PrimitiveTypeNames.ToClrFullName(type);
+    }
+
+    static string ExtractSignatureParameterType(string parameter)
+    {
+        var eqIndex = parameter.IndexOf('=');
+        if (eqIndex >= 0)
+            parameter = parameter[..eqIndex].Trim();
+
+        var depth = 0;
+        var lastSpace = -1;
+        for (var i = 0; i < parameter.Length; i++)
+        {
+            var c = parameter[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ' ' && depth == 0)
+                lastSpace = i;
+        }
+
+        return lastSpace > 0 ? parameter[..lastSpace] : parameter;
     }
 
     static Dictionary<string, int> GetMethodGenericParameterMap(string? memberName)
