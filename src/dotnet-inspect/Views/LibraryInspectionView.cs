@@ -595,6 +595,9 @@ public class LibraryInspectionView
                 context.EstimatedSizeBytes,
                 context.SizeTier,
                 context.InLoop,
+                context.Path,
+                context.PathConfidence,
+                context.PostDominance,
                 context.Evidence))
             .ToList();
 
@@ -1017,6 +1020,9 @@ public record ILOffsetAllocationContextRow(
     [property: MarkoutPropertyName("Est Size")] int? EstSize,
     string? SizeTier,
     [property: MarkoutPropertyName("In Loop")] string? InLoop,
+    string? Path,
+    [property: MarkoutPropertyName("Path Confidence")] string? PathConfidence,
+    [property: MarkoutPropertyName("Post Dominance")] string? PostDominance,
     string? Evidence);
 
 [MarkoutSerializable]

@@ -587,6 +587,11 @@ public class ILOffsetAllocationContext
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SizeTier { get; init; }
     public string? InLoop { get; init; }
+    public string? Path { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PathConfidence { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PostDominance { get; init; }
     public string? Evidence { get; init; }
 }
 

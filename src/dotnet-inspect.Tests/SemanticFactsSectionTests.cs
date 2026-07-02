@@ -102,6 +102,11 @@ public class SemanticFactsSectionTests
         Assert.Contains("40", result.Output);
         Assert.Contains("Exact", result.Output);
         Assert.Contains("escapes", result.Output);
+        Assert.Contains("Path Confidence", result.Output);
+        Assert.Contains("Post Dominance", result.Output);
+        Assert.Contains("straight-line", result.Output);
+        Assert.Contains("dominates-return", result.Output);
+        Assert.Contains("return-post-dominates", result.Output);
     }
 
     [Fact]
@@ -231,6 +236,17 @@ public static class SemanticFactsFixture
     public static int SafeSpan(Span<int> values) => values.Slice(0).Length;
 
     public static int[] ConstArray() => new int[4];
+
+    public static int LoopConstArray(int count)
+    {
+        var total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            var array = new int[4];
+            total += array.Length;
+        }
+        return total;
+    }
 
     public static int SafeSpanOfUnsafeNamedType(Span<System.Runtime.CompilerServices.UnsafeAccessorAttribute> values)
         => values.Slice(0).Length;

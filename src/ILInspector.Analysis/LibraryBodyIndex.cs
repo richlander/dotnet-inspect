@@ -180,7 +180,7 @@ public sealed class LibraryBodyIndex
         return opportunity.InLoop ? FormatPathContext(AllocationPathContext.LoopBody) : null;
     }
 
-    static string FormatPathContext(AllocationPathContext context)
+    internal static string FormatPathContext(AllocationPathContext context)
         => context switch
         {
             AllocationPathContext.Branch => "branch",
@@ -190,7 +190,7 @@ public sealed class LibraryBodyIndex
             _ => "straight-line",
         };
 
-    static string? FormatPathConfidence(AllocationPathConfidence confidence)
+    internal static string? FormatPathConfidence(AllocationPathConfidence confidence)
         => confidence switch
         {
             AllocationPathConfidence.DominatesReturn => "dominates-return",
@@ -198,7 +198,7 @@ public sealed class LibraryBodyIndex
             _ => null,
         };
 
-    static string? FormatPostDominance(AllocationPostDominance postDominance)
+    internal static string? FormatPostDominance(AllocationPostDominance postDominance)
         => postDominance switch
         {
             AllocationPostDominance.ReturnPostDominates => "return-post-dominates",

@@ -395,6 +395,9 @@ internal static class ILOffsetSourceQuery
             EstimatedSizeBytes = fact.EstimatedSizeBytes,
             SizeTier = fact.SizeTier,
             InLoop = fact.InLoop ? "Yes" : "No",
+            Path = fact.Path,
+            PathConfidence = fact.PathConfidence,
+            PostDominance = fact.PostDominance,
             Evidence = fact.Evidence
         };
 
