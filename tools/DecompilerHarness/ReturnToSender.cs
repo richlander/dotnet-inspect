@@ -452,19 +452,19 @@ static class ReturnToSender
         string methodName,
         int overload)
     {
-        int seen = 0;
+        var getterToProperty = new Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle>();
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var accessors = property.GetAccessors();
-            if (accessors.Getter.IsNil)
-                continue;
+            if (!accessors.Getter.IsNil)
+                getterToProperty[accessors.Getter] = propertyHandle;
+        }
 
-            var getter = reader.GetMethodDefinition(accessors.Getter);
-            if (reader.GetString(getter.Name) != methodName || getter.RelativeVirtualAddress == 0)
-                continue;
-            if (seen++ == overload)
-                return (propertyHandle, accessors.Getter);
+        if (TryFindMethod(reader, typeDef, methodName, overload) is { } getterHandle
+            && getterToProperty.TryGetValue(getterHandle, out var foundPropertyHandle))
+        {
+            return (foundPropertyHandle, getterHandle);
         }
 
         return null;
@@ -480,15 +480,17 @@ static class ReturnToSender
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != methodName
-                || method.RelativeVirtualAddress == 0
-                || method.GetGenericParameters().Count != 0)
+            if (reader.GetString(method.Name) != methodName)
             {
                 continue;
             }
 
-            if (seen++ == overload)
+            if (seen++ == overload
+                && method.RelativeVirtualAddress != 0
+                && method.GetGenericParameters().Count == 0)
+            {
                 return methodHandle;
+            }
         }
 
         return null;

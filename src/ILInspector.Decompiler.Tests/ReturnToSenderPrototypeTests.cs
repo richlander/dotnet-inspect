@@ -736,6 +736,33 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_UsesMetadataMethodOverloadIndex()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Class1
+            {
+                public abstract int Method1();
+
+                public int Method1(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Method1", 1)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(1, result.Plan.TargetMethod.Overload);
+            Assert.Contains("public int Method1(int value)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
     {
         var assemblyPath = CompileFixture("""
