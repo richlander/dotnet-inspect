@@ -67,6 +67,33 @@ times out, or whose diagnostics increase) exits nonzero; signal-count DRIFT is r
 failed. Each assembly is bounded by a per-assembly timeout so one pathological input cannot hang
 the sweep.
 
+Allocation metadata readout is a measurement-only companion for deciding whether
+path/escape evidence is strong enough to inform future confidence or ranking work:
+
+```bash
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --allocation-readout /tmp/corpus-assemblies.txt --top 12
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --allocation-readout /tmp/corpus-assemblies.txt --json
+```
+
+The readout aggregates occurrence buckets (`kind`, `allocation`, `path`,
+`path-confidence`, `post-dominance`, `escape`) and opportunity buckets (`shape`,
+`allocation`, `path`, `path-confidence`, `post-dominance`, `confidence`), plus
+cross-tabs. Text output caps each bucket with `--top`; JSON keeps all buckets.
+Use it before changing confidence/ranking so the proposal names its measured
+population.
+
+A 2026-07-01 fixed-corpus run (`14/14` assemblies opened) showed 41,890
+allocation occurrences and 6,587 optimization opportunities. `return-post-dominates`
+was common (29,175 occurrences; 4,817 opportunities), but not selective by
+itself: it appears heavily in `small-array`, `box-value-type`, and delegate
+rows. `local-only` escape evidence was sparse (133 occurrences, ~0.3%), so
+`LocalOnly + post-dominance` is not yet broad enough to justify global confidence
+or ranking changes. Treat this as a query/example signal first; behavior changes
+should remain shape-specific and cite the measured bucket they target.
+
 Layer 3 (sampled precision/recall) splits by oracle: recall is mechanical once curated, precision
 needs judgement.
 
