@@ -3,6 +3,7 @@ using ILInspector.Decompiler;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Reflection;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -760,6 +761,75 @@ public class ReturnToSenderPrototypeTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsConstructorAssigningGetOnlyAutoProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public Class1(string message)
+                {
+                    Message = message;
+                }
+
+                public string Message { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public string Message { get; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesPrimaryConstructorForFieldInitializerPrologue()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1(string message)
+            {
+                private readonly string _message = message;
+
+                public string Message => _message;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public class Class1(string message)", result.Source);
+            Assert.Contains("public string _message = message;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSourceComposer_PrimaryConstructorParametersPrecedeGenericConstraints()
+    {
+        var method = typeof(CompileBackSourceComposer).GetMethod(
+            "AddPrimaryConstructorParameters",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        var result = Assert.IsType<string>(method?.Invoke(
+            null,
+            ["public class Class1<T> where T : class", "string message"]));
+
+        Assert.Equal("public class Class1<T>(string message) where T : class", result);
     }
 
     [Fact]
