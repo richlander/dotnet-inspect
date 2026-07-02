@@ -980,11 +980,19 @@ public static class CompileBackSourceComposer
     }
 
     static IReadOnlyList<CompileBackTypeParameter> TypeParameters(MetadataReader reader, TypeDefinition type)
-        => TypeParameters(reader, type.GetGenericParameters(), GenericContext.ForType(reader, type));
+    {
+        var handles = type.GetGenericParameters().ToArray();
+        int inheritedCount = 0;
+        var declaringType = type.GetDeclaringType();
+        if (!declaringType.IsNil)
+            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
+
+        return TypeParameters(reader, handles.Skip(inheritedCount), GenericContext.ForType(reader, type));
+    }
 
     static IReadOnlyList<CompileBackTypeParameter> TypeParameters(
         MetadataReader reader,
-        GenericParameterHandleCollection handles,
+        IEnumerable<GenericParameterHandle> handles,
         GenericContext context)
     {
         var parameters = new List<CompileBackTypeParameter>();

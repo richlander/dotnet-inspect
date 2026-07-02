@@ -4,6 +4,8 @@ using ILInspector.Decompiler;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -1043,6 +1045,40 @@ public class ReturnToSenderPrototypeTests
                 result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
                 result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
             Assert.All(results, result => Assert.Contains("public class Box<T>", result.Source));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSourceComposer_NestedGenericTypeParametersSkipDeclaringTypeParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Outer<T>
+            {
+                public class Inner<U>
+                {
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var nested = reader.TypeDefinitions
+                .Select(handle => reader.GetTypeDefinition(handle))
+                .Single(type => reader.GetString(type.Name).StartsWith("Inner", StringComparison.Ordinal));
+            var method = typeof(CompileBackSourceComposer).GetMethod(
+                "TypeParameters",
+                BindingFlags.NonPublic | BindingFlags.Static,
+                [typeof(MetadataReader), typeof(TypeDefinition)]);
+
+            var typeParameters = Assert.IsAssignableFrom<IReadOnlyList<CompileBackTypeParameter>>(
+                method?.Invoke(null, [reader, nested]));
+            var typeParameter = Assert.Single(typeParameters);
+            Assert.Equal("U", typeParameter.Name);
         }
         finally
         {
