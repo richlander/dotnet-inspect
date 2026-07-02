@@ -384,16 +384,27 @@ The only sanctioned duplication is **transitional**: during migration a service 
 scaffolding to delete, not the target. Steady state: **resolve → reference (passed once) →
 open once → session/owner (shared by every service)**.
 
-## Relationship to the `AssemblyRef` boundary (#2051 / #2052)
+## Relationship to the assembly-reference resolver boundary (#2051 / #2052)
 
-This is not a new idea in the repo. [#2051 / #2052](https://github.com/richlander/dotnet-inspect/issues/2052)
-defined exactly this seam and shipped the type: `ResolvedAssemblyReference`
-(`Identity`, `Path`, `Func<Stream> OpenRead`, `Provenance`) plus the
-`IAssemblyReferenceResolver.Resolve(...)` callback in `ILInspector.Metadata`. The
-**decompiler** path already adopted it — `MetadataSource.Open(..., IAssemblyReferenceResolver)`
+This is not a new idea in the repo. A terminology note first: **there is no type called
+`AssemblyRef`** — that was just the #2052 tracker's shorthand for "minimal metadata assembly
+identity." #2051 / #2052 shipped that boundary as concrete, current types in
+`ILInspector.Metadata` (`src/ILInspector.Metadata/AssemblyReferenceIdentity.cs`):
+
+- `AssemblyReferenceIdentity` — the identity (simple name, version, culture, public-key token);
+- `ResolvedAssemblyReference` — the descriptor (`Identity`, `Path`, `Func<Stream> OpenRead`,
+  `Provenance`);
+- `IAssemblyReferenceResolver.Resolve(...)` — the resolver callback.
+
+These are the live abstraction, not a legacy one — this doc builds directly on them. The
+**decompiler** path already adopted them: `MetadataSource.Open(..., IAssemblyReferenceResolver)`
 takes a resolver rather than a bare path. The **inspection / scanner** path never did; it still
-runs on `string path` and loose provenance params. This doc is largely "extend the #2051
-descriptor to carry richer provenance, and route inspection through it too."
+runs on `string path` and loose provenance params. So this doc is largely "extend
+`ResolvedAssemblyReference`'s provenance and route inspection through it too."
+
+(Not to be confused with the unrelated `AssemblyReference` record in `AssemblyInfo.cs`, which
+models a raw metadata assembly-reference row for display — a different thing from the resolution
+boundary.)
 
 So the CLI-thinning audit (#2122) and the resolver-boundary work (#2051 / #2052) are the same
 architecture seen from two ends. "Why does the CLI open assemblies?" resolves to "because the
