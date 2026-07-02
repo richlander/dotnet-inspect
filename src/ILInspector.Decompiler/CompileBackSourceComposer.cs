@@ -148,7 +148,7 @@ public sealed record CompileBackMemberDeclaration(
     bool IsStatic,
     CompileBackTypeSignature? ReturnType,
     IReadOnlyList<CompileBackParameter> Parameters,
-    IReadOnlyList<TypeParameter> TypeParameters,
+    IReadOnlyList<CompileBackTypeParameter> TypeParameters,
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts)
@@ -214,6 +214,8 @@ public sealed record CompileBackTypeSignature(CompileBackTypeSignatureKind Kind,
 
 public sealed record CompileBackParameter(string Name, CompileBackTypeSignature Type);
 
+public sealed record CompileBackTypeParameter(string Name, IReadOnlyList<string> Constraints);
+
 public enum CompileBackStubBodyKind
 {
     None,
@@ -246,7 +248,7 @@ public sealed record CompileBackMemberRequirement(
     bool IsStatic,
     IReadOnlyList<CompileBackParameter> Parameters,
     CompileBackTypeSignature? ReturnType,
-    IReadOnlyList<TypeParameter> TypeParameters,
+    IReadOnlyList<CompileBackTypeParameter> TypeParameters,
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts);
@@ -882,7 +884,13 @@ public static class CompileBackSourceComposer
                 MemberName = member.TypeParameters.Count == 0
                     ? member.Name
                     : $"{member.Name}<{string.Join(", ", member.TypeParameters.Select(parameter => parameter.Name))}>",
-                TypeParameters = member.TypeParameters.ToList(),
+                TypeParameters = member.TypeParameters
+                    .Select(parameter => new TypeParameter
+                    {
+                        Name = parameter.Name,
+                        Constraints = parameter.Constraints.ToList(),
+                    })
+                    .ToList(),
                 Parameters = member.Parameters
                     .Select(parameter => new ApiParameter
                     {
@@ -956,11 +964,11 @@ public static class CompileBackSourceComposer
             .ToArray();
     }
 
-    static IReadOnlyList<TypeParameter> MethodTypeParameters(MetadataReader reader, MethodDefinition method)
+    static IReadOnlyList<CompileBackTypeParameter> MethodTypeParameters(MetadataReader reader, MethodDefinition method)
     {
         var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
         var context = GenericContext.ForMethod(reader, declaringType, method);
-        var parameters = new List<TypeParameter>();
+        var parameters = new List<CompileBackTypeParameter>();
         foreach (var handle in method.GetGenericParameters())
         {
             var parameter = reader.GetGenericParameter(handle);
@@ -986,11 +994,7 @@ public static class CompileBackSourceComposer
             if (!isStruct && (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
                 constraints.Add("new()");
 
-            parameters.Add(new TypeParameter
-            {
-                Name = reader.GetString(parameter.Name),
-                Constraints = constraints,
-            });
+            parameters.Add(new CompileBackTypeParameter(reader.GetString(parameter.Name), constraints));
         }
 
         return parameters;
