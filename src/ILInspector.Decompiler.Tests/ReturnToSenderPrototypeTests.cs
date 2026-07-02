@@ -1,4 +1,5 @@
 using ILInspector.DecompilerHarness;
+using ILInspector.Decompiler;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -50,12 +51,14 @@ public class ReturnToSenderPrototypeTests
             var type = Assert.Single(result.Plan.Types);
             var member = Assert.Single(type.Members);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Equal("Fixtures", type.Namespace);
             Assert.Equal("Class1", type.Name);
-            Assert.Equal(ReturnToSender.TypeShellKind.Class, type.Kind);
+            Assert.Equal(CompileBackTypeKind.Class, type.Kind);
             Assert.Equal("Method1", member.Name);
-            Assert.Equal(ReturnToSender.TypeMemberShellKind.PropertyGet, member.Kind);
+            Assert.Equal(CompileBackMemberKind.PropertyGet, member.Kind);
             Assert.Equal("string", member.Type);
             Assert.Contains("System", result.Plan.Module.Usings);
             Assert.Empty(result.Plan.Module.AssemblyAttributes);
@@ -204,12 +207,14 @@ public class ReturnToSenderPrototypeTests
             var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Helper"
                 && type.SourceFacts.Any(fact => fact.Id == "closure-root" && fact.Producer == "roslyn")
-                && type.Members.Any(member => member.Name == "Value" && member.Kind == ReturnToSender.TypeMemberShellKind.PropertyGet)
-                && type.Members.Any(member => member.Name == "Create" && member.Kind == ReturnToSender.TypeMemberShellKind.Method && member.IsStatic));
+                && type.Members.Any(member => member.Name == "Value" && member.Kind == CompileBackMemberKind.PropertyGet)
+                && type.Members.Any(member => member.Name == "Create" && member.Kind == CompileBackMemberKind.Method && member.IsStatic));
             Assert.Contains("public int Value", result.Source);
             Assert.Contains("public static Helper Create()", result.Source);
         }
@@ -239,7 +244,7 @@ public class ReturnToSenderPrototypeTests
                 fact.Producer == "roslyn"
                 && fact.Id == "closure-root"
                 && fact.Detail.StartsWith("CS0103", StringComparison.Ordinal));
-            Assert.Contains(type.Members, member => member.Name == "GetValue" && member.Kind == ReturnToSender.TypeMemberShellKind.Method);
+            Assert.Contains(type.Members, member => member.Name == "GetValue" && member.Kind == CompileBackMemberKind.Method);
             Assert.Contains("public int GetValue()", result.Source);
         }
         finally
@@ -271,7 +276,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains(result.Plan.Types, type =>
                 type.Namespace == "Other.Deep"
                 && type.Name == "Helper"
@@ -371,6 +378,50 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_EscapesKeywordNamespacesInClosureRoots()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace My.@event
+            {
+                public interface IValue
+                {
+                    int Value { get; }
+                }
+
+                public class Helper : IValue
+                {
+                    public int Value => 42;
+                    public static Helper Create() => new Helper();
+                }
+            }
+
+            namespace Target
+            {
+                public class Class1
+                {
+                    public int FromKeywordNamespace => My.@event.Helper.Create().Value;
+                }
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("using My.@event;", result.Source);
+            Assert.Contains("namespace My.@event", result.Source);
+            Assert.DoesNotContain("using My.event;", result.Source);
+            Assert.DoesNotContain("namespace My.event", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
     {
         var assemblyPath = CompileFixture("""
@@ -412,7 +463,7 @@ public class ReturnToSenderPrototypeTests
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            Assert.Contains(result.Plan.Types, type => type.Name == "StructHelper" && type.Kind == ReturnToSender.TypeShellKind.Struct);
+            Assert.Contains(result.Plan.Types, type => type.Name == "StructHelper" && type.Kind == CompileBackTypeKind.Struct);
             Assert.Contains("public struct StructHelper", result.Source);
         }
         finally
@@ -441,7 +492,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Outer"
                 && type.NestedTypes.Any(nested => nested.Name == "Inner"));
