@@ -9,10 +9,10 @@
 
 ## The question that started this
 
-The #2122 audit found the CLI opening PE images directly — 16 `File.OpenRead(path) + new
-PEReader(stream)` sites across `LibraryMetadataService`, `MemberCodeProvider`,
-`AuditSignalBuilder`, and `Services/SourceResolver`. The obvious fix is a shared open
-helper. Pulling the thread further asks two better questions:
+The #2122 audit found the CLI opening PE images directly — 15 `File.OpenRead(path) + new
+PEReader(stream)` sites across `LibraryMetadataService` (13), `MemberCodeProvider` (1), and
+`AuditSignalBuilder` (1). (A 16th in `Services/SourceResolver` was already removed by #2125.)
+The obvious fix is a shared open helper. Pulling the thread further asks two better questions:
 
 1. **Why does the CLI hold a `PEReader` at all?**
 2. **Where does the `path` string it opens even come from?**
@@ -21,22 +21,25 @@ The answers converge on a single architectural seam.
 
 ## Symptom 1: the CLI holds a `PEReader`
 
-It does not want to. Every metadata-layer scanner is authored as a `static Scan(PEReader)`:
+It does not want to. Every metadata-layer *scanner* is authored as a `static Scan(PEReader)`:
 
 - `ResourceScanner.Scan(PEReader)`, `SwitchScanner.Scan(PEReader)`,
   `MethodClassificationScanner.Scan(PEReader)`, `OpenTelemetryScanner.Scan(PEReader)`,
   `EcosystemIntegrationScanner.Scan(PEReader)`, `IntegrationOpportunityScanner.Scan(PEReader, …)`,
-  `ExtensionMethodScanner.FindAllExtensions(PEReader)`,
+  `ExtensionMethodScanner.FindAllExtensions(PEReader)`, `UnionTypeScanner.Scan(PEReader)`,
   `AssemblyDetailScanner.{ScanCustomAttributes, ScanAuditMetadata, ScanTypeForwarders, ScanPresenceFlags}(PEReader)`.
 
-That is ~12 public entry points that take `PEReader`. The CLI opens a PE image *only to feed
-these scanners*, so `System.Reflection.PortableExecutable` / `System.Reflection.Metadata`
-types leak upward across the layer boundary into CLI locals and signatures. The 16 open
-sites are a symptom; the scanners exposing PE-lifetime to callers are the cause.
+That is roughly a dozen inspection scanners; counting every public entry point in
+`ILInspector.Metadata` that takes a `PEReader` (adding extractors like `ApiSurfaceExtractor`,
+`AssemblyInspector`, and `TypeHierarchyScanner`) it is over 20. The CLI opens a PE image *only
+to feed these*, so `System.Reflection.PortableExecutable` / `System.Reflection.Metadata` types
+leak upward across the layer boundary into CLI locals and signatures. The 15 open sites are a
+symptom; the scanners exposing PE-lifetime to callers are the cause.
 
 A secondary driver is batch efficiency: `LibraryMetadataService` opens once and runs several
 scanners against the same `PEReader` (to parse the image once). Today the only way to share
-that open is for the caller to own the reader.
+that open is for the caller to own the reader — and even so, inspection still parses the file
+*again* elsewhere (see [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)).
 
 ## Symptom 2: the `path` is a lossy, stringly-typed handoff
 
@@ -47,7 +50,7 @@ assembly's full identity and provenance*:
 | --- | --- | --- |
 | Package | `PackageExtractor.ExtractPackageAsync` → `TfmSelector.SelectHighestTfmAssembly` | `(path, tfm)` |
 | Platform | `PlatformResolver.ResolveAssemblyAsync` | `(path, framework, version, error)` |
-| Project | `ProjectAssetsParser.Parse` | `(path, packageName, version)[]` |
+| Project | `ProjectAssetsParser.Parse` | a list of `(path, packageName, version)` |
 
 Then the CLI throws most of it away:
 
@@ -71,6 +74,21 @@ LibraryMetadataService.InspectAsync(
 That parameter list — `path + packageName + packageVersion + isPlatformAssembly` — is a
 descriptor struggling to be born. It is exactly the provenance the resolver already had,
 un-bundled and passed alongside the string.
+
+## Symptom 3: the same image is parsed multiple times
+
+Because the string carries no live handle, each consumer opens the file itself. A single
+`library` inspection opens the *same* PE image two or three times:
+
+- `LibraryMetadataService.InspectAsync` opens `SourceLinkService.Open(path)` — whose
+  `PdbContext` already owns a `PEReader` and exposes metadata operations
+  (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`) — and *then* opens a **separate**
+  `File.OpenRead(path) + new PEReader` to feed the scanners.
+- `MemberCodeProvider` opens a `PEReader` to build a type index, then calls
+  `MetadataSource.Open`, which opens the PE image **again** internally.
+
+So the "parse once" batch efficiency the scanners aim for is already defeated at the inspection
+level. A real session must be the single PE-lifetime owner, not one of several.
 
 ## Root cause: the resolution → inspection currency is a `string`
 
@@ -107,28 +125,51 @@ public sealed record AssemblyQuery(
     AssemblyQueryOptions Options);  // tfm, rid, includeAll, …
 ```
 
-### 2. `ResolvedAssembly` — the resolution output (the descriptor)
+### 2. `ResolvedAssemblyReference` — the resolution output (reuse what #2051 built)
 
 The resolver's answer: how to open the assembly *plus* everything it learned while finding it.
-This is the currency that replaces the bare `string`.
+This is the currency that replaces the bare `string`. **This type already exists** — #2051
+introduced `ResolvedAssemblyReference` in `ILInspector.Metadata` and the decompiler already
+resolves through it:
 
 ```csharp
-public sealed record ResolvedAssembly(
-    string Path,                    // or a stream/opener the session can consume
-    AssemblyIdentity Identity,      // simple name, version, public-key token
-    AssemblyProvenance Provenance); // package@version, tfm, rid, platform-or-not, resolver source
+// ILInspector.Metadata/AssemblyReferenceIdentity.cs
+public sealed record ResolvedAssemblyReference(
+    AssemblyReferenceIdentity Identity,   // simple name, version, culture, public-key token
+    string? Path,
+    Func<Stream> OpenRead,                // both a path AND an opener — streams compose too
+    string? Provenance = null);
 ```
 
-### 3. `AssemblyInspectionSession` — the metadata layer owns PE lifetime
+So the inspection path should **adopt this existing descriptor**, not invent a parallel one. It
+already answers "path vs stream vs opener" (it carries both). The one likely change is widening
+`string? Provenance` into a structured value (package@version, tfm, rid, platform-or-not,
+resolver source) if inspection needs to read those back rather than re-derive them.
 
-Opened from a `ResolvedAssembly`, it owns the `PEReader`/`MetadataReader`, opens once, and
-exposes each scan as a method. The `PEReader`-taking scanners become session-internal.
+**Multi-assembly sources.** A `file` or `platform` query resolves to one reference, but a
+`package` or `project` query resolves to *many* (today `LibraryCommand` inspects every DLL in a
+package, and `--tfm all` returns all candidates). So resolution returns
+`IReadOnlyList<ResolvedAssemblyReference>`, and the response is a per-assembly collection —
+either model `AssemblyQuery` as always-many, or split a single-assembly `AssemblyQuery` from a
+`PackageInspectionQuery` that fans out.
+
+### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
+
+Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,
+and exposes each scan as a method. Crucially it must be the **single** PE-lifetime owner, not a
+new parallel one: `PdbContext` already owns a `PEReader` and exposes metadata operations
+(`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`), and the decompiler opens through
+`MetadataSource`. The session should **compose or subsume `PdbContext`** (and hand its reader to
+`MetadataSource`) so [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times) — parsing
+the image two or three times — is actually fixed. Making the `PEReader`-taking scanners
+session-internal is the other half.
 
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
 {
-    public static AssemblyInspectionSession? Open(ResolvedAssembly assembly);
+    public static AssemblyInspectionSession? Open(ResolvedAssemblyReference assembly);
     public bool HasMetadata { get; }
+    public PdbContext Pdb { get; }        // composed, not re-opened
 
     public IReadOnlyList<ManifestResourceInfo>  Resources();
     public IReadOnlyList<ClassifiedMethodInfo>  ClassifiedMethods();
@@ -140,19 +181,23 @@ public sealed class AssemblyInspectionSession : IDisposable
 The CLI collapses to orchestration plus mapping — no PE types, no re-derived provenance:
 
 ```csharp
-var resolved = await resolver.ResolveAsync(query.Source);   // rich descriptor, nothing discarded
-using var asm = AssemblyInspectionSession.Open(resolved);
-var inspection = InspectionAssembler.Build(query, resolved, asm); // final shape
+foreach (var resolved in await resolver.ResolveAsync(query.Source))  // rich descriptors, nothing discarded
+{
+    using var asm = AssemblyInspectionSession.Open(resolved);
+    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // final shape
+}
 ```
 
 ## Relationship to the `AssemblyRef` boundary (#2051 / #2052)
 
 This is not a new idea in the repo. [#2051 / #2052](https://github.com/richlander/dotnet-inspect/issues/2052)
-defined exactly this seam: *"minimal metadata assembly identity (`AssemblyRef`) plus a
-resolver callback that returns a resolved stream / path / descriptor."* The **decompiler**
-path already adopted it — `MetadataSource.Open(..., IAssemblyReferenceResolver)` takes a
-resolver rather than a bare path. The **inspection / scanner** path never did; it still runs
-on `string path` and loose provenance params.
+defined exactly this seam and shipped the type: `ResolvedAssemblyReference`
+(`Identity`, `Path`, `Func<Stream> OpenRead`, `Provenance`) plus the
+`IAssemblyReferenceResolver.Resolve(...)` callback in `ILInspector.Metadata`. The
+**decompiler** path already adopted it — `MetadataSource.Open(..., IAssemblyReferenceResolver)`
+takes a resolver rather than a bare path. The **inspection / scanner** path never did; it still
+runs on `string path` and loose provenance params. This doc is largely "extend the #2051
+descriptor to carry richer provenance, and route inspection through it too."
 
 So the CLI-thinning audit (#2122) and the resolver-boundary work (#2051 / #2052) are the same
 architecture seen from two ends. "Why does the CLI open assemblies?" resolves to "because the
@@ -172,36 +217,47 @@ pipeline.
 
 - **Orchestration:** building the `AssemblyQuery` from options, choosing the source, and
   mapping the returned shape into view models is CLI work.
-- **The decompiler seam:** `MemberCodeProvider` opens a reader to drive the decompiler
-  (type index, `IrImporter`, `CSharpPrinter`). It can consume an `AssemblyInspectionSession`
-  handle, but it is not a pure scan-and-map case and keeps its dedicated seam.
-- **Already-correct owners:** `SourceLinkService` / `PdbContext` already own their own
-  PE/PDB lifetime and do not leak `PEReader` to callers.
+
+Two things are often *called* "already correct" but really need to be **unified by the
+session**, not left parallel (they are the source of [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)):
+
+- **`PdbContext` / `SourceLinkService`:** these do not leak `PEReader` to the CLI, which is
+  good — but `PdbContext` already *is* an opened-assembly owner (`PEReader` + metadata ops).
+  The session should compose or subsume it rather than open a second reader beside it.
+- **The decompiler seam:** `MemberCodeProvider` opens a reader to drive the decompiler (type
+  index, `IrImporter`, `CSharpPrinter`) and then `MetadataSource.Open` opens *again*. It is not
+  a pure scan-and-map case, but it should still consume the session's reader so the image is
+  parsed once.
 
 ## Migration (incremental, each a reviewable slice)
 
 The end state is large; get there without a big-bang rewrite. Suggested order:
 
-1. **Descriptor first.** Introduce `ResolvedAssembly`; have the resolvers return it and stop
-   the `_` discards. Callers can still read `resolved.Path` initially.
-2. **Session.** Add `AssemblyInspectionSession.Open(ResolvedAssembly)` owning the `PEReader`;
-   make the `PEReader`-taking scanners session-internal. Route `LibraryMetadataService`'s
-   `Scan*` wrappers (already thin adapters) through it. This removes the 16 opens and the ~12
-   public `PEReader` params.
+1. **Adopt the descriptor.** Have the resolvers return `ResolvedAssemblyReference` (the #2051
+   type, widened provenance if needed) and stop the `_` discards. Callers can still read
+   `resolved.Path` initially. Package/project resolvers return a list.
+2. **Session.** Add `AssemblyInspectionSession.Open(ResolvedAssemblyReference)` that composes
+   `PdbContext` and owns the single `PEReader`; make the `PEReader`-taking scanners
+   session-internal. Route `LibraryMetadataService`'s `Scan*` wrappers (already thin adapters)
+   through it. This removes the 15 opens and the public `PEReader` scanner params, and collapses
+   the 2–3 opens per inspection to one.
 3. **De-loosen inspection.** Replace `InspectAsync(path, packageName, packageVersion,
-   isPlatformAssembly, …)` with `InspectAsync(ResolvedAssembly, query)`.
+   isPlatformAssembly, …)` with `InspectAsync(ResolvedAssemblyReference, query)`.
 4. **Proof of concept.** Thread one flow end-to-end first — the platform-assembly `library`
-   path is the smallest — and confirm the CLI loses its `System.Reflection.Metadata` /
-   `PortableExecutable` usings for that path.
+   path is the smallest (single assembly, no package fan-out) — and confirm the CLI loses its
+   `System.Reflection.Metadata` / `PortableExecutable` usings for that path.
 
 ## Open questions
 
-- **Path vs stream vs opener.** Should `ResolvedAssembly` carry a `string Path`, a
-  `Func<Stream>` opener, or both? Streams compose better with in-memory / non-file sources;
-  paths are simpler and match today's callers.
+- **Provenance breadth.** `ResolvedAssemblyReference.Provenance` is a single `string?` today.
+  How much structure does inspection actually need (package@version, tfm, rid, platform flag,
+  resolver source) before it becomes a grab bag? Prefer the minimum consumers read back.
+- **One query type or two.** Model `AssemblyQuery` as always-many, or split a single-assembly
+  `AssemblyQuery` from a `PackageInspectionQuery` that fans out to many
+  `ResolvedAssemblyReference`s? The package/`--tfm all` flows force multi-assembly either way.
 - **Query granularity.** Is `AssemblyQuery.Sections` the right knob, or should the session be
-  lazy (scan on first access) so the query only needs the source? Laziness may make the
-  section set redundant.
-- **Provenance breadth.** How much belongs in `AssemblyProvenance` (package, version, tfm,
-  rid, platform flag, resolver source) before it becomes a grab bag? Prefer the minimum the
-  current consumers actually read back.
+  lazy (scan on first access) so the query only needs the source? Laziness may make the section
+  set redundant.
+- **Session vs `PdbContext` ownership.** Should `AssemblyInspectionSession` wrap `PdbContext`,
+  or should `PdbContext` grow the scanner methods and *become* the session? The former is less
+  invasive; the latter avoids a second type.
