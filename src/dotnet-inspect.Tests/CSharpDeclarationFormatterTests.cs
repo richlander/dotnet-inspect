@@ -355,4 +355,49 @@ public sealed class CSharpDeclarationFormatterTests
 
         Assert.Equal("new Widget([System.Diagnostics.CodeAnalysis.NotNull] string @event)", view.ConstructorOverloads![0].Signature.Content);
     }
+
+    [Fact]
+    public void ConstructorOverloadSnippet_IgnoresObsoleteAttributePrefix()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    IsObsolete = true,
+                    ObsoleteMessage = "Use Widget()",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Type = "int",
+                                Name = "count"
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new TypeOptions());
+
+        ApiOutputFormatter.PopulateConstructorOverloads(view, type, new TypeOptions());
+
+        Assert.Equal("new Widget(int count)", view.ConstructorOverloads![0].Signature.Content);
+    }
 }

@@ -1058,7 +1058,10 @@ public static class ApiOutputFormatter
         if (constructor.SignatureModel is { } signature
             && signature.Parameters.All(static parameter => !parameter.HasDefault || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
         {
-            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, constructor);
+            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                constructor,
+                new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
             if (!string.IsNullOrWhiteSpace(declaration))
                 return ConstructorCallFromDeclaration(declaration);
         }
