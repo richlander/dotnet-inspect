@@ -20,6 +20,9 @@ project references), `--package Foo` (repeatable), `--library path.dll`,
 Microsoft.* sets), `--package-prefix Azure.AI` (every package under a NuGet ID
 prefix), and `--tfm net9.0`.
 
+`--project` reads existing restored assets; restore/build first if dependencies
+changed.
+
 ## What implements or extends it?
 
 `implements Interface` finds concrete implementors and subclasses;

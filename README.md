@@ -20,17 +20,18 @@ dnx dotnet-inspect -y -- <command>
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Grounding --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup and package grounding; no restore/build/MSBuild evaluation is run. |
+| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Grounding --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and package grounding; restore/build first if dependencies changed. No restore/build/MSBuild evaluation is run. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
 
-For API commands, `--project` means an existing `project.assets.json`
-restored-assets context. Passing a `.csproj` or project directory only locates
-that file; dotnet-inspect does not restore or build. `--bin` remains the output
-directory context for copied DLLs. A future `--deps` source can represent
-runtime `.deps.json` context.
+For API and relationship commands, `--project` means an existing
+`project.assets.json` restored-assets context. Passing a `.csproj` or project
+directory only locates that file; dotnet-inspect does not restore or build, so
+restore/build first if dependencies changed. `--bin` remains the output directory
+context for copied DLLs. A future `--deps` source can represent runtime
+`.deps.json` context.
 
 ## Capability inventory
 
