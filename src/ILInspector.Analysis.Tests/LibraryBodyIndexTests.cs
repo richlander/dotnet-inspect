@@ -2,10 +2,13 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+using DotnetInspector.Services;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -22,6 +25,108 @@ public class LibraryBodyIndexTests
         Assert.Equal(CallKind.Call, call.Kind);
         Assert.Equal(TypeRef.CoreLib("System", "String"), Assert.Single(call.Callee.ParameterTypes));
         Assert.Empty(index.Diagnostics);
+    }
+
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ResolvesFrameworkTypeDefinition()
+    {
+        string targetPath = typeof(Console).Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
+        {
+            IncludeDepsJsonAssets = false,
+            IncludeAspNetCoreSharedFramework = false,
+            PreferImplementationAssemblies = true,
+        });
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        Assert.True(peReader.HasMetadata);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, resolver);
+
+        bool resolvedFrameworkType = false;
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+            var assemblyReference = (AssemblyReferenceHandle)typeReference.ResolutionScope;
+            if (!FrameworkAssemblyKeys.IsFrameworkReference(reader, assemblyReference))
+                continue;
+
+            var resolved = builder.TryResolveExternalTypeDefinition(handle);
+            if (resolved is not { } definition)
+                continue;
+
+            var definingType = definition.DefiningReader.GetTypeDefinition(definition.Definition);
+            Assert.Equal(reader.GetString(typeReference.Name), definition.DefiningReader.GetString(definingType.Name));
+            Assert.True(
+                !definingType.BaseType.IsNil || definingType.GetFields().Count > 0 || definingType.GetMethods().Count > 0,
+                "resolved type metadata should be readable");
+            resolvedFrameworkType = true;
+            break;
+        }
+
+        Assert.True(resolvedFrameworkType, "expected at least one framework TypeRef to resolve to readable metadata");
+    }
+
+    [Fact]
+    public void CrossAssemblyMetadataResolver_NullResolverFailsHonest()
+    {
+        string targetPath = typeof(Console).Assembly.Location;
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        Assert.True(peReader.HasMetadata);
+        var reader = peReader.GetMetadataReader();
+        var externalType = FirstExternalTypeReference(reader);
+        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, resolver: null);
+
+        Assert.Null(builder.TryResolveExternalTypeDefinition(externalType));
+
+        var oneArg = LibraryBodyIndex.Open(targetPath);
+        var nullResolver = LibraryBodyIndex.Open(targetPath, resolver: null);
+        Assert.Equal(oneArg.Methods.Length, nullResolver.Methods.Length);
+        Assert.Equal(oneArg.DirectCalls.Length, nullResolver.DirectCalls.Length);
+        Assert.Equal(oneArg.UnsafeEvidence.Length, nullResolver.UnsafeEvidence.Length);
+        Assert.Equal(oneArg.Diagnostics.Length, nullResolver.Diagnostics.Length);
+    }
+
+    [Fact]
+    public void Open_WithResolverDoesNotChangeIndexShape()
+    {
+        string targetPath = typeof(CallSiteFixtures).Assembly.Location;
+        var resolver = new CountingResolver();
+
+        var oneArg = LibraryBodyIndex.Open(targetPath);
+        var withResolver = LibraryBodyIndex.Open(targetPath, resolver);
+
+        Assert.Equal(oneArg.Methods.Length, withResolver.Methods.Length);
+        Assert.Equal(oneArg.DirectCalls.Length, withResolver.DirectCalls.Length);
+        Assert.Equal(oneArg.UnsafeEvidence.Length, withResolver.UnsafeEvidence.Length);
+        Assert.Equal(oneArg.Diagnostics.Length, withResolver.Diagnostics.Length);
+        Assert.Equal(0, resolver.ResolveCalls);
+    }
+
+    static TypeReferenceHandle FirstExternalTypeReference(MetadataReader reader)
+    {
+        foreach (var handle in reader.TypeReferences)
+        {
+            if (reader.GetTypeReference(handle).ResolutionScope.Kind == HandleKind.AssemblyReference)
+                return handle;
+        }
+
+        throw new InvalidOperationException("Expected at least one external TypeRef.");
+    }
+
+    sealed class CountingResolver : IAssemblyReferenceResolver
+    {
+        public int ResolveCalls { get; private set; }
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            ResolveCalls++;
+            return null;
+        }
     }
 
     [Fact]

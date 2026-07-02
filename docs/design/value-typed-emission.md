@@ -46,7 +46,9 @@ violation fails a unit test, not a recompile.
 The rest of this document details **instance 1 (coercion)** in full — it is the
 largest, most bug-dense, and the template for the others — then **instance 2 (slot
 typing)**, which the same type-propagation prerequisite removes almost for free.
-Instance 3 is noted where it sits and deferred.
+Instance 3 is noted where it sits and deferred. A second, orthogonal axis of
+thinness — the writer's *output* being structure rather than strings — is scoped
+in [the output half](#the-output-half--structure-not-strings) below.
 
 ## Instance 1 — coercion: the missing member of the type system
 
@@ -79,7 +81,7 @@ renders a node instead of *deciding* to be a cast. Roslyn calls it
 ### Why a node, not a helper
 
 The decompiler already has coercion *helpers* — `CastValue`
-(`CSharpPrinter.Numerics.cs:925`) and `EnumIntegerCast`
+(`CSharpPrinter.Numerics.cs:966`) and `EnumIntegerCast`
 (`CSharpPrinter.Numerics.cs:178`). They are not enough, because a helper the
 printer *may* call is not an invariant. Because the coercion is a transient string
 and not a node, it is invisible to the rest of the architecture:
@@ -96,26 +98,35 @@ render context at a time.
 
 ## Where we are — the leak surface, measured
 
-The cast/coercion decision is spread across the printer, each site re-deriving
-"an integer flowing into an enum position needs an explicit cast, and an
-out-of-range constant needs `unchecked`":
+The cast/coercion decision is spread across the printer. The *rules* now live
+mostly in shared helpers — `CastValue`, `EnumIntegerCast`, and the overflow
+judgment `MayOverflowEnumBackingType` (`CSharpPrinter.Numerics.cs:196`), which
+handles known backing widths, cross-assembly `Unknown` (conservative sbyte),
+missing-`value__` shapes (assume `int`), and sees through widening `Convert`s
+via `TryEnumCastLiteral`. That consolidation is the hard-won product of the
+six-round history below (#2080). What stays scattered is the **routing**: each
+sink independently decides *to* call a helper, and *which target type* to hand
+it:
 
 | Site | File | What it decides locally |
 | --- | --- | --- |
-| enum-typed conditional arm | `CSharpPrinter.Numerics.cs` `ConditionalArm` | cast each integer arm to the enum target |
-| retyped enum constant | `CSharpPrinter.cs:1745` | `(Enum)value`, **`int`-only** |
-| `switch` case label | `CSharpPrinter.cs:3144` | `SwitchLabelText`, **`int`-only** |
-| array-element store | `CSharpPrinter.cs:1665` | `CastValue(value, ElementType)` — uses the `stelem` storage type |
-| `box` operand | `CSharpPrinter.cs:1811` | drops the boxed type entirely |
-| enum bitwise / comparison | `CSharpPrinter.Numerics.cs` | cast the integer operand to the enum |
-| overflow / `unchecked` | `CSharpPrinter.Numerics.cs:194` | `MayOverflow…`, **`Unknown`-shape only**, raw `Constant` only |
-| constant typing | `TypedConstantsPass.cs:110` | retypes **`int`-only**, does not pierce `Convert` |
+| enum-typed conditional arm | `CSharpPrinter.Numerics.cs:1165` | route each integer arm through `EnumIntegerCast` |
+| `??` coalesce | `CSharpPrinter.Numerics.cs:1200` | route the coalesce through `EnumIntegerCast` |
+| retyped enum constant | `CSharpPrinter.cs:1759` | route `int`/`long` payloads through `EnumIntegerCast` |
+| `switch` case label | `CSharpPrinter.cs:3162` | `SwitchLabelText` — name the member or route to `EnumIntegerCast` |
+| array-element store | `CSharpPrinter.cs:1665` | derive the semantic element type (`StoreElementTargetType`), route through `CastValue` |
+| `box` operand | `CSharpPrinter.cs:1829` | route through `CastValue(operand, boxedType)` |
+| enum bitwise / comparison | `CSharpPrinter.Numerics.cs:277`, `:825` | pick the enum side, route the integer side through `EnumIntegerCast` |
+| constant typing | `TypedConstantsPass.cs:104` | retypes **`int`-only**, does not pierce `Convert` |
 
-The italicised limits are the leak: each is a place the missing rule is
-*partially* implemented. The consequence is a recurring, pre-existing defect class.
-Six consecutive adversarial-review rounds on one PR (a fix originally scoped to a
-single conditional-arm shape) each surfaced the *same* class in a *new* sink —
-none a regression, all latent:
+Every row is a call site that must *remember* to route, with the right target
+type — a sink added or reshaped without the call silently bypasses the rules,
+and nothing checks. The residual partial rule (`TypedConstantsPass` is
+`int`-only) is migration step 2; the missed-call class is what the invariant
+exists to catch. This is how the class recurred: six consecutive
+adversarial-review rounds on one PR (#2080, a fix originally scoped to a single
+conditional-arm shape) each surfaced the *same* class in a *new* sink — none a
+regression, all latent:
 
 1. narrow-enum out-of-range constant → `(Tiny)300` (CS0221)
 2. unsigned-enum negative high-bit constant → `... : -2147483648` (CS0029)
@@ -152,7 +163,7 @@ it implicit, explicit, or an error?
   cast — they render already-typed nodes.
 - **Constant conversions and `checked`/`unchecked` legality are folded in one
   place** (the binder's constant-conversion folding), which is exactly what the
-  scattered `MayOverflow…` heuristic re-implements.
+  scattered `MayOverflowEnumBackingType` heuristic re-implements.
 - **Target-typed conditional / `switch` expressions (C# 9) are our bug, verbatim.**
   Roslyn used to give `a ? b : c` a *best common type* and error (CS0173) when none
   existed. It was reworked so a `BoundUnconvertedConditionalOperator` stays
@@ -258,12 +269,21 @@ typed sink except through a `Coerce`** (or be provably already at the target typ
 `CheckInvariant()` asserts it; a violation fails at the pass level, in a unit test,
 instead of being discovered by recompiling corpus output.
 
+The exemption is itself a choke point. "Provably already at the target type"
+must be **one shared type-identity predicate**, not a per-sink judgment —
+otherwise the scattered-partial-rule problem reappears one level up, as
+identity checks with per-sink blind spots (`int`-only here, `Unknown`-blind
+there) exempting exactly the sinks that need coercion. One `Coerce` renderer,
+one identity predicate that gates skipping it.
+
 This proves **routing, not rendering**: the invariant guarantees every sink *reaches*
 the one coercion function, collapsing the leak surface from ~12 sites to one — but it
 does not prove that function's *output* is correct. That output is still validated by
-the coercion function's own unit tests and the compile-back oracle. The win is that
-the oracle stops being the *only* place an un-coerced sink is caught, and a new sink
-can no longer silently bypass the rule.
+the coercion function's own unit tests and the compile-back oracle — the
+**ReturnToSender** harness (`tools/DecompilerHarness/ReturnToSender.cs`), which
+recompiles decompiled output and A/B-compares against the current pipeline. The win
+is that the oracle stops being the *only* place an un-coerced sink is caught, and a
+new sink can no longer silently bypass the rule.
 
 ## Instance 2 — stack-slot materialization and typing
 
@@ -300,6 +320,45 @@ pre-print pass that hands the writer a decided tree. It is the lowest-priority
 instance and is called out here only so the umbrella is complete; it is not
 sequenced below.
 
+## The output half — structure, not strings
+
+Thinness has a second axis. The instances above remove *decisions* from the
+writer; this section names where its *output representation* is headed. Today the
+printer synthesizes strings all the way down, and so does everything downstream
+that needs C# structure: precedence and parenthesization are per-call-site
+judgments (the `Operand()` vs `Expression()` distinction), and ReturnToSender's
+source composition must re-parse and patch rendered text
+(`CompileBackCSharpNames.Clean` string-strips `modreq(...)` and re-spells
+`System.Int32` as `int`) because a string is the only seam the writer offers.
+
+The direction is already in motion on the declaration side (#2057): the
+structured signature model (`ApiSignature`, surfaced as `ApiMember.SignatureModel`)
+is built during extraction and queried for summaries and identity instead of
+reparsing rendered signatures, and RTS compile-back relies on product-owned
+declaration composition. The body side should meet it. The end-state writer
+splits into a **composer** (decided IR → a structured C# surface model; a
+`Coerce` becomes a cast *node*, not cast *text*) and a **renderer** (surface
+model → text, total and mechanical). Declarations from metadata and bodies from
+the decompiler then meet in one structured surface, which RTS composes without
+string surgery.
+
+This is, again, the family pattern. Roslyn keeps syntax a model until the very
+end. ILSpy prints C# from an AST via `CSharpOutputVisitor`, with parenthesization
+inserted by a dedicated `InsertParenthesesVisitor` pass over the tree — even the
+"writer's real job" (precedence, parens) becomes a checkable pass rather than
+per-site string logic.
+
+Sequencing: this axis does not change the migration order. A structured output
+layer without decided semantics merely relocates the guessing — the same sinks
+would decide whether to *build* a cast node instead of whether to *emit* `(T)x`.
+Value-typed emission is the prerequisite. It does change the shape of the seams:
+the one `Coerce` rendering function must be the only place cast text is born, so
+that when the surface model arrives it becomes a node factory without
+re-scattering the decision. The surface-model migration is its own future design
+note; this doc pins only the constraint that nothing in the slices below may
+widen the printer's string seam — new emission logic funnels through the
+choke-point functions that a composer can later replace node-for-node.
+
 ## Scope and constraints
 
 This stays inside the decompiler's deliberate ceilings:
@@ -324,15 +383,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 1. **Promote `CastValue` into `Coerce`, one rendering function.** `CastValue` is
    already the embryonic choke point (it renders a value at a target type and
    delegates the enum case to `EnumIntegerCast`); this *consolidates*, it does not
-   rewrite. The hard-won rules in `EnumIntegerCast`/`MayOverflow…` become the private
+   rewrite. The hard-won rules in `EnumIntegerCast`/`MayOverflowEnumBackingType` become the private
    internals of the one renderer, and the scattered cast *decisions* at `Box`,
    `StoreElement`, `SwitchLabelText`, and the retyped-constant branch are replaced by
    a `Coerce` call — the sinks remain, the decisions leave. This is **not**
-   behavior-neutral: those sites have *different* partial behaviors today (`int`-only
-   here, `Unknown`-shape-only there), so unifying them moves outputs at the margins —
-   that is the point. Expect and *measure* net-positive validity movement on the
-   corpus quality-diff card; a fidelity regression on any already-`Full` method is the
-   stop signal.
+   guaranteed behavior-neutral: the sinks now share helpers (#2080), but they still
+   derive target types independently and constant typing is still partial, so
+   unifying the routing can move outputs at the margins — that is the point. Expect
+   and *measure* net-positive validity movement on the corpus quality-diff card; a
+   fidelity regression on any already-`Full` method is the stop signal.
 2. **Complete constant typing.** Extend `TypedConstantsPass` to retype `int`,
    `long`, and `Convert`-wrapped integer constants into every enum-typed sink, so
    the printer sees enum-typed values uniformly.
@@ -353,7 +412,9 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    node." Mostly a deletion once step 4 lands.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
-the corpus quality-diff card, and improved/still-flat examples.
+the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
+coverage grows, compile-back-affecting slices add its A/B evidence per
+[docs/templates/decompiler-compile-back-harness-pr.md](../templates/decompiler-compile-back-harness-pr.md).
 
 ## Acceptance and start-trigger
 
