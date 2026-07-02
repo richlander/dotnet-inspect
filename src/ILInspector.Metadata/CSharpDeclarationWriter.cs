@@ -40,9 +40,6 @@ public sealed record CSharpRenderedDeclaration(
 /// </summary>
 public static class CSharpDeclarationWriter
 {
-    public static string RenderParameterDeclaration(ApiParameter parameter)
-        => ParameterDeclaration(parameter);
-
     public static CSharpRenderedDeclaration RenderMemberUnit(
         ApiType type,
         ApiMember member,
