@@ -123,17 +123,27 @@ the sections/lenses the current verbosity needs.
 
 ```csharp
 public sealed record AssemblyQuery(
-    AssemblyLocation Location,      // package | file | project | platform
-    IReadOnlySet<string> Lenses,    // which scans/lenses are requested (verbosity-driven)
-    AssemblyQueryOptions Options);  // tfm, rid, includeAll, …
+    AssemblyLocation Location,       // package | file | project | platform
+    IReadOnlySet<Lens> Lenses,       // product capabilities to produce (mapped from -v / -S)
+    AssemblyQueryOptions Options);   // tfm, rid, includeAll, …
 ```
 
-**Terminology.** Two roles recur and are worth naming precisely:
+**Terminology.** Three roles recur and are worth naming precisely:
 
 - **location** — *which assembly* (the resolver's input; the assembly part). "Locate the
   assembly."
 - **selector** — *which member / IL coordinate inside it* (`MemberQuery` / `ILCoordinateQuery`;
   the type/member part). "Select the member."
+- **lens** — *what capability to produce* — one canonical fact producer owned by a single layer
+  (e.g. `Resources`, `CustomAttributes`, `AllocationFacts`, `DecompiledSource`; the full
+  method-body set is the ownership table in [Method Body Inspection](method-body-inspection.md)).
+
+A **lens is neither a verbosity level nor a CLI section name.** Verbosity (`-v:q/m/n/d`) and
+section selection (`-S`) are CLI-facing *inputs*; at the command boundary the CLI **maps**
+`(verbosity + selected sections)` to a **set of lenses**, and the request carries the lenses.
+The service produces each lens once; the CLI renders sections from the results. Many sections
+can project the same lens (e.g. `Allocation Facts` and `Allocation Context` both render
+`AllocationFacts`), and a lens has exactly one owner, so no two sections recompute it.
 
 So a plain assembly inspection is a *location* + lenses. A member or coordinate inspection is a
 *location* + a *selector* + lenses.
@@ -281,7 +291,8 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
    - an **assembly location** — `platform: System.Text.Json`;
    - a **member selector** — `MemberQuery(TypeName: "…JsonSerializer", MemberName: "Serialize",
      OverloadIndex: 1, PublicOnly: true)`;
-   - a **lens set** derived from the requested sections / verbosity.
+   - a **lens set** — the product capabilities that the requested sections / verbosity map to
+     at the command boundary.
 
    The positional `:1` is now just `MemberQuery.OverloadIndex` — a carried value, never
    re-parsed downstream. (A bare fully-qualified `Type.Member:N` with no `--platform`/`--package`
