@@ -124,6 +124,7 @@ public sealed record CompileBackTypeDeclaration(
     CompileBackAccessibility Accessibility,
     CompileBackTypeSignature? BaseType,
     string? PrimaryConstructorParameters,
+    IReadOnlyList<CompileBackTypeParameter> TypeParameters,
     IReadOnlyList<CompileBackTypeSignature> Interfaces,
     IReadOnlyList<CompileBackMemberDeclaration> Members,
     IReadOnlyList<CompileBackFact> SourceFacts,
@@ -841,6 +842,13 @@ public static class CompileBackSourceComposer
                 CompileBackTypeKind.Enum => "enum",
                 _ => throw new NotSupportedException($"Unsupported type declaration kind '{type.Kind}'."),
             },
+            TypeParameters = type.TypeParameters
+                .Select(parameter => new TypeParameter
+                {
+                    Name = parameter.Name,
+                    Constraints = parameter.Constraints.ToList(),
+                })
+                .ToList(),
             Interfaces = type.Interfaces.Select(type => type.DisplayName).ToList(),
         };
 
@@ -968,8 +976,27 @@ public static class CompileBackSourceComposer
     {
         var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
         var context = GenericContext.ForMethod(reader, declaringType, method);
+        return TypeParameters(reader, method.GetGenericParameters(), context);
+    }
+
+    static IReadOnlyList<CompileBackTypeParameter> TypeParameters(MetadataReader reader, TypeDefinition type)
+    {
+        var handles = type.GetGenericParameters().ToArray();
+        int inheritedCount = 0;
+        var declaringType = type.GetDeclaringType();
+        if (!declaringType.IsNil)
+            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
+
+        return TypeParameters(reader, handles.Skip(inheritedCount), GenericContext.ForType(reader, type));
+    }
+
+    static IReadOnlyList<CompileBackTypeParameter> TypeParameters(
+        MetadataReader reader,
+        IEnumerable<GenericParameterHandle> handles,
+        GenericContext context)
+    {
         var parameters = new List<CompileBackTypeParameter>();
-        foreach (var handle in method.GetGenericParameters())
+        foreach (var handle in handles)
         {
             var parameter = reader.GetGenericParameter(handle);
             var constraints = new List<string>();
@@ -1420,6 +1447,7 @@ public static class CompileBackSourceComposer
                     CompileBackAccessibility.Public,
                     BaseType: null,
                     PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
+                    TypeParameters: TypeParameters(reader, typeDef),
                     Interfaces: InterfaceSignatures(reader, typeDef),
                     members,
                     requirement.SourceFacts,
@@ -1468,6 +1496,7 @@ public static class CompileBackSourceComposer
                     CompileBackAccessibility.Public,
                     BaseType: null,
                     PrimaryConstructorParameters: null,
+                    TypeParameters: TypeParameters(reader, nestedDef),
                     Interfaces: InterfaceSignatures(reader, nestedDef),
                     members,
                     requirement.SourceFacts,

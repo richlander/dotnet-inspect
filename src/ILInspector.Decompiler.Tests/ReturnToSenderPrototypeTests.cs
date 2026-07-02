@@ -4,6 +4,8 @@ using ILInspector.Decompiler;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -996,6 +998,87 @@ public class ReturnToSenderPrototypeTests
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
                     Assert.Contains("public T Comparable<T>(T value) where T : System.IComparable<T>", result.Source);
                 });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsGenericTypeTargets()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Box<T>
+            {
+                private T _value;
+
+                public Box(T value)
+                {
+                    _value = value;
+                }
+
+                public T Value
+                {
+                    get => _value;
+                    set => _value = value;
+                }
+
+                public T Echo(T value) => value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Box`1", ".ctor", 0),
+                    new ReturnToSender.RequestedTarget("Box`1", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Box`1", "set_Value", 0),
+                    new ReturnToSender.RequestedTarget("Box`1", "Echo", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+            Assert.All(results, result => Assert.Contains("public class Box<T>", result.Source));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSourceComposer_NestedGenericTypeParametersSkipDeclaringTypeParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Outer<T>
+            {
+                public class Inner<U>
+                {
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var nested = reader.TypeDefinitions
+                .Select(handle => reader.GetTypeDefinition(handle))
+                .Single(type => reader.GetString(type.Name).StartsWith("Inner", StringComparison.Ordinal));
+            var method = typeof(CompileBackSourceComposer).GetMethod(
+                "TypeParameters",
+                BindingFlags.NonPublic | BindingFlags.Static,
+                [typeof(MetadataReader), typeof(TypeDefinition)]);
+
+            var typeParameters = Assert.IsAssignableFrom<IReadOnlyList<CompileBackTypeParameter>>(
+                method?.Invoke(null, [reader, nested]));
+            var typeParameter = Assert.Single(typeParameters);
+            Assert.Equal("U", typeParameter.Name);
         }
         finally
         {
