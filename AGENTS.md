@@ -209,6 +209,17 @@ Rules:
 - Give each reviewer the same self-contained, adversarial prompt (the PR's diff,
   the design intent, and concrete attack points) so their findings are
   comparable. Require evidence from real runs, not theorizing.
+- **Isolate each reviewer's workspace.** Give every review agent its own
+  checkout — a dedicated worktree or copy of the PR head — never a shared one.
+  Reviewers routinely write scratch repro files, add probe tests, or run
+  `git reset` to compare against a base; if two reviewers share a tree, one's
+  uncommitted edits contaminate the other's view and produce phantom findings
+  (e.g. a stray brace from a probe test read as a "PR compile error" that is not
+  in the PR). Instruct reviewers to keep scratch files under `/tmp` and to avoid
+  `git add -A`, `git commit`, and `git reset` in the review tree. Before acting
+  on any blocking finding, reproduce it against a clean checkout of the PR head —
+  `git status` should be empty — so a contaminated workspace cannot be mistaken
+  for a real defect.
 - It is fine to open the PR before the reviews finish.
 - **Reconcile and surface the results on the PR**: post a PR review/comment
   summarizing both reviews (attributed by model), where they agreed or diverged,
