@@ -1028,7 +1028,7 @@ public static class ApiOutputFormatter
             var overloadView = new ConstructorOverloadView
             {
                 Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
-                Signature = new CodeSection("csharp", $"new {type.Name}{SignatureParser.FormatConstructorCall(ctor.Signature)}")
+                Signature = new CodeSection("csharp", $"new {type.Name}{ConstructorCall(type, ctor)}")
             };
 
             if (paramInfo.Count > 0)
@@ -1052,6 +1052,19 @@ public static class ApiOutputFormatter
                 .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
                 .ToList()
             : SignatureParser.ExtractParameterInfo(constructor.Signature);
+
+    private static string ConstructorCall(ApiType type, ApiMember constructor)
+    {
+        if (constructor.SignatureModel is { } signature
+            && signature.Parameters.All(static parameter => !parameter.HasDefault || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
+        {
+            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, constructor);
+            if (!string.IsNullOrWhiteSpace(declaration))
+                return SignatureParser.FormatConstructorCall(declaration);
+        }
+
+        return SignatureParser.FormatConstructorCall(constructor.Signature);
+    }
 
     internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null, ApiOptions? options = null)
     {

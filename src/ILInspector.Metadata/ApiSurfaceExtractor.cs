@@ -773,7 +773,8 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = type,
                 Modifier = modifier,
-                HasDefault = hasDefault
+                HasDefault = hasDefault,
+                DefaultValueText = DefaultValueText(reader, defaultValue, type, hasDefault, AcceptsNullDefault(paramTypes[i]))
             });
         }
 
@@ -1012,6 +1013,13 @@ public static class ApiSurfaceExtractor
             double d => d.ToString("G"),
             _ => value.ToString() ?? "default"
         };
+    }
+
+    private static string? DefaultValueText(MetadataReader reader, object? value, string typeName, bool hasDefault, bool acceptsNullDefault)
+    {
+        if (!hasDefault || value is DateTimeConstantDefault)
+            return null;
+        return FormatDefaultValue(reader, value, typeName, acceptsNullDefault);
     }
 
     private static string EscapeCharLiteral(char c) => c switch
@@ -1348,7 +1356,8 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = paramType,
                 Modifier = modifier,
-                HasDefault = hasDefault
+                HasDefault = hasDefault,
+                DefaultValueText = DefaultValueText(reader, defaultValue, paramType, hasDefault, AcceptsNullDefault(paramTypes[i]))
             });
         }
 

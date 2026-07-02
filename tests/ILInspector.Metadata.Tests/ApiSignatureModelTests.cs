@@ -28,6 +28,7 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("ref", member.SignatureModel.Parameters[0].Modifier);
         Assert.Equal("int", member.SignatureModel.Parameters[0].Type);
         Assert.True(member.SignatureModel.Parameters[3].HasDefault);
+        Assert.Equal("1", member.SignatureModel.Parameters[3].DefaultValueText);
     }
 
     [Fact]
@@ -69,6 +70,7 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("count", ctor.SignatureModel.Parameters[1].Name);
         Assert.Equal("int", ctor.SignatureModel.Parameters[1].Type);
         Assert.True(ctor.SignatureModel.Parameters[1].HasDefault);
+        Assert.Equal("1", ctor.SignatureModel.Parameters[1].DefaultValueText);
     }
 
     [Fact]
