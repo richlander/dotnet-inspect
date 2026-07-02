@@ -82,7 +82,7 @@ public static class DependencyResolutionService
         }
 
         var availableTfms = groups.Select(g => g.TargetFramework).ToArray();
-        if (!string.IsNullOrEmpty(requestedTfm))
+        if (requestedTfm != null)
         {
             var group = allowCompatibleFallbackForRequestedTfm
                 ? FindBestMatchingTfmGroup(groups, requestedTfm)

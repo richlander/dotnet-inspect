@@ -202,6 +202,41 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void SelectDependencyGroup_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(groups, "");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_EmptyRequestedTfm_SelectsEmptyTfmGroup()
+    {
+        var groups = new List<DotnetInspector.Packages.DependencyGroup>
+        {
+            new() { TargetFramework = "net8.0" },
+            new() { TargetFramework = "" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("", result.Group?.TargetFramework);
+        Assert.Equal("", result.TargetFramework);
+    }
+
+    [Fact]
     public void SelectDependencyGroup_RequestedTfm_NoMatch_ReturnsAvailableTfms()
     {
         var groups = new List<DotnetInspector.Packages.DependencyGroup>
