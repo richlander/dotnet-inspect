@@ -1230,8 +1230,12 @@ public sealed partial class CSharpPrinter
     {
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
             return coerced;
+        // Same stack family only: `(int)longBackedEnum` would truncate. The
+        // importer's family merge should never build such a join, but the cast
+        // must not be the place that finds out (slice-4 review's verify item).
         return target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
-            && EnumUnderlyingType(EffectiveType(arm)) is not null
+            && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
+            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget)
             ? $"({TypeText(integerTarget)}){Operand(arm)}"
             : null;
     }
