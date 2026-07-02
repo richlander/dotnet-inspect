@@ -195,7 +195,7 @@ public static class CSharpDeclarationWriter
 
         if (options.AbbreviateSignature)
             signature = AbbreviateSignature(signature);
-        signature = EscapeKnownIdentifiers(signature, type.TypeParameters.Select(p => p.Name));
+        signature = EscapeKnownIdentifiers(signature, type.TypeParameters.Concat(member.SignatureModel?.TypeParameters ?? []).Select(p => p.Name));
 
         if (member.Name == ".cctor")
         {
@@ -319,6 +319,10 @@ public static class CSharpDeclarationWriter
             foreach (var parameter in signatureModel.Parameters)
                 if (!string.IsNullOrWhiteSpace(parameter.Type))
                     yield return parameter.Type;
+            foreach (var typeParameter in signatureModel.TypeParameters)
+                foreach (var constraint in typeParameter.Constraints)
+                    foreach (var reference in ExtractQualifiedTypeNames(constraint))
+                        yield return reference;
         }
 
         var signature = member.Signature;
@@ -524,10 +528,11 @@ public static class CSharpDeclarationWriter
         if (member.Kind == "method"
             && methodParameters is not { Count: > 0 }
             && model.MemberName is { Length: > 0 } memberName
-            && !memberName.Contains('<', StringComparison.Ordinal)
             && model.ReturnType is { Length: > 0 } returnType)
         {
-            signature = $"{returnType} {memberName}({parameters})";
+            if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
+                return false;
+            signature = AppendTypeParameterConstraints($"{returnType} {memberName}({parameters})", model.TypeParameters);
             return true;
         }
         if (member.Kind == "property"
@@ -546,9 +551,9 @@ public static class CSharpDeclarationWriter
             return true;
         }
 
-        // Keep generic methods, extension projections, explicit implementations,
-        // operators, and events on compatibility text until the remaining
-        // declaration-level facts are represented in ApiSignature.
+        // Keep extension projections, explicit implementations, operators, and
+        // events on compatibility text until the remaining declaration-level
+        // facts are represented in ApiSignature.
         return false;
 
         static string ParameterDeclaration(ApiParameter parameter)

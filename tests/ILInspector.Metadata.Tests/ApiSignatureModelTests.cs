@@ -111,6 +111,22 @@ public sealed class ApiSignatureModelTests
         Assert.Equal(
             "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.GenericMethod<T>(T)",
             canonical);
+        Assert.Equal("T", source.SignatureModel!.TypeParameters.Single().Name);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_ExposesGenericParameterConstraints()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.ConstrainedGenericMethod));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal("ConstrainedGenericMethod<TSource, TResult>", member.SignatureModel.MemberName);
+        Assert.Equal("TResult", member.SignatureModel.ReturnType);
+        Assert.Equal(2, member.SignatureModel.TypeParameters.Count);
+        Assert.Equal("TSource", member.SignatureModel.TypeParameters[0].Name);
+        Assert.Equal(["unmanaged"], member.SignatureModel.TypeParameters[0].Constraints);
+        Assert.Equal("TResult", member.SignatureModel.TypeParameters[1].Name);
+        Assert.Equal(["notnull", "System.IComparable<TResult>", "new()"], member.SignatureModel.TypeParameters[1].Constraints);
     }
 
     [Fact]
@@ -367,6 +383,11 @@ public sealed class ApiSignatureFixtures
 
     public (TLeft Left, TRight Right) PairGenericMethod<TLeft, TRight>(TLeft left, TRight right)
         => (left, right);
+
+    public TResult ConstrainedGenericMethod<TSource, TResult>(TSource source)
+        where TSource : unmanaged
+        where TResult : IComparable<TResult>, new()
+        => new();
 
     public void Validate<TValidateOptions>()
     {
