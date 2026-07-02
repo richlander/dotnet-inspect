@@ -28,6 +28,8 @@ static class ReturnToSender
         string RecompiledOpcodes,
         string? Detail);
 
+    public sealed record RequestedTarget(string Type, string Method, int Overload);
+
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
     enum ComparisonDelta
@@ -386,6 +388,112 @@ static class ReturnToSender
         return results;
     }
 
+    public static IReadOnlyList<Result> CompileBackTargets(string assemblyPath, IReadOnlyList<RequestedTarget> targets)
+    {
+        if (targets.Count == 0)
+            return [];
+
+        var results = new List<Result>();
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        if (!pe.HasMetadata)
+            throw new InvalidOperationException("Assembly has no metadata.");
+
+        var reader = pe.GetMetadataReader();
+        using var metadata = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        var typeHandles = reader.TypeDefinitions
+            .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
+            .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
+                && fullName.Length != 0
+                && item.Definition.GetDeclaringType().IsNil)
+            .ToDictionary(item => reader.GetFullTypeName(item.Definition), item => item.Handle, StringComparer.Ordinal);
+
+        foreach (var target in targets)
+        {
+            if (!typeHandles.TryGetValue(target.Type, out var typeHandle))
+                continue;
+
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            string typeName = reader.GetString(typeDef.Name);
+            if (!typeDef.GetDeclaringType().IsNil
+                || typeName == "<Module>"
+                || typeName.Contains('<', StringComparison.Ordinal)
+                || typeName.Contains('`', StringComparison.Ordinal)
+                || !IsSupportedClass(reader, typeDef))
+            {
+                continue;
+            }
+
+            if (TryFindPropertyGetter(reader, typeDef, target.Method, target.Overload) is { } propertyTarget)
+            {
+                results.Add(CompileBackPropertyGetterOrContextFail(
+                    assemblyPath,
+                    pe,
+                    reader,
+                    source,
+                    typeHandle,
+                    propertyTarget.Property,
+                    propertyTarget.Getter));
+                continue;
+            }
+
+            if (target.Method == ".ctor")
+                continue;
+            if (TryFindMethod(reader, typeDef, target.Method, target.Overload) is { } methodHandle)
+                results.Add(CompileBackMethodOrContextFail(assemblyPath, pe, reader, source, typeHandle, methodHandle));
+        }
+
+        return results;
+    }
+
+    static (PropertyDefinitionHandle Property, MethodDefinitionHandle Getter)? TryFindPropertyGetter(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string methodName,
+        int overload)
+    {
+        int seen = 0;
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
+            if (accessors.Getter.IsNil)
+                continue;
+
+            var getter = reader.GetMethodDefinition(accessors.Getter);
+            if (reader.GetString(getter.Name) != methodName || getter.RelativeVirtualAddress == 0)
+                continue;
+            if (seen++ == overload)
+                return (propertyHandle, accessors.Getter);
+        }
+
+        return null;
+    }
+
+    static MethodDefinitionHandle? TryFindMethod(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string methodName,
+        int overload)
+    {
+        int seen = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName
+                || method.RelativeVirtualAddress == 0
+                || method.GetGenericParameters().Count != 0)
+            {
+                continue;
+            }
+
+            if (seen++ == overload)
+                return methodHandle;
+        }
+
+        return null;
+    }
+
     static Result CompileBackPropertyGetterOrContextFail(
         string assemblyPath,
         PEReader pe,
@@ -402,6 +510,24 @@ static class ReturnToSender
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
             return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    static Result CompileBackMethodOrContextFail(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle)
+    {
+        try
+        {
+            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return ContextFailResult(assemblyPath, reader, typeHandle, methodHandle, $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -555,6 +681,152 @@ static class ReturnToSender
         }
     }
 
+    static Result CompileBackMethod(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var method = reader.GetMethodDefinition(methodHandle);
+        string fullType = reader.GetFullTypeName(typeDef);
+        string methodName = reader.GetString(method.Name);
+        int overload = OverloadIndex(reader, typeDef, methodHandle, methodName);
+
+        var function = IrImporter.Import(source, fullType, methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
+        var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+        if (printed.Output is null)
+            throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
+
+        var original = ILDisassembler.Disassemble(pe, reader, method)
+            ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
+        var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
+
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: OptimizationLevel.Release,
+            nullableContextOptions: NullableContextOptions.Disable,
+            allowUnsafe: true);
+        var references = CompilationReferences(assemblyPath).ToArray();
+        var indexes = ClosureIndexes(reader);
+        var closureRoots = new HashSet<TypeDefinitionHandle>
+        {
+            TopLevelRootOf(reader, typeHandle),
+        };
+        var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
+        const int maxRoots = 200;
+        const int maxIterations = 80;
+        Diagnostic? firstError = null;
+
+        for (int iteration = 0; iteration < maxIterations; iteration++)
+        {
+            var sourceResult = CompileBackSourceComposer.ComposeMethod(
+                assemblyPath,
+                reader,
+                function,
+                typeHandle,
+                methodHandle,
+                printed.Output,
+                fullType,
+                methodName,
+                overload,
+                CorpusMethodIdentity.SignatureText(function.Signature),
+                closureRoots,
+                closureFacts);
+            var plan = sourceResult.Plan;
+
+            if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
+            {
+                return new Result(
+                    plan,
+                    "",
+                    FidelityCheck.CompileBackStatus.ContextFail,
+                    string.Join(" ", originalOps),
+                    "",
+                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
+            }
+
+            string unit = sourceResult.Source;
+            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
+            var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
+            using var ms = new MemoryStream();
+            var emit = compilation.Emit(ms);
+            if (emit.Success)
+            {
+                ms.Position = 0;
+                using var recompiled = new PEReader(ms);
+                var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
+                    ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+                    .ToArray();
+
+                if (recompiledOps is null)
+                {
+                    return new Result(
+                        plan,
+                        unit,
+                        FidelityCheck.CompileBackStatus.ContextFail,
+                        string.Join(" ", originalOps),
+                        "",
+                        "method-not-found");
+                }
+
+                return new Result(
+                    plan,
+                    unit,
+                    originalOps.SequenceEqual(recompiledOps)
+                        ? FidelityCheck.CompileBackStatus.Exact
+                        : FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    string.Join(" ", originalOps),
+                    string.Join(" ", recompiledOps),
+                    null);
+            }
+
+            var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
+            firstError ??= errors.FirstOrDefault();
+            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), TopLevelRootOf(reader, typeHandle), closureRoots, closureFacts);
+            if (!grew || closureRoots.Count > maxRoots)
+            {
+                string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
+                var error = errors.FirstOrDefault() ?? firstError;
+                return new Result(
+                    plan,
+                    unit,
+                    FidelityCheck.CompileBackStatus.RecompileFail,
+                    string.Join(" ", originalOps),
+                    "",
+                    $"{reason}: {FormatDiagnostic(error)}");
+            }
+        }
+
+        {
+            var sourceResult = CompileBackSourceComposer.ComposeMethod(
+                assemblyPath,
+                reader,
+                function,
+                typeHandle,
+                methodHandle,
+                printed.Output,
+                fullType,
+                methodName,
+                overload,
+                CorpusMethodIdentity.SignatureText(function.Signature),
+                closureRoots,
+                closureFacts);
+            var plan = sourceResult.Plan;
+            return new Result(
+                plan,
+                sourceResult.Source,
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                string.Join(" ", originalOps),
+                "",
+                $"closure-iteration-budget: {FormatDiagnostic(firstError)}");
+        }
+    }
+
     static Result ContextFailResult(
         string assemblyPath,
         MetadataReader reader,
@@ -609,6 +881,28 @@ static class ReturnToSender
             "",
             "",
             detail);
+    }
+
+    static Result ContextFailResult(
+        string assemblyPath,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        string detail)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var method = reader.GetMethodDefinition(methodHandle);
+        string fullType = reader.GetFullTypeName(typeDef);
+        string methodName = reader.GetString(method.Name);
+        int overload = OverloadIndex(reader, typeDef, methodHandle, methodName);
+        var plan = new CompileBackReconstructionPlan(
+            assemblyPath,
+            new CompileBackMethodIdentity(fullType, methodName, overload, ""),
+            new CompileBackModuleRequirement(["System"], [], []),
+            [],
+            [],
+            []);
+        return new Result(plan, "", FidelityCheck.CompileBackStatus.ContextFail, "", "", detail);
     }
 
     static int OverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string methodName)

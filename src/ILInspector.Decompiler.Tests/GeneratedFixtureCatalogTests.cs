@@ -447,9 +447,9 @@ public class GeneratedFixtureCatalogTests
 
         Assert.True(run.Passed, report);
         Assert.Contains("RETURNTOSENDER GENERATED FIXTURE FRONTIER", report);
-        Assert.Contains("Passed : 1", report);
-        Assert.Contains("Skipped: 1", report);
-        Assert.Contains("not-property-getter: 4", report);
+        Assert.Contains("Passed : 2", report);
+        Assert.Contains("Skipped: 0", report);
+        Assert.Contains("constructor-target: 2", report);
 
         var propertyGetter = Assert.Single(run.Results, result =>
             result.FixtureId == "minimal.property.literal"
@@ -457,9 +457,14 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, propertyGetter.Status);
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, propertyGetter.ActualStatus);
 
-        Assert.All(
-            run.Results.Where(result => result.FixtureId == "minimal.method-call.same-type"),
-            result => Assert.Equal(GeneratedFixtureReturnToSenderStatus.Skip, result.Status));
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "minimal.method-call.same-type"
+            && result.Method == "Method1"
+            && result.Status == GeneratedFixtureReturnToSenderStatus.Pass);
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "minimal.method-call.same-type"
+            && result.Method == "Method2"
+            && result.Status == GeneratedFixtureReturnToSenderStatus.Pass);
 
         string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
         using var document = JsonDocument.Parse(json);
@@ -467,7 +472,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Status").GetString() == "Pass");
         Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
-            result => result.GetProperty("Reason").GetString() == "not-property-getter");
+            result => result.GetProperty("Reason").GetString() == "constructor-target");
     }
 
     [Fact]

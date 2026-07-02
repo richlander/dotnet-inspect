@@ -730,27 +730,25 @@ internal static class GeneratedFixtureRunner
     {
         return RunWithMaterializedFixtures(fixtures, options, (root, assemblyPath) =>
         {
-            IReadOnlyDictionary<string, ReturnToSender.Result> rtsResults;
-            try
-            {
-                rtsResults = ReturnToSender.CompileBackPropertyGetters(assemblyPath)
-                    .ToDictionary(result => Key(
-                        result.Plan.TargetMethod.Type,
-                        result.Plan.TargetMethod.Method,
-                        result.Plan.TargetMethod.Overload), StringComparer.Ordinal);
-            }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("No supported property getter", StringComparison.Ordinal))
-            {
-                rtsResults = new Dictionary<string, ReturnToSender.Result>(StringComparer.Ordinal);
-            }
+            var requestedTargets = fixtures
+                .SelectMany(fixture => fixture.Targets)
+                .Where(target => target.Method != ".ctor")
+                .Select(target => new ReturnToSender.RequestedTarget(target.Type, target.Method, target.Overload))
+                .Distinct()
+                .ToArray();
+            IReadOnlyDictionary<string, ReturnToSender.Result> rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, requestedTargets)
+                .ToDictionary(result => Key(
+                    result.Plan.TargetMethod.Type,
+                    result.Plan.TargetMethod.Method,
+                    result.Plan.TargetMethod.Overload), StringComparer.Ordinal);
             var results = new List<GeneratedFixtureReturnToSenderResult>();
             foreach (var fixture in fixtures)
             {
                 foreach (var target in fixture.Targets)
                 {
-                    if (!target.Method.StartsWith("get_", StringComparison.Ordinal))
+                    if (target.Method == ".ctor")
                     {
-                        results.Add(Skipped(fixture, target, "not-property-getter"));
+                        results.Add(Skipped(fixture, target, "constructor-target"));
                         continue;
                     }
 
