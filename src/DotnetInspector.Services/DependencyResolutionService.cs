@@ -42,12 +42,12 @@ public static class DependencyResolutionService
             g.TargetFramework.Equals(targetTfm, StringComparison.OrdinalIgnoreCase));
         if (exact != null) return exact;
 
-        var targetPriority = TfmResolver.GetTfmPriority(targetTfm);
+        var targetPriority = TfmSelector.GetTfmPriority(targetTfm);
 
         return TfmSelector.OrderByTfmPriorityDescending(
                 groups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
                                   g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                                  TfmResolver.GetTfmPriority(g.TargetFramework) <= targetPriority),
+                                  TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority),
                 g => g.TargetFramework)
             .FirstOrDefault();
     }

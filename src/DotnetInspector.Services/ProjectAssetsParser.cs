@@ -259,28 +259,25 @@ public static class ProjectAssetsParser
 
     private static string? SelectTargetFramework(JsonElement targets, string? tfmFilter)
     {
-        string? selectedTfm = null;
-        foreach (var target in targets.EnumerateObject())
+        if (!string.IsNullOrEmpty(tfmFilter))
         {
-            var tfmName = target.Name;
-            var baseTfm = GetBaseTfm(tfmName);
-
-            if (!string.IsNullOrEmpty(tfmFilter))
+            foreach (var target in targets.EnumerateObject())
             {
+                var tfmName = target.Name;
+                var baseTfm = GetBaseTfm(tfmName);
                 if (baseTfm.Equals(tfmFilter, StringComparison.OrdinalIgnoreCase))
                 {
-                    selectedTfm = tfmName;
-                    break;
+                    return tfmName;
                 }
             }
-            else if (selectedTfm == null
-                || TfmResolver.GetTfmPriority(baseTfm) > TfmResolver.GetTfmPriority(GetBaseTfm(selectedTfm)))
-            {
-                selectedTfm = tfmName;
-            }
+
+            return null;
         }
 
-        return selectedTfm;
+        return TfmSelector.OrderByTfmPriorityDescending(
+                targets.EnumerateObject().Select(target => target.Name),
+                GetBaseTfm)
+            .FirstOrDefault();
     }
 
     private static string GetBaseTfm(string tfmName)

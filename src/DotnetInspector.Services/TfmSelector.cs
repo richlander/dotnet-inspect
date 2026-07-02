@@ -15,7 +15,12 @@ public static class TfmSelector
         IEnumerable<T> items,
         Func<T, string?> tfmSelector)
     {
-        return items.OrderByDescending(item => TfmResolver.GetTfmPriority(NormalizeTfmForPriority(tfmSelector(item))));
+        return items.OrderByDescending(item => GetTfmPriority(tfmSelector(item)));
+    }
+
+    public static int GetTfmPriority(string? tfm)
+    {
+        return TfmResolver.GetTfmPriority(NormalizeTfmForPriority(tfm));
     }
 
     public static string? SelectHighestTfm(IEnumerable<string> tfms)
