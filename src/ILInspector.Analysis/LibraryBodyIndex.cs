@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 
 using ILInspector.ControlFlow;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -687,13 +688,16 @@ public sealed class LibraryBodyIndex
     }
 
     public static LibraryBodyIndex Open(string path)
+        => Open(path, resolver: null);
+
+    public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null)
     {
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
-        var builder = new IndexBuilder(path, reader, peReader);
+        using var builder = new IndexBuilder(path, reader, peReader, resolver);
         var index = builder.Build();
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
@@ -1155,29 +1159,188 @@ public sealed class LibraryBodyIndex
             DeclaringType.Name: "Object"
         };
 
-    sealed class IndexBuilder
+    internal sealed class IndexBuilder : IDisposable
     {
         readonly string _path;
         readonly MetadataReader _reader;
         readonly PEReader _peReader;
+        readonly IAssemblyReferenceResolver? _resolver;
+        readonly Dictionary<AssemblyReferenceIdentity, ReferencedAssemblyMetadata?> _referencedAssemblyCache = new();
         readonly string _assemblyName;
         readonly Guid _mvid;
         readonly bool _memorySafetyRulesEnabled;
 
-        public IndexBuilder(string path, MetadataReader reader, PEReader peReader)
+        internal IndexBuilder(string path, MetadataReader reader, PEReader peReader, IAssemblyReferenceResolver? resolver = null)
         {
             _path = path;
             _reader = reader;
             _peReader = peReader;
+            _resolver = resolver;
             _assemblyName = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : System.IO.Path.GetFileNameWithoutExtension(path);
             _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
             _memorySafetyRulesEnabled = DetectMemorySafetyRules();
+        }
+
+        public void Dispose()
+        {
+            foreach (var assembly in _referencedAssemblyCache.Values)
+                assembly?.Dispose();
+            _referencedAssemblyCache.Clear();
         }
 
         // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
         // when MemorySafetyRulesAttribute is applied (emitted [module:], like
         // RefSafetyRulesAttribute). Check the module and assembly scopes.
         public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
+
+        sealed class ReferencedAssemblyMetadata(Stream stream, PEReader peReader) : IDisposable
+        {
+            public MetadataReader Reader { get; } = peReader.GetMetadataReader();
+
+            public void Dispose()
+            {
+                peReader.Dispose();
+                stream.Dispose();
+            }
+        }
+
+        internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(TypeReferenceHandle handle)
+            => TryResolveExternalTypeDefinition(handle, new HashSet<TypeReferenceHandle>());
+
+        (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveExternalTypeDefinition(
+            TypeReferenceHandle handle,
+            HashSet<TypeReferenceHandle> visited)
+        {
+            if (handle.IsNil || !visited.Add(handle))
+                return null;
+
+            var typeRef = _reader.GetTypeReference(handle);
+            string name = _reader.GetString(typeRef.Name);
+            string ns = _reader.GetString(typeRef.Namespace);
+            return typeRef.ResolutionScope.Kind switch
+            {
+                HandleKind.AssemblyReference => TryResolveTopLevelExternalType(
+                    (AssemblyReferenceHandle)typeRef.ResolutionScope,
+                    ns,
+                    name),
+                HandleKind.TypeReference => TryResolveNestedExternalType(
+                    (TypeReferenceHandle)typeRef.ResolutionScope,
+                    ns,
+                    name,
+                    visited),
+                _ => null,
+            };
+        }
+
+        (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveTopLevelExternalType(
+            AssemblyReferenceHandle assemblyReference,
+            string ns,
+            string name)
+        {
+            var metadata = ResolveReferencedAssembly(assemblyReference);
+            if (metadata is null)
+                return null;
+
+            foreach (var candidateHandle in metadata.Reader.TypeDefinitions)
+            {
+                var candidate = metadata.Reader.GetTypeDefinition(candidateHandle);
+                if (candidate.IsNested)
+                    continue;
+                if (metadata.Reader.StringComparer.Equals(candidate.Namespace, ns)
+                    && metadata.Reader.StringComparer.Equals(candidate.Name, name))
+                    return (metadata.Reader, candidateHandle);
+            }
+
+            return null;
+        }
+
+        (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveNestedExternalType(
+            TypeReferenceHandle declaringReference,
+            string ns,
+            string name,
+            HashSet<TypeReferenceHandle> visited)
+        {
+            var declaring = TryResolveExternalTypeDefinition(declaringReference, visited);
+            if (declaring is not { } resolvedDeclaring)
+                return null;
+
+            var declaringDefinition = resolvedDeclaring.DefiningReader.GetTypeDefinition(resolvedDeclaring.Definition);
+            foreach (var nestedHandle in declaringDefinition.GetNestedTypes())
+            {
+                var nested = resolvedDeclaring.DefiningReader.GetTypeDefinition(nestedHandle);
+                if ((ns.Length == 0 || resolvedDeclaring.DefiningReader.StringComparer.Equals(nested.Namespace, ns))
+                    && resolvedDeclaring.DefiningReader.StringComparer.Equals(nested.Name, name))
+                    return (resolvedDeclaring.DefiningReader, nestedHandle);
+            }
+
+            return null;
+        }
+
+        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceHandle handle)
+        {
+            var identity = AssemblyReferenceIdentity.From(_reader, handle);
+            if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
+                return cached;
+
+            var resolved = OpenReferencedAssembly(identity, ScopeForReference(handle));
+            _referencedAssemblyCache[identity] = resolved;
+            return resolved;
+        }
+
+        ReferencedAssemblyMetadata? OpenReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            if (_resolver is null)
+                return null;
+
+            ResolvedAssemblyReference? resolved;
+            try
+            {
+                resolved = _resolver.Resolve(identity, scope);
+            }
+            catch (Exception ex) when (IsRecoverableReferenceResolutionFailure(ex))
+            {
+                return null;
+            }
+
+            if (resolved?.Path is not { Length: > 0 } path || !File.Exists(path))
+                return null;
+
+            Stream? stream = null;
+            PEReader? peReader = null;
+            try
+            {
+                stream = File.OpenRead(path);
+                peReader = new PEReader(stream);
+                if (!peReader.HasMetadata)
+                    return null;
+                var metadata = new ReferencedAssemblyMetadata(stream, peReader);
+                stream = null;
+                peReader = null;
+                return metadata;
+            }
+            catch (Exception ex) when (IsRecoverableReferenceResolutionFailure(ex))
+            {
+                return null;
+            }
+            finally
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
+        }
+
+        AssemblyResolutionScope ScopeForReference(AssemblyReferenceHandle handle)
+            => FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
+                ? AssemblyResolutionScope.Platform
+                : AssemblyResolutionScope.Any;
+
+        static bool IsRecoverableReferenceResolutionFailure(Exception ex)
+            => ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or InvalidOperationException
+                or NotSupportedException
+                or ArgumentException;
 
         sealed class DecodedBody
         {

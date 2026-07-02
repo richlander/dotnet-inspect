@@ -1,4 +1,5 @@
 using DotnetInspector.Inspectors;
+using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
 using System.Security.Cryptography;
@@ -19,6 +20,9 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class ApiOutputFormatter
 {
+    static IAssemblyReferenceResolver AnalysisReferenceResolver(string dllPath, ApiOptions? options = null)
+        => ApiCommand.PlatformAssemblyResolver(dllPath, options?.ProjectAssetsPath, options?.Tfm);
+
     // ===== Full API View Model Factory =====
 
     internal static (CliApiSurface view, int truncatedCount) BuildFullApiView(ApiSurface api, ApiOptions options)
@@ -1074,6 +1078,7 @@ public static class ApiOutputFormatter
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
+        var assemblyResolver = AnalysisReferenceResolver(dllPath, options);
 
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
@@ -1089,7 +1094,7 @@ public static class ApiOutputFormatter
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
             var rows = index.DirectCalls
                 .Where(call => call.Caller.MetadataToken == token)
                 .OrderBy(call => call.ILOffset)
@@ -1135,7 +1140,7 @@ public static class ApiOutputFormatter
         if (request.Callers && methods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
-            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
             var ownSource = Path.GetFileNameWithoutExtension(dllPath);
             var rows = new List<CallerSiteRow>();
 
@@ -1169,7 +1174,7 @@ public static class ApiOutputFormatter
                         Analysis.LibraryBodyIndex scopeIndex;
                         try
                         {
-                            scopeIndex = Analysis.LibraryBodyIndex.Open(scopePath);
+                            scopeIndex = Analysis.LibraryBodyIndex.Open(scopePath, AnalysisReferenceResolver(scopePath, options));
                         }
                         catch
                         {
@@ -1207,7 +1212,7 @@ public static class ApiOutputFormatter
         if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken } graphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
             var root = ToCallGraphNode(index.BuildCallTree(graphToken), GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 })
             {
@@ -1225,7 +1230,7 @@ public static class ApiOutputFormatter
         if (requestedSections.Contains(SectionNames.CallerGraph) && singleMethodList is [{ MetadataToken: { } callerGraphToken } callerGraphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
             // Extend the reverse graph across the caller scope (--bin/--project/--caller-package)
             // so a dependency member surfaces the product entry points and callers that reach it.
             var scopeIndexes = new List<Analysis.LibraryBodyIndex>();
@@ -1235,7 +1240,7 @@ public static class ApiOutputFormatter
                 {
                     try
                     {
-                        scopeIndexes.Add(Analysis.LibraryBodyIndex.Open(scopePath));
+                        scopeIndexes.Add(Analysis.LibraryBodyIndex.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
                     }
                     catch
                     {
@@ -1257,7 +1262,7 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
             var evidence = index.UnsafeEvidence
                 .Where(evidence => evidence.Member.MetadataToken == unsafeToken)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
@@ -1299,7 +1304,7 @@ public static class ApiOutputFormatter
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
 
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
@@ -1674,7 +1679,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var rows = index.UnsafeEvidence
             .Where(evidence => SameType(evidence.Member.DeclaringType, type))
             .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
@@ -1722,7 +1727,7 @@ public static class ApiOutputFormatter
         string dllPath,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var rows = index.CalledTypes(method => SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
@@ -1743,7 +1748,7 @@ public static class ApiOutputFormatter
         IReadOnlySet<string>? requestedSections,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var methodTokens = type.Members
             .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
             .Select(member => member.MetadataToken!.Value)
@@ -1792,7 +1797,7 @@ public static class ApiOutputFormatter
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
         HashSet<int>? memberTokens = restrictToModelMembers
             ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
             : null;
@@ -1884,7 +1889,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var drillByToken = BuildMemberDrillMap(type);
 
         // Rank every method declared on this type; fanin is still measured across all
