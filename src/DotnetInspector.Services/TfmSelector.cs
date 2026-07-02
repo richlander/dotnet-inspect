@@ -15,12 +15,68 @@ public static class TfmSelector
         IEnumerable<T> items,
         Func<T, string?> tfmSelector)
     {
-        return items.OrderByDescending(item => TfmResolver.GetTfmPriority(tfmSelector(item) ?? ""));
+        return items.OrderByDescending(item => TfmResolver.GetTfmPriority(NormalizeTfmForPriority(tfmSelector(item))));
     }
 
     public static string? SelectHighestTfm(IEnumerable<string> tfms)
     {
         return OrderByTfmPriorityDescending(tfms, tfm => tfm).FirstOrDefault();
+    }
+
+    private static string NormalizeTfmForPriority(string? tfm)
+    {
+        if (string.IsNullOrWhiteSpace(tfm))
+            return "";
+
+        var value = tfm.Trim();
+        var slashIndex = value.IndexOf('/');
+        if (slashIndex >= 0)
+            value = value[..slashIndex];
+
+        var commaIndex = value.IndexOf(',');
+        if (commaIndex >= 0)
+        {
+            var frameworkName = value[..commaIndex];
+            var version = value[(commaIndex + 1)..]
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault(part => part.StartsWith("Version=", StringComparison.OrdinalIgnoreCase));
+            if (version != null)
+            {
+                return NormalizeLongFormTfm(frameworkName, version["Version=".Length..].TrimStart('v', 'V')) ?? value;
+            }
+        }
+
+        foreach (var prefix in new[] { ".NETStandard", ".NETFramework", ".NETCoreApp" })
+        {
+            if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeLongFormTfm(prefix, value[prefix.Length..].TrimStart('v', 'V')) ?? value;
+            }
+        }
+
+        return value;
+    }
+
+    private static string? NormalizeLongFormTfm(string frameworkName, string version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return null;
+
+        if (frameworkName.Equals(".NETStandard", StringComparison.OrdinalIgnoreCase))
+            return "netstandard" + version;
+
+        if (frameworkName.Equals(".NETFramework", StringComparison.OrdinalIgnoreCase))
+            return "net" + version.Replace(".", "", StringComparison.Ordinal);
+
+        if (frameworkName.Equals(".NETCoreApp", StringComparison.OrdinalIgnoreCase))
+        {
+            var majorText = version.Split('.', 2)[0];
+            return int.TryParse(majorText, out var major) && major >= 5
+                ? "net" + version
+                : "netcoreapp" + version;
+        }
+
+        return null;
     }
 
     public static List<string> GetPackageDlls(string extractPath)

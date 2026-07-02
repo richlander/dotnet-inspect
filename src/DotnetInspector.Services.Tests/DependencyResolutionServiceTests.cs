@@ -25,6 +25,14 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void TfmSelector_SelectHighestTfm_NormalizesLongFormTfms()
+    {
+        var tfms = new[] { ".NETFramework4.7.2", ".NETStandard2.0", ".NETCoreApp,Version=v8.0" };
+
+        Assert.Equal(".NETCoreApp,Version=v8.0", TfmSelector.SelectHighestTfm(tfms));
+    }
+
+    [Fact]
     public void TfmSelector_OrderByTfmPriorityDescending_PreservesCallerTieBreakers()
     {
         var tfms = new[] { "net8.0-windows", "net8.0", "netstandard2.0" };

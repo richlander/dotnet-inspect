@@ -351,6 +351,48 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void FlatDependencies_OrdersLongFormTfmsBySharedPriority()
+    {
+        var result = new InspectionResult
+        {
+            DependencyGroups =
+            [
+                new DependencyGroup
+                {
+                    TargetFramework = ".NETStandard2.0",
+                    Dependencies =
+                    [
+                        new PackageDependency { Id = "StandardDependency", Version = "1.0.0" }
+                    ]
+                },
+                new DependencyGroup
+                {
+                    TargetFramework = ".NETFramework4.7.2",
+                    Dependencies =
+                    [
+                        new PackageDependency { Id = "FrameworkDependency", Version = "1.0.0" }
+                    ]
+                },
+                new DependencyGroup
+                {
+                    TargetFramework = ".NETCoreApp,Version=v8.0",
+                    Dependencies =
+                    [
+                        new PackageDependency { Id = "ModernDependency", Version = "1.0.0" }
+                    ]
+                }
+            ]
+        };
+
+        var flat = new InspectionResultView(result).FlatDependencies;
+
+        Assert.NotNull(flat);
+        Assert.Equal(".NETCoreApp,Version=v8.0", flat[0].TargetFramework);
+        Assert.Equal(".NETStandard2.0", flat[1].TargetFramework);
+        Assert.Equal(".NETFramework4.7.2", flat[2].TargetFramework);
+    }
+
+    [Fact]
     public void FlatDependencies_SortsDependenciesById()
     {
         var result = new InspectionResult
