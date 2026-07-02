@@ -33,6 +33,7 @@ public static class KnownAttributeNames
     public const string NullablePublicOnlyAttribute = Prefix + "NullablePublicOnlyAttribute";
     public const string RefSafetyRulesAttribute = Prefix + "RefSafetyRulesAttribute";
     public const string RequiredMemberAttribute = Prefix + "RequiredMemberAttribute";
+    public const string RequiresLocationAttribute = Prefix + "RequiresLocationAttribute";
 
     // RequiresUnsafeAttribute is emitted in System.Diagnostics.CodeAnalysis (the
     // metadata form of the member `unsafe`/`extern` modifier under the updated

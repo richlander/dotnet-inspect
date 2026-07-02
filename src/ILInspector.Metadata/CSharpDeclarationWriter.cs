@@ -479,6 +479,16 @@ public static class CSharpDeclarationWriter
     {
         for (var i = 0; i < text.Length;)
         {
+            if (IsStringLiteralStart(text, i))
+            {
+                i = SkipStringLiteral(text, i);
+                continue;
+            }
+            if (text[i] == '\'')
+            {
+                i = SkipCharLiteral(text, i);
+                continue;
+            }
             if (!IsIdentifierStart(text[i]))
             {
                 i++;
@@ -1038,6 +1048,20 @@ public static class CSharpDeclarationWriter
             var sb = new StringBuilder(text.Length);
             for (var i = 0; i < text.Length;)
             {
+                if (IsStringLiteralStart(text, i))
+                {
+                    var end = SkipStringLiteral(text, i);
+                    sb.Append(text.AsSpan(i, end - i));
+                    i = end;
+                    continue;
+                }
+                if (text[i] == '\'')
+                {
+                    var end = SkipCharLiteral(text, i);
+                    sb.Append(text.AsSpan(i, end - i));
+                    i = end;
+                    continue;
+                }
                 if (i + token.Length <= text.Length
                     && text.AsSpan(i, token.Length).SequenceEqual(token)
                     && IsStartBoundary(text, i - 1)
@@ -1063,6 +1087,78 @@ public static class CSharpDeclarationWriter
             => index < 0
                || index >= text.Length
                || (!IsIdentifierPart(text[index]) && text[index] != '+');
+    }
+
+    static bool IsStringLiteralStart(string text, int index)
+        => text[index] == '"'
+           || (text[index] == '@' && index + 1 < text.Length && text[index + 1] == '"')
+           || (text[index] == '$' && index + 1 < text.Length && text[index + 1] == '"')
+           || (text[index] == '$' && index + 2 < text.Length && text[index + 1] == '@' && text[index + 2] == '"')
+           || (text[index] == '@' && index + 2 < text.Length && text[index + 1] == '$' && text[index + 2] == '"');
+
+    static int SkipStringLiteral(string text, int start)
+    {
+        var i = start;
+        var verbatim = false;
+        if (text[i] == '$')
+        {
+            i++;
+            if (i < text.Length && text[i] == '@')
+            {
+                verbatim = true;
+                i++;
+            }
+        }
+        else if (text[i] == '@')
+        {
+            i++;
+            if (i < text.Length && text[i] == '$')
+                i++;
+            verbatim = true;
+        }
+
+        if (i >= text.Length || text[i] != '"')
+            return start + 1;
+
+        i++;
+        while (i < text.Length)
+        {
+            if (text[i] == '"' && verbatim && i + 1 < text.Length && text[i + 1] == '"')
+            {
+                i += 2;
+                continue;
+            }
+            if (text[i] == '"')
+                return i + 1;
+            if (text[i] == '\\' && !verbatim && i + 1 < text.Length)
+            {
+                i += 2;
+                continue;
+            }
+
+            i++;
+        }
+
+        return text.Length;
+    }
+
+    static int SkipCharLiteral(string text, int start)
+    {
+        var i = start + 1;
+        while (i < text.Length)
+        {
+            if (text[i] == '\'')
+                return i + 1;
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                i += 2;
+                continue;
+            }
+
+            i++;
+        }
+
+        return text.Length;
     }
 
     sealed record TypeRef(string FullName, string Namespace, string SimpleName)

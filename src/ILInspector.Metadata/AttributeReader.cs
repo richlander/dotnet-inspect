@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -398,11 +399,11 @@ public static class AttributeReader
     static string? RenderArgument(string type, object? value) => value switch
     {
         null => "null",
-        string s => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"",
-        bool b => b ? "true" : "false",
-        char c => $"'{c}'",
         // A Type argument decodes to its name string; spell it typeof(...).
         _ when type == "System.Type" && value is string typeName => $"typeof({typeName})",
+        string s => "\"" + EscapeStringLiteral(s) + "\"",
+        bool b => b ? "true" : "false",
+        char c => $"'{c}'",
         // A primitive keyword type came from the provider; render the literal.
         _ when type is "byte" or "sbyte" or "short" or "ushort" or "int" or "uint" or "double" => value.ToString(),
         _ when type == "long" => value + "L",
@@ -415,6 +416,32 @@ public static class AttributeReader
         _ => null,
     };
 
+    static string EscapeStringLiteral(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            builder.Append(c switch
+            {
+                '\\' => "\\\\",
+                '"' => "\\\"",
+                '\0' => "\\0",
+                '\a' => "\\a",
+                '\b' => "\\b",
+                '\f' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\v' => "\\v",
+                '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)c:x4}",
+                _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+                _ => c
+            });
+        }
+
+        return builder.ToString();
+    }
+
     /// <summary>Attributes the C# compiler re-synthesizes from syntax — emitting them in source is redundant or a duplicate-attribute error.</summary>
     static bool IsReEmittedAttribute(string name) => name switch
     {
@@ -423,6 +450,7 @@ public static class AttributeReader
         KnownAttributeNames.NullableAttribute => true,
         KnownAttributeNames.NullableContextAttribute => true,
         KnownAttributeNames.IsReadOnlyAttribute => true,
+        KnownAttributeNames.RequiresLocationAttribute => true,
         KnownAttributeNames.IsByRefLikeAttribute => true,
         KnownAttributeNames.IsUnmanagedAttribute => true,
         KnownAttributeNames.RefSafetyRulesAttribute => true,

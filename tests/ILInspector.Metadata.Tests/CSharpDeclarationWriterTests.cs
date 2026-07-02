@@ -209,6 +209,48 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void MethodDeclaration_DoesNotShortenTypeNamesInsideParameterAttributeStringLiterals()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"System.String\")"],
+                        Type = "string",
+                        Name = "pattern"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System.Diagnostics.CodeAnalysis;
+
+            public void Validate([StringSyntax("System.String")] string pattern);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
     public void GenericMethodDeclaration_WithoutGenericParameterFactsKeepsCompatibilitySignature()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };

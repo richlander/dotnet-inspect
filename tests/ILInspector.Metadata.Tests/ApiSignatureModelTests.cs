@@ -141,6 +141,26 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void MethodSignatureModel_RendersParameterAttributeTypeAndEscapedStringArguments()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithTypeParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterTypeMarker(typeof(System.Int32), Text = \"System.String\\\\Path\\nNext\")"],
+            member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_SuppressesCompilerReservedRefReadonlyParameterAttributes()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithRefReadonlyParameter));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Empty(member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
     public void CanonicalSignature_NormalizesMultiGenericMethodNameWhitespace()
     {
         var type = GetType(nameof(ApiSignatureFixtures));
@@ -408,6 +428,14 @@ public sealed class ApiSignatureFixtures
     {
     }
 
+    public void MethodWithTypeParameterAttribute([ParameterTypeMarker(typeof(int), Text = "System.String\\Path\nNext")] string value)
+    {
+    }
+
+    public void MethodWithRefReadonlyParameter(ref readonly int value)
+    {
+    }
+
     public string this[int index]
     {
         get => index.ToString();
@@ -425,4 +453,16 @@ public sealed class ParameterMarkerAttribute : Attribute
 
     public string Name { get; }
     public int Order { get; set; }
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterTypeMarkerAttribute : Attribute
+{
+    public ParameterTypeMarkerAttribute(Type type)
+    {
+        Type = type;
+    }
+
+    public Type Type { get; }
+    public string? Text { get; set; }
 }
