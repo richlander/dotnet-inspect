@@ -1210,19 +1210,31 @@ public sealed partial class CSharpPrinter
             // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
             // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
             // and renders its member name via Operand.
-            : TryCoerceEnumOperand(arm, target) is { } coercedArm
+            : TryCoerceJoinArm(arm, target) is { } coercedArm
                 ? coercedArm
-            // The mirror direction (#2145): an enum arm flowing into an
-            // integer-typed join (`c ? E.One : e` merged as int) is CS0266 too —
-            // cast the enum arm to the integer target, the same enum→underlying
-            // rule CoerceText applies to whole values at integer sinks.
-            : target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
-            && EnumUnderlyingType(EffectiveType(arm)) is not null
-                ? $"({TypeText(integerTarget)}){Operand(arm)}"
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
                 ? $"({Condition(arm)} ? 1 : 0)"
                 : Operand(arm);
+
+    /// <summary>
+    /// The one join-arm coercion, both directions: an integer-family arm at an
+    /// enum-typed join takes the enum cast/name (<see cref="TryCoerceEnumOperand"/>),
+    /// and an enum arm at an integer-typed join takes the underlying cast —
+    /// `c ? E.One : e` merged as int is CS0266 bare, in a conditional arm, a
+    /// switch-expression arm, or a coalesce right side alike (#2145; slice-4
+    /// second-family review found the rule present in only one of the three).
+    /// Null when the arm needs no join coercion.
+    /// </summary>
+    string? TryCoerceJoinArm(IrExpression arm, TypeRef? target)
+    {
+        if (TryCoerceEnumOperand(arm, target) is { } coerced)
+            return coerced;
+        return target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
+            && EnumUnderlyingType(EffectiveType(arm)) is not null
+            ? $"({TypeText(integerTarget)}){Operand(arm)}"
+            : null;
+    }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
         => CanRenderConditionalForTarget(conditional, target)

@@ -1854,7 +1854,7 @@ public sealed partial class CSharpPrinter
     }
 
     string CoalesceRightText(IrExpression right, TypeRef? target)
-        => TryCoerceEnumOperand(right, target) is { } coerced ? coerced : Operand(right);
+        => TryCoerceJoinArm(right, target) is { } coerced ? coerced : Operand(right);
 
     static TypeRef? NullableValueType(TypeRef? type)
         => type is

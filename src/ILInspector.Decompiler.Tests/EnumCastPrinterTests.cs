@@ -331,6 +331,45 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void EnumArm_AtIntegerSwitchExpressionTarget_CastsToUnderlying()
+    {
+        // Slice-4 second-family review (GPT-5.5): the enum→integer mirror rule
+        // must cover switch-expression arms, not only conditional arms — an
+        // enum arm at an int-typed switch result is CS0266 bare. One join-arm
+        // rule (TryCoerceJoinArm) now serves all three arm renderers.
+        var enumType = TypeRef.Definition("test", "", "CfgPriority");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var switchExpression = new SwitchExpression(
+            new LoadArgument(0, "value", intType),
+            [
+                new SwitchExpressionArm(ImmutableArray.Create(0), isDefault: false, new LoadArgument(1, "e", enumType)),
+                new SwitchExpressionArm(ImmutableArray<int>.Empty, isDefault: true, new Constant(7, intType)),
+            ]);
+        var block = new Block(0);
+        block.Add(new Return(switchExpression));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("value", intType), new Parameter("e", enumType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("test", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = intType },
+        };
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("(int)e", body);
+        Assert.DoesNotContain("=> e,", body);
+        AssertCompiles(
+            "public static int M(int value, CfgPriority e)",
+            body,
+            "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
     public void ByteEnumIntJoin_KeepsIntSemantics_NoNarrowing()
     {
         // Slice-4 adversarial review (GPT-5.5, blocking): the byte-enum/int
