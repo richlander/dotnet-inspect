@@ -284,7 +284,8 @@ public static class AttributeReader
     /// </summary>
     public static List<string> RenderAttributes(
         MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null,
-        Func<string, bool>? skipAttribute = null)
+        Func<string, bool>? skipAttribute = null,
+        bool qualifyNames = false)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -295,7 +296,7 @@ public static class AttributeReader
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
-            if (TryRenderAttribute(reader, attr) is not { } rendered)
+            if (TryRenderAttribute(reader, attr, qualifyNames) is not { } rendered)
                 continue;
             int lastDot = typeName.LastIndexOf('.');
             if (lastDot > 0)
@@ -333,6 +334,14 @@ public static class AttributeReader
     public static List<string> RenderAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
         => RenderAttributes(reader, reader.GetParameter(parameter).GetCustomAttributes(), namespaces);
 
+    public static List<string> RenderParameterAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
+        => RenderAttributes(
+            reader,
+            reader.GetParameter(parameter).GetCustomAttributes(),
+            namespaces,
+            IsParameterSyntaxAttribute,
+            qualifyNames: true);
+
     /// <summary>
     /// Renders the attributes on a method, resolved by the same name + public-only
     /// overload counting the decompiler uses to select the body, so the attributes
@@ -358,11 +367,12 @@ public static class AttributeReader
         return [];
     }
 
-    static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr)
+    static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr, bool qualifyName)
     {
         if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
             return null;
-        string name = TypeMatcher.GetShortAttributeName(GetAttributeTypeName(reader, attr.Constructor)!);
+        var typeName = GetAttributeTypeName(reader, attr.Constructor)!;
+        string name = qualifyName ? GetQualifiedAttributeName(typeName) : TypeMatcher.GetShortAttributeName(typeName);
         var args = new List<string>();
         foreach (var arg in value.FixedArguments)
         {
@@ -378,6 +388,11 @@ public static class AttributeReader
         }
         return args.Count == 0 ? name : $"{name}({string.Join(", ", args)})";
     }
+
+    static string GetQualifiedAttributeName(string fullName)
+        => fullName.EndsWith("Attribute", StringComparison.Ordinal)
+            ? fullName[..^9]
+            : fullName;
 
     /// <summary>Renders one attribute-argument value, or null when its shape is not faithfully spellable (arrays, unknown).</summary>
     static string? RenderArgument(string type, object? value) => value switch
@@ -419,6 +434,14 @@ public static class AttributeReader
         KnownAttributeNames.AsyncStateMachineAttribute => true,
         KnownAttributeNames.IteratorStateMachineAttribute => true,
         "System.Reflection.DefaultMemberAttribute" => true,
+        _ => false,
+    };
+
+    static bool IsParameterSyntaxAttribute(string name) => name switch
+    {
+        "System.ParamArrayAttribute" => true,
+        KnownAttributeNames.DecimalConstantAttribute => true,
+        KnownAttributeNames.DateTimeConstantAttribute => true,
         _ => false,
     };
 

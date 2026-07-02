@@ -317,8 +317,12 @@ public static class CSharpDeclarationWriter
             if (!string.IsNullOrWhiteSpace(signatureModel.ReturnType))
                 yield return signatureModel.ReturnType!;
             foreach (var parameter in signatureModel.Parameters)
+            {
                 if (!string.IsNullOrWhiteSpace(parameter.Type))
                     yield return parameter.Type;
+                foreach (var attribute in parameter.Attributes)
+                    yield return attribute;
+            }
             foreach (var typeParameter in signatureModel.TypeParameters)
                 foreach (var constraint in typeParameter.Constraints)
                     foreach (var reference in ExtractQualifiedTypeNames(constraint))
@@ -573,9 +577,12 @@ public static class CSharpDeclarationWriter
             var declaration = string.IsNullOrWhiteSpace(parameter.Name)
                 ? head
                 : $"{head} {EscapeIdentifier(parameter.Name)}";
-            return parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
+            declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
                 ? $"{declaration} = {parameter.DefaultValueText}"
                 : declaration;
+            return parameter.Attributes.Count == 0
+                ? declaration
+                : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
         }
 
         static string AccessorDeclaration(ApiAccessor accessor)

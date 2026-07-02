@@ -130,6 +130,17 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void MethodSignatureModel_ExposesSourceRenderableParameterAttributes()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterMarker(\"id\", Order = 2)"],
+            member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
     public void CanonicalSignature_NormalizesMultiGenericMethodNameWhitespace()
     {
         var type = GetType(nameof(ApiSignatureFixtures));
@@ -393,9 +404,25 @@ public sealed class ApiSignatureFixtures
     {
     }
 
+    public void MethodWithParameterAttribute([ParameterMarker("id", Order = 2)] string id)
+    {
+    }
+
     public string this[int index]
     {
         get => index.ToString();
         private set { }
     }
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterMarkerAttribute : Attribute
+{
+    public ParameterMarkerAttribute(string name)
+    {
+        Name = name;
+    }
+
+    public string Name { get; }
+    public int Order { get; set; }
 }

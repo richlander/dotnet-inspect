@@ -137,6 +137,53 @@ public sealed class CSharpDeclarationFormatterTests
     }
 
     [Fact]
+    public void MemberSignatureSection_CanRenderParameterAttributesFromStructuredSignature()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "StructuredHost",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Validate",
+                    Kind = "method",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "void",
+                        MemberName = "Validate",
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"Regex\")"],
+                                Type = "string",
+                                Name = "pattern"
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new MemberOptions { OverloadIndex = 1 });
+
+        ApiOutputFormatter.PopulateMemberSignature(view, type, new MemberOptions { OverloadIndex = 1 });
+
+        Assert.Contains("[System.Diagnostics.CodeAnalysis.StringSyntax(\"Regex\")] string pattern", view.SignatureRows![0].Signature);
+        Assert.DoesNotContain("BROKEN", view.SignatureRows[0].Signature);
+    }
+
+    [Fact]
     public void MemberSignatureSection_CanRenderPropertyFromStructuredSignature()
     {
         var type = new ApiType
