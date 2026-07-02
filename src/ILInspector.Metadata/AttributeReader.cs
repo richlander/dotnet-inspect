@@ -527,6 +527,7 @@ public static class AttributeReader
     static bool IsParameterSyntaxAttribute(string name) => name switch
     {
         "System.ParamArrayAttribute" => true,
+        KnownAttributeNames.ParamCollectionAttribute => true,
         KnownAttributeNames.DecimalConstantAttribute => true,
         KnownAttributeNames.DateTimeConstantAttribute => true,
         _ => false,

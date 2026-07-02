@@ -31,6 +31,7 @@ public static class KnownAttributeNames
     public const string NullableAttribute = Prefix + "NullableAttribute";
     public const string NullableContextAttribute = Prefix + "NullableContextAttribute";
     public const string NullablePublicOnlyAttribute = Prefix + "NullablePublicOnlyAttribute";
+    public const string ParamCollectionAttribute = Prefix + "ParamCollectionAttribute";
     public const string RefSafetyRulesAttribute = Prefix + "RefSafetyRulesAttribute";
     public const string RequiredMemberAttribute = Prefix + "RequiredMemberAttribute";
     public const string RequiresLocationAttribute = Prefix + "RequiresLocationAttribute";

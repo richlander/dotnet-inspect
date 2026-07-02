@@ -840,7 +840,8 @@ public static class ApiSurfaceExtractor
             {
                 string name = reader.GetString(param.Name);
                 var attributes = param.GetCustomAttributes();
-                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute");
+                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
+                    || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
                 var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, handle);
                 string? refKind = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0
                     ? "out"

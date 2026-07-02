@@ -3245,7 +3245,7 @@ public class CommandExecutionTests
         Assert.Contains("public class Stack<T>", output);
         Assert.Contains("private T[] _array;", output);
         Assert.Contains("public void Push(T item)", output);
-        Assert.Contains("public bool TryPop(out T result)", output);
+        Assert.Contains("public bool TryPop([System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T result)", output);
         // Using hoisting: qualified names shorten against the metadata
         // namespace tables; the directives appear at the top.
         Assert.Contains("using System.Runtime.CompilerServices;", output);
@@ -3408,7 +3408,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("TryGetBytesFromBase64\tpublic bool TryGetBytesFromBase64(out byte[]? value)", output);
+        Assert.Contains("TryGetBytesFromBase64\tpublic bool TryGetBytesFromBase64([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out byte[]? value)", output);
     }
 
     [Fact]
@@ -3435,8 +3435,8 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("public static string Join(char separator, System.ReadOnlySpan<object?> values)\tConcatenates the string representations of a span of objects", output);
-        Assert.Contains("public static string Join(char separator, System.ReadOnlySpan<string?> value)\tConcatenates a span of strings", output);
+        Assert.Contains("public static string Join(char separator, params System.ReadOnlySpan<object?> values)\tConcatenates the string representations of a span of objects", output);
+        Assert.Contains("public static string Join(char separator, params System.ReadOnlySpan<string?> value)\tConcatenates a span of strings", output);
         Assert.Contains("public static string Join(char separator, string?[] value, int startIndex, int count)\tConcatenates an array of strings", output);
     }
 
