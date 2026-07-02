@@ -101,10 +101,9 @@ internal static class ApiSourceResolver
         }
         else if (!string.IsNullOrEmpty(options.ProjectPath))
         {
-            projectAssetsPath = ProjectAssetsParser.FindAssets(options.ProjectPath);
-            if (projectAssetsPath is null)
+            if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out projectAssetsPath, out var assetsStatus))
             {
-                Console.Error.WriteLine($"Error: project.assets.json not found for '{options.ProjectPath}'. Run 'dotnet restore'.");
+                Console.Error.WriteLine($"Error: {ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
                 return (null!, 1);
             }
 
