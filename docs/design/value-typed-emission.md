@@ -1,16 +1,54 @@
-# Value-typed emission: the coercion choke point
+# The thin writer: value-typed emission
 
-This document scopes a major investment in the decompiler's **value-flow** layer,
-the sibling of [control-flow-structuring.md](control-flow-structuring.md). Where
-that doc governs how blocks become nested `if`/`else`, this one governs how a
-*value* is rendered into a *typed position* — and argues that the decompiler is
-missing a first-class abstraction the compiler family it belongs to has always
-had.
+This document scopes a major investment in how the decompiler's **writer** — the
+`CSharpPrinter` that turns raised IR into C# text — earns its keep. The thesis: the
+writer is **too thick**. It does not merely *spell* a decided tree; it makes
+semantic decisions the IR never recorded, and rediscovers each one — wrongly — one
+render context at a time. This doc defines the end state (a **thin writer**: a total
+function of a fully-typed IR), the invariant that enforces it, and the instances of
+thickness to remove under it, largest first.
+
+It is the value-flow sibling of
+[control-flow-structuring.md](control-flow-structuring.md). Where that doc governs
+how blocks become nested `if`/`else`, this one governs how a *decided* value reaches
+the page.
 
 Read [decompiler.md](../decompiler.md) first for the pipeline shape and the
 recognizability goal.
 
-## The missing member of the type system
+## The thin-writer invariant
+
+A thin writer makes **zero semantic decisions**. It renders a tree that has already
+been decided — every value carries its resolved type, every conversion is a node,
+every local is materialized — and its only job is **surface spelling**: precedence
+and parenthesization, identifier escaping, layout, and the C# text of an
+already-decided node. Those stay; *thin is not logicless*.
+
+What must leave the writer is every place it *decides* rather than *spells*. Each is
+the same illness — the writer inferring, at print time, something the typed IR
+should already carry — and each has leaked the same way: correct in the context it
+was written for, wrong in the next one.
+
+| Instance | The writer currently decides… | It should be… | Field evidence |
+| --- | --- | --- | --- |
+| **1. Coercion** (flagship) | whether/how to cast a value to a target type, and when to wrap `unchecked` | a `Coerce` node + one renderer | the six-round enum-cast history below |
+| **2. Stack-slot materialization** | which locals exist, their types, and when to split one slot into two | typed local IR nodes from type propagation | #2075 — the `S_0`/`S_256` collapse |
+| **3. Definite assignment** (later) | which locals need `= default` | a pre-print flow pass handing over a decided tree | #631 (partial) |
+
+Precedence, escaping, layout, node-spelling are deliberately *not* on this list —
+they are the writer's real job.
+
+The invariant that makes "thin" checkable: **no value reaches the writer un-decided**
+— every typed sink routes through a `Coerce` (instance 1) and every rendered local is
+a materialized, typed IR node (instance 2) — asserted by `CheckInvariant()`. A
+violation fails a unit test, not a recompile.
+
+The rest of this document details **instance 1 (coercion)** in full — it is the
+largest, most bug-dense, and the template for the others — then **instance 2 (slot
+typing)**, which the same type-propagation prerequisite removes almost for free.
+Instance 3 is noted where it sits and deferred.
+
+## Instance 1 — coercion: the missing member of the type system
 
 The decompiler has a rich vocabulary for **what a value is**: `TypeRef`
 (structural semantic identity), the per-node `ResultType`, and the join-merged
@@ -163,7 +201,7 @@ Ghidra's decompiler runs **monotone type propagation over its data-type ordering
 `CastStrategyJava`). Different language, same shape: propagation feeds one
 cast-insertion policy per target language.
 
-## The capability — two halves of one type
+## The coercion capability — two halves of one type
 
 ### 1. Target type on every sink
 
@@ -227,6 +265,41 @@ the coercion function's own unit tests and the compile-back oracle. The win is t
 the oracle stops being the *only* place an un-coerced sink is caught, and a new sink
 can no longer silently bypass the rule.
 
+## Instance 2 — stack-slot materialization and typing
+
+The same illness, a different organ. The writer does not only decide *conversions*;
+it decides *which locals exist and what type they are*. `TryChooseUnifiedStackSlotType`
+and `StackSlotName` invent the `S_0`/`S_256` variables from IL stack-slot positions
+and, at print time, **unify or split** their types — picking one C# type for a slot
+reused across live ranges, or splitting it into two variables when the types
+conflict. That is a semantic decision (SSA-value identity and typing) made in the
+writer, from opcode-stack bookkeeping the IR never resolved into locals.
+
+It fails the same way coercion does. **#2075** was exactly this: a stack slot reused
+for an `int` value and a `BindValueKind` (enum) value; the writer's unifier collapsed
+both onto one `int` local, and the enum use then rendered without a cast — invalid
+C#. The shape that produced the enum-cast leaks produced a *variable-identity* leak,
+because the same component was guessing.
+
+The fix is the coercion redesign's own prerequisite, reused: once **type propagation**
+(instance-1 migration step 4 — the RyuJIT typed-temp model) materializes each slot's
+live ranges as **typed local IR nodes** before printing, there is nothing left to
+unify. The writer stops inventing variables; `TryChooseUnifiedStackSlotType` is
+deleted, and the thin-writer invariant extends to "every rendered local is a
+materialized IR node," checkable the same way. This is why instance 2 rides on
+instance 1: they share the type-propagation spine, so instance 2 is *mostly the
+deletion* of print-time typing once propagation exists — not a second engine.
+
+## Instance 3 — definite assignment (noted, deferred)
+
+The writer also decides which locals need `= default` to satisfy C# definite
+assignment (the `#631` flow walk over the printer's `_facts`). This is a third
+flow analysis — the sibling of control-flow structuring and type flow — and it is
+*thin-writer-adjacent*: defensible where it is, but strictly it could run as a
+pre-print pass that hands the writer a decided tree. It is the lowest-priority
+instance and is called out here only so the umbrella is complete; it is not
+sequenced below.
+
 ## Scope and constraints
 
 This stays inside the decompiler's deliberate ceilings:
@@ -248,13 +321,18 @@ This stays inside the decompiler's deliberate ceilings:
 The redesign is landable in slices *because* the invariant makes coverage
 measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxation.
 
-1. **Introduce `Coerce` and the one rendering function.** Fold `CastValue`,
-   `EnumIntegerCast`, `SwitchLabelText`, the retyped-constant branch, `Box`, and
-   `StoreElement` into it. This is **not** behavior-neutral: those sites have
-   *different* partial behaviors today (`int`-only here, `Unknown`-shape-only there),
-   so unifying them will move outputs at the margins — that is the point. Expect and
-   *measure* net-positive validity movement on the corpus quality-diff card; a
-   fidelity regression on any already-`Full` method is the stop signal.
+1. **Promote `CastValue` into `Coerce`, one rendering function.** `CastValue` is
+   already the embryonic choke point (it renders a value at a target type and
+   delegates the enum case to `EnumIntegerCast`); this *consolidates*, it does not
+   rewrite. The hard-won rules in `EnumIntegerCast`/`MayOverflow…` become the private
+   internals of the one renderer, and the scattered cast *decisions* at `Box`,
+   `StoreElement`, `SwitchLabelText`, and the retyped-constant branch are replaced by
+   a `Coerce` call — the sinks remain, the decisions leave. This is **not**
+   behavior-neutral: those sites have *different* partial behaviors today (`int`-only
+   here, `Unknown`-shape-only there), so unifying them moves outputs at the margins —
+   that is the point. Expect and *measure* net-positive validity movement on the
+   corpus quality-diff card; a fidelity regression on any already-`Full` method is the
+   stop signal.
 2. **Complete constant typing.** Extend `TypedConstantsPass` to retype `int`,
    `long`, and `Convert`-wrapped integer constants into every enum-typed sink, so
    the printer sees enum-typed values uniformly.
@@ -262,10 +340,17 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    burn down the violations it flags (these are the remaining leak sites, now
    enumerated by the checker rather than by adversarial review). Slices 1–3 deliver
    the coercion choke point and can land without step 4.
-4. **Complete join typing** (a semi-separate axis, worth its own slice/issue) where
-   the importer drops to `Unknown` but a sound common type exists — type
-   *propagation* at joins (the RyuJIT typed-temp model), the sibling of type
-   *coercion* at sinks, reducing `Partial`-by-unknown-join.
+4. **Complete join typing — the shared type-propagation spine** (worth its own
+   slice/issue). Where the importer drops to `Unknown` but a sound common type
+   exists, propagate types at joins (the RyuJIT typed-temp model), reducing
+   `Partial`-by-unknown-join. This is the prerequisite *both* instances lean on:
+   it feeds instance 1's constant/`Convert` typing and is what instance 2 needs to
+   materialize locals.
+5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
+   each slot's live ranges as typed local IR nodes and **delete
+   `TryChooseUnifiedStackSlotType`** — the writer stops inventing and unifying
+   variables. Extend the invariant to "every rendered local is a materialized IR
+   node." Mostly a deletion once step 4 lands.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples.
@@ -277,13 +362,19 @@ insistence on a falsifiable trigger rather than a standing intention:
 
 - **Start** slice 1 when the value-flow treadmill is confirmed — which the six-round
   history above already demonstrates. This lane is *ready to start*, not deferred.
-- **Done** when the invariant (step 3) is enforced in `CheckInvariant()` and green
-  across the corpus: at that point the class cannot recur silently, because a new
-  un-coerced sink fails a unit test, not a recompile.
+- **Instance 1 done** when the coercion invariant (step 3) is enforced in
+  `CheckInvariant()` and green across the corpus: at that point the cast class cannot
+  recur silently, because a new un-coerced sink fails a unit test, not a recompile.
+- **Thin writer done** when the invariant covers both instances — every typed sink
+  through a `Coerce`, every rendered local a materialized IR node (steps 4–5) — so the
+  writer is a total function of a decided, fully-typed IR. Instance 3 remains an
+  optional later slice.
 - **Explicitly out of scope** and tracked separately: member-naming of
   `Convert`-wrapped constants (a naming nicety, not a validity gap) and any
   cross-assembly enum backing that would require loading the defining assembly.
 
-The measure of success is not a fully-raised delta — it is that "run adversarial
-review until clean" would converge in **one** round, because there is one place to
-get right instead of a dozen.
+The measure of success is not a fully-raised delta — it is that the writer stops
+being a place bugs can hide: "run adversarial review until clean" converges in **one**
+round, because there is one place to get each decision right instead of a dozen, and
+`CheckInvariant()` — not a recompile of corpus output — is where a regression is
+caught.
