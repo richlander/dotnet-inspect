@@ -393,6 +393,43 @@ public class ProjectAssetsParserTests
             () => ProjectAssetsParser.DescribeMissingAssets("x", ProjectAssetsStatus.Found));
     }
 
+    [Fact]
+    public void TryFindAssets_ExistingDirectoryWithoutProject_ReturnsProjectNotFound()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "readme.txt"), "no project here");
+        try
+        {
+            Assert.False(ProjectAssetsParser.TryFindAssets(dir, out var found, out var status));
+            Assert.Null(found);
+            Assert.Equal(ProjectAssetsStatus.ProjectNotFound, status);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryFindAssets_ExistingNonProjectFile_ReturnsProjectNotFound()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var file = Path.Combine(dir, "notes.txt");
+        File.WriteAllText(file, "not a project");
+        try
+        {
+            Assert.False(ProjectAssetsParser.TryFindAssets(file, out var found, out var status));
+            Assert.Null(found);
+            Assert.Equal(ProjectAssetsStatus.ProjectNotFound, status);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     private static string CreateTempAssetsFile(object content)
     {
         var json = JsonSerializer.Serialize(content);

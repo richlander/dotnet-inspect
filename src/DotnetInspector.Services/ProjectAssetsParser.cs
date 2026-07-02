@@ -45,10 +45,29 @@ public static class ProjectAssetsParser
             return true;
         }
 
-        var fullPath = Path.GetFullPath(string.IsNullOrWhiteSpace(projectPath) ? "." : projectPath);
-        status = File.Exists(fullPath) || Directory.Exists(fullPath)
+        status = HasProject(projectPath)
             ? ProjectAssetsStatus.AssetsNotRestored
             : ProjectAssetsStatus.ProjectNotFound;
+        return false;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="projectPath"/> points at a project file or a directory
+    /// containing one. Used to distinguish "not a project" from "project exists but not
+    /// restored" once <see cref="FindAssets"/> has failed.
+    /// </summary>
+    static bool HasProject(string projectPath)
+    {
+        var fullPath = Path.GetFullPath(string.IsNullOrWhiteSpace(projectPath) ? "." : projectPath);
+        if (File.Exists(fullPath))
+            return Path.GetExtension(fullPath).EndsWith("proj", StringComparison.OrdinalIgnoreCase);
+
+        if (Directory.Exists(fullPath))
+        {
+            foreach (var _ in Directory.EnumerateFiles(fullPath, "*.*proj", SearchOption.TopDirectoryOnly))
+                return true;
+        }
+
         return false;
     }
 
