@@ -101,7 +101,9 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 
 For decompiler-affecting PRs, follow this evidence and review contract:
 
-- Use `docs/templates/decompiler-pr.md` for general decompiler PR bodies and
+- Use `docs/templates/decompiler-pr.md` for general decompiler PR bodies,
+  `docs/templates/decompiler-compile-back-harness-pr.md` for DecompilerHarness /
+  ReturnToSender / compile-back coverage PRs, and
   `docs/templates/decompiler-burndown-fix-pr.md` for focused invalid-`Full` /
   burndown row fixes. Keep the human summary terse and conclusion-first.
 - Include the tool-generated quality-diff card; do not hand-construct or re-key
