@@ -7,7 +7,7 @@ public class TypeForwardResolverTests
     static string NetstandardFacade => Path.Combine(FrameworkDir, "netstandard.dll");
 
     /// <summary>Sibling-directory policy over the shared framework.</summary>
-    static string? SiblingLocator(string assemblyName, AssemblyTrust trust)
+    static string? SiblingLocator(string assemblyName, AssemblyResolutionScope scope)
     {
         string candidate = Path.Combine(FrameworkDir, assemblyName + ".dll");
         return File.Exists(candidate) ? candidate : null;
@@ -31,7 +31,26 @@ public class TypeForwardResolverTests
 
         Assert.NotNull(location);
         Assert.NotEqual(NetstandardFacade, location.AssemblyPath);
-        Assert.True(TypeForwardResolver.DefinesType(location.AssemblyPath, "System.Collections.Generic.List`1"));
+        Assert.True(TypeForwardResolver.DefinesType(location.AssemblyPath!, "System.Collections.Generic.List`1"));
+    }
+
+    [Fact]
+    public void LocateType_ResolverOverload_FollowsForwarderThroughOpenReadWithoutPath()
+    {
+        var start = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity("netstandard", Version: null, Culture: null, PublicKeyToken: null),
+            Path: null,
+            OpenRead: () => File.OpenRead(NetstandardFacade),
+            Provenance: "test");
+        var resolver = new FrameworkStreamResolver();
+
+        var location = TypeForwardResolver.LocateType(
+            start, "System.Collections.Generic.List`1", resolver);
+
+        Assert.NotNull(location);
+        Assert.Null(location.AssemblyPath);
+        using var stream = location.OpenRead();
+        Assert.True(stream.CanRead);
     }
 
     [Fact]
@@ -71,5 +90,16 @@ public class TypeForwardResolverTests
 
         Assert.False(TypeForwardResolver.DefinesType(NetstandardFacade, "System.String"));
         Assert.True(TypeForwardResolver.ForwardsType(NetstandardFacade, "System.String"));
+    }
+
+    sealed class FrameworkStreamResolver : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            string candidate = Path.Combine(FrameworkDir, identity.Name + ".dll");
+            return File.Exists(candidate)
+                ? new ResolvedAssemblyReference(identity, Path: null, OpenRead: () => File.OpenRead(candidate), Provenance: "test")
+                : null;
+        }
     }
 }

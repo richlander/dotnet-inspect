@@ -1,5 +1,6 @@
 using DotnetInspector.Core;
 using DotnetInspector.Models;
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -736,6 +737,10 @@ internal static class LibraryMetadataService
                     Fix = opportunity.SafeFixDirection,
                     Confidence = opportunity.Confidence,
                     Loop = opportunity.InLoop ? "loop" : "",
+                    Allocation = opportunity.RuntimeAllocationType,
+                    Path = opportunity.PathContext,
+                    PathConfidence = opportunity.PathConfidence,
+                    PostDominance = opportunity.PostDominance,
                     IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
                 })
                 .ToList();
@@ -791,9 +796,179 @@ internal static class LibraryMetadataService
             var shapes = options.Shapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
             filtered = filtered.Where(opportunity => shapes.Contains(opportunity.Shape));
         }
+        if (options.TryGetPredicates(out var predicates, out _))
+        {
+            foreach (var predicate in predicates)
+                filtered = filtered.Where(opportunity => MatchesTriagePredicate(opportunity, predicate));
+        }
 
-        var ordered = OrderByTriagePriority(filtered);
+        var ordered = options.TryGetOrderTerms(out var orderTerms, out _)
+            ? OrderTriageRows(filtered, orderTerms)
+            : OrderByTriagePriority(filtered);
         return options.Top is { } top ? ordered.Take(top) : ordered;
+    }
+
+    static IEnumerable<Analysis.OptimizationOpportunity> OrderTriageRows(
+        IEnumerable<Analysis.OptimizationOpportunity> opportunities,
+        IReadOnlyList<PerformanceTriageOptions.OrderTerm> orderTerms)
+    {
+        if (orderTerms.Count == 1
+            && orderTerms[0].Field.Equals("Triage", StringComparison.OrdinalIgnoreCase))
+        {
+            var ordered = OrderByTriagePriority(opportunities);
+            return orderTerms[0].Descending ? ordered : ordered.Reverse();
+        }
+
+        return opportunities.OrderBy(opportunity => opportunity, Comparer<Analysis.OptimizationOpportunity>.Create((left, right) =>
+        {
+            foreach (var term in orderTerms)
+            {
+                int compare = CompareTriageField(left, right, term.Field);
+                if (compare != 0)
+                    return term.Descending ? -compare : compare;
+            }
+
+            int memberCompare = string.Compare(FormatMethod(left.Method), FormatMethod(right.Method), StringComparison.OrdinalIgnoreCase);
+            if (memberCompare != 0)
+                return memberCompare;
+            int ilCompare = (left.ILOffset ?? -1).CompareTo(right.ILOffset ?? -1);
+            if (ilCompare != 0)
+                return ilCompare;
+            return string.Compare(left.Shape, right.Shape, StringComparison.OrdinalIgnoreCase);
+        }));
+    }
+
+    static bool MatchesTriagePredicate(Analysis.OptimizationOpportunity opportunity, PerformanceTriageOptions.RowPredicate predicate)
+    {
+        if (predicate.Field == "RootReach")
+        {
+            if (!int.TryParse(predicate.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+                return false;
+            int compare = opportunity.RootReach.CompareTo(value);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
+        if (predicate.Field == "Confidence")
+        {
+            int expected = ConfidenceRank(predicate.Value);
+            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
+                return false;
+            int compare = ConfidenceRank(opportunity.Confidence).CompareTo(expected);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
+        if (predicate.Field == "Member")
+        {
+            var full = FormatMethod(opportunity.Method);
+            var shortSignature = ShortMemberSignature(opportunity.Method);
+            bool memberMatches = WildcardMatch(full, predicate.Value)
+                || WildcardMatch(shortSignature, predicate.Value);
+            return predicate.Operator switch
+            {
+                PerformanceTriageOptions.RowOperator.Equals => memberMatches,
+                PerformanceTriageOptions.RowOperator.NotEquals => !memberMatches,
+                _ => false,
+            };
+        }
+
+        var actual = TriageFieldValue(opportunity, predicate.Field) ?? "";
+        bool match = WildcardMatch(actual, predicate.Value);
+        return predicate.Operator switch
+        {
+            PerformanceTriageOptions.RowOperator.Equals => match,
+            PerformanceTriageOptions.RowOperator.NotEquals => !match,
+            _ => false,
+        };
+    }
+
+    static bool MatchCompare(int compare, PerformanceTriageOptions.RowOperator op)
+        => op switch
+        {
+            PerformanceTriageOptions.RowOperator.Equals => compare == 0,
+            PerformanceTriageOptions.RowOperator.NotEquals => compare != 0,
+            PerformanceTriageOptions.RowOperator.GreaterOrEqual => compare >= 0,
+            PerformanceTriageOptions.RowOperator.LessOrEqual => compare <= 0,
+            _ => false,
+        };
+
+    static int CompareTriageField(Analysis.OptimizationOpportunity left, Analysis.OptimizationOpportunity right, string field)
+    {
+        if (field == "RootReach")
+            return left.RootReach.CompareTo(right.RootReach);
+        if (field == "Confidence")
+            return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
+        if (field == "Loop")
+            return left.InLoop.CompareTo(right.InLoop);
+        if (field == "IL")
+            return (left.ILOffset ?? -1).CompareTo(right.ILOffset ?? -1);
+        return string.Compare(
+            TriageFieldValue(left, field) ?? "",
+            TriageFieldValue(right, field) ?? "",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string? TriageFieldValue(Analysis.OptimizationOpportunity opportunity, string field)
+        => field switch
+        {
+            "Member" => FormatMethod(opportunity.Method),
+            "Shape" => opportunity.Shape,
+            "Evidence" => opportunity.Evidence,
+            "Fix" => opportunity.SafeFixDirection,
+            "Confidence" => opportunity.Confidence,
+            "Loop" => opportunity.InLoop ? "loop" : "",
+            "Allocation" => opportunity.RuntimeAllocationType,
+            "Path" => opportunity.PathContext,
+            "PathConfidence" => opportunity.PathConfidence,
+            "PostDominance" => opportunity.PostDominance,
+            "IL" => opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
+            "RootReach" => opportunity.RootReach.ToString(CultureInfo.InvariantCulture),
+            _ => null,
+        };
+
+    static string ShortMemberSignature(Analysis.MethodIdentity method)
+        => $"{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
+
+    static bool WildcardMatch(string actual, string pattern)
+    {
+        if (!pattern.Contains('*') && !pattern.Contains('?'))
+            return string.Equals(actual, pattern, StringComparison.OrdinalIgnoreCase);
+
+        return WildcardMatch(actual.AsSpan(), pattern.AsSpan());
+
+        static bool WildcardMatch(ReadOnlySpan<char> text, ReadOnlySpan<char> pattern)
+        {
+            int textIndex = 0;
+            int patternIndex = 0;
+            int starIndex = -1;
+            int matchIndex = 0;
+            while (textIndex < text.Length)
+            {
+                if (patternIndex < pattern.Length
+                    && (pattern[patternIndex] == '?' || char.ToUpperInvariant(pattern[patternIndex]) == char.ToUpperInvariant(text[textIndex])))
+                {
+                    textIndex++;
+                    patternIndex++;
+                }
+                else if (patternIndex < pattern.Length && pattern[patternIndex] == '*')
+                {
+                    starIndex = patternIndex++;
+                    matchIndex = textIndex;
+                }
+                else if (starIndex >= 0)
+                {
+                    patternIndex = starIndex + 1;
+                    textIndex = ++matchIndex;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            while (patternIndex < pattern.Length && pattern[patternIndex] == '*')
+                patternIndex++;
+            return patternIndex == pattern.Length;
+        }
     }
 
     internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)

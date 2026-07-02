@@ -116,6 +116,11 @@ static class DefiniteAssignment
                         CheckReads(arm.Guard, armSet);
                         CheckReads(arm.Value, armSet);
                     }
+                    if (unionSwitch.NullValue is { } nullValue)
+                    {
+                        var nullSet = new HashSet<int>(assigned);
+                        CheckReads(nullValue, nullSet);
+                    }
                     if (unionSwitch.DefaultValue is { } defaultValue)
                     {
                         var defaultSet = new HashSet<int>(assigned);

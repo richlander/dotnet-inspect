@@ -9,4 +9,5 @@ public static class SourceKind
     public const string NuGet = "NuGet";
     public const string File = "File";
     public const string Library = "Library";
+    public const string Project = "Project";
 }

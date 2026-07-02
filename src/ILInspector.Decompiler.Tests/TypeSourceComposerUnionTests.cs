@@ -310,6 +310,24 @@ public class TypeSourceComposerUnionTests
                         not null => "not null",
                         _ => "null",
                     };
+                    public static string ValueSwitchNull(Pet pet) => pet.Value switch
+                    {
+                        null => "null",
+                        Cat => "cat",
+                        Dog => "dog",
+                    };
+                    public static string SwitchNull(Pet pet) => pet switch
+                    {
+                        null => "null",
+                        Cat => "cat",
+                        Dog => "dog",
+                    };
+                    public static string ValueSwitchNullDefault(Pet pet) => pet.Value switch
+                    {
+                        null => "null",
+                        Cat => "cat",
+                        _ => "other",
+                    };
                     public static string ValueSwitchNotOlderCat(Pet pet) => pet.Value switch
                     {
                         not Cat { Age: > 3 } => "not older cat",
@@ -370,6 +388,30 @@ public class TypeSourceComposerUnionTests
                 return "null";
             }
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNull"));
+        Assert.Equal("""
+            return pet switch
+            {
+                null => "null",
+                Cat => "cat",
+                Dog => "dog",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNull"));
+        Assert.Equal("""
+            return pet switch
+            {
+                null => "null",
+                Cat => "cat",
+                Dog => "dog",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "SwitchNull"));
+        Assert.Equal("""
+            return pet switch
+            {
+                null => "null",
+                Cat => "cat",
+                _ => "other",
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNullDefault"));
         Assert.Equal("""
             if (pet is not Cat { Age: > 3 })
             {
@@ -590,6 +632,126 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public async Task UnionSwitchExpression_RendersValueTypeCaseArms()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public union Result<T>(T, string);
+            public union Result2(string, int);
+
+            public static class Matcher
+            {
+                public static string Describe(Result<int> result) => result switch
+                {
+                    int value => value.ToString(),
+                    string message => message,
+                    null => "null",
+                };
+
+                public static string DescribeFinalValueType(Result2 result) => result switch
+                {
+                    string message => message,
+                    int value => value.ToString(),
+                    null => "null",
+                };
+            }
+            """);
+
+        Assert.Equal("""
+            return result switch
+            {
+                null => "null",
+                int value => value.ToString(),
+                string message => message,
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe"));
+        Assert.Equal("""
+            return result switch
+            {
+                null => "null",
+                string message => message,
+                int value => value.ToString(),
+            };
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "DescribeFinalValueType"));
+    }
+
+    [Fact]
+    public async Task ClassUnionValueSwitchValueTypeCase_PreservesValueReceiver()
+    {
+        using var assembly = await CompileWithSdk("""
+            using System.Runtime.CompilerServices;
+            namespace UnionFixtures;
+
+            [Union]
+            public sealed class Result : IUnion
+            {
+                public Result(int value) => Value = value;
+                public Result(string value) => Value = value;
+                public object? Value { get; }
+            }
+
+            public static class Matcher
+            {
+                public static string Describe(Result result) => result.Value switch
+                {
+                    int value => value.ToString(),
+                    string message => message,
+                    null => "null",
+                };
+            }
+            """);
+
+        var source = RenderMember(assembly.Path, "UnionFixtures.Matcher", "Describe");
+
+        Assert.Contains("result.Value", source);
+        Assert.DoesNotContain("return result switch", source);
+    }
+
+    [Fact]
+    public async Task UnionPatterns_RenderInAndByRefReceiverCanaries()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public int Age { get; } = 5; }
+            public sealed class Dog { }
+            public union Pet(Cat, Dog);
+
+            public static class Matcher
+            {
+                public static bool InReceiver(in Pet pet) => pet is Cat { Age: > 3 };
+                public static bool InValueReceiver(in Pet pet) => pet.Value is Cat { Age: > 3 };
+                public static int InReceiverMixed(in Pet pet) => pet is Cat { Age: > 3 } ? pet.GetHashCode() : 0;
+
+                public static bool RefLocalReceiver(Pet pet)
+                {
+                    ref readonly var alias = ref pet;
+                    return alias is Dog;
+                }
+            }
+            """);
+
+        Assert.Equal("return pet is Cat { Age: > 3 };",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "InReceiver"));
+        Assert.Equal("return pet is Cat { Age: > 3 };",
+            RenderMember(assembly.Path, "UnionFixtures.Matcher", "InValueReceiver"));
+        Assert.Equal("""
+            Pet V_0 = pet;
+            if (V_0 is not Cat { Age: > 3 })
+            {
+                return 0;
+            }
+            V_0 = pet;
+            return V_0.GetHashCode();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "InReceiverMixed"));
+        Assert.Equal("""
+            Pet V_0 = pet;
+            return V_0 is Dog;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "RefLocalReceiver"));
+    }
+
+    [Fact]
     public async Task UnionSwitchExpression_RendersGuardedPropertyPatternArms()
     {
         using var assembly = await CompileWithSdk("""
@@ -736,6 +898,341 @@ public class TypeSourceComposerUnionTests
                 _ => "other",
             };
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "StatementThree"));
+    }
+
+    [Fact]
+    public async Task UnionSwitchStatementStoreThenUse_RendersSwitchExpressionAssignment()
+    {
+        using var assembly = await CompileWithSdk("""
+            namespace UnionFixtures;
+
+            public sealed class Cat { public string Name { get; } = "cat"; public int Age { get; } = 5; }
+            public sealed class Dog { public string Name { get; } = "dog"; }
+            public sealed class Bird { public string Name { get; } = "bird"; }
+            public union Pet(Cat, Dog, Bird);
+            public union MaybeNumber(int, string);
+            public union MaybeNumber2(string, int);
+
+            public static class Matcher
+            {
+                public static string AssignThenUse(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string AssignThenUseThree(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        case Bird bird:
+                            result = bird.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string AssignThenMutate(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    result += "!";
+                    return result;
+                }
+
+                public static string GuardedStaysFlat(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat { Age: > 3 } cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string SameTypeGuardedFallback(Pet pet)
+                {
+                    string result;
+                    switch (pet)
+                    {
+                        case Cat { Name: "cat" } cat:
+                            result = cat.Name;
+                            break;
+                        case Cat:
+                            result = "other cat";
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string ValueTypeCases(MaybeNumber value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case string text:
+                            result = text;
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string ValueTypeFinalExpression(MaybeNumber value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case string text:
+                            result = text.Trim();
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string ValueTypeMutate(MaybeNumber value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case string text:
+                            result = text;
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    result += "!";
+                    return result;
+                }
+
+                public static string ValueTypeFinalValueType(MaybeNumber2 value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case string text:
+                            result = text.Trim();
+                            break;
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+
+                public static string ValueTypeFinalValueTypeMutate(MaybeNumber2 value)
+                {
+                    string result;
+                    switch (value)
+                    {
+                        case string text:
+                            result = text.Trim();
+                            break;
+                        case int number:
+                            result = number.ToString();
+                            break;
+                        case null:
+                            result = "null";
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    result += "!";
+                    return result;
+                }
+
+                public static string ValueSwitchNull(Pet pet)
+                {
+                    string result;
+                    switch (pet.Value)
+                    {
+                        case null:
+                            result = "null";
+                            break;
+                        case Cat cat:
+                            result = cat.Name;
+                            break;
+                        case Dog dog:
+                            result = dog.Name;
+                            break;
+                        default:
+                            result = "other";
+                            break;
+                    }
+                    return result.ToUpperInvariant();
+                }
+            }
+            """);
+
+        Assert.Equal("""
+            string result = pet switch { Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenUse"));
+        Assert.Equal("""
+            string result = pet switch { Cat cat => cat.Name, Dog dog => dog.Name, Bird bird => bird.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenUseThree"));
+        Assert.Equal("""
+            string result = pet switch { Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
+            result = string.Concat(result, "!");
+            return result;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenMutate"));
+
+        Assert.Equal("""
+            string result = pet switch { Cat cat when cat.Age > 3 => cat.Name, Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedStaysFlat"));
+        Assert.Equal("""
+            string result = pet switch { Cat cat when cat.Name == "cat" => cat.Name, Cat => "other cat", Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "SameTypeGuardedFallback"));
+        Assert.Equal("""
+            string result = value switch { null => "null", int number => number.ToString(), string text => text, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeCases"));
+        Assert.Equal("""
+            string result = value switch { null => "null", int number => number.ToString(), string text => text.Trim(), _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeFinalExpression"));
+        Assert.Equal("""
+            string result = value switch { null => "null", int number => number.ToString(), string text => text, _ => "other" };
+            result = string.Concat(result, "!");
+            return result;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeMutate"));
+        Assert.Equal("""
+            string result = value switch { null => "null", string text => text.Trim(), int number => number.ToString(), _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeFinalValueType"));
+        Assert.Equal("""
+            string result = value switch { null => "null", string text => text.Trim(), int number => number.ToString(), _ => "other" };
+            result = string.Concat(result, "!");
+            return result;
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueTypeFinalValueTypeMutate"));
+        Assert.Equal("""
+            string result = pet switch { null => "null", Cat cat => cat.Name, Dog dog => dog.Name, _ => "other" };
+            return result.ToUpperInvariant();
+            """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNull"));
+    }
+
+    [Fact]
+    public async Task ClassUnionValueSwitchStoreThenUse_PreservesValueReceiver()
+    {
+        using var assembly = await CompileWithSdk("""
+            using System.Runtime.CompilerServices;
+            namespace UnionFixtures;
+
+            [Union]
+            public sealed class Result : IUnion
+            {
+                public Result(int value) => Value = value;
+                public Result(string value) => Value = value;
+                public object? Value { get; }
+            }
+
+            public static class Matcher
+            {
+                public static string AssignThenUse(Result result)
+                {
+                    string text;
+                    switch (result.Value)
+                    {
+                        case int value:
+                            text = value.ToString();
+                            break;
+                        case string message:
+                            text = message;
+                            break;
+                        default:
+                            text = "other";
+                            break;
+                    }
+                    return text.ToUpperInvariant();
+                }
+            }
+            """);
+
+        var source = RenderMember(assembly.Path, "UnionFixtures.Matcher", "AssignThenUse");
+
+        Assert.Contains("result.Value", source);
+        Assert.DoesNotContain("result switch", source);
     }
 
     [Fact]
@@ -960,6 +1457,13 @@ public class TypeSourceComposerUnionTests
                     not Cat { Name: "cat" } => "not named cat",
                     Cat => "cat",
                 };
+                public static string ValueSwitchNull(Pet pet) => pet.Value switch
+                {
+                    null => "null",
+                    Cat cat => cat.Name,
+                    Dog dog => dog.Name,
+                    _ => "other",
+                };
 
                 public static bool SideEffect() => true;
 
@@ -1073,6 +1577,9 @@ public class TypeSourceComposerUnionTests
         var classValueSwitchNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNamedCat");
         Assert.Contains("pet.Value as Cat", classValueSwitchNotNamedCat);
         Assert.Contains("V_1.Name == \"cat\"", classValueSwitchNotNamedCat);
+        var classValueSwitchNull = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNull");
+        Assert.Contains("pet.Value", classValueSwitchNull);
+        Assert.DoesNotContain("return pet switch", classValueSwitchNull);
         var guardedOr = RenderMember(assembly.Path, "UnionFixtures.Matcher", "GuardedOrSideEffect");
         Assert.DoesNotContain("pet is Cat cat || SideEffect() ? \"cat\" : \"other\"", guardedOr);
         Assert.Contains("if (", guardedOr);

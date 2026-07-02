@@ -251,13 +251,18 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(39, pipeline.AllSectionNames.Length);
+        Assert.Equal(45, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
         Assert.Contains("Authentication", pipeline.AllSectionNames);
+        Assert.Contains("Callsite Context", pipeline.AllSectionNames);
+        Assert.Contains("Allocation Context", pipeline.AllSectionNames);
+        Assert.Contains("Safety Context", pipeline.AllSectionNames);
+        Assert.Contains("Cost Context", pipeline.AllSectionNames);
         Assert.Contains("Configuration", pipeline.AllSectionNames);
         Assert.Contains("Dependency Injection", pipeline.AllSectionNames);
+        Assert.Contains("Exception Context", pipeline.AllSectionNames);
         Assert.Contains("Health Checks", pipeline.AllSectionNames);
         Assert.Contains("Hosting", pipeline.AllSectionNames);
         Assert.Contains("HTTP Client", pipeline.AllSectionNames);
@@ -277,6 +282,7 @@ public class SectionPipelineTests
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Performance Triage", pipeline.AllSectionNames);
+        Assert.Contains("Return Address Context", pipeline.AllSectionNames);
         Assert.Contains("Union Types", pipeline.AllSectionNames);
     }
 
@@ -288,7 +294,7 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["Source Location", "Member Context", "Instruction Context"], StringComparer.OrdinalIgnoreCase)
+            ? registered.Except(["Source Location", "Member Context", "Instruction Context", "Exception Context", "Callsite Context", "Return Address Context", "Allocation Context", "Safety Context", "Cost Context"], StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -352,6 +358,7 @@ public class SectionPipelineTests
         SectionNames.SemanticsOverlay,
         SectionNames.OriginalSource,
         SectionNames.Calls,
+        SectionNames.ExceptionRegions,
         SectionNames.Callers,
         SectionNames.CallGraph,
         SectionNames.CallerGraph,
@@ -542,14 +549,23 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Source Location", applicable);
         Assert.DoesNotContain("Member Context", applicable);
         Assert.DoesNotContain("Instruction Context", applicable);
+        Assert.DoesNotContain("Exception Context", applicable);
+        Assert.DoesNotContain("Callsite Context", applicable);
+        Assert.DoesNotContain("Return Address Context", applicable);
         Assert.DoesNotContain("Source Location", renderable);
         Assert.DoesNotContain("Member Context", renderable);
         Assert.DoesNotContain("Instruction Context", renderable);
+        Assert.DoesNotContain("Exception Context", renderable);
+        Assert.DoesNotContain("Callsite Context", renderable);
+        Assert.DoesNotContain("Return Address Context", renderable);
 
         model.ILOffset = new ILOffsetResult
         {
             MemberContext = new ILOffsetMemberContext(),
-            InstructionContext = new ILOffsetInstructionContext()
+            InstructionContext = new ILOffsetInstructionContext(),
+            ExceptionContext = [new ILOffsetExceptionContext()],
+            CallsiteContext = new ILOffsetCallsiteContext(),
+            ReturnAddressContext = new ILOffsetReturnAddressContext()
         };
 
         applicable = pipeline.GetApplicableSections(model);
@@ -558,9 +574,15 @@ public class SectionPipelineTests
         Assert.Contains("Source Location", applicable);
         Assert.Contains("Member Context", applicable);
         Assert.Contains("Instruction Context", applicable);
+        Assert.Contains("Exception Context", applicable);
+        Assert.Contains("Callsite Context", applicable);
+        Assert.Contains("Return Address Context", applicable);
         Assert.Contains("Source Location", renderable);
         Assert.Contains("Member Context", renderable);
         Assert.Contains("Instruction Context", renderable);
+        Assert.Contains("Exception Context", renderable);
+        Assert.Contains("Callsite Context", renderable);
+        Assert.Contains("Return Address Context", renderable);
     }
 
     [Fact]
@@ -1597,7 +1619,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(23, pipeline.AllSectionNames.Length);
+        Assert.Equal(28, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1633,6 +1655,7 @@ public class SectionPipelineTests
         Assert.Contains("Decompiled Source", names);
         Assert.Contains("Original Source", names);
         Assert.Contains("Custom Attributes", names);
+        Assert.Contains("Called Types", names);
         Assert.Contains("Top Leverage", names);
     }
 
@@ -1837,16 +1860,19 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Annotated Source", detailed);
         var optIn = pipeline.GetCostAnnotations();
         Assert.Equal("opt-in", Assert.Contains("Calls", optIn));
+        Assert.Equal("opt-in", Assert.Contains("Exception Regions", optIn));
         Assert.Equal("opt-in", Assert.Contains("Callers", optIn));
         Assert.Equal("opt-in", Assert.Contains("Call Graph", optIn));
         Assert.Equal("opt-in", Assert.Contains("Facts", optIn));
         Assert.Equal("opt-in", Assert.Contains("Unsafe Operations", optIn));
         Assert.DoesNotContain("Calls", normal);
+        Assert.DoesNotContain("Exception Regions", normal);
         Assert.DoesNotContain("Callers", normal);
         Assert.DoesNotContain("Call Graph", normal);
         Assert.DoesNotContain("Facts", normal);
         Assert.DoesNotContain("Unsafe Operations", normal);
         Assert.DoesNotContain("Calls", detailed);
+        Assert.DoesNotContain("Exception Regions", detailed);
         Assert.DoesNotContain("Callers", detailed);
         Assert.DoesNotContain("Call Graph", detailed);
         Assert.DoesNotContain("Facts", detailed);

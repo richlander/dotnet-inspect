@@ -136,6 +136,7 @@ public static class InspectionCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
+        var ilOffsetsOption = new Option<string?>("--il-offsets") { Description = "Text file of sparse MethodDef token + IL offset coordinates to explain" };
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -148,6 +149,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(ilOffsetOption);
+        assemblyCommand.Options.Add(ilOffsetsOption);
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
@@ -215,7 +217,7 @@ public static class InspectionCommandDefinitions
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
-            if (!PerformanceTriageOptions.TryValidateShapes(performanceTriage, out var triageShapeError))
+            if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
                 Console.Error.WriteLine(triageShapeError);
                 return 1;
@@ -239,6 +241,7 @@ public static class InspectionCommandDefinitions
                 Tfm = parseResult.GetValue(asmTfmOption),
                 TypeFilter = typeFilter,
                 ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
+                ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),
                 JsonOutput = parseResult.GetValue(opts.Json),

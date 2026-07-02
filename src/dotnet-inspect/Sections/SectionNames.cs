@@ -111,6 +111,27 @@ public static class SectionNames
     /// <summary>Section for resolving a MethodDef token + IL offset to its exact IL instruction.</summary>
     public const string InstructionContext = "Instruction Context";
 
+    /// <summary>Section for resolving a MethodDef token + IL offset to containing exception regions.</summary>
+    public const string ExceptionContext = "Exception Context";
+
+    /// <summary>Section for exception regions contained by a selected member body.</summary>
+    public const string ExceptionRegions = "Exception Regions";
+
+    /// <summary>Section for resolving a MethodDef token + IL offset to a call-like instruction.</summary>
+    public const string CallsiteContext = "Callsite Context";
+
+    /// <summary>Section for resolving a MethodDef token + IL offset to the preceding call instruction.</summary>
+    public const string ReturnAddressContext = "Return Address Context";
+
+    /// <summary>Section for allocation facts at an exact IL coordinate.</summary>
+    public const string AllocationContext = "Allocation Context";
+
+    /// <summary>Section for safety facts at an exact IL coordinate.</summary>
+    public const string SafetyContext = "Safety Context";
+
+    /// <summary>Section for objective cost facts at an exact IL coordinate.</summary>
+    public const string CostContext = "Cost Context";
+
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the
     /// Decompiled Source view renders inline, as rows (id, category, detail, IL
@@ -123,6 +144,18 @@ public static class SectionNames
 
     /// <summary>Section for callers (reverse call edges) of the selected member within the assembly.</summary>
     public const string Callers = "Callers";
+
+    /// <summary>Type-level aggregate of distinct callee types touched by members on the selected type.</summary>
+    public const string CalledTypes = "Called Types";
+
+    /// <summary>Section for objective allocation facts.</summary>
+    public const string AllocationFacts = "Allocation Facts";
+
+    /// <summary>Section for objective safety facts.</summary>
+    public const string SafetyFacts = "Safety Facts";
+
+    /// <summary>Section for objective cost facts.</summary>
+    public const string CostFacts = "Cost Facts";
 
     /// <summary>Section for the bounded outbound call tree (callees) rooted at the selected member.</summary>
     public const string CallGraph = "Call Graph";

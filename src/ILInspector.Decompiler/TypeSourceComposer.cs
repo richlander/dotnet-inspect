@@ -19,27 +19,55 @@ public static class TypeSourceComposer
 {
     public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
     {
+        locateAssembly ??= SiblingLocator(dllPath);
+        return ComposeCore(
+            type,
+            dllPath,
+            pdbPath,
+            () => TypeForwardResolver.LocateType(dllPath, type.FullName, locateAssembly),
+            (location, ctx) => location.AssemblyPath is { } path
+                ? Pipeline.MetadataSource.Open(path, pdbPath, locateAssembly, ctx)
+                : Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, locateAssembly.ToAssemblyReferenceResolver(), ctx),
+            context);
+    }
+
+    public static string? Compose(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    {
+        var start = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+            dllPath,
+            () => File.OpenRead(dllPath),
+            Provenance: "StartAssembly");
+        return ComposeCore(
+            type,
+            dllPath,
+            pdbPath,
+            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
+            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            context);
+    }
+
+    static string? ComposeCore(
+        ApiType type,
+        string dllPath,
+        string? pdbPath,
+        Func<TypeLocation?> locateType,
+        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Pipeline.MetadataContext? context)
+    {
         if (type.Kind is "delegate")
             return null;
 
         try
         {
-            // Follow type forwarders (ref/facade assemblies) to the assembly
-            // that actually defines the type. Default policy: implementations
-            // sit alongside the starting assembly.
-            locateAssembly ??= (name, trust) =>
-            {
-                string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
-                return File.Exists(sibling) ? sibling : null;
-            };
-            if (TypeForwardResolver.LocateType(dllPath, type.FullName, locateAssembly) is not { } location)
+            if (locateType() is not { } location)
                 return null;
 
-            FileStream? stream = null;
+            Stream? stream = null;
             PEReader? peReader = null;
             try
             {
-                stream = File.OpenRead(location.AssemblyPath);
+                stream = location.OpenRead();
                 peReader = new PEReader(stream);
                 MetadataReader reader = peReader.GetMetadataReader();
 
@@ -55,58 +83,58 @@ public static class TypeSourceComposer
                 if (typeHandle.IsNil)
                     return null;
 
-            // Bodies are decompiled from the same on-disk assembly the
-            // forwarder resolved to. The same locator resolves cross-assembly
-            // type facts (value-type-ness of a bare token) during import. A
-            // shared context (when a batch caller supplies one) opens each
-            // referenced assembly once across many composed types.
-            using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath, locator: locateAssembly, context: context);
-            var union = TryUnionDeclaration(reader, typeHandle, type);
+                    // Bodies are decompiled from the same on-disk assembly the
+                    // forwarder resolved to. The same resolver resolves cross-assembly
+                    // type facts (value-type-ness of a bare token) during import. A
+                    // shared context (when a batch caller supplies one) opens each
+                    // referenced assembly once across many composed types.
+                    using var pipelineSource = openPipelineSource(location, context);
+                    var union = TryUnionDeclaration(reader, typeHandle, type);
 
-            var sb = new StringBuilder();
-            if (!string.IsNullOrEmpty(type.Namespace))
-            {
-                sb.AppendLine($"namespace {type.Namespace};");
-                sb.AppendLine();
-            }
+                    var sb = new StringBuilder();
+                    if (!string.IsNullOrEmpty(type.Namespace))
+                    {
+                        sb.AppendLine($"namespace {type.Namespace};");
+                        sb.AppendLine();
+                    }
 
-            // The printer renders every type with its simple name, so there is
-            // no namespace prefix for HoistUsings to strip into a directive. The
-            // bodies' namespaces are collected straight from the typed IR
-            // instead and seeded into the using block; attribute namespaces
-            // join them so the short attribute names resolve.
-            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                    // The printer renders every type with its simple name, so there is
+                    // no namespace prefix for HoistUsings to strip into a directive. The
+                    // bodies' namespaces are collected straight from the typed IR
+                    // instead and seeded into the using block; attribute namespaces
+                    // join them so the short attribute names resolve.
+                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
 
-            if (union is not null)
-                AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
+                    if (union is not null)
+                        AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
 
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
-                sb.AppendLine($"[{attribute}]");
+                    var typeDef = reader.GetTypeDefinition(typeHandle);
+                    foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
+                        sb.AppendLine($"[{attribute}]");
 
-            foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
-                         union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
-                sb.AppendLine($"[{attribute}]");
+                    foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
+                                 union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
+                        sb.AppendLine($"[{attribute}]");
 
-            sb.AppendLine(TypeDeclaration(type, union));
-            sb.AppendLine("{");
+                    sb.AppendLine(TypeDeclaration(type, union));
+                    sb.AppendLine("{");
 
-            bool any = union is not null;
-            if (type.Kind == "enum")
-            {
-                ComposeEnumValues(sb, type, ref any);
-            }
-            else
-            {
-                ComposeFields(sb, reader, typeHandle, bodyNamespaces,
-                    CollectFieldInitializers(pipelineSource, type.FullName, reader, typeHandle), ref any);
-                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any);
-            }
+                    bool any = union is not null;
+                    if (type.Kind == "enum")
+                    {
+                        ComposeEnumValues(sb, type, ref any);
+                    }
+                    else
+                    {
+                        ComposeFields(sb, reader, typeHandle, bodyNamespaces,
+                            CollectFieldInitializers(pipelineSource, type.FullName, reader, typeHandle), ref any);
+                        ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any);
+                    }
 
-            sb.AppendLine("}");
-            if (!any)
-                return null;
-            return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace, bodyNamespaces);
+                    sb.AppendLine("}");
+                    if (!any)
+                        return null;
+                    return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace, bodyNamespaces);
             }
             finally
             {
@@ -121,6 +149,15 @@ public static class TypeSourceComposer
             return $"// {DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
+
+    static AssemblyLocator SiblingLocator(string dllPath) => (name, scope) =>
+    {
+        if (scope == AssemblyResolutionScope.Platform)
+            return null;
+
+        string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
+        return File.Exists(sibling) ? sibling : null;
+    };
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,
@@ -149,37 +186,16 @@ public static class TypeSourceComposer
             return sb.ToString();
         }
 
-        if (type.Kind == "class")
-        {
-            if (type.IsStatic) sb.Append("static ");
-            else if (type.IsAbstract) sb.Append("abstract ");
-            else if (type.IsSealed) sb.Append("sealed ");
-        }
-        else if (type.Kind == "struct")
-        {
-            if (type.IsReadOnly) sb.Append("readonly ");
-            if (type.IsByRefLike) sb.Append("ref ");
-        }
-        sb.Append(type.Kind == "enum" ? "enum" : type.Kind);
-        sb.Append(' ');
-        sb.Append(DisplayName(type));
-
-        var bases = new List<string>();
-        if (EnumUnderlyingBase(type) is { } enumUnderlyingBase)
-        {
-            bases.Add(enumUnderlyingBase);
-        }
-        else if (type.BaseType is { } baseType
-            && baseType is not ("System.Object" or "object" or "System.ValueType" or "System.Enum"))
-        {
-            bases.Add(EscapeKnownIdentifiers(baseType, type.TypeParameters.Select(p => p.Name)));
-        }
-        bases.AddRange(type.Interfaces.Select(iface => EscapeKnownIdentifiers(iface, type.TypeParameters.Select(p => p.Name))));
-        if (bases.Count > 0)
-            sb.Append($" : {string.Join(", ", bases)}");
-        AppendTypeParameterConstraints(sb, type.TypeParameters);
-        return sb.ToString();
+        return CSharpDeclarationWriter.RenderTypeDeclaration(type, DeclarationOptions());
     }
+
+    static CSharpDeclarationOptions DeclarationOptions(bool forceUnsafe = false, bool forceAsync = false) => new()
+    {
+        ForceAsync = forceAsync,
+        ForceUnsafe = forceUnsafe,
+        IncludeObsoleteAttribute = false,
+        OmitInterfaceMemberModifiers = true
+    };
 
     static string DisplayName(ApiType type)
     {
@@ -212,28 +228,6 @@ public static class TypeSourceComposer
             any = true;
         }
     }
-
-    static string? EnumUnderlyingBase(ApiType type)
-    {
-        if (type.Kind != "enum" || type.EnumUnderlyingType is not { } underlying)
-            return null;
-        return EnumUnderlyingKeyword(underlying) is { } keyword && keyword != "int"
-            ? keyword
-            : null;
-    }
-
-    static string? EnumUnderlyingKeyword(string type) => type switch
-    {
-        "sbyte" or "System.SByte" => "sbyte",
-        "byte" or "System.Byte" => "byte",
-        "short" or "System.Int16" => "short",
-        "ushort" or "System.UInt16" => "ushort",
-        "int" or "System.Int32" => "int",
-        "uint" or "System.UInt32" => "uint",
-        "long" or "System.Int64" => "long",
-        "ulong" or "System.UInt64" => "ulong",
-        _ => null,
-    };
 
     static IEnumerable<string> LayoutAttributes(ApiType type, TypeDefinition typeDef, SortedSet<string> namespaces)
     {
@@ -454,9 +448,10 @@ public static class TypeSourceComposer
                         break;
                     }
 
-                    var declaration = MethodDeclaration(type, member, requiresUnsafeContext);
-                    if (body is not null && requiresAsync && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
-                        declaration = AddAsyncModifier(declaration);
+                    var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+                        type,
+                        member,
+                        DeclarationOptions(requiresUnsafeContext, requiresAsync));
                     AppendMember(sb, declaration, body, constructorChain);
                     break;
                 }
@@ -469,7 +464,7 @@ public static class TypeSourceComposer
                     foreach (var attribute in AttributeReader.RenderPropertyAttributes(
                         reader, typeHandle, member.Name, bodyNamespaces))
                         sb.AppendLine($"    [{attribute}]");
-                    ComposeProperty(sb, pipelineSource, type.FullName, member, type.TypeParameters, bodyNamespaces);
+                    ComposeProperty(sb, pipelineSource, type, member, bodyNamespaces);
                     break;
                 }
 
@@ -478,10 +473,11 @@ public static class TypeSourceComposer
                     if (!first) sb.AppendLine();
                     first = false;
                     any = true;
-                    string sig = EscapeMemberSignature(member.Signature ?? member.Name, member, type.TypeParameters);
-                    if (!sig.StartsWith("public", StringComparison.Ordinal))
-                        sig = $"public event {sig}";
-                    sb.AppendLine($"    {sig};");
+                    string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+                        type,
+                        member,
+                        DeclarationOptions() with { TerminateMemberDeclaration = true });
+                    sb.AppendLine($"    {declaration}");
                     break;
                 }
             }
@@ -683,79 +679,6 @@ public static class TypeSourceComposer
         return null;
     }
 
-    /// <summary>
-    /// The extractor's method signatures carry no modifiers (property
-    /// signatures do); synthesize the declaration from the member flags.
-    /// Constructors rename .ctor/.cctor to the type's display name.
-    /// </summary>
-    static string MethodDeclaration(ApiType type, ApiMember member, bool requiresUnsafeContext)
-    {
-        string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, type.TypeParameters);
-        string typeName = DisplayName(type);
-        int tick = typeName.IndexOf('<');
-        string ctorName = tick >= 0 ? typeName[..tick] : typeName;
-        bool isUnsafe = member.IsUnsafe || requiresUnsafeContext;
-        string unsafeModifier = isUnsafe ? "unsafe " : "";
-
-        if (member.Name == ".cctor")
-            return $"static {unsafeModifier}{ctorName}()";
-        if (member.Name == ".ctor")
-        {
-            if (signature.StartsWith("void ", StringComparison.Ordinal))
-                signature = signature[5..];
-            return $"{member.Accessibility ?? "public"} {unsafeModifier}{signature.Replace(".ctor", ctorName)}";
-        }
-        if (member.Kind == "operator")
-            return OperatorDeclaration(member, type.TypeParameters, isUnsafe);
-
-        // Explicit interface implementations take no accessibility/static/virtual
-        // modifiers, but pointer signatures still require unsafe context.
-        if (member.Kind == "explicit-interface-implementation")
-            return isUnsafe ? $"unsafe {signature}" : signature;
-
-        var parts = new List<string> { member.Accessibility ?? "public" };
-        if (isUnsafe)
-            parts.Add("unsafe");
-        if (type.Kind != "interface")
-        {
-            if (member.IsStatic) parts.Add("static");
-            if (member.IsAbstract) parts.Add("abstract");
-            else if (member.IsSealed && member.IsOverride) parts.Add("sealed override");
-            else if (member.IsOverride) parts.Add("override");
-            else if (member.IsVirtual) parts.Add("virtual");
-        }
-        parts.Add(signature);
-        return string.Join(" ", parts);
-    }
-
-    static string OperatorDeclaration(ApiMember member, IReadOnlyList<TypeParameter> typeParameters, bool isUnsafe)
-    {
-        string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, typeParameters);
-        int parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        int nameIndex = signature.LastIndexOf(member.Name, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return signature;
-
-        string returnType = signature[..nameIndex].TrimEnd();
-        string parameters = signature[parenStart..];
-        string modifiers = isUnsafe ? "public static unsafe" : "public static";
-
-        if (member.Name.StartsWith("op_Checked", StringComparison.Ordinal)
-            && OperatorNames.MapBinaryOrUnary(member.Name["op_Checked".Length..]) is { } checkedSymbol)
-            return $"{modifiers} {returnType} operator checked {checkedSymbol}{parameters}";
-
-        return member.Name switch
-        {
-            "op_Implicit" => $"{modifiers} implicit operator {returnType}{parameters}",
-            "op_Explicit" => $"{modifiers} explicit operator {returnType}{parameters}",
-            "op_CheckedExplicit" => $"{modifiers} explicit operator checked {returnType}{parameters}",
-            _ => $"{modifiers} {returnType} {OperatorNames.FormatDisplayName(member.Name)}{parameters}"
-        };
-    }
-
     static void AppendMember(StringBuilder sb, string signature, string? body, string? constructorChain = null)
     {
         // An explicit base(...)/this(...) chain renders as a signature
@@ -777,164 +700,10 @@ public static class TypeSourceComposer
         sb.AppendLine("    }");
     }
 
-    static string AddAsyncModifier(string signature)
-    {
-        var parts = signature.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-        if (parts.Contains("async"))
-            return signature;
-        int insert = 0;
-        while (insert < parts.Count && parts[insert] is
-               "public" or "private" or "protected" or "internal" or "static" or
-               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern" or "unsafe")
-        {
-            insert++;
-        }
-        parts.Insert(insert, "async");
-        return string.Join(" ", parts);
-    }
-
-    static string InsertModifier(string signature, string modifier)
-    {
-        var parts = signature.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-        if (parts.Contains(modifier))
-            return signature;
-        int insert = 0;
-        while (insert < parts.Count && parts[insert] is
-               "public" or "private" or "protected" or "internal" or "static" or
-               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern")
-        {
-            insert++;
-        }
-        parts.Insert(insert, modifier);
-        return string.Join(" ", parts);
-    }
-
-    static bool ContainsModifier(string signature, string modifier)
-        => signature.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(modifier);
-
     static string TypeParameterDisplayName(TypeParameter typeParameter)
         => typeParameter.Variance is { } variance
             ? $"{variance} {EscapeIdentifier(typeParameter.Name)}"
             : EscapeIdentifier(typeParameter.Name);
-
-    static string EscapeMemberSignature(string signature, ApiMember member, IReadOnlyList<TypeParameter> typeParameters)
-    {
-        signature = EscapeKnownIdentifiers(signature, typeParameters.Select(p => p.Name));
-
-        if (member.Name is not ".ctor" and not ".cctor")
-            signature = ReplaceMemberName(signature, member.Name);
-
-        return EscapeParameterLists(signature);
-    }
-
-    static string ReplaceMemberName(string signature, string metadataName)
-    {
-        if (string.IsNullOrEmpty(metadataName))
-            return signature;
-
-        var escapedName = metadataName.Contains('.')
-            ? EscapeQualifiedName(metadataName)
-            : EscapeIdentifier(metadataName);
-        if (escapedName == metadataName)
-            return signature;
-
-        int searchEnd = signature.IndexOf('(');
-        if (searchEnd < 0)
-            searchEnd = signature.IndexOf('{');
-        if (searchEnd < 0)
-            searchEnd = signature.Length;
-
-        int index = signature.LastIndexOf(metadataName, searchEnd - 1, StringComparison.Ordinal);
-        if (index < 0)
-            return signature;
-
-        return signature[..index] + escapedName + signature[(index + metadataName.Length)..];
-    }
-
-    static string EscapeParameterLists(string signature)
-    {
-        var sb = new StringBuilder(signature.Length);
-        int start = 0;
-        while (true)
-        {
-            int open = signature.IndexOf('(', start);
-            if (open < 0)
-            {
-                sb.Append(signature, start, signature.Length - start);
-                return sb.ToString();
-            }
-            int close = MatchingParen(signature, open);
-            if (close < 0)
-            {
-                sb.Append(signature, start, signature.Length - start);
-                return sb.ToString();
-            }
-
-            sb.Append(signature, start, open - start + 1);
-            sb.Append(EscapeParameters(signature[(open + 1)..close]));
-            sb.Append(')');
-            start = close + 1;
-        }
-    }
-
-    static int MatchingParen(string text, int open)
-    {
-        int depth = 0;
-        for (int i = open; i < text.Length; i++)
-        {
-            if (text[i] == '(') depth++;
-            else if (text[i] == ')' && --depth == 0) return i;
-        }
-        return -1;
-    }
-
-    static string EscapeParameters(string parameterList)
-        => string.Join(", ", SplitTopLevel(parameterList).Select(EscapeParameterName));
-
-    static IEnumerable<string> SplitTopLevel(string text)
-    {
-        if (text.Length == 0)
-            yield break;
-
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-            if (c is '<' or '[' or '(') depth++;
-            else if (c is '>' or ']' or ')') depth--;
-            else if (c == ',' && depth == 0)
-            {
-                yield return text[start..i].Trim();
-                start = i + 1;
-            }
-        }
-        yield return text[start..].Trim();
-    }
-
-    static string EscapeParameterName(string parameter)
-    {
-        if (parameter.Length == 0)
-            return parameter;
-
-        int equals = parameter.IndexOf('=');
-        string prefix = equals >= 0 ? parameter[..equals].TrimEnd() : parameter;
-        string suffix = equals >= 0 ? parameter[equals..] : "";
-
-        int end = prefix.Length - 1;
-        while (end >= 0 && char.IsWhiteSpace(prefix[end]))
-            end--;
-        int start = end;
-        while (start >= 0 && (char.IsLetterOrDigit(prefix[start]) || prefix[start] == '_' || prefix[start] == '@'))
-            start--;
-        start++;
-        if (start > end)
-            return parameter;
-
-        string name = prefix[start..(end + 1)];
-        string escaped = name.StartsWith('@') ? name : EscapeIdentifier(name);
-        return prefix[..start] + escaped + prefix[(end + 1)..] + suffix;
-    }
 
     static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
     {
@@ -977,25 +746,14 @@ public static class TypeSourceComposer
     }
 
     static void ComposeProperty(
-        StringBuilder sb, Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member,
-        IReadOnlyList<TypeParameter> typeParameters, SortedSet<string> bodyNamespaces)
+        StringBuilder sb, Pipeline.MetadataSource pipelineSource, ApiType type, ApiMember member,
+        SortedSet<string> bodyNamespaces)
     {
-        string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, typeParameters);
+        string typeFullName = type.FullName;
+        string signature = CSharpDeclarationWriter.RenderMemberDeclaration(type, member, DeclarationOptions());
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
-
-        // The extractor's property signatures sometimes omit modifiers.
-        if (!head.StartsWith("public", StringComparison.Ordinal)
-            && !head.StartsWith("protected", StringComparison.Ordinal)
-            && !head.StartsWith("internal", StringComparison.Ordinal)
-            && !head.StartsWith("private", StringComparison.Ordinal))
-        {
-            string access = member.Accessibility ?? "public";
-            head = member.IsStatic ? $"{access} static {head}" : $"{access} {head}";
-        }
-        if (requiresUnsafeContext && !ContainsModifier(head, "unsafe"))
-            head = InsertModifier(head, "unsafe");
 
         var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext)>();
         if (accessorList >= 0)
@@ -1009,8 +767,12 @@ public static class TypeSourceComposer
                 accessors.Add(("init", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe), initRequiresUnsafe));
         }
 
-        if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext) && !ContainsModifier(head, "unsafe"))
-            head = InsertModifier(head, "unsafe");
+        if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
+        {
+            signature = CSharpDeclarationWriter.RenderMemberDeclaration(type, member, DeclarationOptions(forceUnsafe: true));
+            accessorList = signature.IndexOf('{');
+            head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
+        }
 
         if (accessors.Count == 0 || member.IsAbstract || accessors.All(a => a.Body is null))
         {

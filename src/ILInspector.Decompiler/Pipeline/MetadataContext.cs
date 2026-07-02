@@ -6,7 +6,7 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// The multi-assembly resolution environment a decompile session reads through:
-/// an <see cref="AssemblyLocator"/> plus a pool of assemblies opened on demand.
+/// an <see cref="IAssemblyReferenceResolver"/> plus a pool of assemblies opened on demand.
 /// Where <see cref="MetadataSource"/> owns the readers for the ONE assembly being
 /// decompiled, this owns the readers for every OTHER assembly consulted while
 /// recovering cross-assembly facts (value-type-ness of a bare token, interface
@@ -31,11 +31,23 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class MetadataContext : IDisposable
 {
     readonly Dictionary<string, OpenedAssembly?> _opened = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, OpenedAssembly?> _openedLocations = new(StringComparer.Ordinal);
 
-    public MetadataContext(AssemblyLocator locator) => Locator = locator;
+    public MetadataContext(AssemblyLocator locator)
+        : this(locator.ToAssemblyReferenceResolver())
+    {
+    }
+
+    public MetadataContext(IAssemblyReferenceResolver resolver)
+    {
+        Resolver = resolver;
+        Locator = resolver.ToAssemblyLocator();
+    }
 
     /// <summary>Resolves a referenced assembly name to an on-disk path.</summary>
     internal AssemblyLocator Locator { get; }
+
+    internal IAssemblyReferenceResolver Resolver { get; }
 
     /// <summary>
     /// Returns the cached reader for an on-disk assembly, opening it on first
@@ -52,11 +64,29 @@ public sealed class MetadataContext : IDisposable
         return opened;
     }
 
+    internal OpenedAssembly? Open(TypeLocation location)
+    {
+        if (location.AssemblyPath is { Length: > 0 } path)
+            return Open(path);
+
+        if (_openedLocations.TryGetValue(location.AssemblyKey, out var cached))
+            return cached;
+        var opened = OpenedAssembly.TryOpen(location.OpenRead);
+        _openedLocations[location.AssemblyKey] = opened;
+        return opened;
+    }
+
+    internal ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        => Resolver.Resolve(identity, scope);
+
     public void Dispose()
     {
         foreach (var opened in _opened.Values)
             opened?.Dispose();
+        foreach (var opened in _openedLocations.Values)
+            opened?.Dispose();
         _opened.Clear();
+        _openedLocations.Clear();
     }
 }
 
@@ -68,11 +98,11 @@ public sealed class MetadataContext : IDisposable
 /// </summary>
 internal sealed class OpenedAssembly : IDisposable
 {
-    readonly FileStream _stream;
+    readonly Stream _stream;
     readonly PEReader _pe;
     Dictionary<string, TypeDefinitionHandle>? _byFullName;
 
-    OpenedAssembly(FileStream stream, PEReader pe, MetadataReader reader)
+    OpenedAssembly(Stream stream, PEReader pe, MetadataReader reader)
     {
         _stream = stream;
         _pe = pe;
@@ -86,12 +116,15 @@ internal sealed class OpenedAssembly : IDisposable
     /// carries no managed metadata, or cannot be read.
     /// </summary>
     public static OpenedAssembly? TryOpen(string path)
+        => TryOpen(() => File.OpenRead(path));
+
+    public static OpenedAssembly? TryOpen(Func<Stream> openRead)
     {
-        FileStream? stream = null;
+        Stream? stream = null;
         PEReader? pe = null;
         try
         {
-            stream = File.OpenRead(path);
+            stream = openRead();
             pe = new PEReader(stream);
             if (!pe.HasMetadata)
             {

@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
 
@@ -16,7 +17,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -285,7 +286,15 @@ internal static class MemberCodeProvider
             return null;
         try
         {
-            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath);
+            var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(dllPath)
+            {
+                ProjectAssetsPath = request.ProjectAssetsPath,
+                TargetFramework = request.TargetFramework,
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath, resolver);
         }
         catch
         {

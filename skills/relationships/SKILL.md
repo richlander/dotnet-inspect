@@ -29,6 +29,7 @@ to include extensions on types reachable through properties and methods.
 dnx dotnet-inspect -y -- implements IDisposable --platform
 dnx dotnet-inspect -y -- extensions HttpClient --platform --reachable
 dnx dotnet-inspect -y -- implements ILogger --package-prefix Microsoft.Extensions
+dnx dotnet-inspect -y -- implements IMarkoutFormatter --package Markout
 ```
 
 ## What does it depend on?
@@ -44,9 +45,11 @@ dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 
 ## Who calls it? (reverse edges)
 
-`member Type Method:1 -S Calls` lists what a method calls; `-S Callers` lists the
-call sites that reach it. Widen the caller search with `--bin`, `--project`, or
-`--caller-package`.
+`member Type Method:1 -S Calls` lists what a method calls; `-S Callers` lists
+the call sites that reach it. With an explicit source, widen the caller search
+with `--bin`, `--project`, or `--caller-package`. With no explicit source, the
+first `--project` is the source context; repeated `--project` values after it
+remain caller scopes.
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S Calls

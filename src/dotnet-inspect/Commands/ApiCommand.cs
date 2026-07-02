@@ -311,9 +311,9 @@ public class ApiCommand
         if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
-            detailSchema.Add(SectionNames.Calls, "column", "Callee", "Kind", "IL", "Token");
+            detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.Callers) == null)
-            detailSchema.Add(SectionNames.Callers, "column", "Caller", "Kind", "IL", "Token");
+            detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
         detailSchema.Add(SectionNames.CallGraph, "field",
@@ -492,33 +492,18 @@ public class ApiCommand
     /// they forward to at runtime).
     /// </summary>
     internal static ILInspector.Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
+        => PlatformAssemblyResolver(startingDll).ToAssemblyLocator();
+
+    internal static AssemblyDependencyResolver PlatformAssemblyResolver(string startingDll, string? projectAssetsPath = null, string? targetFramework = null)
     {
-        string? sharedDir = Services.PlatformResolver.GetSharedDirectory();
-
-        string? ResolvePlatform(string name)
+        return new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(startingDll)
         {
-            if (sharedDir is null)
-                return null;
-            var (runtimeDir, _, _) = Services.PlatformResolver.ResolveRuntimeFramework("runtime");
-            if (runtimeDir is null)
-                return null;
-            string platform = Path.Combine(runtimeDir, name + ".dll");
-            return File.Exists(platform) ? platform : null;
-        }
-
-        return (name, trust) =>
-        {
-            // A platform-asserted reference resolves only from the trusted
-            // runtime framework: a confusable local copy (a planted sibling
-            // claiming a platform name) must never satisfy it.
-            if (trust == ILInspector.Metadata.AssemblyTrust.Platform)
-                return ResolvePlatform(name);
-
-            string sibling = Path.Combine(Path.GetDirectoryName(startingDll)!, name + ".dll");
-            if (File.Exists(sibling))
-                return sibling;
-            return ResolvePlatform(name);
-        };
+            ProjectAssetsPath = projectAssetsPath,
+            TargetFramework = targetFramework,
+            IncludeDepsJsonAssets = false,
+            IncludeAspNetCoreSharedFramework = false,
+            PreferImplementationAssemblies = true,
+        });
     }
 
     internal sealed record ResolvedMethodSource(MethodSourceContext? Source, string? PdbPath);
@@ -738,6 +723,28 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
             }
 
+            if (options.DllPath is { } exceptionRegionsDllPath
+                && (GetRequestedMemberSections(type, options).Contains(SectionNames.ExceptionRegions)
+                    || options.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
+            {
+                ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, options.IncludeSections);
+            }
+
+            if (options.DllPath is { } calledTypesDllPath
+                && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
+                    || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
+            {
+                ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, options.IncludeSections);
+            }
+
+            var semanticSections = GetRequestedMemberSections(type, options);
+            if (options is not MemberOptions
+                && options.DllPath is { } semanticFactsDllPath
+                && semanticSections.Overlaps(SemanticFactSections))
+            {
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, semanticFactsDllPath, semanticSections, options.IncludeSections);
+            }
+
             if (options.DllPath is { } optimizationDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
@@ -775,8 +782,10 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
+            var resolver = PlatformAssemblyResolver(typeDllPath, options.ProjectAssetsPath, options.Tfm);
+            using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.TypeSourceComposer.Compose(
-                type, typeDllPath, options.PdbPath, PlatformAssemblyLocator(typeDllPath));
+                type, typeDllPath, options.PdbPath, resolver, metadata);
             if (listing is not null)
             {
                 view.MemberCode ??= new MemberCodeView();
@@ -1340,6 +1349,28 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
             }
 
+            if (renderOptions.DllPath is { } exceptionRegionsDllPath
+                && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.ExceptionRegions)
+                    || renderOptions.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
+            {
+                ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, renderOptions.IncludeSections);
+            }
+
+            if (renderOptions.DllPath is { } calledTypesDllPath
+                && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes)
+                    || renderOptions.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
+            {
+                ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, renderOptions.IncludeSections);
+            }
+
+            var semanticSections = GetRequestedMemberSections(type, renderOptions);
+            if (renderOptions is not MemberOptions
+                && renderOptions.DllPath is { } semanticFactsDllPath
+                && semanticSections.Overlaps(SemanticFactSections))
+            {
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, semanticFactsDllPath, semanticSections, renderOptions.IncludeSections);
+            }
+
             if (renderOptions.DllPath is { } optimizationDllPath
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
@@ -1422,6 +1453,13 @@ public class ApiCommand
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
+    {
+        SectionNames.AllocationFacts,
+        SectionNames.SafetyFacts,
+        SectionNames.CostFacts
+    };
 
     /// <summary>
     /// Maps each member section name to the predicate that selects its members.

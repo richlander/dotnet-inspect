@@ -63,7 +63,8 @@ public sealed class IsPatternPass : IIrPass
             || FoldNegatedConditionalPatternReturnOne(function, context.Stepper)
             || FoldClassUnionNullConditionalReturnOne(function, context.Stepper)
             || TransformRecursivePropertyDeclaration(function, context.Stepper)
-            || FoldPositionalPatternReturnOne(function, context.Stepper))
+            || FoldPositionalPatternReturnOne(function, context.Stepper)
+            || FoldUnionValueReceiverCopy(function, context.Stepper))
         {
         }
     }
@@ -108,6 +109,55 @@ public sealed class IsPatternPass : IIrPass
         }
         return false;
     }
+
+    static bool FoldUnionValueReceiverCopy(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i + 1 < children.Count; i++)
+            {
+                if (children[i] is not StoreLocal copyStore
+                    || TryUnionReceiverCopySource(copyStore.Value) is not { } receiver
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, copyStore.Index, [copyStore, children[i + 1]]))
+                {
+                    continue;
+                }
+
+                var properties = children[i + 1]
+                    .Descendants
+                    .OfType<LoadProperty>()
+                    .Where(property => IsUnionValueProperty(function, property)
+                        && property.Instance is LoadLocalAddress address
+                        && address.Index == copyStore.Index)
+                    .ToList();
+
+                int localReferences = children[i + 1].Descendants.Count(node => node switch
+                {
+                    LoadLocal load => load.Index == copyStore.Index,
+                    LoadLocalAddress address => address.Index == copyStore.Index,
+                    _ => false
+                });
+
+                if (properties.Count == 0 || localReferences != properties.Count)
+                    continue;
+
+                foreach (var property in properties)
+                    property.Instance!.ReplaceWith((IrExpression)receiver.Clone());
+
+                stepper.StepOver("fold union receiver copy into pattern receiver", children[i + 1]);
+                copyStore.Detach();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static IrExpression? TryUnionReceiverCopySource(IrExpression expression)
+        => expression is LoadIndirect { Address: LoadArgument argument }
+            ? (IrExpression)argument.Clone()
+            : null;
 
     static bool TransformNegatedPropertyPatternGuard(IrFunction function, Stepper stepper)
     {

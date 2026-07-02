@@ -50,10 +50,13 @@ public static class MemberCommand
         var packageVersion = source.PackageVersion;
         var apiSource = source.ApiSource;
         var selectedTfm = source.SelectedTfm;
+        var projectAssetsPath = source.ProjectAssetsPath;
         var tempDir = source.TempDir;
         var typeName = source.TypeName;
         var context = source.Context;
         var logger = context.Logger;
+
+        options = options with { ProjectAssetsPath = projectAssetsPath };
 
         try
         {
@@ -506,6 +509,10 @@ public static class MemberCommand
         SectionNames.AnnotatedSource,
         SectionNames.OriginalSource,
         SectionNames.Calls,
+        SectionNames.ExceptionRegions,
+        SectionNames.AllocationFacts,
+        SectionNames.SafetyFacts,
+        SectionNames.CostFacts,
         SectionNames.Callers,
         SectionNames.CallGraph,
         SectionNames.CallerGraph,

@@ -36,6 +36,12 @@ public static class LibrarySections
             .Add<ILOffset>()
             .Add<MemberContext>()
             .Add<InstructionContext>()
+            .Add<ExceptionContext>()
+            .Add<CallsiteContext>()
+            .Add<ReturnAddressContext>()
+            .Add<AllocationContext>()
+            .Add<SafetyContext>()
+            .Add<CostContext>()
             .Add<SourceFiles>()
             .Add<SourceLinkAudit>(SourceLinkAuditApplicable)
             .Add<MissingSourceFiles>(SourceLinkAuditApplicable)
@@ -151,6 +157,60 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.InstructionContext != null;
+    }
+
+    public sealed class ExceptionContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ExceptionContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.ExceptionContext is { Count: > 0 };
+    }
+
+    public sealed class CallsiteContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.CallsiteContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.CallsiteContext != null;
+    }
+
+    public sealed class ReturnAddressContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ReturnAddressContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.ReturnAddressContext != null;
+    }
+
+    public sealed class AllocationContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.AllocationContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.AllocationContext is { Count: > 0 };
+    }
+
+    public sealed class SafetyContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.SafetyContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.SafetyContext is { Count: > 0 };
+    }
+
+    public sealed class CostContext : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.CostContext;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.ILOffset?.CostContext is { Count: > 0 };
     }
 
     // ===== Symbol/provenance sections (network-capable, acceptable default cost) =====

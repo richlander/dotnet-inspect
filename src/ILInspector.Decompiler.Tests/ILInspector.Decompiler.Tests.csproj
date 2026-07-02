@@ -25,6 +25,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LegacyUnsafe\ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainA\ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
@@ -57,6 +58,10 @@
              Link="CorpusSensor.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\HarnessOpcode.cs"
+             Link="HarnessOpcode.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ReturnToSender.cs"
+             Link="ReturnToSender.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\GeneratedFixtures.cs"
              Link="GeneratedFixtures.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ValidityCheck.cs"

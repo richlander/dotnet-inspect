@@ -1114,6 +1114,165 @@ public class LibraryBodyIndexTests
         }
     }
 
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, AllocationEscape.LocalOnly)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray), AllocationKind.Array, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField), AllocationKind.Array, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall), AllocationKind.Array, AllocationEscape.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.DropsPlainObject), AllocationKind.Object, AllocationEscape.LocalOnly)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ExceptionUnknownOrThrow), AllocationKind.Object, AllocationEscape.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesThenUnboxesLocal), AllocationKind.Box, AllocationEscape.LocalOnly)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstReturn), AllocationKind.Box, AllocationEscape.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstStoreField), AllocationKind.Box, AllocationEscape.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), AllocationKind.Box, AllocationEscape.Unknown)]
+    public void AllocationOccurrences_ClassifyIntraproceduralEscape(string methodName, AllocationKind kind, AllocationEscape expected)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+
+        Assert.Equal(expected, occurrence.Escape);
+    }
+
+    [Fact]
+    public void AllocationOccurrences_ArrayLongAddressLoadsDoNotTerminateTrackedArray()
+    {
+        var (path, directory) = BuildLongAddressLoadArrayFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.Equal(
+                AllocationEscape.Escapes,
+                SingleAllocationOccurrence(index, "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdloca", AllocationKind.Array).Escape);
+            Assert.Equal(
+                AllocationEscape.Escapes,
+                SingleAllocationOccurrence(index, "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdarga", AllocationKind.Array).Escape);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
+    public void AllocationOccurrences_IncludeRuntimeTypePathContextConfidenceAndPostDominance(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence, AllocationPostDominance expectedPostDominance)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = index.GetAllocationOccurrences()
+            .Where(pair => index.Methods.Any(method => method.MetadataToken == pair.Key && method.Name == methodName))
+            .SelectMany(pair => pair.Value)
+            .First(occurrence => occurrence.Kind == kind
+                && occurrence.PathContext == expectedPath
+                && occurrence.RuntimeAllocationType == expectedRuntimeType);
+
+        Assert.Equal(expectedRuntimeType, occurrence.RuntimeAllocationType);
+        Assert.Equal(expectedPath, occurrence.PathContext);
+        Assert.Equal(expectedConfidence, occurrence.PathConfidence);
+        Assert.Equal(expectedPostDominance, occurrence.PostDominance);
+    }
+
+    [Fact]
+    public void AllocationOccurrences_IncludeBranchAndSwitchPathContext()
+    {
+        var (path, directory) = BuildPathContextFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "BranchAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.Branch
+                    && occurrence.PathConfidence == AllocationPathConfidence.BehindBranch
+                    && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates);
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "SwitchAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.SwitchArm);
+            var switchAllocations = index.GetAllocationOccurrences().Values
+                .SelectMany(occurrences => occurrences)
+                .Where(occurrence => occurrence.Method.Name == "SwitchAllocation" && occurrence.Kind == AllocationKind.Object)
+                .ToArray();
+            Assert.Equal(3, switchAllocations.Length);
+            Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathContext.SwitchArm, occurrence.PathContext));
+            Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathConfidence.BehindBranch, occurrence.PathConfidence));
+            Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPostDominance.ReturnPostDominates, occurrence.PostDominance));
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "AfterIfJoinAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates);
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "ReturnOrInfiniteLoopAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.Unknown);
+            Assert.Contains(
+                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                occurrence => occurrence.Method.Name == "InternalReturnLoopAllocation"
+                    && occurrence.Kind == AllocationKind.Object
+                    && occurrence.PathContext == AllocationPathContext.StraightLine
+                    && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
+                    && occurrence.PostDominance == AllocationPostDominance.Unknown);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AllocationOccurrences_NestedGenericRuntimeTypeKeepsNestedName()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(
+            index,
+            nameof(OptimizationOpportunityFixtures.ReturnsNestedGenericObject),
+            AllocationKind.Object);
+
+        Assert.Contains("+Inner", occurrence.RuntimeAllocationType, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "System.Int32[]", "straight-line", "dominates-return", "return-post-dominates")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line", "dominates-return", "return-post-dominates")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body", "behind-branch", null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AppendsStringInLoop), "string-build-in-loop", "System.String", "loop body", "behind-branch", null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot", "newobj/newarr/box", "loop body", null, null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body", null, null)]
+    public void OptimizationOpportunities_IncludeAllocationPathConfidenceAndPostDominanceMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath, string? expectedConfidence, string? expectedPostDominance)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+            opportunity.Method.Name == methodName
+            && opportunity.Shape == shape));
+
+        Assert.Equal(expectedAllocation, opportunity.RuntimeAllocationType);
+        Assert.Equal(expectedPath, opportunity.PathContext);
+        Assert.Equal(expectedConfidence, opportunity.PathConfidence);
+        Assert.Equal(expectedPostDominance, opportunity.PostDominance);
+    }
+
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagListToArrayAsCopy()
     {
@@ -1628,6 +1787,20 @@ public class LibraryBodyIndexTests
             .Where(o => o.Method.Name == methodName && o.Shape is "small-array" or "stackalloc-candidate")
             .Select(o => o.Shape);
 
+    static AllocationOccurrence SingleAllocationOccurrence(LibraryBodyIndex index, string methodName, AllocationKind kind)
+        => SingleAllocationOccurrence(index, nameof(OptimizationOpportunityFixtures), methodName, kind);
+
+    static AllocationOccurrence SingleAllocationOccurrence(LibraryBodyIndex index, string typeName, string methodName, AllocationKind kind)
+    {
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.DeclaringType.Name == typeName
+            && m.Name == methodName));
+        Assert.True(index.GetAllocationOccurrences().TryGetValue(method.MetadataToken, out var occurrences));
+        return Assert.Single(occurrences.Where(occurrence =>
+            occurrence.Kind == kind
+            && occurrence.CountsAsHeapAllocation));
+    }
+
     static (string Path, string Directory) BuildSlotReuseArrayFixture()
     {
         var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-slot-reuse-" + Guid.NewGuid().ToString("N"));
@@ -1667,6 +1840,190 @@ public class LibraryBodyIndexTests
         type.CreateType();
         assembly.Save(path);
         return (path, directory);
+    }
+
+    static (string Path, string Directory) BuildLongAddressLoadArrayFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-long-address-load-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "LongAddressLoadArrayFixture.dll");
+
+        var assemblyName = new AssemblyName("LongAddressLoadArrayFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("LongAddressLoadArrayFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+        DefineLdlocaMethod(type);
+        DefineLdargaMethod(type);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
+
+        static void DefineLdlocaMethod(TypeBuilder type)
+        {
+            var method = type.DefineMethod(
+                "ArrayReturnedAfterLongLdloca",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int[]),
+                Type.EmptyTypes);
+            var il = method.GetILGenerator();
+            var array = il.DeclareLocal(typeof(int[]));
+            var marker = il.DeclareLocal(typeof(int));
+
+            il.Emit(OpCodes.Ldc_I4_4);
+            il.Emit(OpCodes.Newarr, typeof(int));
+            il.Emit(OpCodes.Stloc, array);
+            il.Emit(OpCodes.Ldloc, array);
+            il.Emit(OpCodes.Ldloca, marker);
+            il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Ret);
+        }
+
+        static void DefineLdargaMethod(TypeBuilder type)
+        {
+            var method = type.DefineMethod(
+                "ArrayReturnedAfterLongLdarga",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int[]),
+                [typeof(int)]);
+            var il = method.GetILGenerator();
+            var array = il.DeclareLocal(typeof(int[]));
+
+            il.Emit(OpCodes.Ldc_I4_4);
+            il.Emit(OpCodes.Newarr, typeof(int));
+            il.Emit(OpCodes.Stloc, array);
+            il.Emit(OpCodes.Ldloc, array);
+            il.Emit(OpCodes.Ldarga, (short)0);
+            il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Ret);
+        }
+    }
+
+    static (string Path, string Directory) BuildPathContextFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-path-context-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "PathContextFixture.dll");
+
+        var assemblyName = new AssemblyName("PathContextFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("PathContextFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var ctor = typeof(PlainObject).GetConstructor([typeof(int)])!;
+
+        DefineBranchAllocation(type, ctor);
+        DefineSwitchAllocation(type, ctor);
+        DefineAfterIfJoinAllocation(type, ctor);
+        DefineReturnOrInfiniteLoopAllocation(type, ctor);
+        DefineInternalReturnLoopAllocation(type, ctor);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
+
+        static void EmitNewPlainObject(ILGenerator il, ConstructorInfo ctor, int value)
+        {
+            il.Emit(OpCodes.Ldc_I4, value);
+            il.Emit(OpCodes.Newobj, ctor);
+            il.Emit(OpCodes.Ret);
+        }
+
+        static void DefineBranchAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "BranchAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var elseLabel = il.DefineLabel();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brfalse_S, elseLabel);
+            EmitNewPlainObject(il, ctor, 1);
+            il.MarkLabel(elseLabel);
+            EmitNewPlainObject(il, ctor, 2);
+        }
+
+        static void DefineSwitchAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "SwitchAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(int)]);
+            var il = method.GetILGenerator();
+            var case0 = il.DefineLabel();
+            var case1 = il.DefineLabel();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Switch, [case0, case1]);
+            EmitNewPlainObject(il, ctor, 3);
+            il.MarkLabel(case0);
+            EmitNewPlainObject(il, ctor, 1);
+            il.MarkLabel(case1);
+            EmitNewPlainObject(il, ctor, 2);
+        }
+
+        static void DefineAfterIfJoinAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "AfterIfJoinAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var join = il.DefineLabel();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brfalse_S, join);
+            il.Emit(OpCodes.Nop);
+            il.Emit(OpCodes.Br_S, join);
+            il.MarkLabel(join);
+            EmitNewPlainObject(il, ctor, 1);
+        }
+
+        static void DefineReturnOrInfiniteLoopAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "ReturnOrInfiniteLoopAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var loop = il.DefineLabel();
+            var value = il.DeclareLocal(typeof(object));
+            il.Emit(OpCodes.Ldc_I4, 1);
+            il.Emit(OpCodes.Newobj, ctor);
+            il.Emit(OpCodes.Stloc, value);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brtrue_S, loop);
+            il.Emit(OpCodes.Ldloc, value);
+            il.Emit(OpCodes.Ret);
+            il.MarkLabel(loop);
+            il.Emit(OpCodes.Br_S, loop);
+        }
+
+        static void DefineInternalReturnLoopAllocation(TypeBuilder type, ConstructorInfo ctor)
+        {
+            var method = type.DefineMethod(
+                "InternalReturnLoopAllocation",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                [typeof(bool)]);
+            var il = method.GetILGenerator();
+            var header = il.DefineLabel();
+            var ret = il.DefineLabel();
+            var value = il.DeclareLocal(typeof(object));
+            il.Emit(OpCodes.Ldc_I4, 1);
+            il.Emit(OpCodes.Newobj, ctor);
+            il.Emit(OpCodes.Stloc, value);
+            il.MarkLabel(header);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Brtrue_S, ret);
+            il.Emit(OpCodes.Br_S, header);
+            il.MarkLabel(ret);
+            il.Emit(OpCodes.Ldloc, value);
+            il.Emit(OpCodes.Ret);
+        }
     }
 
     static (string Path, string Directory) BuildSpanToArrayLocalFixture()
@@ -2688,6 +3045,8 @@ public class OptimizationOpportunityFixtures
     private readonly int _field = 3;
     private readonly UserDisplayClassTarget _displayClassTarget = new();
     private int[]? _arrayField;
+    private PlainObject? _objectField;
+    private IFormattable? _formattableField;
 
     // A capturing delegate created INSIDE a loop: a repeated allocation -> high confidence.
     public static int CapturingDelegateInLoop(int[] values, int seed)
@@ -2823,6 +3182,81 @@ public class OptimizationOpportunityFixtures
 
     // Returned -> escapes.
     public static int[] ReturnsSmallArray() => new int[4];
+
+    // Constructed and popped without leaving the method -> local-only lifetime.
+    public static int DropsPlainObject()
+    {
+        _ = new PlainObject(1);
+        return 1;
+    }
+
+    public static object ReturnsPlainObject() => new PlainObject(1);
+
+    public void StoresPlainObjectToField() => _objectField = new PlainObject(1);
+
+    public static void ExceptionUnknownOrThrow(bool passToUnknown)
+    {
+        var exception = new InvalidOperationException("bad");
+        if (passToUnknown)
+        {
+            ConsumeObject(exception);
+            return;
+        }
+        throw exception;
+    }
+
+    public static void FinallyAllocates()
+    {
+        try
+        {
+            ConsumeObject(null);
+        }
+        finally
+        {
+            ConsumeObject(new PlainObject(1));
+        }
+    }
+
+    public static int CatchAllocatesInLoop(int count)
+    {
+        var total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            try
+            {
+                MaybeThrow(i);
+            }
+            catch (InvalidOperationException)
+            {
+                ConsumeObject(new PlainObject(i));
+                total--;
+            }
+        }
+        return total;
+    }
+
+    public static object CatchAllocatesBeforeOnlyReturn()
+    {
+        object? result = null;
+        try
+        {
+            throw new InvalidOperationException();
+        }
+        catch (InvalidOperationException)
+        {
+            result = new PlainObject(1);
+        }
+        return result;
+    }
+
+    static void MaybeThrow(int value)
+    {
+        if (value < 0)
+            throw new InvalidOperationException();
+    }
+
+    public static object ReturnsNestedGenericObject()
+        => new AllocationMetadataOuter<int>.Inner<string>();
 
     // --- String accumulation (string-build-in-loop) ---
 
@@ -3157,6 +3591,8 @@ public class OptimizationOpportunityFixtures
 
     private static void ConsumeArray(int[] data) => Console.WriteLine(data.Length);
 
+    private static void ConsumeObject(object? value) => Console.WriteLine(value);
+
     // --- Delegate allocation (capture detection + de-dup) ---
 
     // Captures a local -> capturing delegate (one row).
@@ -3376,6 +3812,18 @@ public class OptimizationOpportunityFixtures
     {
         return value;
     }
+
+    public static int BoxesThenUnboxesLocal(int value)
+    {
+        object boxed = value;
+        return (int)boxed;
+    }
+
+    public static IFormattable? BoxThenIsinstReturn(int value)
+        => (object)value as IFormattable;
+
+    public void BoxThenIsinstStoreField(int value)
+        => _formattableField = (object)value as IFormattable;
 
     // Boxing an in-assembly struct that escapes into an object-typed API -> reported
     // (value-typeness resolved authoritatively via the struct's System.ValueType base).
@@ -3658,6 +4106,13 @@ public sealed class PlainObject
     public PlainObject(int value) => Value = value;
 
     public int Value { get; }
+}
+
+public sealed class AllocationMetadataOuter<T>
+{
+    public sealed class Inner<U>
+    {
+    }
 }
 
 // An in-assembly value type: `new PlainValue(...)` does not allocate on the heap, so it must

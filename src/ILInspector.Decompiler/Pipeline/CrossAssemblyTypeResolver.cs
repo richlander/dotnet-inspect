@@ -21,8 +21,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// a forwarder dead-end, an I/O or format error) yields
 /// <see cref="ValueTypeHint.Unknown"/> — never a guess. Security: a reference
 /// whose public-key token is a trusted platform key is asserted
-/// <see cref="AssemblyTrust.Platform"/> so the locator resolves it only from the
-/// trusted framework, never a confusable local copy.
+/// <see cref="AssemblyResolutionScope.Platform"/> so the locator resolves it only from
+/// platform/framework sources, never a confusable local copy.
 ///
 /// Reading is delegated to a shared <see cref="MetadataContext"/>: each defining
 /// assembly is opened once and indexed for O(1) lookup, so resolving N tokens
@@ -230,7 +230,7 @@ internal sealed class CrossAssemblyTypeResolver
             if (NamedDefinition(current) is not { } definition)
                 continue;
             if (Locate(definition) is not { } location
-                || _context.Open(location.AssemblyPath) is not { } assembly
+                || _context.Open(location) is not { } assembly
                 || !assembly.TryGetType(location.FullTypeName, out var handle))
             {
                 unresolved = true;
@@ -289,7 +289,7 @@ internal sealed class CrossAssemblyTypeResolver
         {
             if (Locate(type) is not { } location)
                 return null;
-            if (_context.Open(location.AssemblyPath) is not { } assembly)
+            if (_context.Open(location) is not { } assembly)
                 return null;
             if (!assembly.TryGetType(location.FullTypeName, out var handle))
                 return null;
@@ -305,7 +305,7 @@ internal sealed class CrossAssemblyTypeResolver
                 if (!string.Equals(reader.GetString(method.Name), callee.Name, StringComparison.Ordinal))
                     continue;
                 bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
-                    || TrustFor(type.Assembly) == AssemblyTrust.Platform;
+                    || ScopeFor(type.Assembly) == AssemblyResolutionScope.Platform;
                 if (!TryMatchMethod(reader, typeDef, method, callee, allowCoreLibraryAliases, out var parameterRefKinds))
                     continue;
 
@@ -335,7 +335,7 @@ internal sealed class CrossAssemblyTypeResolver
         {
             if (Locate(type) is not { } location)
                 return null;
-            if (_context.Open(location.AssemblyPath) is not { } assembly)
+            if (_context.Open(location) is not { } assembly)
                 return null;
             if (!assembly.TryGetType(location.FullTypeName, out var handle))
                 return null;
@@ -347,7 +347,7 @@ internal sealed class CrossAssemblyTypeResolver
                 : [];
             var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
             bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
-                || TrustFor(type.Assembly) == AssemblyTrust.Platform;
+                || ScopeFor(type.Assembly) == AssemblyResolutionScope.Platform;
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -516,28 +516,29 @@ internal sealed class CrossAssemblyTypeResolver
         {
             foreach (var candidate in CoreLibCandidates)
             {
-                if (_context.Locator(candidate, AssemblyTrust.Platform) is not { } start || !File.Exists(start))
+                var identity = new AssemblyReferenceIdentity(candidate, Version: null, Culture: null, PublicKeyToken: null);
+                if (_context.Resolve(identity, AssemblyResolutionScope.Platform) is not { } candidateAssembly)
                     continue;
-                if (LocateFrom(start, fullName, AssemblyTrust.Platform) is { } located)
+                if (LocateFrom(candidateAssembly, fullName, AssemblyResolutionScope.Platform) is { } located)
                     return located;
             }
             return null;
         }
 
-        var trust = TrustFor(type.Assembly);
-        if (_context.Locator(type.Assembly, trust) is not { } startPath || !File.Exists(startPath))
+        var scope = ScopeFor(type.Assembly);
+        if (_context.Resolve(IdentityFor(type.Assembly), scope) is not { } start)
             return null;
-        return LocateFrom(startPath, fullName, trust);
+        return LocateFrom(start, fullName, scope);
     }
 
-    TypeLocation? LocateFrom(string startPath, string fullName, AssemblyTrust trust)
+    TypeLocation? LocateFrom(ResolvedAssemblyReference start, string fullName, AssemblyResolutionScope scope)
     {
-        if (_context.Open(startPath) is { } assembly && assembly.TryGetType(fullName, out _))
-            return new TypeLocation(startPath, fullName);
-        return TypeForwardResolver.LocateType(startPath, fullName, _context.Locator, trust: trust);
+        if (_context.Open(TypeLocation.From(start, fullName)) is { } assembly && assembly.TryGetType(fullName, out _))
+            return TypeLocation.From(start, fullName);
+        return TypeForwardResolver.LocateType(start, fullName, _context.Resolver, scope: scope);
     }
 
-    AssemblyTrust TrustFor(string simpleName)
+    AssemblyResolutionScope ScopeFor(string simpleName)
     {
         foreach (var handle in _selfReader.AssemblyReferences)
         {
@@ -545,15 +546,26 @@ internal sealed class CrossAssemblyTypeResolver
             if (!string.Equals(_selfReader.GetString(reference.Name), simpleName, StringComparison.OrdinalIgnoreCase))
                 continue;
             return PlatformKeys.IsPlatform(ToHex(_selfReader.GetBlobBytes(reference.PublicKeyOrToken)))
-                ? AssemblyTrust.Platform
-                : AssemblyTrust.Unspecified;
+                ? AssemblyResolutionScope.Platform
+                : AssemblyResolutionScope.Any;
         }
-        return AssemblyTrust.Unspecified;
+        return AssemblyResolutionScope.Any;
+    }
+
+    AssemblyReferenceIdentity IdentityFor(string simpleName)
+    {
+        foreach (var handle in _selfReader.AssemblyReferences)
+        {
+            var identity = AssemblyReferenceIdentity.From(_selfReader, handle);
+            if (string.Equals(identity.Name, simpleName, StringComparison.OrdinalIgnoreCase))
+                return identity;
+        }
+        return new AssemblyReferenceIdentity(simpleName, Version: null, Culture: null, PublicKeyToken: null);
     }
 
     ValueTypeHint ReadValueTypeHint(TypeLocation location)
     {
-        if (_context.Open(location.AssemblyPath) is not { } assembly)
+        if (_context.Open(location) is not { } assembly)
             return ValueTypeHint.Unknown;
         if (!assembly.TryGetType(location.FullTypeName, out var handle))
             return ValueTypeHint.Unknown;
@@ -569,7 +581,7 @@ internal sealed class CrossAssemblyTypeResolver
 
     MetadataFactState ReadInlineArrayFact(TypeLocation location)
     {
-        if (_context.Open(location.AssemblyPath) is not { } assembly)
+        if (_context.Open(location) is not { } assembly)
             return MetadataFactState.Unknown;
         if (!assembly.TryGetType(location.FullTypeName, out var handle))
             return MetadataFactState.Unknown;

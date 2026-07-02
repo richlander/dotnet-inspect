@@ -69,6 +69,10 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -S 
 
 Projection is validated against the selected section schema. Unknown fields/columns produce diagnostics; valid-but-empty fields are reported as no data.
 
+Future row filtering and ordering should extend this same schema path rather
+than adding one flag per column. See [Row query and ordering](row-query-order.md)
+for the proposed `--where`, `--order-by`, `--top`, and `--schema` contract.
+
 ## Counts and row limits
 
 Use built-in limiters instead of shell pipes:

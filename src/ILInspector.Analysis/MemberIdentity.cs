@@ -129,7 +129,18 @@ public sealed record DirectCall(
     int OperandToken,
     int CalleeDefinitionToken,
     CallKind Kind,
-    bool InLoop = false);
+    bool InLoop = false)
+{
+    public string Opcode { get; init; } = "";
+    public int? ReturnAddress { get; init; }
+}
+
+public sealed record CalledTypeSummary(
+    TypeRef Type,
+    string Assembly,
+    int Calls,
+    int Members,
+    ImmutableArray<CallKind> CallKinds);
 
 public sealed record UnsafeEvidence(
     MethodIdentity Member,

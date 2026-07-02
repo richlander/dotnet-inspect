@@ -82,9 +82,13 @@ public static class MemberOptionsParser
     {
         var sourceInputs = SharedParsers.ReadSourceSelectionInputs(
             parseResult, args.ArgsArg, args.PackageOption, args.AssemblyOption, args.PlatformOption);
+        var projectValues = parseResult.GetValue(args.ProjectOption) ?? [];
+        var projectSourcePath = !sourceInputs.HasExplicitSource && projectValues.Length > 0
+            ? projectValues[0]
+            : null;
 
         // Handle projection discovery or help
-        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource)
+        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -93,15 +97,39 @@ public static class MemberOptionsParser
 
         // Extract positional members
         List<string> positionalMembers = [];
-        if (sourceInputs.HasExplicitSource && sourceInputs.Args.Length >= 2)
+        if (projectSourcePath is not null && sourceInputs.Args.Length >= 2)
+            positionalMembers.AddRange(sourceInputs.Args[1..]);
+        else if (sourceInputs.HasExplicitSource && sourceInputs.Args.Length >= 2)
             positionalMembers.AddRange(sourceInputs.Args[1..]);
         else if (!sourceInputs.HasExplicitSource && sourceInputs.Args.Length >= 3)
             positionalMembers.AddRange(sourceInputs.Args[2..]);
 
         // Resolve source
-        var sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-            sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
-        var source = sourceSelection.Source;
+        SharedParsers.SourceSelection sourceSelection;
+        SourceResolver.ResolvedSource source;
+        if (projectSourcePath is not null)
+        {
+            source = new SourceResolver.ResolvedSource(
+                PackagePath: null,
+                AssemblyPath: null,
+                PlatformAssembly: null,
+                FrameworkOverride: null,
+                TypeName: sourceInputs.Args.FirstOrDefault());
+            sourceSelection = new SharedParsers.SourceSelection(
+                sourceInputs.Args,
+                sourceInputs.ExplicitPackage,
+                sourceInputs.ExplicitAssembly,
+                sourceInputs.ExplicitPlatform,
+                sourceInputs.IsLibrarySelector,
+                HasExplicitSource: true,
+                source);
+        }
+        else
+        {
+            sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
+                sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+            source = sourceSelection.Source;
+        }
 
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
@@ -220,7 +248,7 @@ public static class MemberOptionsParser
         if (showMemberIndex)
             select = [.. select ?? [], SectionNames.MemberIndex];
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
-        if (!PerformanceTriageOptions.TryValidateShapes(performanceTriage, out var triageShapeError))
+        if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
             select = [.. select ?? [], SectionNames.PerformanceTriage];
@@ -231,6 +259,7 @@ public static class MemberOptionsParser
             PackagePath = source.PackagePath,
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
+            ProjectPath = projectSourcePath,
             PlatformFramework = source.FrameworkOverride ?? parseResult.GetValue(args.FrameworkOption),
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
@@ -264,7 +293,9 @@ public static class MemberOptionsParser
             MemberDigest = memberDigest,
             ShowMemberIndex = showMemberIndex,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
-            CallerScopeProjects = parseResult.GetValue(args.ProjectOption) ?? [],
+            CallerScopeProjects = projectSourcePath is null
+                ? projectValues
+                : projectValues.Length > 1 ? projectValues[1..] : [],
             CallerScopePackages = parseResult.GetValue(args.CallerPackageOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),

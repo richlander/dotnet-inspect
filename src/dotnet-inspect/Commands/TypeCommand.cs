@@ -60,11 +60,14 @@ public static class TypeCommand
         var apiSource = source.ApiSource;
         var apiVersion = source.ApiVersion;
         var selectedTfm = source.SelectedTfm;
+        var projectAssetsPath = source.ProjectAssetsPath;
         var tempDir = source.TempDir;
         var typeName = source.TypeName;
         var originalTypeQuery = options.OriginalTypeQuery ?? options.TypeName;
         var context = source.Context;
         var logger = context.Logger;
+
+        options = options with { ProjectAssetsPath = projectAssetsPath };
 
         try
         {

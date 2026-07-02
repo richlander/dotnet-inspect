@@ -14,6 +14,8 @@ using DotnetInspector.Views;
 using Markout;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DotnetInspector.Commands;
 
@@ -92,7 +94,14 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", or -S \"Instruction Context\".");
+            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", -S \"Instruction Context\", -S \"Exception Context\", -S \"Callsite Context\", or -S \"Return Address Context\".");
+            return 1;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
+            && !string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+        {
+            Console.Error.WriteLine("Error: --il-offset cannot be combined with --il-offsets.");
             return 1;
         }
 
@@ -233,6 +242,9 @@ public class LibraryCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
+                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                    return await WriteILCoordinateBatchAsync(resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
@@ -287,6 +299,9 @@ public class LibraryCommand
                 tempDir = extractTempDir;
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
+
+                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                    return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
 
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
@@ -354,6 +369,9 @@ public class LibraryCommand
                     return 1;
                 }
 
+                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                    return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
@@ -420,6 +438,203 @@ public class LibraryCommand
         return inspections.Any(insp => insp.SourceIntegrityMismatches is { Count: > 0 }) ? 1 : 0;
     }
 
+    private static async Task<int> WriteILCoordinateBatchAsync(
+        string assemblyPath,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        if (!File.Exists(options.ILOffsetsPath))
+        {
+            Console.Error.WriteLine($"Error: IL offsets file not found: {options.ILOffsetsPath}");
+            return 1;
+        }
+
+        if (!TryReadILCoordinates(options.ILOffsetsPath!, out var coordinates, out var readErrors, out var error))
+        {
+            Console.Error.WriteLine(error);
+            return 1;
+        }
+
+        HashSet<string> sections = options.IncludeSections is { Count: > 0 }
+            ? [.. options.IncludeSections]
+            : [.. BatchCoordinateSections];
+
+        var rows = readErrors
+            .Select(errorRow => new ILCoordinateBatchRow(null, errorRow.Label, null, null, "error", errorRow.Error))
+            .ToList();
+        using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+        foreach (var coordinate in coordinates)
+        {
+            var queryOptions = options with
+            {
+                ILOffsetParameter = coordinate.Coordinate,
+                IncludeSections = sections,
+                Select = [.. sections],
+                Discover = null,
+                Print = false,
+                PrintAll = false,
+                Count = false,
+                Value = false,
+                Urls = false,
+                Paths = false
+            };
+            var resolved = await ILOffsetSourceQuery.ResolveBatchAsync(
+                service,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                queryOptions,
+                httpClient,
+                logger);
+            rows.Add(resolved.Result is { } result
+                ? BuildILCoordinateBatchRow(coordinate, result)
+                : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
+        }
+
+        WriteILCoordinateBatchRows(rows, options);
+        return rows.Any(row => row.Meaning == "error") ? 1 : 0;
+    }
+
+    private static readonly string[] BatchCoordinateSections =
+    [
+        SectionNames.MemberContext,
+        SectionNames.InstructionContext,
+        SectionNames.ExceptionContext,
+        SectionNames.CallsiteContext,
+        SectionNames.ReturnAddressContext,
+        SectionNames.AllocationContext,
+        SectionNames.SafetyContext,
+        SectionNames.CostContext
+    ];
+
+    private static bool TryReadILCoordinates(string path, out List<ILCoordinateInput> coordinates, out List<ILCoordinateReadError> readErrors, out string? error)
+    {
+        coordinates = [];
+        readErrors = [];
+        error = null;
+        var lineNumber = 0;
+        foreach (var rawLine in File.ReadLines(path))
+        {
+            lineNumber++;
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+                continue;
+            var tokens = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            var coordinateIndex = Array.FindIndex(tokens, token => ILOffsetSourceQuery.TryParse(token, out _, out _));
+            if (coordinateIndex < 0)
+            {
+                readErrors.Add(new ILCoordinateReadError($"{path}:{lineNumber}", "expected a MethodDef token + IL offset coordinate"));
+                continue;
+            }
+
+            var labelTokens = tokens
+                .Where((_, index) => index != coordinateIndex)
+                .ToArray();
+            coordinates.Add(new ILCoordinateInput(
+                tokens[coordinateIndex],
+                labelTokens.Length == 0 ? null : string.Join(' ', labelTokens)));
+        }
+
+        if (coordinates.Count == 0 && readErrors.Count == 0)
+        {
+            error = $"Error: {path} did not contain any IL coordinates.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static ILCoordinateBatchRow BuildILCoordinateBatchRow(ILCoordinateInput input, ILOffsetResult result)
+    {
+        var (meaning, evidence) = ExplainILCoordinate(result);
+        return new ILCoordinateBatchRow(
+            input.Coordinate,
+            input.Label,
+            result.Method,
+            FormatBatchOffset(result),
+            meaning,
+            evidence);
+    }
+
+    private static (string Meaning, string Evidence) ExplainILCoordinate(ILOffsetResult result)
+    {
+        if (result.ReturnAddressContext is { } returnAddress)
+            return ("return address", $"call at {returnAddress.CallOffset} to {returnAddress.Callee}");
+        if (result.AllocationContext is { Count: > 0 } allocations)
+        {
+            var allocation = allocations[0];
+            return ("allocation", $"{allocation.AllocationKind} {allocation.AllocatedType}".Trim());
+        }
+        if (result.SafetyContext is { Count: > 0 } safetyFacts)
+        {
+            var safety = safetyFacts[0];
+            return ("safety", $"{safety.SafetyKind} {safety.Operation}".Trim());
+        }
+        if (result.CostContext is { Count: > 0 } costFacts)
+        {
+            var cost = costFacts[0];
+            return ("cost", $"{cost.CostKind} {cost.Operation}".Trim());
+        }
+        if (result.CallsiteContext is { } callsite)
+            return ("callsite", $"{callsite.Opcode} {callsite.Callee}");
+        if (result.ExceptionContext is { Count: > 0 } exceptions)
+            return ("exception", string.Join(", ", exceptions.Select(e => $"{e.Context} {e.Clause}".Trim())));
+        if (result.InstructionContext is { } instruction)
+            return ("instruction", $"{instruction.Opcode} {instruction.Operand}".Trim());
+        return ("member", result.MemberContext?.Signature ?? result.Method ?? "");
+    }
+
+    private static string? FormatBatchOffset(ILOffsetResult result)
+        => result.InstructionContext?.ILOffset is { } offset
+            ? FormatHexOffset(offset)
+            : result.MemberContext?.ILOffset is { } memberOffset
+                ? FormatHexOffset(memberOffset)
+                : result.ILOffset;
+
+    private static string FormatHexOffset(string value)
+        => value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(value[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var offset)
+            ? $"IL_{offset:X4}"
+            : value;
+
+    private static void WriteILCoordinateBatchRows(List<ILCoordinateBatchRow> rows, LibraryOptions options)
+    {
+        if (options.JsonOutput)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new ILCoordinateBatchResult(rows), ILCoordinateBatchJsonContext.Default.ILCoordinateBatchResult));
+            return;
+        }
+
+        if (!options.OneLine && !options.Tsv && !options.Jsonl && !options.NoHeader)
+        {
+            Console.WriteLine("## IL Coordinates");
+            Console.WriteLine();
+        }
+
+        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        {
+            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
+            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
+            markoutWriter.WriteTable(
+                ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"],
+                ["coordinate", "label", "member", "il_offset", "meaning", "evidence"],
+                rows.Select(row => new[]
+                {
+                    row.Coordinate ?? "",
+                    row.Label ?? "",
+                    row.Member ?? "",
+                    row.ILOffset ?? "",
+                    row.Meaning,
+                    row.Evidence
+                }).ToArray());
+            markoutWriter.Flush();
+        }, options.Rows);
+    }
+
     private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)
     {
         var select = options.Select?.ToList() ?? [];
@@ -441,6 +656,9 @@ public class LibraryCommand
             select.Add(SectionNames.ILOffset);
             select.Add(SectionNames.MemberContext);
             select.Add(SectionNames.InstructionContext);
+            select.Add(SectionNames.ExceptionContext);
+            select.Add(SectionNames.CallsiteContext);
+            select.Add(SectionNames.ReturnAddressContext);
         }
 
         return (options with
@@ -454,7 +672,25 @@ public class LibraryCommand
     [
         SectionNames.ILOffset,
         SectionNames.MemberContext,
-        SectionNames.InstructionContext
+        SectionNames.InstructionContext,
+        SectionNames.ExceptionContext,
+        SectionNames.CallsiteContext,
+        SectionNames.ReturnAddressContext,
+        SectionNames.AllocationContext,
+        SectionNames.SafetyContext,
+        SectionNames.CostContext
+    ];
+
+    private static readonly string[] ILCoordinateSingletonSections =
+    [
+        SectionNames.ILOffset,
+        SectionNames.MemberContext,
+        SectionNames.InstructionContext,
+        SectionNames.CallsiteContext,
+        SectionNames.ReturnAddressContext,
+        SectionNames.AllocationContext,
+        SectionNames.SafetyContext,
+        SectionNames.CostContext
     ];
 
     private static bool HasILOffsetCoordinate(LibraryOptions options)
@@ -513,7 +749,7 @@ public class LibraryCommand
     {
         if (!options.Count
             || options.IncludeSections is not { Count: 1 } sections
-            || !sections.Overlaps(ILCoordinateSections))
+            || !sections.Overlaps(ILCoordinateSingletonSections))
         {
             return false;
         }
@@ -524,6 +760,11 @@ public class LibraryCommand
             SectionNames.ILOffset => inspection.ILOffset != null,
             SectionNames.MemberContext => inspection.ILOffset?.MemberContext != null,
             SectionNames.InstructionContext => inspection.ILOffset?.InstructionContext != null,
+            SectionNames.CallsiteContext => inspection.ILOffset?.CallsiteContext != null,
+            SectionNames.ReturnAddressContext => inspection.ILOffset?.ReturnAddressContext != null,
+            SectionNames.AllocationContext => inspection.ILOffset?.AllocationContext is { Count: > 0 },
+            SectionNames.SafetyContext => inspection.ILOffset?.SafetyContext is { Count: > 0 },
+            SectionNames.CostContext => inspection.ILOffset?.CostContext is { Count: > 0 },
             _ => false
         };
         Console.WriteLine(hasRow ? 1 : 0);
@@ -541,10 +782,14 @@ public class LibraryCommand
             SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
             SectionNames.InstructionContext => ProjectLibraryInstructionContext(inspection, section, kind, options),
+            SectionNames.ExceptionContext => ProjectLibraryExceptionContext(inspection, section, kind, options),
+            SectionNames.CallsiteContext => ProjectLibraryCallsiteContext(inspection, section, kind, options),
+            SectionNames.ReturnAddressContext => ProjectLibraryReturnAddressContext(inspection, section, kind, options),
             _ => []
         };
 
-        if (rows.Count == 0 && section is SectionNames.MemberContext or SectionNames.InstructionContext)
+        if (rows.Count == 0 && section is SectionNames.MemberContext or SectionNames.InstructionContext or SectionNames.ExceptionContext
+            or SectionNames.CallsiteContext or SectionNames.ReturnAddressContext)
         {
             if (kind != ShapeProjectionKind.Value)
                 Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
@@ -817,6 +1062,125 @@ public class LibraryCommand
             "block" => context.Block?.ToString(CultureInfo.InvariantCulture),
             "terminates block" or "terminatesblock" => context.TerminatesBlock,
             "falls through" or "fallsthrough" => context.FallsThrough,
+            _ => null
+        };
+
+    private static List<ShapeProjectionRow> ProjectLibraryExceptionContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.ExceptionContext is not { Count: > 0 } rows)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Exception Context requires --fields <name>.");
+            return [];
+        }
+
+        List<ShapeProjectionRow> projected = [];
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var value = SelectExceptionContextValue(rows[i], field);
+            if (!string.IsNullOrWhiteSpace(value))
+                projected.Add(new ShapeProjectionRow(i + 1, section, value, Label: field));
+        }
+
+        if (projected.Count == 0)
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Exception Context.");
+
+        return projected;
+    }
+
+    private static string? SelectExceptionContextValue(ILOffsetExceptionContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "region" => context.Region.ToString(CultureInfo.InvariantCulture),
+            "context" => context.Context,
+            "clause" => context.Clause,
+            "try range" or "tryrange" => context.TryRange,
+            "handler range" or "handlerrange" => context.HandlerRange,
+            "filter range" or "filterrange" => context.FilterRange,
+            "caught type" or "caughttype" => context.CaughtType,
+            _ => null
+        };
+
+    private static List<ShapeProjectionRow> ProjectLibraryCallsiteContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.CallsiteContext is not { } context)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Callsite Context requires --fields <name>.");
+            return [];
+        }
+
+        var value = SelectCallsiteContextValue(context, field);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Callsite Context.");
+            return [];
+        }
+
+        return [new ShapeProjectionRow(1, section, value, Label: field)];
+    }
+
+    private static string? SelectCallsiteContextValue(ILOffsetCallsiteContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "call offset" or "calloffset" or "offset" => context.CallOffset,
+            "opcode" => context.Opcode,
+            "call kind" or "callkind" => context.CallKind,
+            "callee" => context.Callee,
+            "operand token" or "operandtoken" or "token" => context.OperandToken,
+            "return address" or "returnaddress" => context.ReturnAddress,
+            _ => null
+        };
+
+    private static List<ShapeProjectionRow> ProjectLibraryReturnAddressContext(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options)
+    {
+        if (kind != ShapeProjectionKind.Value || inspection.ILOffset?.ReturnAddressContext is not { } context)
+            return [];
+
+        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            Console.Error.WriteLine("Error: --value for Return Address Context requires --fields <name>.");
+            return [];
+        }
+
+        var value = SelectReturnAddressContextValue(context, field);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Console.Error.WriteLine($"Error: field '{field}' has no value in Return Address Context.");
+            return [];
+        }
+
+        return [new ShapeProjectionRow(1, section, value, Label: field)];
+    }
+
+    private static string? SelectReturnAddressContextValue(ILOffsetReturnAddressContext context, string field)
+        => field.ToLowerInvariant() switch
+        {
+            "il offset" or "iloffset" or "offset" => context.ILOffset,
+            "call offset" or "calloffset" => context.CallOffset,
+            "opcode" => context.Opcode,
+            "call kind" or "callkind" => context.CallKind,
+            "callee" => context.Callee,
+            "operand token" or "operandtoken" or "token" => context.OperandToken,
             _ => null
         };
 
@@ -1400,4 +1764,26 @@ public class LibraryCommand
         try { Directory.Delete(tempDir, recursive: true); } catch { }
     }
 
+}
+
+internal sealed record ILCoordinateInput(string Coordinate, string? Label);
+
+internal sealed record ILCoordinateReadError(string Label, string Error);
+
+internal sealed record ILCoordinateBatchResult(List<ILCoordinateBatchRow> Rows);
+
+[MarkoutSerializable]
+internal sealed record ILCoordinateBatchRow(
+    [property: MarkoutSkipNull] string? Coordinate,
+    [property: MarkoutSkipNull] string? Label,
+    [property: MarkoutSkipNull] string? Member,
+    [property: MarkoutPropertyName("IL Offset")]
+    [property: MarkoutSkipNull] string? ILOffset,
+    string Meaning,
+    string Evidence);
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+[JsonSerializable(typeof(ILCoordinateBatchResult))]
+internal partial class ILCoordinateBatchJsonContext : JsonSerializerContext
+{
 }

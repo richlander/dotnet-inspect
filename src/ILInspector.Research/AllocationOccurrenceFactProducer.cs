@@ -46,7 +46,58 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             AllocationFrequency.PerIteration => AnnotationConditionality.PerIteration,
             _ => AnnotationConditionality.Always,
         };
-        return new Annotation(descriptor, occurrence.ILOffset, occurrence.Detail, conditionality, Node: null);
+        return new Annotation(descriptor, occurrence.ILOffset, Detail(occurrence), conditionality, Node: null);
     }
+
+    static string? Detail(AllocationOccurrence occurrence)
+    {
+        var parts = new List<string>();
+        if (occurrence.Detail is { Length: > 0 } detail)
+            parts.Add(detail);
+        if (occurrence.RuntimeAllocationType is { Length: > 0 } runtime)
+            parts.Add($"alloc={runtime}");
+        parts.Add($"path={FormatPathContext(occurrence.PathContext)}");
+        if (FormatPathConfidence(occurrence.PathConfidence) is { } confidence)
+            parts.Add($"path-confidence={confidence}");
+        if (FormatPostDominance(occurrence.PostDominance) is { } postDominance)
+            parts.Add($"post-dominance={postDominance}");
+        if (occurrence.Escape != AllocationEscape.Unknown)
+            parts.Add($"escape={FormatEscape(occurrence.Escape)}");
+        return parts.Count == 0 ? null : string.Join("; ", parts);
+    }
+
+    static string FormatPathContext(AllocationPathContext context)
+        => context switch
+        {
+            AllocationPathContext.Branch => "branch",
+            AllocationPathContext.SwitchArm => "switch-arm",
+            AllocationPathContext.LoopBody => "loop-body",
+            AllocationPathContext.ErrorPath => "error-path",
+            _ => "straight-line",
+        };
+
+    static string? FormatPathConfidence(AllocationPathConfidence confidence)
+        => confidence switch
+        {
+            AllocationPathConfidence.DominatesReturn => "dominates-return",
+            AllocationPathConfidence.BehindBranch => "behind-branch",
+            _ => null,
+        };
+
+    static string? FormatPostDominance(AllocationPostDominance postDominance)
+        => postDominance switch
+        {
+            AllocationPostDominance.ReturnPostDominates => "return-post-dominates",
+            _ => null,
+        };
+
+    static string FormatEscape(AllocationEscape escape)
+        => escape switch
+        {
+            AllocationEscape.LocalOnly => "local-only",
+            AllocationEscape.Escapes => "escapes",
+            AllocationEscape.ThrowPath => "throw-path",
+            _ => "unknown",
+        };
 
 }

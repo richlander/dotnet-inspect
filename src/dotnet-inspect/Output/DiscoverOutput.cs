@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using Markout;
@@ -355,9 +356,32 @@ public static class DiscoverOutput
                 foreach (var item in items)
                     rows.Add(new DiscoveryRow(item.Name, item.Kind));
             }
+            if (string.Equals(resolved, SectionNames.PerformanceTriage, StringComparison.OrdinalIgnoreCase))
+                rows.AddRange(PerformanceTriageQueryRows());
         }
 
         return rows;
+    }
+
+    static IEnumerable<DiscoveryRow> PerformanceTriageQueryRows()
+    {
+        yield return new DiscoveryRow("Triage desc", "default-order");
+        foreach (var step in new[]
+        {
+            "Loop desc",
+            "Confidence desc (high > medium > low)",
+            "RootReach desc",
+            "Member asc",
+            "IL asc",
+            "Shape asc",
+        })
+        {
+            yield return new DiscoveryRow(step, "order-step");
+        }
+        foreach (var field in PerformanceTriageOptions.FilterableFields)
+            yield return new DiscoveryRow(field, "filterable");
+        foreach (var field in PerformanceTriageOptions.SortableFields)
+            yield return new DiscoveryRow(field, "sortable");
     }
 
     private static int ResolvedSectionCount(

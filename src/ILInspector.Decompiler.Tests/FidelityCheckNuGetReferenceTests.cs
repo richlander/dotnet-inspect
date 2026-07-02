@@ -1,4 +1,4 @@
-using ILInspector.DecompilerHarness;
+using DotnetInspector.Services;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -37,7 +37,7 @@ public class FidelityCheckNuGetReferenceTests
             string sharedPath = Path.Combine(sharedDir, "Shared.dll");
             File.WriteAllText(sharedPath, "");
 
-            var references = FidelityCheck.PackageDependencyReferencePaths(targetPath, [root]);
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
 
             Assert.Contains(sharedPath, references);
         }
@@ -82,7 +82,7 @@ public class FidelityCheckNuGetReferenceTests
             string libPath = Path.Combine(libDir, "Shared.dll");
             File.WriteAllText(libPath, "");
 
-            var references = FidelityCheck.PackageDependencyReferencePaths(targetPath, [root]);
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
 
             Assert.Contains(refPath, references);
             Assert.DoesNotContain(libPath, references);
@@ -123,7 +123,7 @@ public class FidelityCheckNuGetReferenceTests
             Directory.CreateDirectory(sharedDir);
             File.WriteAllText(Path.Combine(sharedDir, "Shared.dll"), "");
 
-            var references = FidelityCheck.PackageDependencyReferencePaths(targetPath, [root]);
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
 
             Assert.Empty(references);
         }
@@ -143,7 +143,7 @@ public class FidelityCheckNuGetReferenceTests
             string directPath = CreatePackage(root, "Direct.Package", "1.0.0", ("Transitive.Package", "2.0.0"));
             string transitivePath = CreatePackage(root, "Transitive.Package", "2.0.0");
 
-            var references = FidelityCheck.PackageDependencyReferencePaths(targetPath, [root]);
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
 
             Assert.Contains(directPath, references);
             Assert.Contains(transitivePath, references);
@@ -173,7 +173,7 @@ public class FidelityCheckNuGetReferenceTests
             string prerelease = CreatePackage(root, "Shared.Stable", "2.0.0-preview.6");
             string stable = CreatePackage(root, "Shared.Stable", "2.0.0");
 
-            var references = FidelityCheck.PackageDependencyReferencePaths(targetPath, [root]);
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
 
             Assert.Contains(preview10, references);
             Assert.DoesNotContain(preview2, references);
@@ -202,7 +202,7 @@ public class FidelityCheckNuGetReferenceTests
             string higherParent = CreatePackage(root, "Shared.Parent", "2.0.0");
             string staleOnly = CreatePackage(root, "Stale.Only", "1.0.0");
 
-            var references = FidelityCheck.PackageDependencyReferencePaths(targetPath, [root]);
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
 
             Assert.Contains(higherParent, references);
             Assert.DoesNotContain(lowerParent, references);

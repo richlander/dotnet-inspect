@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using System.Xml.Linq;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -18,7 +17,7 @@ public sealed class MetadataSource : IDisposable
 {
     static readonly TypeRef s_enumerable = TypeRef.CoreLib("System.Collections", "IEnumerable");
 
-    readonly FileStream _stream;
+    readonly Stream _stream;
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
     bool _pdbProbed;
@@ -26,12 +25,13 @@ public sealed class MetadataSource : IDisposable
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
     readonly AssemblyLocator _locator;
+    readonly IAssemblyReferenceResolver _resolver;
     readonly MetadataContext? _suppliedContext;
     MetadataContext? _crossContext;
     bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
 
-    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator, MetadataContext? context)
+    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator, IAssemblyReferenceResolver resolver, MetadataContext? context)
     {
         Path = path;
         _stream = stream;
@@ -41,6 +41,7 @@ public sealed class MetadataSource : IDisposable
         _externalPdbPath = externalPdbPath;
         _readSymbols = readSymbols;
         _locator = locator;
+        _resolver = resolver;
         _suppliedContext = context;
     }
 
@@ -88,7 +89,13 @@ public sealed class MetadataSource : IDisposable
     /// borrowed — the caller owns its disposal.
     /// </summary>
     public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true, locator, context);
+        => OpenCore(path, externalPdbPath, readSymbols: true, locator, resolver: null, context);
+
+    public static MetadataSource Open(string path, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true, locator: null, resolver, context);
+
+    public static MetadataSource Open(ResolvedAssemblyReference assembly, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(assembly, externalPdbPath, readSymbols: true, resolver, context);
 
     /// <summary>
     /// Opens an assembly without consulting any portable PDB, so local names are
@@ -97,7 +104,13 @@ public sealed class MetadataSource : IDisposable
     /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
     /// </summary>
     public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, context);
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, resolver: null, context);
+
+    public static MetadataSource OpenWithoutSymbols(string path, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator: null, resolver, context);
+
+    public static MetadataSource OpenWithoutSymbols(ResolvedAssemblyReference assembly, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
+        => OpenCore(assembly, externalPdbPath: null, readSymbols: false, resolver, context);
 
     /// <summary>
     /// Default referenced-assembly probing policy for callers that need to share a
@@ -106,7 +119,7 @@ public sealed class MetadataSource : IDisposable
     /// </summary>
     public static AssemblyLocator DefaultAssemblyLocator(string path) => SiblingLocator(path);
 
-    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, MetadataContext? context)
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, IAssemblyReferenceResolver? resolver, MetadataContext? context)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -119,7 +132,33 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, locator ?? DefaultAssemblyLocator(path), context);
+            var effectiveLocator = locator ?? DefaultAssemblyLocator(path);
+            var effectiveResolver = resolver ?? effectiveLocator.ToAssemblyReferenceResolver();
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, effectiveLocator, effectiveResolver, context);
+        }
+        catch
+        {
+            peReader?.Dispose();
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    static MetadataSource OpenCore(ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
+    {
+        var stream = assembly.OpenRead();
+        PEReader? peReader = null;
+        try
+        {
+            peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                throw new BadImageFormatException($"No managed metadata: {assembly.Identity.Name}");
+            var reader = peReader.GetMetadataReader();
+            string assemblyName = reader.IsAssembly
+                ? reader.GetString(reader.GetAssemblyDefinition().Name)
+                : assembly.Identity.Name;
+            string path = assembly.Path ?? assembly.Identity.Name;
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, resolver.ToAssemblyLocator(), resolver, context);
         }
         catch
         {
@@ -130,19 +169,19 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
-    /// The decompiler's default "next-by" policy: a referenced assembly is
-    /// expected to sit beside the one being decompiled. Trust is not enforced
-    /// here — the default has no framework directory to fall back to — so a
-    /// platform reference resolves only if its implementation happens to be a
-    /// sibling (as it is when a framework assembly is decompiled in place).
+    /// The decompiler's default "next-by" policy: a non-platform referenced
+    /// assembly is expected to sit beside the one being decompiled. Richer
+    /// resolution (packages, deps.json, projects, shared frameworks) belongs to
+    /// callers that inject a resolver.
     /// </summary>
     static AssemblyLocator SiblingLocator(string path)
     {
         string? dir = System.IO.Path.GetDirectoryName(path);
-        var packageProbe = NuGetPackageProbe(path);
-        var packageCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        return (name, trust) =>
+        return (name, scope) =>
         {
+            if (scope == AssemblyResolutionScope.Platform)
+                return null;
+
             if (dir is not null)
             {
                 string sibling = System.IO.Path.Combine(dir, name + ".dll");
@@ -150,225 +189,8 @@ public sealed class MetadataSource : IDisposable
                     return sibling;
             }
 
-            if (trust == AssemblyTrust.Platform || packageProbe is null)
-                return null;
-
-            if (!packageCache.TryGetValue(name, out var cached))
-            {
-                cached = packageProbe(name);
-                packageCache[name] = cached;
-            }
-            return cached;
-        };
-    }
-
-    static Func<string, string?>? NuGetPackageProbe(string path)
-    {
-        var roots = NuGetPackageRoots()
-            .Where(Directory.Exists)
-            .Select(root => System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (roots.Length == 0)
-            return null;
-
-        string fullPath = System.IO.Path.GetFullPath(path);
-        IReadOnlyDictionary<string, string?>? packageVersions = null;
-        string? startingTfm = null;
-        bool isNuGetPackageAsset = false;
-        foreach (string root in roots)
-        {
-            string prefix = root + System.IO.Path.DirectorySeparatorChar;
-            if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var parts = fullPath[prefix.Length..].Split(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
-            if (parts.Length >= 5 && (parts[2] == "lib" || parts[2] == "ref"))
-            {
-                string packageId = parts[0];
-                string packageVersion = parts[1];
-                startingTfm = parts[3];
-                isNuGetPackageAsset = true;
-                packageVersions = NuGetDependencyPackageVersions(System.IO.Path.Combine(root, packageId, packageVersion), packageId, packageVersion, startingTfm);
-            }
-            break;
-        }
-        if (!isNuGetPackageAsset || packageVersions is null)
-            return null;
-
-        return assemblyName =>
-        {
-            string fileName = assemblyName + ".dll";
-            foreach (string root in roots)
-            {
-                if (ProbeNuGetPackages(root, fileName, packageVersions, startingTfm) is { } anyVersion)
-                    return anyVersion;
-            }
             return null;
         };
-    }
-
-    static IEnumerable<string> NuGetPackageRoots()
-    {
-        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
-            yield return envRoot;
-
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(home))
-            yield return System.IO.Path.Combine(home, ".nuget", "packages");
-    }
-
-    static IReadOnlyDictionary<string, string?> NuGetDependencyPackageVersions(string packageVersionDir, string packageId, string packageVersion, string? tfm)
-    {
-        var versions = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
-        {
-            [packageId] = packageVersion,
-        };
-
-        try
-        {
-            foreach (string nuspec in Directory.EnumerateFiles(packageVersionDir, "*.nuspec"))
-            {
-                var document = XDocument.Load(nuspec);
-                AddDependencyVersions(versions, SelectNuGetDependencies(document, tfm));
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
-        {
-        }
-
-        return versions;
-    }
-
-    static IEnumerable<XElement> SelectNuGetDependencies(XDocument document, string? tfm)
-    {
-        var dependencies = document.Descendants().FirstOrDefault(e => e.Name.LocalName == "dependencies");
-        if (dependencies is null)
-            yield break;
-
-        var directDependencies = dependencies.Elements().Where(e => e.Name.LocalName == "dependency").ToArray();
-        var groups = dependencies.Elements().Where(e => e.Name.LocalName == "group").ToArray();
-        string? normalizedTfm = NormalizeNuGetFramework(tfm);
-        var selectedGroup = normalizedTfm is null
-            ? null
-            : groups.FirstOrDefault(g => NormalizeNuGetFramework(g.Attribute("targetFramework")?.Value) == normalizedTfm);
-
-        if (selectedGroup is not null)
-        {
-            foreach (var dependency in selectedGroup.Elements().Where(e => e.Name.LocalName == "dependency"))
-                yield return dependency;
-            yield break;
-        }
-
-        foreach (var dependency in directDependencies)
-            yield return dependency;
-    }
-
-    static void AddDependencyVersions(Dictionary<string, string?> versions, IEnumerable<XElement> dependencies)
-    {
-        foreach (var dependency in dependencies)
-        {
-            string? id = dependency.Attribute("id")?.Value;
-            if (string.IsNullOrWhiteSpace(id))
-                continue;
-            versions.TryAdd(id, DependencyExactVersion(dependency.Attribute("version")?.Value));
-        }
-    }
-
-    static string? NormalizeNuGetFramework(string? tfm)
-    {
-        if (string.IsNullOrWhiteSpace(tfm))
-            return null;
-
-        tfm = tfm.Trim().ToLowerInvariant();
-        if (tfm.StartsWith(".netstandard", StringComparison.Ordinal))
-            return "netstandard" + tfm[".netstandard".Length..];
-        if (tfm.StartsWith(".netcoreapp", StringComparison.Ordinal))
-            return "netcoreapp" + tfm[".netcoreapp".Length..];
-        if (tfm.StartsWith(".netframework", StringComparison.Ordinal))
-            return "net" + tfm[".netframework".Length..].Replace(".", "", StringComparison.Ordinal);
-        return tfm;
-    }
-
-    static string? DependencyExactVersion(string? version)
-    {
-        if (string.IsNullOrWhiteSpace(version))
-            return null;
-
-        version = version.Trim();
-        if (version.Length >= 5 && version[0] == '[' && version[^1] == ']')
-        {
-            string inner = version[1..^1].Trim();
-            var range = inner.Split(',', 2);
-            if (range.Length == 1)
-                return inner;
-            if (range.Length == 2
-                && string.Equals(range[0].Trim(), range[1].Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                return range[0].Trim();
-            }
-        }
-
-        return version.IndexOfAny(['[', ']', '(', ')', ',']) < 0 ? version : null;
-    }
-
-    static string? ProbeNuGetPackages(string root, string fileName, IReadOnlyDictionary<string, string?> packageVersions, string? tfm)
-    {
-        try
-        {
-            foreach (var (packageId, version) in packageVersions)
-            {
-                string packageDir = System.IO.Path.Combine(root, packageId.ToLowerInvariant());
-                if (!Directory.Exists(packageDir))
-                    continue;
-
-                if (version is not null)
-                {
-                    string versionDir = System.IO.Path.Combine(packageDir, version.ToLowerInvariant());
-                    if (Directory.Exists(versionDir)
-                        && ProbeNuGetPackageVersion(versionDir, fileName, tfm) is { } exact)
-                    {
-                        return exact;
-                    }
-                    continue;
-                }
-
-                foreach (string versionDir in Directory.EnumerateDirectories(packageDir).OrderDescending(StringComparer.OrdinalIgnoreCase))
-                {
-                    if (ProbeNuGetPackageVersion(versionDir, fileName, tfm) is { } found)
-                        return found;
-                }
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-        return null;
-    }
-
-    static string? ProbeNuGetPackageVersion(string versionDir, string fileName, string? tfm)
-    {
-        foreach (string assetKind in (string[])["lib", "ref"])
-        {
-            if (tfm is not null)
-            {
-                string candidate = System.IO.Path.Combine(versionDir, assetKind, tfm, fileName);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-
-            string assetRoot = System.IO.Path.Combine(versionDir, assetKind);
-            if (!Directory.Exists(assetRoot))
-                continue;
-
-            foreach (string tfmDir in Directory.EnumerateDirectories(assetRoot).OrderDescending(StringComparer.OrdinalIgnoreCase))
-            {
-                string candidate = System.IO.Path.Combine(tfmDir, fileName);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-        }
-        return null;
     }
 
     /// <summary>
@@ -390,7 +212,7 @@ public sealed class MetadataSource : IDisposable
         {
             if (_crossContext is null)
             {
-                _crossContext = _suppliedContext ?? new MetadataContext(_locator);
+                _crossContext = _suppliedContext ?? new MetadataContext(_resolver);
                 _ownsCrossContext = _suppliedContext is null;
             }
             return _crossContext;

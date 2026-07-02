@@ -503,6 +503,12 @@ public class ILOffsetResult
     public string? Url { get; init; }
     public ILOffsetMemberContext? MemberContext { get; init; }
     public ILOffsetInstructionContext? InstructionContext { get; init; }
+    public List<ILOffsetExceptionContext>? ExceptionContext { get; init; }
+    public ILOffsetCallsiteContext? CallsiteContext { get; init; }
+    public ILOffsetReturnAddressContext? ReturnAddressContext { get; init; }
+    public List<ILOffsetAllocationContext>? AllocationContext { get; init; }
+    public List<ILOffsetSafetyContext>? SafetyContext { get; init; }
+    public List<ILOffsetCostContext>? CostContext { get; init; }
 }
 
 public class ILOffsetMemberContext
@@ -534,6 +540,67 @@ public class ILOffsetInstructionContext
     public int? Block { get; init; }
     public string? TerminatesBlock { get; init; }
     public string? FallsThrough { get; init; }
+}
+
+public class ILOffsetExceptionContext
+{
+    public int Region { get; init; }
+    public string? Context { get; init; }
+    public string? Clause { get; init; }
+    public string? TryRange { get; init; }
+    public string? HandlerRange { get; init; }
+    public string? FilterRange { get; init; }
+    public string? CaughtType { get; init; }
+}
+
+public class ILOffsetCallsiteContext
+{
+    public string? CallOffset { get; init; }
+    public string? Opcode { get; init; }
+    public string? CallKind { get; init; }
+    public string? Callee { get; init; }
+    public string? OperandToken { get; init; }
+    public string? ReturnAddress { get; init; }
+}
+
+public class ILOffsetReturnAddressContext
+{
+    public string? ILOffset { get; init; }
+    public string? CallOffset { get; init; }
+    public string? Opcode { get; init; }
+    public string? CallKind { get; init; }
+    public string? Callee { get; init; }
+    public string? OperandToken { get; init; }
+}
+
+public class ILOffsetAllocationContext
+{
+    public string? ILOffset { get; init; }
+    public string? AllocationKind { get; init; }
+    public string? AllocatedType { get; init; }
+    public string? CountedAsHeap { get; init; }
+    public string? Frequency { get; init; }
+    public string? Escape { get; init; }
+    public string? InLoop { get; init; }
+    public string? Evidence { get; init; }
+}
+
+public class ILOffsetSafetyContext
+{
+    public string? ILOffset { get; init; }
+    public string? SafetyKind { get; init; }
+    public string? Operation { get; init; }
+    public string? Requirement { get; init; }
+    public string? Evidence { get; init; }
+}
+
+public class ILOffsetCostContext
+{
+    public string? ILOffset { get; init; }
+    public string? CostKind { get; init; }
+    public string? Operation { get; init; }
+    public string? InLoop { get; init; }
+    public string? Evidence { get; init; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);
@@ -607,6 +674,14 @@ public record class OptimizationOpportunitySummary
     public string Fix { get; init; } = "";
     public string Confidence { get; init; } = "";
     public string Loop { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Allocation { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PathConfidence { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PostDominance { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IL { get; init; }
 }
