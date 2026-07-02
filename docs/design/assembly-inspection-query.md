@@ -157,24 +157,40 @@ either model `AssemblyQuery` as always-many, or split a single-assembly `Assembl
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,
 and exposes each scan as a method. Crucially it must be the **single** PE-lifetime owner, not a
-new parallel one: `PdbContext` already owns a `PEReader` and exposes metadata operations
-(`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`), and the decompiler opens through
-`MetadataSource`. The session should **compose or subsume `PdbContext`** (and hand its reader to
-`MetadataSource`) so [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times) — parsing
-the image two or three times — is actually fixed. Making the `PEReader`-taking scanners
-session-internal is the other half.
+new parallel one.
+
+There is a prerequisite the current code does not yet provide. Today the PE handle is owned in
+three *separate* places that cannot share it: `PdbContext` opens from a **path** and keeps its
+`PEReader`/`FileStream` private; `MetadataSource` opens its **own** `PEReader` from the
+descriptor; and the scanners take a caller-supplied `PEReader`. `ResolvedAssemblyReference`
+only carries an `OpenRead` opener — nothing consumes it as a shared owner. So "the session
+composes `PdbContext`" is not a free operation; it requires first introducing a **low-level
+PE-owner primitive** — opened once from `ResolvedAssemblyReference.OpenRead` — that
+`PdbContext`, the scanners, and `MetadataSource` are all changed to accept instead of opening
+their own. Concretely that means:
+
+- a new `PEImage`/owner type constructed from the descriptor (or a `Stream`);
+- `PdbContext` gains a constructor that takes that owner (not just a path) and exposes its
+  metadata reader;
+- `MetadataSource` accepts the same owner rather than calling `OpenRead` itself;
+- the `PEReader`-taking scanners become internal and read from the owner.
+
+`AssemblyInspectionSession` is then the seam that wires those together. Without that shared
+owner the single-open promise is aspirational; with it, [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)
+is genuinely fixed.
 
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
 {
+    // Opens the shared PE-owner once from the descriptor, then composes PdbContext over it.
     public static AssemblyInspectionSession? Open(ResolvedAssemblyReference assembly);
     public bool HasMetadata { get; }
-    public PdbContext Pdb { get; }        // composed, not re-opened
+    public PdbContext Pdb { get; }        // constructed over the shared owner, not re-opened
 
     public IReadOnlyList<ManifestResourceInfo>  Resources();
     public IReadOnlyList<ClassifiedMethodInfo>  ClassifiedMethods();
     public IReadOnlyList<AssemblyAttributeInfo> CustomAttributes();
-    // …one method per scanner, all sharing the single open
+    // …one method per scanner, all reading the single shared owner
 }
 ```
 
@@ -236,14 +252,18 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 1. **Adopt the descriptor.** Have the resolvers return `ResolvedAssemblyReference` (the #2051
    type, widened provenance if needed) and stop the `_` discards. Callers can still read
    `resolved.Path` initially. Package/project resolvers return a list.
-2. **Session.** Add `AssemblyInspectionSession.Open(ResolvedAssemblyReference)` that composes
-   `PdbContext` and owns the single `PEReader`; make the `PEReader`-taking scanners
+2. **Shared PE-owner (the prerequisite).** Introduce the low-level owner opened once from
+   `ResolvedAssemblyReference.OpenRead`, and change `PdbContext` and `MetadataSource` to accept
+   it instead of opening their own reader. This is the enabling step for single-open and can
+   land before any CLI change.
+3. **Session.** Add `AssemblyInspectionSession.Open(ResolvedAssemblyReference)` that opens the
+   shared owner, composes `PdbContext` over it, and makes the `PEReader`-taking scanners
    session-internal. Route `LibraryMetadataService`'s `Scan*` wrappers (already thin adapters)
    through it. This removes the 15 opens and the public `PEReader` scanner params, and collapses
    the 2–3 opens per inspection to one.
-3. **De-loosen inspection.** Replace `InspectAsync(path, packageName, packageVersion,
+4. **De-loosen inspection.** Replace `InspectAsync(path, packageName, packageVersion,
    isPlatformAssembly, …)` with `InspectAsync(ResolvedAssemblyReference, query)`.
-4. **Proof of concept.** Thread one flow end-to-end first — the platform-assembly `library`
+5. **Proof of concept.** Thread one flow end-to-end first — the platform-assembly `library`
    path is the smallest (single assembly, no package fan-out) — and confirm the CLI loses its
    `System.Reflection.Metadata` / `PortableExecutable` usings for that path.
 
@@ -258,6 +278,9 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 - **Query granularity.** Is `AssemblyQuery.Sections` the right knob, or should the session be
   lazy (scan on first access) so the query only needs the source? Laziness may make the section
   set redundant.
-- **Session vs `PdbContext` ownership.** Should `AssemblyInspectionSession` wrap `PdbContext`,
-  or should `PdbContext` grow the scanner methods and *become* the session? The former is less
-  invasive; the latter avoids a second type.
+- **Shape of the shared PE-owner.** Should the new owner be a thin `PEReader`/`MetadataReader`
+  holder that `PdbContext` and `MetadataSource` compose, or should `PdbContext` itself be
+  widened to *be* that owner (gaining descriptor/stream construction and exposing its reader)
+  and grow the scanner methods? The former adds a type but keeps responsibilities small; the
+  latter avoids a second type but enlarges `PdbContext`. Either way the current path-only,
+  private-reader `PdbContext` must change — the session cannot compose it as-is.
