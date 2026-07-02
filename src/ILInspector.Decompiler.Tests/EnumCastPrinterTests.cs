@@ -270,6 +270,17 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
+    public void CrossAssemblyEnumArray_CastsElementStore()
+    {
+        // A cross-assembly enum array element store must cast to the enum, not emit
+        // a bare `int` (CS0266) off the `stelem.i4` storage type.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.CrossAssemblyEnumArray));
+        Assert.Contains("(StringComparison)4", body);
+        Assert.DoesNotContain("= 4;", body);
+        AssertCompiles("public static System.StringComparison[] M()", body);
+    }
+
+    [Fact]
     public void UnsignedLongEnumConstant_ConvertWrapped_ForcesUncheckedCast()
     {
         // ulong.MaxValue lowers as `ldc.i4.m1; conv.i8`, so the enum cast operand is

@@ -1732,12 +1732,14 @@ public sealed partial class CSharpPrinter
         => store.Accessor.ParameterTypes.Length > 0 ? store.Accessor.ParameterTypes[^1] : null;
 
     // The `stelem` opcode records a storage-primitive element type (e.g. `long` for
-    // a long-backed enum array), which drops an enum-typed integer store below its
-    // real element type and prints a bare literal (CS0266). Prefer the array's own
-    // element type when it resolves to an enum.
+    // a long-backed enum array, or `int` for a cross-assembly enum array), which
+    // drops an enum-typed integer store below its real element type and prints a
+    // bare literal (CS0266). Prefer the array's own element type when it is
+    // enum-like — same-assembly (`TypeShape.Enum`) or cross-assembly (an unresolved
+    // non-primitive definition), matching `CastValue`'s enum-cast reasoning.
     TypeRef? StoreElementTargetType(StoreElement store)
         => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
-            && _function.TypeShapes.GetValueOrDefault(element) == TypeShape.Enum
+            && IsEnumLikeInteger(element)
             ? element
             : store.ElementType;
 

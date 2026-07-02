@@ -4384,6 +4384,12 @@ public static class EnumCastSamples
     public static System.Enum ULongEnumBoxedMax() => CfgULong.All;
 
     public static CfgULong[] ULongEnumArrayMax() => new[] { CfgULong.All };
+
+    // #2076 (review): a cross-assembly enum array (StringComparison resolves to
+    // TypeShape.Unknown). The `stelem.i4` storage type must not drop the element
+    // below its enum type — a bare `[0] = 4;` is CS0266.
+    public static System.StringComparison[] CrossAssemblyEnumArray()
+        => new[] { (System.StringComparison)4, System.StringComparison.OrdinalIgnoreCase };
 }
 
 

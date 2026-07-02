@@ -230,10 +230,13 @@ public sealed partial class CSharpPrinter
                 return true;
             case Convert { Target: { } target } convert
                 when TypeFamilies.IsIntegerLike(target) && TryEnumCastLiteral(convert.Operand, out var inner):
-                // An unsigned widening zero-extends a 32-bit source (`conv.u8` of a
-                // negative int carries its uint bit pattern); a signed widening keeps
-                // the value.
-                literal = convert.IsUnsigned && convert.Operand is Constant { Value: int u } ? (uint)u : inner;
+                // A widening to an unsigned target (`conv.u8`) zero-extends a 32-bit
+                // source, carrying its unsigned bit pattern; a signed widening
+                // (`conv.i8`) keeps the value. `Convert.IsUnsigned` marks a `.un`
+                // overflow opcode, not the target signedness — so key off the target.
+                literal = TypeFamilies.IsUnsignedIntegerPrimitive(target) && convert.Operand is Constant { Value: int u }
+                    ? (uint)u
+                    : inner;
                 return true;
             default:
                 literal = 0;
