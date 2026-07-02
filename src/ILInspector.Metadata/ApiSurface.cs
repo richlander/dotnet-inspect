@@ -196,10 +196,24 @@ public class ApiParameter
     public string Type { get; set; } = "";
     public string? Modifier { get; set; }
     public bool HasDefault { get; set; }
+    public string? DefaultValueText { get; set; }
 
     public string TypeWithModifier => string.IsNullOrEmpty(Modifier)
         ? Type
         : $"{Modifier} {Type}";
+
+    public string Declaration
+    {
+        get
+        {
+            var head = string.IsNullOrWhiteSpace(Name)
+                ? TypeWithModifier
+                : $"{TypeWithModifier} {Name}";
+            return HasDefault && DefaultValueText is { Length: > 0 }
+                ? $"{head} = {DefaultValueText}"
+                : head;
+        }
+    }
 }
 
 public class ApiAccessor

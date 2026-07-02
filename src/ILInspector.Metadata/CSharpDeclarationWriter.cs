@@ -502,10 +502,9 @@ public static class CSharpDeclarationWriter
         if (member.SignatureModel is not { } model)
             return false;
 
-        // ApiParameter tracks whether a default exists but not its source text.
-        // Keep the compatibility signature for optional parameters until default
-        // value text is modeled.
-        if (model.Parameters.Any(static parameter => parameter.HasDefault))
+        // Keep compatibility text when a default exists but has no source-level
+        // spelling in the structured model (for example DateTimeConstantAttribute).
+        if (model.Parameters.Any(static parameter => parameter.HasDefault && string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
             return false;
 
         var parameters = string.Join(", ", model.Parameters.Select(ParameterDeclaration));
@@ -527,10 +526,10 @@ public static class CSharpDeclarationWriter
 
         static string ParameterDeclaration(ApiParameter parameter)
         {
-            var type = parameter.TypeWithModifier;
-            return string.IsNullOrWhiteSpace(parameter.Name)
-                ? type
-                : $"{type} {parameter.Name}";
+            var declaration = string.IsNullOrWhiteSpace(parameter.Name)
+                ? parameter.TypeWithModifier
+                : parameter.Declaration;
+            return declaration;
         }
     }
 

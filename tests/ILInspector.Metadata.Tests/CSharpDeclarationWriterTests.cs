@@ -272,14 +272,13 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
-    public void ConstructorDeclaration_WithDefaultParameterKeepsCompatibilitySignature()
+    public void ConstructorDeclaration_WithDefaultParameterUsesStructuredDefaultText()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
         var member = new ApiMember
         {
             Name = ".ctor",
             Kind = "constructor",
-            Signature = "void .ctor(int count = 42)",
             SignatureModel = new ApiSignature
             {
                 Parameters =
@@ -288,7 +287,8 @@ public sealed class CSharpDeclarationWriterTests
                     {
                         Type = "int",
                         Name = "count",
-                        HasDefault = true
+                        HasDefault = true,
+                        DefaultValueText = "42"
                     }
                 ]
             }
@@ -297,6 +297,34 @@ public sealed class CSharpDeclarationWriterTests
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
 
         Assert.Equal("public Widget(int count = 42)", declaration);
+    }
+
+    [Fact]
+    public void ConstructorDeclaration_WithUnmodeledDefaultKeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(42L)] System.DateTime when)",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.DateTime",
+                        Name = "when",
+                        HasDefault = true
+                    }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Contains("DateTimeConstant(42L)", declaration);
     }
 
     [Fact]
