@@ -668,6 +668,38 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
+    {
+        var assemblyPath = CompileFixture("""
+            public unsafe class Outer
+            {
+                public class Inner
+                {
+                    public static int* GetPointer() => null;
+                }
+            }
+
+            public unsafe class Class1
+            {
+                public int* Pointer => Outer.Inner.GetPointer();
+            }
+            """, allowUnsafe: true);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public static unsafe int* GetPointer()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
