@@ -1028,7 +1028,7 @@ public static class ApiOutputFormatter
             var overloadView = new ConstructorOverloadView
             {
                 Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
-                Signature = new CodeSection("csharp", $"new {type.Name}{ConstructorCall(type, ctor)}")
+                Signature = new CodeSection("csharp", $"new {type.Name}{ConstructorCall(ctor)}")
             };
 
             if (paramInfo.Count > 0)
@@ -1048,33 +1048,20 @@ public static class ApiOutputFormatter
 
     private static List<(string name, string type, bool hasDefault)> ConstructorParameterInfo(ApiMember constructor)
         => constructor.SignatureModel is { } signature
-            ? signature.Parameters
-                .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
-                .ToList()
+            ? signature.ParameterInfoSummary
             : SignatureParser.ExtractParameterInfo(constructor.Signature);
 
-    private static string ConstructorCall(ApiType type, ApiMember constructor)
+    private static string ConstructorCall(ApiMember constructor)
     {
         if (constructor.SignatureModel is { } signature
             && signature.Parameters.All(static parameter => !parameter.HasDefault || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
         {
-            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-                type,
-                constructor,
-                new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
-            if (!string.IsNullOrWhiteSpace(declaration))
-                return ConstructorCallFromDeclaration(declaration);
+            return signature.ParameterDeclarationsSummary;
         }
 
         // Compatibility-only fallback for legacy signatures without complete
         // structured default-value facts.
         return SignatureParser.FormatConstructorCall(constructor.Signature);
-    }
-
-    private static string ConstructorCallFromDeclaration(string declaration)
-    {
-        var parenStart = declaration.IndexOf('(');
-        return parenStart < 0 ? "()" : declaration[parenStart..];
     }
 
     internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null, ApiOptions? options = null)

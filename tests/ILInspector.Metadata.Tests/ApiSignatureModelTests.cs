@@ -71,6 +71,10 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("int", ctor.SignatureModel.Parameters[1].Type);
         Assert.True(ctor.SignatureModel.Parameters[1].HasDefault);
         Assert.Equal("1", ctor.SignatureModel.Parameters[1].DefaultValueText);
+        Assert.Equal("(string name, int count = 1)", ctor.SignatureModel.ParameterDeclarationsSummary);
+        Assert.Equal(
+            [("name", "string", false), ("count", "int", true)],
+            ctor.SignatureModel.ParameterInfoSummary);
     }
 
     [Fact]

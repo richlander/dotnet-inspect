@@ -853,7 +853,7 @@ public static class CSharpDeclarationWriter
     static string EscapeQualifiedName(string name)
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
-    static string EscapeIdentifier(string name)
+    internal static string EscapeIdentifier(string name)
         => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
