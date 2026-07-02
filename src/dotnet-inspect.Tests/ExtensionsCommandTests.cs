@@ -233,6 +233,42 @@ public class ExtensionsCommandTests
         Assert.Equal("TSource First(this IEnumerable<TSource> source)", entry.Signature);
     }
 
+    [Fact]
+    public void CollapseOverloads_DuplicateSameSignature_DoesNotInflateOverloadCount()
+    {
+        var results = new List<ExtensionMethodResult>
+        {
+            new()
+            {
+                MethodName = "UnicodeToOctetString",
+                Kind = "method",
+                ExtensionClass = "Internal.Cryptography.PkcsHelpers",
+                Assembly = "System.Security.Cryptography.Pkcs",
+                Signature = "byte[] UnicodeToOctetString(this string s)",
+                Source = "System.Security.Cryptography.Pkcs",
+                SourceVersion = "9.0.4"
+            },
+            new()
+            {
+                MethodName = "UnicodeToOctetString",
+                Kind = "method",
+                ExtensionClass = "Internal.Cryptography.PkcsHelpers",
+                Assembly = "System.Security.Cryptography.Pkcs",
+                Signature = "byte[] UnicodeToOctetString(this string s)",
+                Source = "System.Security.Cryptography.Pkcs",
+                SourceVersion = "9.0.4"
+            }
+        };
+
+        var collapsed = ExtensionsCommand.CollapseOverloads(results);
+
+        Assert.Single(collapsed);
+        var entry = collapsed[0];
+        Assert.Null(entry.Overloads);
+        Assert.Null(entry.Signatures);
+        Assert.Equal("byte[] UnicodeToOctetString(this string s)", entry.Signature);
+    }
+
     private static List<ExtensionMethodResult> CreateOverloadResults() =>
     [
         new()

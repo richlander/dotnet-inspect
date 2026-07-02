@@ -203,7 +203,7 @@ public class ExtensionsCommand
             {
                 var first = g.First();
                 var signatures = g.Select(r => r.Signature).Where(s => s != null).Distinct().Cast<string>().ToList();
-                var count = g.Count();
+                var count = signatures.Count > 0 ? signatures.Count : g.Count();
                 return first with
                 {
                     Overloads = count > 1 ? count : null,
