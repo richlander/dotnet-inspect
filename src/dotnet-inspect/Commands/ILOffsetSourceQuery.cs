@@ -392,6 +392,7 @@ internal static class ILOffsetSourceQuery
             CountedAsHeap = fact.CountedAsHeap ? "Yes" : "No",
             Frequency = fact.Frequency,
             Escape = fact.Escape,
+            EscapeKind = fact.EscapeKind,
             EstimatedSizeBytes = fact.EstimatedSizeBytes,
             SizeTier = fact.SizeTier,
             InLoop = fact.InLoop ? "Yes" : "No",

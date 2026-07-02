@@ -11,6 +11,7 @@ public sealed record AllocationFact(
     string Frequency,
     bool InLoop,
     string Escape,
+    string? EscapeKind,
     int? EstimatedSizeBytes,
     string? SizeTier,
     string Path,
@@ -70,6 +71,7 @@ public static class SemanticFactProjection
                 FormatFrequency(occurrence.Frequency),
                 occurrence.InLoop,
                 FormatEscape(occurrence.Escape),
+                FormatEscapeKind(occurrence.EscapeKind),
                 occurrence.EstimatedSizeBytes,
                 occurrence.SizeTier == AllocationSizeTier.Unknown ? null : occurrence.SizeTier.ToString(),
                 LibraryBodyIndex.FormatPathContext(occurrence.PathContext),
@@ -200,6 +202,15 @@ public static class SemanticFactProjection
         AllocationEscape.ThrowPath => "throw path",
         AllocationEscape.Escapes => "escapes",
         _ => "unknown"
+    };
+    static string? FormatEscapeKind(AllocationEscapeKind kind) => kind switch
+    {
+        AllocationEscapeKind.Return => "escapes-return",
+        AllocationEscapeKind.Field => "escapes-field",
+        AllocationEscapeKind.Static => "escapes-static",
+        AllocationEscapeKind.Collection => "escapes-collection",
+        AllocationEscapeKind.Capture => "escapes-capture",
+        _ => null
     };
     static string FormatSource(AllocationFactSource source) => source switch
     {

@@ -1254,6 +1254,31 @@ public class LibraryBodyIndexTests
         Assert.Equal(expected, occurrence.Escape);
     }
 
+    [Theory]
+    // Refined escape kinds: WHERE an Escapes value escapes (objective, additive on the verdict).
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray), AllocationKind.Array, AllocationEscapeKind.Return)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object, AllocationEscapeKind.Return)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, AllocationEscapeKind.Return)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField), AllocationKind.Array, AllocationEscapeKind.Field)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscapeKind.Field)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectToStaticField), AllocationKind.Object, AllocationEscapeKind.Static)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectIntoArrayElement), AllocationKind.Object, AllocationEscapeKind.Collection)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CapturesArrayInClosure), AllocationKind.Array, AllocationEscapeKind.Capture)]
+    // Fail-honest: non-escaping / unknown verdicts carry no kind.
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, AllocationEscapeKind.None)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall), AllocationKind.Array, AllocationEscapeKind.None)]
+    public void AllocationOccurrences_RefineEscapeKind(string methodName, AllocationKind kind, AllocationEscapeKind expected)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+
+        Assert.Equal(expected, occurrence.EscapeKind);
+        // Kind is only meaningful on an Escapes verdict; otherwise it must be None.
+        if (occurrence.Escape != AllocationEscape.Escapes)
+            Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
+    }
+
     [Fact]
     public void AllocationOccurrences_ArrayLongAddressLoadsDoNotTerminateTrackedArray()
     {
@@ -3216,6 +3241,7 @@ public class OptimizationOpportunityFixtures
     private readonly UserDisplayClassTarget _displayClassTarget = new();
     private int[]? _arrayField;
     private PlainObject? _objectField;
+    private static PlainObject? _staticObjectField;
     private IFormattable? _formattableField;
 
     // A capturing delegate created INSIDE a loop: a repeated allocation -> high confidence.
@@ -3780,6 +3806,19 @@ public class OptimizationOpportunityFixtures
 
     // Stored to a field -> escapes.
     public void StoresArrayToField() => _arrayField = new int[4];
+
+    // Stored to a static field -> escapes-static.
+    public static void StoresObjectToStaticField() => _staticObjectField = new PlainObject(1);
+
+    // Stored into an array element -> escapes-collection.
+    public static void StoresObjectIntoArrayElement(object[] target) => target[0] = new PlainObject(1);
+
+    // Captured by a closure -> the array is hoisted onto a display class (escapes-capture).
+    public static Func<int> CapturesArrayInClosure()
+    {
+        var a = new int[4];
+        return () => a.Length;
+    }
 
     // Stored to a local but then passed to a call -> escapes.
     public static void LocalArrayPassedToCall()

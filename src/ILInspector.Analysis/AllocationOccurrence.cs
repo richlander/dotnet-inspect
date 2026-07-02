@@ -26,6 +26,22 @@ public enum AllocationEscape
     ThrowPath,
 }
 
+/// <summary>
+/// Objective refinement of an <see cref="AllocationEscape.Escapes"/> verdict: WHERE
+/// the produced value escapes. Additive on top of the binary verdict — a plain
+/// <see cref="AllocationEscape.Escapes"/> with an undetermined sink stays
+/// <see cref="None"/> (fail-honest). Feeds the static→dynamic promotion prior.
+/// </summary>
+public enum AllocationEscapeKind
+{
+    None,
+    Return,
+    Field,
+    Static,
+    Collection,
+    Capture,
+}
+
 public enum AllocationFactSource
 {
     Newobj,
@@ -86,6 +102,8 @@ public sealed record AllocationOccurrence(
     AllocationSizeTier SizeTier = AllocationSizeTier.Unknown)
 {
     public AllocationPostDominance PostDominance { get; init; }
+
+    public AllocationEscapeKind EscapeKind { get; init; }
 
     public string AnnotationId => Kind switch
     {

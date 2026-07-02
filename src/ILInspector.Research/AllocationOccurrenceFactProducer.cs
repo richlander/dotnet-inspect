@@ -63,6 +63,8 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             parts.Add($"post-dominance={postDominance}");
         if (occurrence.Escape != AllocationEscape.Unknown)
             parts.Add($"escape={FormatEscape(occurrence.Escape)}");
+        if (FormatEscapeKind(occurrence.EscapeKind) is { } escapeKind)
+            parts.Add($"escape-kind={escapeKind}");
         return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 
@@ -98,6 +100,17 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             AllocationEscape.Escapes => "escapes",
             AllocationEscape.ThrowPath => "throw-path",
             _ => "unknown",
+        };
+
+    static string? FormatEscapeKind(AllocationEscapeKind kind)
+        => kind switch
+        {
+            AllocationEscapeKind.Return => "escapes-return",
+            AllocationEscapeKind.Field => "escapes-field",
+            AllocationEscapeKind.Static => "escapes-static",
+            AllocationEscapeKind.Collection => "escapes-collection",
+            AllocationEscapeKind.Capture => "escapes-capture",
+            _ => null,
         };
 
 }
