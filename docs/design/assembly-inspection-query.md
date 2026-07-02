@@ -107,10 +107,10 @@ The CLI should express *what it wants* and receive *the finished result*. It sho
 hold a `PEReader` and never re-derive provenance.
 
 ```text
-              InspectionQuery                       AssemblyInspection
+              InspectionQuery                       InspectionReport
  CLI  ───────────────────────────►  Service  ──────────────────────────►  CLI
       (target [location + selector]        (resolve → open → scan →
-       + facets + options)                 assemble the final shape)
+       + facets + options)                 one AssemblyInspection per assembly)
 ```
 
 Three types carry this:
@@ -183,12 +183,18 @@ already answers "path vs stream vs opener" (it carries both). The one likely cha
 `string? Provenance` into a structured value (package@version, tfm, rid, platform-or-not,
 resolver source) if inspection needs to read those back rather than re-derive them.
 
-**Multi-assembly sources.** A `file` or `platform` query resolves to one reference, but a
-`package` or `project` query resolves to *many* (today `LibraryCommand` inspects every DLL in a
-package, and `--tfm all` returns all candidates). So resolution returns
-`IReadOnlyList<ResolvedAssemblyReference>`, and the response is a per-assembly collection —
-either model `InspectionQuery` as always-many, or split a single-assembly `InspectionQuery` from
-a `PackageInspectionQuery` that fans out.
+**Multi-assembly locations (one query type).** There is a **single** `InspectionQuery`; there is
+no separate `PackageInspectionQuery`. Resolving `Target.Location` yields
+`IReadOnlyList<ResolvedAssemblyReference>` — one entry for a `file` or `platform` location, many
+for a `package` or `project` (today `LibraryCommand` inspects every DLL in a package, and
+`--tfm all` returns all candidates). The service opens and inspects each, and the response is a
+collection — `InspectionReport(IReadOnlyList<AssemblyInspection>)`, with the single-assembly case
+just a one-element report.
+
+A **selector narrows the fan-out**: when `Target.Selector` is set, resolution returns only the
+assembly that *defines* the selected member (via the type-lookup path), so a member/coordinate
+query over a package resolves to one reference, not many. Fan-out therefore happens only for
+assembly-level inspection without a selector.
 
 ### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
 
@@ -447,9 +453,6 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 - **Provenance breadth.** `ResolvedAssemblyReference.Provenance` is a single `string?` today.
   How much structure does inspection actually need (package@version, tfm, rid, platform flag,
   resolver source) before it becomes a grab bag? Prefer the minimum consumers read back.
-- **One query type or two.** Model `InspectionQuery` as always-many, or split a single-assembly
-  `InspectionQuery` from a `PackageInspectionQuery` that fans out to many
-  `ResolvedAssemblyReference`s? The package/`--tfm all` flows force multi-assembly either way.
 - **Query granularity.** Is `InspectionQuery.Facets` the right knob, or should the session be
   lazy (scan on first access) so the query only needs the target? Laziness may make the facet
   set redundant.
