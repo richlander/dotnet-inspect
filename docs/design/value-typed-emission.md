@@ -46,7 +46,9 @@ violation fails a unit test, not a recompile.
 The rest of this document details **instance 1 (coercion)** in full — it is the
 largest, most bug-dense, and the template for the others — then **instance 2 (slot
 typing)**, which the same type-propagation prerequisite removes almost for free.
-Instance 3 is noted where it sits and deferred.
+Instance 3 is noted where it sits and deferred. A second, orthogonal axis of
+thinness — the writer's *output* being structure rather than strings — is scoped
+in [the output half](#the-output-half--structure-not-strings) below.
 
 ## Instance 1 — coercion: the missing member of the type system
 
@@ -317,6 +319,45 @@ flow analysis — the sibling of control-flow structuring and type flow — and 
 pre-print pass that hands the writer a decided tree. It is the lowest-priority
 instance and is called out here only so the umbrella is complete; it is not
 sequenced below.
+
+## The output half — structure, not strings
+
+Thinness has a second axis. The instances above remove *decisions* from the
+writer; this section names where its *output representation* is headed. Today the
+printer synthesizes strings all the way down, and so does everything downstream
+that needs C# structure: precedence and parenthesization are per-call-site
+judgments (the `Operand()` vs `Expression()` distinction), and ReturnToSender's
+source composition must re-parse and patch rendered text
+(`CompileBackCSharpNames.Clean` string-strips `modreq(...)` and re-spells
+`System.Int32` as `int`) because a string is the only seam the writer offers.
+
+The direction is already in motion on the declaration side (#2057): the
+structured signature model (`ApiSignature`, surfaced as `ApiMember.SignatureModel`)
+is built during extraction and queried for summaries and identity instead of
+reparsing rendered signatures, and RTS compile-back relies on product-owned
+declaration composition. The body side should meet it. The end-state writer
+splits into a **composer** (decided IR → a structured C# surface model; a
+`Coerce` becomes a cast *node*, not cast *text*) and a **renderer** (surface
+model → text, total and mechanical). Declarations from metadata and bodies from
+the decompiler then meet in one structured surface, which RTS composes without
+string surgery.
+
+This is, again, the family pattern. Roslyn keeps syntax a model until the very
+end. ILSpy prints C# from an AST via `CSharpOutputVisitor`, with parenthesization
+inserted by a dedicated `InsertParenthesesVisitor` pass over the tree — even the
+"writer's real job" (precedence, parens) becomes a checkable pass rather than
+per-site string logic.
+
+Sequencing: this axis does not change the migration order. A structured output
+layer without decided semantics merely relocates the guessing — the same sinks
+would decide whether to *build* a cast node instead of whether to *emit* `(T)x`.
+Value-typed emission is the prerequisite. It does change the shape of the seams:
+the one `Coerce` rendering function must be the only place cast text is born, so
+that when the surface model arrives it becomes a node factory without
+re-scattering the decision. The surface-model migration is its own future design
+note; this doc pins only the constraint that nothing in the slices below may
+widen the printer's string seam — new emission logic funnels through the
+choke-point functions that a composer can later replace node-for-node.
 
 ## Scope and constraints
 
