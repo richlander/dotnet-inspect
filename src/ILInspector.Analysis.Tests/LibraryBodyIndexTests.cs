@@ -1161,6 +1161,8 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5AfterUnrelatedBranch))]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField))]
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall))]
@@ -1171,6 +1173,16 @@ public class LibraryBodyIndexTests
 
         var shape = Assert.Single(ArrayShapes(index, methodName));
         Assert.Equal("small-array", shape);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalSmallOrHugeArray))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalHugeOrSmallArray))]
+    public void OptimizationOpportunities_DoesNotTreatConditionalLengthArraysAsSmallArrays(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(ArrayShapes(index, methodName));
     }
 
     [Theory]

@@ -2978,7 +2978,12 @@ public sealed class LibraryBodyIndex
             ReachingDefinitionsResult GetReachingDefinitions()
                 => reachingDefinitions ??= ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
 
+            var branchTargetOffsets = decodedBody.Instructions
+                .SelectMany(static instruction => instruction.BranchTargets)
+                .ToArray();
             int? pendingConstant = null;
+            int pendingConstantOffset = -1;
+            int pendingConstantBlock = -1;
             // Delegate creation is `<push target>; ldftn/ldvirtftn M; newobj DelegateCtor`.
             // Track the pending function-pointer load so a single row is emitted at the
             // newobj (one row per delegate allocation), classified by the target.
@@ -3014,32 +3019,34 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Ldc_i4_6:
                     case ILOpCode.Ldc_i4_7:
                     case ILOpCode.Ldc_i4_8:
-                        pendingConstant = opcode switch
-                        {
-                            ILOpCode.Ldc_i4_m1 => -1,
-                            ILOpCode.Ldc_i4_0 => 0,
-                            ILOpCode.Ldc_i4_1 => 1,
-                            ILOpCode.Ldc_i4_2 => 2,
-                            ILOpCode.Ldc_i4_3 => 3,
-                            ILOpCode.Ldc_i4_4 => 4,
-                            ILOpCode.Ldc_i4_5 => 5,
-                            ILOpCode.Ldc_i4_6 => 6,
-                            ILOpCode.Ldc_i4_7 => 7,
-                            _ => 8,
-                        };
+                        SetPendingConstant(
+                            opcode switch
+                            {
+                                ILOpCode.Ldc_i4_m1 => -1,
+                                ILOpCode.Ldc_i4_0 => 0,
+                                ILOpCode.Ldc_i4_1 => 1,
+                                ILOpCode.Ldc_i4_2 => 2,
+                                ILOpCode.Ldc_i4_3 => 3,
+                                ILOpCode.Ldc_i4_4 => 4,
+                                ILOpCode.Ldc_i4_5 => 5,
+                                ILOpCode.Ldc_i4_6 => 6,
+                                ILOpCode.Ldc_i4_7 => 7,
+                                _ => 8,
+                            },
+                            offset);
                         break;
                     case ILOpCode.Ldc_i4_s:
-                        pendingConstant = (int)instruction.OperandValue;
+                        SetPendingConstant((int)instruction.OperandValue, offset);
                         break;
                     case ILOpCode.Ldc_i4:
-                        pendingConstant = OperandInt32(instruction);
+                        SetPendingConstant(OperandInt32(instruction), offset);
                         break;
                     case ILOpCode.Newarr:
                     {
                         int elementToken = OperandInt32(instruction);
                         if (allocationByOffset.TryGetValue(offset, out var arrayAllocation)
                             && arrayAllocation.Kind == AllocationKind.Array
-                            && pendingConstant is int length && length >= 0 && length <= 8)
+                            && ValidPendingConstant(offset) is int length && length >= 0 && length <= 8)
                         {
                             // Promote to a confident stackalloc recommendation only when the
                             // array provably stays local AND its element type is stackalloc-
@@ -3067,12 +3074,12 @@ public sealed class LibraryBodyIndex
                                     offset,
                                     "Escape not analyzed; confirm the array stays local before replacing."));
                         }
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         break;
                     }
                     case ILOpCode.Newobj:
                     {
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         if (pendingDelegateOffset is not null)
                         {
                             // A function pointer was just loaded, so this newobj is the delegate
@@ -3152,7 +3159,7 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Call:
                     case ILOpCode.Callvirt:
                     {
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         int token = OperandInt32(instruction);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         // When the delegate just allocated flows straight into a lazy LINQ
@@ -3275,7 +3282,7 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Ldftn:
                     case ILOpCode.Ldvirtftn:
                     {
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         int token = OperandInt32(instruction);
                         // Defer emission to the following newobj (de-dup). Capture is decided
                         // by the target method's declaring type: a lambda that closes over state
@@ -3296,22 +3303,22 @@ public sealed class LibraryBodyIndex
                         break;
                     }
                     case ILOpCode.Ldarg_0:
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         break;
                     case ILOpCode.Ldarg:
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         break;
                     case ILOpCode.Ldarg_s:
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         break;
                     case ILOpCode.Ldfld:
                     case ILOpCode.Ldflda:
                     case ILOpCode.Stfld:
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         break;
                     case ILOpCode.Box:
                     {
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         int token = OperandInt32(instruction);
                         var boxed = ResolveTypeToken(token, callerScope);
                         // ECMA-335 permits `box` on reference types (a no-op) and generic
@@ -3337,7 +3344,7 @@ public sealed class LibraryBodyIndex
                         break;
                     }
                     default:
-                        pendingConstant = null;
+                        ClearPendingConstant();
                         break;
                 }
 
@@ -3382,6 +3389,34 @@ public sealed class LibraryBodyIndex
             }
 
             return [.. opportunities.Select(AnnotateOpportunityMetadata)];
+
+            void SetPendingConstant(int value, int instructionOffset)
+            {
+                pendingConstant = value;
+                pendingConstantOffset = instructionOffset;
+                pendingConstantBlock = decodedBody.BlockGraph.BlockIndexAt(instructionOffset);
+            }
+
+            void ClearPendingConstant()
+            {
+                pendingConstant = null;
+                pendingConstantOffset = -1;
+                pendingConstantBlock = -1;
+            }
+
+            int? ValidPendingConstant(int newarrOffset)
+                => pendingConstant is { } value
+                    && decodedBody.BlockGraph.IsComplete
+                    && pendingConstantBlock >= 0
+                    // EH-aware blocks can split protected regions at every instruction; only a
+                    // real branch target between the constant and newarr makes the length joined.
+                    && (pendingConstantBlock == decodedBody.BlockGraph.BlockIndexAt(newarrOffset)
+                        || !HasBranchTargetBetween(pendingConstantOffset, newarrOffset))
+                    ? value
+                    : null;
+
+            bool HasBranchTargetBetween(int startExclusive, int endInclusive)
+                => branchTargetOffsets.Any(target => target > startExclusive && target <= endInclusive);
 
             OptimizationOpportunity AnnotateOpportunityMetadata(OptimizationOpportunity opportunity)
             {
