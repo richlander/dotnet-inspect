@@ -1219,6 +1219,32 @@ public sealed class IncrementDecrement : IrExpression
         => $"{(IsPrefix ? "Pre" : "Post")}{(IsIncrement ? "Increment" : "Decrement")}";
 }
 
+/// <summary>
+/// The C#-surface coercion of a value into a typed sink
+/// (docs/design/value-typed-emission.md): "render this value into a position
+/// that requires <see cref="Target"/>". Distinct from <see cref="Convert"/>,
+/// which models the value's IL history (a conv.* opcode); the two compose —
+/// a Convert-wrapped value at a mismatched sink is wrapped, not rewritten.
+/// Inserted by CoercionInsertionPass; rendered by the printer's one
+/// CoerceText rule; asserted by CoercionInvariant. Roslyn's BoundConversion,
+/// in reverse.
+/// </summary>
+public sealed class Coerce : IrExpression
+{
+    public Coerce(TypeRef target, IrExpression operand)
+    {
+        Target = target;
+        AddChild(operand);
+    }
+
+    public TypeRef Target { get; }
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType => Target;
+    public override IEnumerable<TypeRef> DirectTypes => [Target];
+
+    public override string Describe() => $"Coerce {Target.ToDisplayString()}";
+}
+
 /// <summary>A numeric conversion (the conv.* family).</summary>
 public sealed class Convert : IrExpression
 {

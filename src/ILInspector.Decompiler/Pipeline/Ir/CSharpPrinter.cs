@@ -1308,7 +1308,7 @@ public sealed partial class CSharpPrinter
             sb.Append(pad)
                 .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
-                .Append(Coerce(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
+                .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
             AppendContainer(sb, usingStatement.Body, indent + 1);
             sb.Append(pad).AppendLine("}");
@@ -1629,12 +1629,12 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {Coerce(s.Value, s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CoerceText(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
-        NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {Coerce(n.Value, n.LocalType)};",
-        NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {Coerce(n.Value, n.Field.Type)};",
-        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {Coerce(n.Value, n.PropertyType)};",
+        NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CoerceText(n.Value, n.LocalType)};",
+        NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)};",
+        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CoerceText(n.Value, n.PropertyType)};",
         StoreArgument s => AssignmentText(CSharpNaming.EscapeIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
@@ -1642,7 +1642,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {Coerce(s.Value, StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {CoerceText(s.Value, StackSlotTargetType(s))};"
             : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             FieldTarget(s.Field, s.Instance), s.Value,
@@ -1660,9 +1660,9 @@ public sealed partial class CSharpPrinter
                 && SameLValue(load.Instance, s.Instance)
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
-        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {Coerce(e.Value, e.Accessor.ParameterTypes[0])};",
+        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{Expression(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {Coerce(s.Value, StoreElementTargetType(s))};",
+        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CoerceText(s.Value, StoreElementTargetType(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -1738,10 +1738,7 @@ public sealed partial class CSharpPrinter
     // enum-like — same-assembly (`TypeShape.Enum`) or cross-assembly (an unresolved
     // non-primitive definition), matching `Coerce`'s enum-cast reasoning.
     TypeRef? StoreElementTargetType(StoreElement store)
-        => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
-            && IsEnumLikeInteger(element)
-            ? element
-            : store.ElementType;
+        => CoercionSinks.StoreElementTarget(store, _function.TypeShapes);
 
     string Expression(IrExpression node) => node switch
     {
@@ -1784,6 +1781,9 @@ public sealed partial class CSharpPrinter
         Unary u => $"~{Operand(u.Operand)}",
         AwaitExpression aw => $"await {Operand(aw.Operand)}",
         IncrementDecrement id => IncrementDecrementText(id),
+        // The coercion node renders through the one rule — the node IS the
+        // routing guarantee; CoerceText decides cast, unchecked, name, or bare.
+        Coerce co => CoerceText(co.Operand, co.Target),
         Convert v => ConvertText(v),
         Call c when MultiDimArrayAccessText(c) is { } text => text,
         Call c => CallText(c),
@@ -1822,7 +1822,7 @@ public sealed partial class CSharpPrinter
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
-        Box b => Coerce(b.Operand, b.Type),
+        Box b => CoerceText(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
@@ -2127,14 +2127,36 @@ public sealed partial class CSharpPrinter
             // span the ENTIRE text — a child cast can contribute a leading
             // `unchecked(` (`unchecked((uint)b) / unchecked((uint)c)`) without
             // bracketing the whole expression, and dropping its parens would misbind.
-            || node is Binary or Convert
-                && (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("));
+            || node is Binary or Convert or Coerce
+                && (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("))
+            // A Coerce that rendered as a member name or bare literal is an
+            // atom; its cast and `cond ? 1 : 0` forms are NOT — a cast as a
+            // member-access receiver misbinds onto the call result
+            // (`(E)x.M()` is `(E)(x.M())`), so those keep Operand's parens.
+            || node is Coerce && IsSimpleAtomText(text);
         atomic = atomic || node is LoadIndirect load && PointerElementAccessText(load) is not null;
         return atomic ? text : $"({text})";
     }
 
     string CollectionElementText(IrExpression element)
         => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
+
+    /// <summary>
+    /// True when rendered text is a bare identifier chain or numeric literal
+    /// (`LEnum.High`, `10`, `-1`) — safe unparenthesized in any operand
+    /// position, including as a member-access receiver.
+    /// </summary>
+    static bool IsSimpleAtomText(string text)
+    {
+        if (text.Length == 0)
+            return false;
+        foreach (char c in text)
+        {
+            if (!char.IsLetterOrDigit(c) && c is not ('.' or '_' or '@' or '-'))
+                return false;
+        }
+        return true;
+    }
 
     /// <summary>
     /// True when <paramref name="text"/> is a single <paramref name="prefix"/>-wrapped
@@ -2599,7 +2621,7 @@ public sealed partial class CSharpPrinter
     string ReturnText(IrExpression value)
         => _function.Signature.ReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
             ? $"return ref {place};"
-            : $"return {Coerce(value, _function.Signature.ReturnType)};";
+            : $"return {CoerceText(value, _function.Signature.ReturnType)};";
 
     /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
@@ -2620,7 +2642,7 @@ public sealed partial class CSharpPrinter
             // overflow-honoring operators ever carry IsChecked here.
             return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
         }
-        return $"{target} = {Coerce(value, targetType)};";
+        return $"{target} = {CoerceText(value, targetType)};";
     }
 
     /// <summary>
@@ -2661,7 +2683,7 @@ public sealed partial class CSharpPrinter
             // lvalue's: casting only the right operand is faithful when the opcode
             // signedness matches the lvalue. Checked .ovf compounds stay plain.
             : NeedsCompoundSignCast(binary, lvalueType)
-                ? Coerce(binary.Right, lvalueType)
+                ? CoerceText(binary.Right, lvalueType)
                 : Operand(binary.Right);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
