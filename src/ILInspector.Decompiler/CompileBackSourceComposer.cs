@@ -160,6 +160,7 @@ public sealed record CompileBackMemberDeclaration(
 public enum CompileBackMemberKind
 {
     PropertyGet,
+    PropertySet,
     Constructor,
     Method,
     Field,
@@ -217,6 +218,8 @@ public enum CompileBackStubBodyKind
     None,
     Throw,
     TargetBody,
+    TargetGetterWithSetter,
+    TargetSetterWithGetter,
     AutoProperty,
     AutoPropertyGetSet,
     FieldInitializer,
@@ -269,6 +272,7 @@ public static class CompileBackSourceComposer
         var getter = reader.GetMethodDefinition(targetGetter);
         var signature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, targetTypeDef));
         var getterSignature = getter.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, getter));
+        var accessors = property.GetAccessors();
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string propertyName = Identifier(reader.GetString(property.Name));
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
@@ -295,7 +299,11 @@ public static class CompileBackSourceComposer
                         getter.Attributes.HasFlag(MethodAttributes.Static),
                         MethodParameters(reader, getter, getterSignature),
                         returnType,
-                        targetIsAutoProperty ? CompileBackStubBodyKind.AutoProperty : CompileBackStubBodyKind.TargetBody,
+                        targetIsAutoProperty
+                            ? CompileBackStubBodyKind.AutoProperty
+                            : accessors.Setter.IsNil
+                                ? CompileBackStubBodyKind.TargetBody
+                                : CompileBackStubBodyKind.TargetGetterWithSetter,
                         targetIsAutoProperty ? null : targetBody,
                         targetIsAutoProperty
                             ? [
@@ -303,6 +311,111 @@ public static class CompileBackSourceComposer
                                 new CompileBackFact("metadata", "auto-property", propertyName)
                             ]
                             : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))])
+                ],
+                PrimaryConstructor: null,
+                targetFacts)
+        };
+
+        foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
+        {
+            if (dependency == targetRoot)
+                continue;
+
+            var dependencyDef = reader.GetTypeDefinition(dependency);
+            var dependencyIdentity = CompileBackTypeIdentity.FromDefinition(reader, dependencyDef);
+            if (requirements.Any(requirement => requirement.Type.MetadataFullName == dependencyIdentity.MetadataFullName))
+                continue;
+
+            requirements.Add(new CompileBackTypeRequirement(
+                dependencyIdentity,
+                ShellKind(reader, dependencyDef),
+                RequiredMembers: [],
+                PrimaryConstructor: null,
+                SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
+                    ? facts.ToArray()
+                    : [new CompileBackFact("closure", "closure-root", dependencyIdentity.FullName)]));
+        }
+
+        var declarations = TypeProducer.Produce(reader, requirements, diagnostics);
+        var module = new CompileBackModuleRequirement(
+            Usings: RequiredNamespaces(function)
+                .Concat(DeclarationNamespaces(declarations))
+                .Prepend("System")
+                .Select(CompileBackCSharpNames.EscapeNamespace)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray(),
+            AssemblyAttributes: [],
+            ModuleAttributes: []);
+        var plan = new CompileBackReconstructionPlan(
+            assemblyPath,
+            new CompileBackMethodIdentity(fullType, methodName, overload, signatureText),
+            module,
+            declarations,
+            requirements,
+            diagnostics);
+        return new CompileBackSourceResult(plan, WriteCompilationUnit(plan));
+    }
+
+    public static CompileBackSourceResult ComposePropertySetter(
+        string assemblyPath,
+        MetadataReader reader,
+        IrFunction function,
+        TypeDefinitionHandle targetType,
+        PropertyDefinitionHandle targetProperty,
+        MethodDefinitionHandle targetSetter,
+        string targetBody,
+        string fullType,
+        string methodName,
+        int overload,
+        string signatureText,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+    {
+        var targetTypeDef = reader.GetTypeDefinition(targetType);
+        var property = reader.GetPropertyDefinition(targetProperty);
+        var setter = reader.GetMethodDefinition(targetSetter);
+        var propertySignature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, targetTypeDef));
+        var setterSignature = setter.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, setter));
+        var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
+        string propertyName = Identifier(reader.GetString(property.Name));
+        var returnType = CompileBackTypeSignature.Display(propertySignature.ReturnType);
+        bool targetIsAutoProperty = IsAutoPropertySetter(reader, targetTypeDef, property, targetSetter, returnType.DisplayName);
+
+        var diagnostics = new List<CompileBackPlanningDiagnostic>();
+        var targetRoot = TopLevelRootOf(reader, targetType);
+        var targetFacts = new List<CompileBackFact>
+        {
+            new("metadata", "target-type", targetIdentity.FullName),
+        };
+        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+            targetFacts.AddRange(targetClosureFacts);
+
+        var indexerParameterCount = propertySignature.ParameterTypes.Length;
+        var requirements = new List<CompileBackTypeRequirement>
+        {
+            new(
+                targetIdentity,
+                ShellKind(reader, targetTypeDef),
+                [
+                    new CompileBackMemberRequirement(
+                        new CompileBackMethodIdentity(targetIdentity.FullName, propertyName, overload, signatureText),
+                        CompileBackMemberKind.PropertySet,
+                        setter.Attributes.HasFlag(MethodAttributes.Static),
+                        MethodParameters(reader, setter, setterSignature).Take(indexerParameterCount).ToArray(),
+                        returnType,
+                        targetIsAutoProperty
+                            ? CompileBackStubBodyKind.AutoPropertyGetSet
+                            : property.GetAccessors().Getter.IsNil
+                                ? CompileBackStubBodyKind.TargetBody
+                                : CompileBackStubBodyKind.TargetSetterWithGetter,
+                        targetIsAutoProperty ? null : targetBody,
+                        targetIsAutoProperty
+                            ? [
+                                new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name)),
+                                new CompileBackFact("metadata", "auto-property", propertyName)
+                            ]
+                            : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))])
                 ],
                 PrimaryConstructor: null,
                 targetFacts)
@@ -587,6 +700,7 @@ public static class CompileBackSourceComposer
                 }
                 if (member.StubBody == CompileBackStubBodyKind.AutoPropertyGetSet)
                 {
+                    declaration = StripPropertyAccessorBlock(declaration);
                     sb.AppendLine($"{pad}{declaration} {{ get; set; }}");
                     break;
                 }
@@ -608,6 +722,42 @@ public static class CompileBackSourceComposer
                         if (text.Length > 0)
                             sb.AppendLine($"{pad}        {text}");
                     }
+                }
+                sb.AppendLine($"{pad}    }}");
+                if (member.StubBody == CompileBackStubBodyKind.TargetGetterWithSetter)
+                {
+                    sb.AppendLine($"{pad}    set");
+                    sb.AppendLine($"{pad}    {{");
+                    sb.AppendLine($"{pad}        throw null;");
+                    sb.AppendLine($"{pad}    }}");
+                }
+                sb.AppendLine($"{pad}}}");
+                break;
+            case CompileBackMemberKind.PropertySet:
+                if (member.StubBody == CompileBackStubBodyKind.AutoPropertyGetSet)
+                {
+                    declaration = StripPropertyAccessorBlock(declaration);
+                    sb.AppendLine($"{pad}{declaration} {{ get; set; }}");
+                    break;
+                }
+
+                declaration = StripPropertyAccessorBlock(declaration);
+                sb.AppendLine($"{pad}{declaration}");
+                sb.AppendLine($"{pad}{{");
+                if (member.StubBody == CompileBackStubBodyKind.TargetSetterWithGetter)
+                {
+                    sb.AppendLine($"{pad}    get");
+                    sb.AppendLine($"{pad}    {{");
+                    sb.AppendLine($"{pad}        throw null;");
+                    sb.AppendLine($"{pad}    }}");
+                }
+                sb.AppendLine($"{pad}    set");
+                sb.AppendLine($"{pad}    {{");
+                foreach (var line in member.Body.Split('\n'))
+                {
+                    var text = line.TrimEnd('\r');
+                    if (text.Length > 0)
+                        sb.AppendLine($"{pad}        {text}");
                 }
                 sb.AppendLine($"{pad}    }}");
                 sb.AppendLine($"{pad}}}");
@@ -680,6 +830,7 @@ public static class CompileBackSourceComposer
             Kind = member.Kind switch
             {
                 CompileBackMemberKind.PropertyGet => "property",
+                CompileBackMemberKind.PropertySet => "property",
                 CompileBackMemberKind.Constructor => "constructor",
                 CompileBackMemberKind.Method => "method",
                 CompileBackMemberKind.Field => "field",
@@ -691,6 +842,8 @@ public static class CompileBackSourceComposer
                 CompileBackMemberKind.PropertyGet when member.Parameters.Count > 0 => $"{returnType ?? "void"} this[{parameterList}] {{ get; }}",
                 CompileBackMemberKind.PropertyGet when type.Kind == CompileBackTypeKind.Interface => $"{returnType ?? "void"} {member.Name} {{ get; }}",
                 CompileBackMemberKind.PropertyGet => $"{returnType ?? "void"} {member.Name}",
+                CompileBackMemberKind.PropertySet when member.Parameters.Count > 0 => $"{returnType ?? "void"} this[{parameterList}] {{ set; }}",
+                CompileBackMemberKind.PropertySet => $"{returnType ?? "void"} {member.Name} {{ set; }}",
                 CompileBackMemberKind.Constructor => $"void .ctor({parameterList})",
                 CompileBackMemberKind.Method => $"{returnType ?? "void"} {member.Name}({parameterList})",
                 CompileBackMemberKind.Field => $"{returnType ?? "object"} {member.Name}",
@@ -732,10 +885,13 @@ public static class CompileBackSourceComposer
 
     static string StripPropertyAccessorBlock(string declaration)
     {
-        const string getOnly = " { get; }";
-        return declaration.EndsWith(getOnly, StringComparison.Ordinal)
-            ? declaration[..^getOnly.Length]
-            : declaration;
+        foreach (var suffix in new[] { " { get; }", " { set; }" })
+        {
+            if (declaration.EndsWith(suffix, StringComparison.Ordinal))
+                return declaration[..^suffix.Length];
+        }
+
+        return declaration;
     }
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
@@ -960,6 +1116,47 @@ public static class CompileBackSourceComposer
         string propertyName = reader.GetString(property.Name);
         string backingName = $"<{propertyName}>k__BackingField";
         bool isStatic = getter.Attributes.HasFlag(MethodAttributes.Static);
+        var context = GenericContext.ForType(reader, typeDef);
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) != backingName)
+                continue;
+            if (field.Attributes.HasFlag(FieldAttributes.Static) != isStatic)
+                continue;
+            if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, field.GetCustomAttributes()))
+                return false;
+            try
+            {
+                return CompileBackTypeSignature.Display(field.DecodeSignature(SignatureDecoder.Instance, context)).DisplayName == propertyType;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return false;
+            }
+
+        }
+
+        return false;
+    }
+
+    static bool IsAutoPropertySetter(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        PropertyDefinition property,
+        MethodDefinitionHandle setterHandle,
+        string propertyType)
+    {
+        var accessors = property.GetAccessors();
+        if (accessors.Setter.IsNil || accessors.Setter != setterHandle)
+            return false;
+        var setter = reader.GetMethodDefinition(setterHandle);
+        if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, setter.GetCustomAttributes()))
+            return false;
+
+        string propertyName = reader.GetString(property.Name);
+        string backingName = $"<{propertyName}>k__BackingField";
+        bool isStatic = setter.Attributes.HasFlag(MethodAttributes.Static);
         var context = GenericContext.ForType(reader, typeDef);
         foreach (var fieldHandle in typeDef.GetFields())
         {
@@ -1354,7 +1551,9 @@ public static class CompileBackSourceComposer
                 {
                     continue;
                 }
-                if (members.Any(member => member.Kind == CompileBackMemberKind.PropertyGet && member.Name == Identifier(propertyName)))
+                if (members.Any(member =>
+                        member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                        && member.Name == Identifier(propertyName)))
                     continue;
 
                 MethodSignature<string> signature;

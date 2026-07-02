@@ -174,6 +174,13 @@ public class GeneratedFixtureCatalogTests
         AssertTarget(
             run,
             "minimal.object-initializer",
+            "GeneratedFixtures.MinimalObjectInitializer.Helper",
+            "set_Value",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.object-initializer",
             "GeneratedFixtures.MinimalObjectInitializer.Class1",
             ".ctor",
             FidelityCheck.CompileBackStatus.Exact,
@@ -267,6 +274,27 @@ public class GeneratedFixtureCatalogTests
             "minimal.indexer.getter",
             "GeneratedFixtures.MinimalIndexerGetter.Class1",
             "get_Item",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.indexer.setter",
+            "GeneratedFixtures.MinimalIndexerSetter.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.indexer.setter",
+            "GeneratedFixtures.MinimalIndexerSetter.Class1",
+            "get_Item",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.indexer.setter",
+            "GeneratedFixtures.MinimalIndexerSetter.Class1",
+            "set_Item",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);
         AssertTarget(
@@ -410,6 +438,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.array-index", report);
         Assert.Contains("minimal.array-length", report);
         Assert.Contains("minimal.indexer.getter", report);
+        Assert.Contains("minimal.indexer.setter", report);
         Assert.Contains("minimal.string-length", report);
         Assert.Contains("minimal.null-coalesce", report);
         Assert.Contains("minimal.try-finally", report);
@@ -459,6 +488,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.foreach-array",
                 "minimal.if-else",
                 "minimal.indexer.getter",
+                "minimal.indexer.setter",
                 "minimal.integer-addition",
                 "minimal.interface-implementation",
                 "minimal.method-call.same-type",
@@ -507,6 +537,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-index");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.array-length");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.indexer.getter");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.indexer.setter");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.string-length");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.null-coalesce");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.try-finally");
