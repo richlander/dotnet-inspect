@@ -38,9 +38,20 @@ public class TfmSelectorTests : IDisposable
     [Fact]
     public void SelectHighestAssembliesFromPackage_KeepsPrimaryAssemblyEndingInResources()
     {
-        var resourcesAssembly = WriteDll("lib/net8.0/MyCompany.Resources.dll");
+        var resourcesAssembly = WriteDll("lib/net472/MyCompany.Resources.dll");
 
         var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal("net472", tfm);
+        Assert.Equal([resourcesAssembly], paths);
+    }
+
+    [Fact]
+    public void SelectHighestAssembliesFromPackage_KeepsToolPrimaryAssemblyEndingInResources()
+    {
+        var resourcesAssembly = WriteDll("tools/net8.0/any/MyTool.Resources.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir, "net8.0");
 
         Assert.Equal("net8.0", tfm);
         Assert.Equal([resourcesAssembly], paths);
@@ -80,6 +91,19 @@ public class TfmSelectorTests : IDisposable
 
         Assert.Equal("net8.0", tfm);
         Assert.Equal([referenceAssembly], paths);
+    }
+
+    [Fact]
+    public void SelectHighestAssembliesFromPackage_ExplicitTfmScansAllLayouts()
+    {
+        WriteDll("tools/net472/MyTool.dll");
+        var libraryAssembly = WriteDll("lib/net8.0/MyLib.dll");
+        var companionAssembly = WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir, "net8.0");
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([libraryAssembly, companionAssembly], paths);
     }
 
     [Fact]
@@ -138,6 +162,18 @@ public class TfmSelectorTests : IDisposable
         var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0", "MyPackage");
 
         Assert.Equal(primary, result);
+    }
+
+    [Fact]
+    public void FindAssemblyInPackage_ExplicitTfmScansAllLayouts()
+    {
+        WriteDll("tools/net472/MyTool.dll");
+        var libraryAssembly = WriteDll("lib/net8.0/MyLib.dll");
+
+        var (path, tfm) = TfmSelector.FindAssemblyInPackage(_tempDir, "MyLib", "net8.0");
+
+        Assert.Equal(libraryAssembly, path);
+        Assert.Equal("net8.0", tfm);
     }
 
     [Fact]

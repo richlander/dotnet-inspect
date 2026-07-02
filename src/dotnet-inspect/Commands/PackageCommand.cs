@@ -1974,14 +1974,24 @@ public class PackageCommand
             return null;
         }
 
-        var allCandidates = TfmSelector.GetPackageAssemblies(extractPath);
-        if (allCandidates.Count == 0)
+        List<string> pool;
+        string? selectedTfm;
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-            return null;
+            var allCandidates = TfmSelector.GetPackageAssemblies(extractPath);
+            if (allCandidates.Count == 0)
+            {
+                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+                return null;
+            }
+
+            (pool, selectedTfm) = TfmSelector.SelectHighestAssemblies(allCandidates, extractPath);
+        }
+        else
+        {
+            (pool, selectedTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
         }
 
-        var (pool, selectedTfm) = TfmSelector.SelectHighestAssemblies(allCandidates, extractPath, options.Tfm);
         if (pool.Count == 0)
         {
             Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
@@ -2011,14 +2021,24 @@ public class PackageCommand
         string version,
         InspectionOptions options)
     {
-        var candidates = TfmSelector.GetPackageAssemblies(extractPath);
-        if (candidates.Count == 0)
+        List<string> selected;
+        string? highestTfm;
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-            return null;
+            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
+            if (candidates.Count == 0)
+            {
+                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+                return null;
+            }
+
+            (selected, highestTfm) = TfmSelector.SelectHighestAssemblies(candidates, extractPath);
+        }
+        else
+        {
+            (selected, highestTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
         }
 
-        var (selected, highestTfm) = TfmSelector.SelectHighestAssemblies(candidates, extractPath, options.Tfm);
         if (selected.Count == 0)
         {
             Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");

@@ -1,4 +1,3 @@
-using System.Globalization;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -211,7 +210,19 @@ public static class TfmSelector
     }
 
     public static (List<string> paths, string? tfm) SelectHighestAssembliesFromPackage(string extractPath, string? tfm = null)
-        => SelectHighestAssemblies(GetPackageDlls(extractPath), extractPath, tfm);
+        => !string.IsNullOrWhiteSpace(tfm) && !string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase)
+            ? SelectAssembliesByTfmFromPackage(extractPath, tfm)
+            : SelectHighestAssemblies(GetPackageDlls(extractPath), extractPath, tfm);
+
+    public static (List<string> paths, string? tfm) SelectAssembliesByTfmFromPackage(string extractPath, string tfm)
+    {
+        var selected = FilterResourceAssemblies(Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories))
+            .Where(path => string.Equals(GetTfm(extractPath, path), tfm, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path => GetExplicitTfmLookupPriority(extractPath, path))
+            .ThenBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return (selected, tfm);
+    }
 
     public static (List<string> paths, string? tfm) SelectHighestAssemblies(List<string> dlls, string extractPath, string? tfm = null)
     {
@@ -236,7 +247,9 @@ public static class TfmSelector
 
     public static (string? path, string? tfm) FindAssemblyInPackage(string extractPath, string assemblyName, string? tfm = null)
     {
-        var dlls = GetPackageAssemblies(extractPath);
+        var dlls = !string.IsNullOrEmpty(tfm)
+            ? SelectAssembliesByTfmFromPackage(extractPath, tfm).paths
+            : GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
             return (null, null);
 
@@ -263,26 +276,15 @@ public static class TfmSelector
         if (matchingFiles.Count == 0)
             return (null, null);
 
-        if (!string.IsNullOrEmpty(tfm))
-        {
-            matchingFiles = matchingFiles
-                .Where(dll => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/')),
-                    tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (matchingFiles.Count == 0)
-                return (null, tfm);
-        }
-
         var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(matchingFiles, extractPath);
         return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
     }
 
     public static (string? path, string? tfm) FindAssemblyContainingType(string extractPath, string typeName, string? tfm = null)
     {
-        var dlls = GetPackageAssemblies(extractPath);
+        var dlls = !string.IsNullOrEmpty(tfm)
+            ? SelectAssembliesByTfmFromPackage(extractPath, tfm).paths
+            : GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
             return (null, null);
 
@@ -291,7 +293,8 @@ public static class TfmSelector
 
         if (!string.IsNullOrEmpty(tfm))
         {
-            (candidateDlls, selectedTfm) = SelectHighestAssemblies(dlls, extractPath, tfm);
+            candidateDlls = dlls;
+            selectedTfm = tfm;
         }
         else
         {
@@ -326,11 +329,7 @@ public static class TfmSelector
 
     public static string? FindAssemblyByTfm(string extractPath, string tfm, string? packageName = null)
     {
-        var dlls = FilterResourceAssemblies(Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories))
-            .Where(path => string.Equals(GetTfm(extractPath, path), tfm, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(path => GetExplicitTfmLookupPriority(extractPath, path))
-            .ThenBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var (dlls, _) = SelectAssembliesByTfmFromPackage(extractPath, tfm);
         if (dlls.Count == 0)
             return null;
 
@@ -359,18 +358,43 @@ public static class TfmSelector
         if (!Path.GetFileName(path).EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        var parentDirectory = Directory.GetParent(path)?.Name;
-        if (string.IsNullOrWhiteSpace(parentDirectory))
+        var parentDirectory = Directory.GetParent(path);
+        if (!IsCultureDirectoryName(parentDirectory?.Name))
             return false;
 
-        try
-        {
-            _ = CultureInfo.GetCultureInfo(parentDirectory);
-            return true;
-        }
-        catch (CultureNotFoundException)
-        {
+        var primaryAssemblyName = Path.GetFileName(path)[..^".resources.dll".Length] + ".dll";
+        var primaryAssemblyPath = Path.Combine(
+            parentDirectory!.Parent?.FullName ?? "",
+            primaryAssemblyName);
+        return File.Exists(primaryAssemblyPath);
+    }
+
+    private static bool IsCultureDirectoryName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
             return false;
-        }
+
+        if (name.Equals("any", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var parts = name.Split('-', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return false;
+
+        return IsLanguageSubtag(parts[0])
+            && parts.Skip(1).All(IsCultureSubtag);
+    }
+
+    private static bool IsLanguageSubtag(string value)
+        => value.Length is 2 or 3 && value.All(c => c is >= 'a' and <= 'z');
+
+    private static bool IsCultureSubtag(string value)
+    {
+        if (value.Length is < 2 or > 8)
+            return false;
+
+        return value.All(c => c is >= 'a' and <= 'z'
+            || c is >= 'A' and <= 'Z'
+            || c is >= '0' and <= '9');
     }
 }

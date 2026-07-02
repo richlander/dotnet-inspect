@@ -281,11 +281,10 @@ public class DiffCommand
             return (null, null, null, outcome.ErrorMessage);
 
         var extracted = outcome.Result!;
-        var dlls = TfmSelector.GetPackageAssemblies(extracted.ExtractPath);
-        if (dlls.Count == 0)
+        var (paths, selectedTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extracted.ExtractPath, options.Tfm);
+        if (paths.Count == 0 && string.IsNullOrEmpty(options.Tfm))
             return (null, null, extracted.TempDir, "No DLLs found in package.");
 
-        var (paths, selectedTfm) = TfmSelector.SelectHighestAssemblies(dlls, extracted.ExtractPath, options.Tfm);
         paths = paths.OrderBy(path => path, StringComparer.Ordinal).ToList();
 
         if (paths.Count == 0)
