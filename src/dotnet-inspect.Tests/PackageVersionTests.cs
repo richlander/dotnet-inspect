@@ -97,6 +97,34 @@ public class PackageVersionTests
         Assert.Equal(routerOutput.Trim(), packageOutput.Trim());
     }
 
+    [Fact]
+    public async Task Package_InvalidPinnedVersion_ReturnsHelpfulError()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var args = new[] { "package", "System.Text.Json@badversion" };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Error: 'badversion' is not a valid package version.", error);
+        Assert.Contains("To list available versions: dotnet-inspect package system.text.json --versions", error);
+    }
+
+    [Fact]
+    public async Task MultiPackage_InvalidPinnedVersion_ReturnsPerPackageHint()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var args = new[] { "package", "System.Text.Json@badversion", "Newtonsoft.Json", "--table" };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Error: 'badversion' is not a valid package version.", error);
+        Assert.Contains("Use id@version for per-package version pins.", error);
+    }
+
     /// <summary>
     /// Downloads a package so it's in the NuGet cache for subsequent tests.
     /// </summary>

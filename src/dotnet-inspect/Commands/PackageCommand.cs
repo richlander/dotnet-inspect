@@ -256,36 +256,16 @@ public class PackageCommand
         }
         else
         {
-            // Support format: PackageName or PackageName@version
-            string packageArg = packageArgs[0];
-            int atIndex = packageArg.IndexOf('@');
+            var target = PackageExtractor.ParsePackageTarget(packageArgs[0], explicitVersion);
+            packageName = target.PackageName;
+            version = target.Version;
 
             if (explicitVersion != null)
-            {
-                packageName = atIndex > 0
-                    ? packageArg[..atIndex].ToLowerInvariant()
-                    : packageArg.ToLowerInvariant();
-                version = explicitVersion.ToLowerInvariant();
                 logger.Log($"Using --version: {version}");
-            }
-            else if (atIndex > 0)
-            {
-                packageName = packageArg[..atIndex].ToLowerInvariant();
-                version = packageArg[(atIndex + 1)..].ToLowerInvariant();
+            else if (version.Length > 0)
                 logger.Log($"Using specified version: {version}");
-            }
-            else
-            {
-                packageName = packageArg.ToLowerInvariant();
-                version = "";
-            }
 
-            // Validate version looks like a NuGet version (allow wildcard patterns like 11.0.0-preview*)
-            // "latest" is handled as a special tag by PackageExtractor
-            if (version.Length > 0
-                && !string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
-                && !version.Contains('*')
-                && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+            if (!PackageExtractor.IsValidPackageReferenceVersion(version))
             {
                 string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
                 Console.Error.WriteLine($"Error: '{badVersion}' is not a valid package version.");
@@ -570,12 +550,6 @@ public class PackageCommand
         }
     }
 
-    private sealed record PackageTarget(
-        string OriginalArgument,
-        bool IsLocalFile,
-        string PackageName,
-        string Version);
-
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
         InspectionOptions options,
@@ -601,7 +575,7 @@ public class PackageCommand
             return 1;
         }
 
-        var targets = new List<PackageTarget>();
+        var targets = new List<PackageReferenceTarget>();
         foreach (var packageArg in packageArgs)
         {
             if (!TryCreatePackageTarget(packageArg, out var target))
@@ -1039,11 +1013,11 @@ public class PackageCommand
         return false;
     }
 
-    private static bool TryCreatePackageTarget(string packageArg, out PackageTarget target)
+    private static bool TryCreatePackageTarget(string packageArg, out PackageReferenceTarget target)
     {
         target = null!;
-        bool isLocalFile = packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-        if (isLocalFile)
+        var parsed = PackageExtractor.ParsePackageTarget(packageArg);
+        if (parsed.IsLocalFile)
         {
             if (!File.Exists(packageArg))
             {
@@ -1051,34 +1025,19 @@ public class PackageCommand
                 return false;
             }
 
-            target = new PackageTarget(
-                packageArg,
-                IsLocalFile: true,
-                Path.GetFileNameWithoutExtension(packageArg),
-                Version: "local");
+            target = parsed;
             return true;
         }
 
-        int atIndex = packageArg.IndexOf('@');
-        string packageName = atIndex > 0
-            ? packageArg[..atIndex].ToLowerInvariant()
-            : packageArg.ToLowerInvariant();
-        string version = atIndex > 0
-            ? packageArg[(atIndex + 1)..].ToLowerInvariant()
-            : "";
-
-        if (version.Length > 0
-            && !string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
-            && !version.Contains('*')
-            && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+        if (!PackageExtractor.IsValidPackageReferenceVersion(parsed.Version))
         {
-            Console.Error.WriteLine($"Error: '{version}' is not a valid package version.");
+            Console.Error.WriteLine($"Error: '{parsed.Version}' is not a valid package version.");
             Console.Error.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
             Console.Error.WriteLine("Use id@version for per-package version pins.");
             return false;
         }
 
-        target = new PackageTarget(packageArg, IsLocalFile: false, packageName, version);
+        target = parsed;
         return true;
     }
 
@@ -1089,7 +1048,7 @@ public class PackageCommand
         InspectionOptions options,
         CommandContext context)
     {
-        var targets = new List<PackageTarget>();
+        var targets = new List<PackageReferenceTarget>();
         foreach (var packageArg in packageArgs)
         {
             if (!TryCreatePackageTarget(packageArg, out var target))
@@ -1110,7 +1069,7 @@ public class PackageCommand
     }
 
     private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
-        PackageTarget target,
+        PackageReferenceTarget target,
         InspectionOptions options,
         CommandContext context)
     {
@@ -1164,7 +1123,7 @@ public class PackageCommand
     }
 
     private static async Task<InspectionResult?> InspectPackageAsync(
-        PackageTarget target,
+        PackageReferenceTarget target,
         InspectionOptions options,
         CommandContext context,
         bool wantsFilesSection)
