@@ -33,6 +33,11 @@ public record ExtensionsOptions : IAssemblySourceOptions
     public string[] PlatformFrameworks { get; init; } = [];
 
     /// <summary>
+    /// Project files, directories, or project.assets.json paths to search via restored assets.
+    /// </summary>
+    public string[] Projects { get; init; } = [];
+
+    /// <summary>
     /// Include extensions on types reachable via properties/methods.
     /// </summary>
     public bool Reachable { get; init; }
@@ -105,6 +110,7 @@ public record ExtensionsOptions : IAssemblySourceOptions
         Assemblies.Length > 0 ||
         PlatformAssemblies.Length > 0 ||
         PlatformFrameworks.Length > 0 ||
+        Projects.Length > 0 ||
         PackagePrefix != null;
 
     /// <summary>

@@ -43,6 +43,11 @@ public record DependsOptions : IAssemblySourceOptions
     public string[] PlatformFrameworks { get; init; } = [];
 
     /// <summary>
+    /// Project files, directories, or project.assets.json paths to search via restored assets.
+    /// </summary>
+    public string[] Projects { get; init; } = [];
+
+    /// <summary>
     /// Target framework moniker (e.g., net8.0).
     /// </summary>
     public string? Tfm { get; init; }
@@ -94,7 +99,8 @@ public record DependsOptions : IAssemblySourceOptions
         Packages.Length > 0 ||
         Assemblies.Length > 0 ||
         PlatformAssemblies.Length > 0 ||
-        PlatformFrameworks.Length > 0;
+        PlatformFrameworks.Length > 0 ||
+        Projects.Length > 0;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
