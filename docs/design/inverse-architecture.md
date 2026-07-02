@@ -22,38 +22,25 @@ infrastructure that is planned (the annotation layer in
 [Two levels](#two-levels-the-prose-and-the-code)) rather than built. Sections that
 describe intent say so.
 
-## The relationship is a retraction, not a duality
+## The relationship is a retraction
 
-It is tempting to call decompilation the *dual* of compilation. It is not — and the
-distinction matters, because it sets the bar for what we can promise.
+Decompilation is a **retraction**: a one-sided inverse (a *section*) of Roslyn's IL
+emission, exact **up to semantic equivalence** and **within a declared domain**. It is
+not a clean two-way inverse — it is **lossy** in the down direction (names, trivia, and
+spelling choices are gone). The property we hold ourselves to is
 
-- A **duality** (in the category-theory sense) reverses every arrow to get the
-  opposite category, turning constructions into their co-constructions
-  (product ↔ coproduct). It is an **involution** and lossless. Decompilation is
-  neither: it is **lossy** (names, trivia, and spelling choices are gone on the way
-  down), so it cannot be an involution.
-- What we actually have is a **retraction**: decompilation is a one-sided inverse
-  (a *section*) of Roslyn's IL emission, exact **up to semantic equivalence** and
-  **within a declared domain**. Formally, the property we hold ourselves to is
+```text
+emit ∘ decompile  ≈_sem  id_IL      (on the declared domain, under the stated assumptions)
+```
 
-  ```text
-  emit ∘ decompile  ≈_sem  id_IL      (on the declared domain, under the stated assumptions)
-  ```
-
-  and this is exactly what the harness measures as **compile-back fidelity** — the
-  recompiled IL of our rendered C# matches the IL we started from. The reverse
-  composition (`decompile ∘ emit`) is deliberately lossy; we do not try to recover
-  identifiers or formatting.
+and this is exactly what the harness measures as **compile-back fidelity** — the
+recompiled IL of our rendered C# matches the IL we started from. The reverse
+composition (`decompile ∘ emit`) is deliberately lossy; we do not try to recover
+identifiers or formatting.
 
 So the honest framing carries three qualifiers everywhere: **semantic equivalence**,
 a **declared domain**, and **per-node assumptions**. The rest of this document is
 mostly the enumeration of those assumptions.
-
-The one place true mathematical **duality** *does* live is one level down, in the
-analyses the passes run: forward and backward dataflow are order-theoretic duals
-(the same lattice framework on the reversed CFG), and abstraction ↔ concretization
-form a Galois connection. Those are internal tools, not the compile ↔ decompile
-relationship itself.
 
 ## Two references, used differently
 
