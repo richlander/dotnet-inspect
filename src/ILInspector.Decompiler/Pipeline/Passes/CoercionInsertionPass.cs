@@ -24,7 +24,12 @@ public static class CoercionSinks
     /// (review finding: phantom split locals).
     /// </summary>
     public static bool RequiresCoercion(TypedSink sink, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => sink.Value is not (Coerce or LoadStackSlot)
+        // Merge nodes (conditional/coalesce/switch expressions) are excluded
+        // like slot loads: CoerceText owns their target-aware rendering via its
+        // own branches (TryConditionalTextForTarget and siblings), and wrapping
+        // them re-routes statement-position spellings into the inline forms
+        // (a multi-line switch expression collapsing to one line).
+        => sink.Value is not (Coerce or LoadStackSlot or Conditional or Coalesce or SwitchExpression or UnionSwitchExpression)
             && CoercionDomain.InDomain(sink.Target, shapes)
             && !CoercionDomain.IsAtTarget(sink.Value, sink.Target);
 
@@ -99,9 +104,13 @@ public static class CoercionSinks
                 case NullCoalescingPropertyAssignment { Value: { } value, PropertyType: { } type }:
                     yield return new(value, type);
                     break;
-                case Box { Operand: { } operand, Type: { } type }:
-                    yield return new(operand, type);
-                    break;
+                // Box is deliberately absent: the unbox-over-box spelling
+                // (`(T)(object)x`) renders the operand through ConvertText, not
+                // CoerceText, and a bare constant under `(object)` boxes the
+                // literal's own type regardless of the box token — the coercion
+                // needs the explicit type spelling there. Residual for the
+                // burn-down; the plain-Box printer branch still coerces via its
+                // own CoerceText call.
                 case StoreElement store when store.Value is { } value
                     && StoreElementTarget(store, function.TypeShapes) is { } elementType:
                     yield return new(value, elementType);
@@ -158,6 +167,8 @@ public static class CoercionDomain
     /// rule still covers it at render time).
     /// </summary>
     public static bool InDomain(TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        // Char and the native ints ride IsNumericPrimitive; only bool needs the
+        // explicit disjunct (it is deliberately not a numeric primitive).
         => TypeFamilies.IsNumericPrimitive(target)
             || TypeFamilies.IsBoolean(target)
             || shapes.GetValueOrDefault(target) == TypeShape.Enum;

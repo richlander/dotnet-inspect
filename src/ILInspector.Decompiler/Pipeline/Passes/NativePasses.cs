@@ -83,6 +83,8 @@ internal static class NativePasses
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]
     public static TypedConstantsPass TypedConstants => new();
+    [Native(NativeCategory.IlErasure, "typed-sink values wrapped in explicit Coerce nodes — the sink type IL erased, re-established as IR so the printer renders a decided tree")]
+    public static CoercionInsertionPass CoercionInsertion => new();
     [Native(NativeCategory.IlErasure, "bool marshalled as int (cgt against 0) normalized")]
     public static BoolToIntNormalizationPass BoolToIntNormalization => new();
     [Native(NativeCategory.IlErasure, "a bool operand of integer arithmetic (erased to i4 on the IL stack) materialized back to (cond ? 1 : 0) so the mix is not CS0019 int + bool")]

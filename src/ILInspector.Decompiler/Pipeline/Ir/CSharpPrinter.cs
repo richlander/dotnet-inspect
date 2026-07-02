@@ -2127,14 +2127,36 @@ public sealed partial class CSharpPrinter
             // span the ENTIRE text — a child cast can contribute a leading
             // `unchecked(` (`unchecked((uint)b) / unchecked((uint)c)`) without
             // bracketing the whole expression, and dropping its parens would misbind.
-            || node is Binary or Convert
-                && (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("));
+            || node is Binary or Convert or Coerce
+                && (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("))
+            // A Coerce that rendered as a member name or bare literal is an
+            // atom; its cast and `cond ? 1 : 0` forms are NOT — a cast as a
+            // member-access receiver misbinds onto the call result
+            // (`(E)x.M()` is `(E)(x.M())`), so those keep Operand's parens.
+            || node is Coerce && IsSimpleAtomText(text);
         atomic = atomic || node is LoadIndirect load && PointerElementAccessText(load) is not null;
         return atomic ? text : $"({text})";
     }
 
     string CollectionElementText(IrExpression element)
         => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
+
+    /// <summary>
+    /// True when rendered text is a bare identifier chain or numeric literal
+    /// (`LEnum.High`, `10`, `-1`) — safe unparenthesized in any operand
+    /// position, including as a member-access receiver.
+    /// </summary>
+    static bool IsSimpleAtomText(string text)
+    {
+        if (text.Length == 0)
+            return false;
+        foreach (char c in text)
+        {
+            if (!char.IsLetterOrDigit(c) && c is not ('.' or '_' or '@' or '-'))
+                return false;
+        }
+        return true;
+    }
 
     /// <summary>
     /// True when <paramref name="text"/> is a single <paramref name="prefix"/>-wrapped

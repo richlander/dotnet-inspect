@@ -411,17 +411,30 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `CfgULong.All`, not `unchecked((CfgULong)((long)(-1)))`. Switch labels stay
    printer-spelled (`EnumConstantText`): `SwitchSection` holds them outside the
    rewritable tree.
-3. **Turn the invariant on.** Landed (#TBD): the `Coerce` node,
-   `CoercionInsertionPass` (pipeline-last, wraps every in-domain sink value not
-   provably at target, output-neutral by construction), and
-   `CoercionInvariant.Check`. First corpus sweep: 15 assemblies, 134,373
-   methods — 0 violations, with 9,072 `Coerce` nodes routed across 3,749
-   methods, so the assertion is active, not vacuous. Declared residuals for
-   later burn-down: `StoreIndirect` targets (printer's `IndirectStoreType`
-   derivation not yet shared), non-enum conditional merges, `switch` labels
-   (held outside the rewritable tree), and operand positions
-   (`TryCoerceEnumOperand` — reconciliation, not sinks). Slices 1–3 deliver
-   the coercion choke point; step 4 is independent.
+3. **Turn the invariant on.** Landed: the `Coerce` node,
+   `CoercionInsertionPass` (pipeline-last), and `CoercionInvariant.Check`, with
+   one shared `RequiresCoercion` decision so pass and checker cannot drift.
+   Corpus evidence: 15 assemblies, 134,373 methods — 0 violations, 7,954
+   `Coerce` nodes routed across 3,225 methods (active, not vacuous), and a
+   **render-text A/B against the merge base** in which every one of the 17
+   changed methods is a verified fidelity fix (wrong `op_Implicit`
+   overloads/values at call arguments, CS1929 extension receivers, CS0266
+   iterator yields) — neutral on common sinks, correcting
+   previously-unfaithful casts at call-argument sinks. The insertion domain is
+   deliberately "sinks whose printer rendering is provably CoerceText with the
+   same target"; everything else is an enumerated residual for the burn-down:
+   slot-carried values (the unifier owns their type until instance 2), lambda
+   returns (delegate `Invoke` signature not yet resolved), merge-node values
+   (CoerceText's own targeted branches render them, statement-position
+   formatting included), `Box` operands (the unbox-over-box spelling renders
+   through `ConvertText`, and a bare constant under `(object)` boxes the
+   literal's own type), `StoreIndirect` targets (printer's `IndirectStoreType`
+   not yet shared), `switch` labels (outside the rewritable tree), and operand
+   positions (`TryCoerceEnumOperand` — reconciliation, not sinks). Slices 1–3
+   deliver the coercion choke point; step 4 is independent — and the
+   longer-term end state is Roslyn's: establish the invariant **at
+   construction** (importer emits coerced trees) rather than by a
+   pipeline-last mutating pass.
 4. **Complete join typing — the shared type-propagation spine** (worth its own
    slice/issue). Where the importer drops to `Unknown` but a sound common type
    exists, propagate types at joins (the RyuJIT typed-temp model), reducing
