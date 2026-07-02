@@ -179,6 +179,30 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "static", "constructor", "field"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalStaticClass = new(
+        "minimal.static-class",
+        """
+        namespace GeneratedFixtures.MinimalStaticClass;
+
+        public static class Class1
+        {
+            private static int s_value = 42;
+
+            public static int Value => s_value;
+
+            public static int Method1(int value) => value + s_value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStaticClass.Class1", ".cctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticClass.Class1", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticClass.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "static", "class", "field"]);
+
     public static readonly GeneratedFixtureDefinition MinimalInterfaceImplementation = new(
         "minimal.interface-implementation",
         """
@@ -291,6 +315,70 @@ internal static class GeneratedFixtureCatalog
                 ExpectedShape: SyntaxKind.AddExpression),
         ],
         ["minimal", "integer", "arithmetic", "addition"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalStructMembers = new(
+        "minimal.struct-members",
+        """
+        namespace GeneratedFixtures.MinimalStructMembers;
+
+        public struct Counter
+        {
+            private int _value;
+
+            public Counter(int value)
+            {
+                _value = value;
+            }
+
+            public int Value
+            {
+                get => _value;
+                set => _value = value;
+            }
+
+            public int Add(int value) => _value + value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStructMembers.Counter", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStructMembers.Counter", "set_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStructMembers.Counter", "Add",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "struct", "value-type", "property", "setter"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalStructConstructorFieldInitFrontier = new(
+        "minimal.struct-constructor-field-init-frontier",
+        """
+        namespace GeneratedFixtures.MinimalStructConstructorFieldInitFrontier;
+
+        public struct Counter
+        {
+            private int _value;
+
+            public Counter(int value)
+            {
+                _value = value;
+            }
+
+            public int Value
+            {
+                get => _value;
+                set => _value = value;
+            }
+        }
+        """,
+        [
+            new(
+                "GeneratedFixtures.MinimalStructConstructorFieldInitFrontier.Counter",
+                ".ctor",
+                FidelityCheck.CompileBackStatus.OpcodeDiff,
+                IsFrontier: true,
+                Note: "RTS currently broad-surfaces sibling auto-properties after field-closure growth, introducing a backing-field initialization before the target struct constructor body."),
+        ],
+        ["minimal", "struct", "constructor", "frontier", "value-type"]);
 
     public static readonly GeneratedFixtureDefinition MinimalArrayIndex = new(
         "minimal.array-index",
@@ -677,11 +765,13 @@ internal static class GeneratedFixtureCatalog
         MinimalMethodCallSameType,
         MinimalStaticMethodCall,
         MinimalStaticConstructor,
+        MinimalStaticClass,
         MinimalInterfaceImplementation,
         MinimalObjectInitializer,
         MinimalCollectionInitializer,
         MinimalIfElse,
         MinimalIntegerAddition,
+        MinimalStructMembers,
         MinimalArrayIndex,
         MinimalArrayLength,
         MinimalIndexerGetter,
@@ -701,6 +791,7 @@ internal static class GeneratedFixtureCatalog
     [
         MinimalSwitchTwoCaseLowersIf,
         MinimalConditionalExpressionShapeFrontier,
+        MinimalStructConstructorFieldInitFrontier,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Catalog { get; } =
