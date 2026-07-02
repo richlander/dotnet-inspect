@@ -3,6 +3,7 @@ using ILInspector.Decompiler;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Reflection;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -816,6 +817,19 @@ public class ReturnToSenderPrototypeTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public void CompileBackSourceComposer_PrimaryConstructorParametersPrecedeGenericConstraints()
+    {
+        var method = typeof(CompileBackSourceComposer).GetMethod(
+            "AddPrimaryConstructorParameters",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        var result = Assert.IsType<string>(method?.Invoke(
+            null,
+            ["public class Class1<T> where T : class", "string message"]));
+
+        Assert.Equal("public class Class1<T>(string message) where T : class", result);
     }
 
     [Fact]

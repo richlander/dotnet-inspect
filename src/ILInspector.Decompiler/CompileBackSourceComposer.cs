@@ -663,7 +663,7 @@ public static class CompileBackSourceComposer
 
     static ApiMember ToApiMember(CompileBackTypeDeclaration type, CompileBackMemberDeclaration member)
     {
-        string parameterList = string.Join(", ", member.Parameters.Select(parameter => $"{parameter.Type.DisplayName} {parameter.Name}"));
+        string parameterList = string.Join(", ", member.Parameters.Select(RenderParameter));
         string? returnType = member.ReturnType?.DisplayName;
         return new ApiMember
         {
@@ -711,10 +711,13 @@ public static class CompileBackSourceComposer
 
     static string AddPrimaryConstructorParameters(string declaration, string parameters)
     {
-        int inheritance = declaration.IndexOf(" : ", StringComparison.Ordinal);
+        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
+        string head = constraints >= 0 ? declaration[..constraints] : declaration;
+        string tail = constraints >= 0 ? declaration[constraints..] : "";
+        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
         return inheritance >= 0
-            ? declaration[..inheritance] + $"({parameters})" + declaration[inheritance..]
-            : $"{declaration}({parameters})";
+            ? head[..inheritance] + $"({parameters})" + head[inheritance..] + tail
+            : $"{head}({parameters}){tail}";
     }
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
@@ -827,9 +830,12 @@ public static class CompileBackSourceComposer
             return null;
 
         string parameters = string.Join(", ", MethodParameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)))
-            .Select(parameter => $"{parameter.Type.DisplayName} {parameter.Name}"));
+            .Select(RenderParameter));
         return new CompileBackPrimaryConstructor(parameters, fieldInitializers);
     }
+
+    static string RenderParameter(CompileBackParameter parameter)
+        => $"{parameter.Type.DisplayName} {parameter.Name}";
 
     static Dictionary<int, string> ParameterNames(MetadataReader reader, MethodDefinition method)
     {
