@@ -87,6 +87,103 @@ public sealed class CSharpDeclarationFormatterTests
     }
 
     [Fact]
+    public void MemberSignatureSection_CanRenderGenericMethodFromStructuredSignature()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "StructuredHost",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Map",
+                    Kind = "method",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "TResult",
+                        MemberName = "Map<TSource, TResult>",
+                        TypeParameters =
+                        [
+                            new TypeParameter { Name = "TSource", Constraints = ["unmanaged"] },
+                            new TypeParameter { Name = "TResult", Constraints = ["System.IComparable<TResult>", "new()"] }
+                        ],
+                        Parameters =
+                        [
+                            new ApiParameter { Type = "TSource", Name = "source" }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new MemberOptions { OverloadIndex = 1 });
+
+        ApiOutputFormatter.PopulateMemberSignature(view, type, new MemberOptions { OverloadIndex = 1 });
+
+        Assert.Contains("Map", view.SignatureRows![0].Signature);
+        Assert.Contains("TSource", view.SignatureRows[0].Signature);
+        Assert.Contains("TResult", view.SignatureRows[0].Signature);
+        Assert.Contains("IComparable", view.SignatureRows[0].Signature);
+        Assert.DoesNotContain("BROKEN", view.SignatureRows[0].Signature);
+    }
+
+    [Fact]
+    public void MemberSignatureSection_CanRenderParameterAttributesFromStructuredSignature()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "StructuredHost",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Validate",
+                    Kind = "method",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "void",
+                        MemberName = "Validate",
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"Regex\")"],
+                                Type = "string",
+                                Name = "pattern"
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new MemberOptions { OverloadIndex = 1 });
+
+        ApiOutputFormatter.PopulateMemberSignature(view, type, new MemberOptions { OverloadIndex = 1 });
+
+        Assert.Contains("[System.Diagnostics.CodeAnalysis.StringSyntax(\"Regex\")] string pattern", view.SignatureRows![0].Signature);
+        Assert.DoesNotContain("BROKEN", view.SignatureRows[0].Signature);
+    }
+
+    [Fact]
     public void MemberSignatureSection_CanRenderPropertyFromStructuredSignature()
     {
         var type = new ApiType
@@ -128,6 +225,45 @@ public sealed class CSharpDeclarationFormatterTests
         Assert.Contains("public System.Collections.Generic.List", view.SignatureRows![0].Signature);
         Assert.Contains("Current", view.SignatureRows[0].Signature);
         Assert.Contains("private set", view.SignatureRows[0].Signature);
+        Assert.DoesNotContain("BROKEN", view.SignatureRows[0].Signature);
+    }
+
+    [Fact]
+    public void MemberSignatureSection_CanRenderEventFromStructuredSignature()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "StructuredHost",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Changed",
+                    Kind = "event",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.EventHandler",
+                        MemberName = "Changed"
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new MemberOptions { OverloadIndex = 1 });
+
+        ApiOutputFormatter.PopulateMemberSignature(view, type, new MemberOptions { OverloadIndex = 1 });
+
+        Assert.Contains("event System.EventHandler", view.SignatureRows![0].Signature);
+        Assert.Contains("Changed", view.SignatureRows[0].Signature);
         Assert.DoesNotContain("BROKEN", view.SignatureRows[0].Signature);
     }
 
@@ -174,5 +310,94 @@ public sealed class CSharpDeclarationFormatterTests
         ApiOutputFormatter.PopulateConstructorOverloads(view, type, new TypeOptions());
 
         Assert.Equal("new Widget(int count = 42)", view.ConstructorOverloads![0].Signature.Content);
+    }
+
+    [Fact]
+    public void ConstructorOverloadSnippet_UsesStructuredParameterDeclarations()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Attributes = ["System.Diagnostics.CodeAnalysis.NotNull"],
+                                Type = "string",
+                                Name = "event"
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new TypeOptions());
+
+        ApiOutputFormatter.PopulateConstructorOverloads(view, type, new TypeOptions());
+
+        Assert.Equal("new Widget([System.Diagnostics.CodeAnalysis.NotNull] string @event)", view.ConstructorOverloads![0].Signature.Content);
+    }
+
+    [Fact]
+    public void ConstructorOverloadSnippet_IgnoresObsoleteAttributePrefix()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    IsObsolete = true,
+                    ObsoleteMessage = "Use Widget()",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Type = "int",
+                                Name = "count"
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new TypeOptions());
+
+        ApiOutputFormatter.PopulateConstructorOverloads(view, type, new TypeOptions());
+
+        Assert.Equal("new Widget(int count)", view.ConstructorOverloads![0].Signature.Content);
     }
 }

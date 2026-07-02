@@ -462,9 +462,9 @@ internal static class AuditSignalBuilder
         if (result.TargetFrameworks is not { Count: > 0 } tfms)
             return ("No", "no lib/tools target framework assets");
 
-        var orderedTfms = tfms
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(TfmResolver.GetTfmPriority)
+        var orderedTfms = TfmSelector.OrderByTfmPriorityDescending(
+                tfms.Distinct(StringComparer.OrdinalIgnoreCase),
+                tfm => tfm)
             .ThenBy(tfm => tfm, StringComparer.OrdinalIgnoreCase)
             .ToList();
         var highest = orderedTfms[0];

@@ -15,6 +15,24 @@ public static class NuspecParser
     public static NuspecData Parse(string nuspecPath) => ParseDocument(HardenedXml.LoadXDocument(nuspecPath));
 
     /// <summary>
+    /// Finds the first nuspec file directly under a package directory.
+    /// </summary>
+    public static string? FindNuspec(string packageDir)
+    {
+        var nuspecFiles = Directory.GetFiles(packageDir, "*.nuspec", SearchOption.TopDirectoryOnly);
+        return nuspecFiles.Length == 0 ? null : nuspecFiles[0];
+    }
+
+    /// <summary>
+    /// Finds and parses the first nuspec file directly under a package directory.
+    /// </summary>
+    public static NuspecData? FindAndParse(string packageDir)
+    {
+        var nuspecPath = FindNuspec(packageDir);
+        return nuspecPath == null ? null : Parse(nuspecPath);
+    }
+
+    /// <summary>
     /// Parses nuspec metadata from raw XML content (e.g. a nuspec fetched directly from a feed
     /// without downloading the full package).
     /// </summary>

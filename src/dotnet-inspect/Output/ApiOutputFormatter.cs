@@ -1058,12 +1058,23 @@ public static class ApiOutputFormatter
         if (constructor.SignatureModel is { } signature
             && signature.Parameters.All(static parameter => !parameter.HasDefault || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
         {
-            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, constructor);
+            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                constructor,
+                new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
             if (!string.IsNullOrWhiteSpace(declaration))
-                return SignatureParser.FormatConstructorCall(declaration);
+                return ConstructorCallFromDeclaration(declaration);
         }
 
+        // Compatibility-only fallback for legacy signatures without complete
+        // structured default-value facts.
         return SignatureParser.FormatConstructorCall(constructor.Signature);
+    }
+
+    private static string ConstructorCallFromDeclaration(string declaration)
+    {
+        var parenStart = declaration.IndexOf('(');
+        return parenStart < 0 ? "()" : declaration[parenStart..];
     }
 
     internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null, ApiOptions? options = null)

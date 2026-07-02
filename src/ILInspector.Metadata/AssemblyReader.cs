@@ -55,6 +55,67 @@ public static class AssemblyReader
     }
 
     /// <summary>
+    /// Finds the unique public type matching a full, simple, or generic-aware type query.
+    /// Returns null when the assembly cannot be read, has no metadata, has no match,
+    /// or has multiple matches.
+    /// </summary>
+    public static string? FindUniquePublicType(string dllPath, string typeName)
+    {
+        try
+        {
+            using var stream = File.OpenRead(dllPath);
+            using var peReader = new PEReader(stream);
+
+            if (!peReader.HasMetadata)
+                return null;
+
+            return FindUniquePublicType(peReader.GetMetadataReader(), typeName);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? FindUniquePublicType(MetadataReader reader, string typeName)
+    {
+        var normalized = TypeMatcher.Normalize(typeName);
+
+        List<string> publicTypes = [];
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (!typeDef.IsPublic)
+                continue;
+
+            publicTypes.Add(reader.GetFullTypeName(typeDef));
+        }
+
+        var exactMatches = publicTypes.Where(fullName =>
+            fullName.Equals(normalized, StringComparison.OrdinalIgnoreCase)
+            || TypeMatcher.GetSimpleName(fullName).Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (exactMatches.Count == 1)
+            return exactMatches[0];
+        if (exactMatches.Count > 1)
+            return null;
+
+        string? match = null;
+        foreach (var fullName in publicTypes)
+        {
+            if (!TypeMatcher.Matches(fullName, normalized))
+                continue;
+
+            if (match != null)
+                return null;
+
+            match = fullName;
+        }
+
+        return match;
+    }
+
+    /// <summary>
     /// Finds all types in an assembly that implement or extend the target type.
     /// </summary>
     public static IEnumerable<TypeRelationship> FindImplementers(string dllPath, string targetType, bool includeHidden = false)

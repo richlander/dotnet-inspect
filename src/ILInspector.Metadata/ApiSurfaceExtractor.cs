@@ -97,64 +97,7 @@ public static class ApiSurfaceExtractor
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
 
-            // Get generic type parameters with constraints
-            var genericParams = typeDef.GetGenericParameters();
-            if (genericParams.Count > 0)
-            {
-                apiType.TypeParameters = [];
-                foreach (var paramHandle in genericParams)
-                {
-                    var param = reader.GetGenericParameter(paramHandle);
-                    var typeParam = new TypeParameter
-                    {
-                        Name = reader.GetString(param.Name)
-                    };
-
-                    // Get variance (only applies to interfaces and delegates)
-                    var attrs = param.Attributes;
-                    if ((attrs & GenericParameterAttributes.Covariant) != 0)
-                        typeParam.Variance = "out";
-                    else if ((attrs & GenericParameterAttributes.Contravariant) != 0)
-                        typeParam.Variance = "in";
-
-                    var nullable = GetEffectiveNullable(reader, param.GetCustomAttributes(), typeNullableContext);
-                    var hasReferenceTypeConstraint = (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0;
-                    var hasValueTypeConstraint = (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
-                    var hasDefaultConstructorConstraint = (attrs & GenericParameterAttributes.DefaultConstructorConstraint) != 0;
-                    var isUnmanaged = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
-                        KnownAttributeNames.IsUnmanagedAttribute);
-
-                    // Get primary constraints.
-                    if (hasReferenceTypeConstraint)
-                        typeParam.Constraints.Add(nullable == 2 ? "class?" : "class");
-                    else if (isUnmanaged)
-                        typeParam.Constraints.Add("unmanaged");
-                    else if (hasValueTypeConstraint)
-                        typeParam.Constraints.Add("struct");
-                    else if (nullable == 1)
-                        typeParam.Constraints.Add("notnull");
-
-                    // Get type constraints (interfaces and base class)
-                    foreach (var constraintHandle in param.GetConstraints())
-                    {
-                        var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                        string? constraintTypeName = TypeResolver.GetTypeName(reader, constraint.Type, typeContext);
-                        if (constraintTypeName != null)
-                        {
-                            // Skip System.ValueType (shown as 'struct' above) and System.Object
-                            if (constraintTypeName != "System.ValueType" && constraintTypeName != "System.Object")
-                                typeParam.Constraints.Add(FormatConstraintType(reader, constraint, constraintTypeName, typeNullableContext));
-                        }
-                    }
-
-                    if (hasDefaultConstructorConstraint && !hasValueTypeConstraint)
-                        typeParam.Constraints.Add("new()");
-                    if ((attrs & GenericParameterAttributes.AllowByRefLike) != 0)
-                        typeParam.Constraints.Add("allows ref struct");
-
-                    apiType.TypeParameters.Add(typeParam);
-                }
-            }
+            apiType.TypeParameters = GenericParameters(reader, typeDef.GetGenericParameters(), typeContext, typeNullableContext, includeVariance: true);
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
@@ -512,6 +455,69 @@ public static class ApiSurfaceExtractor
         return nullableContext != 0 ? nullableContext : null;
     }
 
+    private static List<TypeParameter> GenericParameters(
+        MetadataReader reader,
+        GenericParameterHandleCollection handles,
+        GenericContext context,
+        byte nullableContext,
+        bool includeVariance)
+    {
+        var parameters = new List<TypeParameter>();
+        foreach (var paramHandle in handles)
+        {
+            var param = reader.GetGenericParameter(paramHandle);
+            var typeParam = new TypeParameter
+            {
+                Name = reader.GetString(param.Name)
+            };
+
+            var attrs = param.Attributes;
+            if (includeVariance)
+            {
+                if ((attrs & GenericParameterAttributes.Covariant) != 0)
+                    typeParam.Variance = "out";
+                else if ((attrs & GenericParameterAttributes.Contravariant) != 0)
+                    typeParam.Variance = "in";
+            }
+
+            var nullable = GetEffectiveNullable(reader, param.GetCustomAttributes(), nullableContext);
+            var hasReferenceTypeConstraint = (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0;
+            var hasValueTypeConstraint = (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
+            var hasDefaultConstructorConstraint = (attrs & GenericParameterAttributes.DefaultConstructorConstraint) != 0;
+            var isUnmanaged = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
+                KnownAttributeNames.IsUnmanagedAttribute);
+
+            if (hasReferenceTypeConstraint)
+                typeParam.Constraints.Add(nullable == 2 ? "class?" : "class");
+            else if (isUnmanaged)
+                typeParam.Constraints.Add("unmanaged");
+            else if (hasValueTypeConstraint)
+                typeParam.Constraints.Add("struct");
+            else if (nullable == 1)
+                typeParam.Constraints.Add("notnull");
+
+            foreach (var constraintHandle in param.GetConstraints())
+            {
+                var constraint = reader.GetGenericParameterConstraint(constraintHandle);
+                string? constraintTypeName = TypeResolver.GetTypeName(reader, constraint.Type, context);
+                if (constraintTypeName is null)
+                    continue;
+                if (constraintTypeName is "System.ValueType" or "System.Object")
+                    continue;
+                typeParam.Constraints.Add(FormatConstraintType(reader, constraint, constraintTypeName, nullableContext));
+            }
+
+            if (hasDefaultConstructorConstraint && !hasValueTypeConstraint)
+                typeParam.Constraints.Add("new()");
+            if ((attrs & GenericParameterAttributes.AllowByRefLike) != 0)
+                typeParam.Constraints.Add("allows ref struct");
+
+            parameters.Add(typeParam);
+        }
+
+        return parameters;
+    }
+
     private static string FormatConstraintType(
         MetadataReader reader, GenericParameterConstraint constraint, string constraintTypeName, byte nullableContext)
     {
@@ -743,7 +749,7 @@ public static class ApiSurfaceExtractor
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            var (paramName, isParams, refKind, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";
 
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
@@ -770,6 +776,7 @@ public static class ApiSurfaceExtractor
             parameters.Add(paramStr);
             parameterModels.Add(new ApiParameter
             {
+                Attributes = attributes,
                 Name = paramName,
                 Type = type,
                 Modifier = modifier,
@@ -780,13 +787,15 @@ public static class ApiSurfaceExtractor
 
         string paramStr2 = string.Join(", ", parameters);
         var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
+        var methodTypeParameters = GenericParameters(reader, method.GetGenericParameters(), context, nullableDefault, includeVariance: false);
         var methodName = context.MethodParameters.Count > 0
-            ? $"{name}<{string.Join(", ", context.MethodParameters)}>"
+            ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
         return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
         {
             ReturnType = returnType,
             MemberName = methodName,
+            TypeParameters = methodTypeParameters,
             Parameters = parameterModels
         });
     }
@@ -821,7 +830,7 @@ public static class ApiSurfaceExtractor
         => AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.IsReadOnlyAttribute)
             || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.RequiresLocationAttribute");
 
-    private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue) GetParameterInfo(
+    private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
         MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
     {
         foreach (var handle in handles)
@@ -831,7 +840,9 @@ public static class ApiSurfaceExtractor
             {
                 string name = reader.GetString(param.Name);
                 var attributes = param.GetCustomAttributes();
-                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute");
+                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
+                    || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
+                var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, handle);
                 string? refKind = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0
                     ? "out"
                     : (param.Attributes & System.Reflection.ParameterAttributes.In) != 0
@@ -856,11 +867,11 @@ public static class ApiSurfaceExtractor
                     }
                 }
 
-                return (name, isParams, refKind, hasDefault, defaultValue);
+                return (name, isParams, refKind, hasDefault, defaultValue, renderedAttributes);
             }
         }
 
-        return (null, false, null, false, null);
+        return (null, false, null, false, null, []);
     }
 
     private sealed record DateTimeConstantDefault(long Ticks);
@@ -1327,7 +1338,7 @@ public static class ApiSurfaceExtractor
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, typeNullableContext);
             var paramType = paramTypes[i].Render();
-            var (paramName, isParams, refKind, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";
 
             var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
@@ -1353,6 +1364,7 @@ public static class ApiSurfaceExtractor
             indexerParameters.Add(parameter);
             parameterModels.Add(new ApiParameter
             {
+                Attributes = attributes,
                 Name = paramName,
                 Type = paramType,
                 Modifier = modifier,

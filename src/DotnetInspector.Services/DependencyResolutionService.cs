@@ -8,6 +8,22 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class DependencyResolutionService
 {
+    public enum DependencyGroupSelectionStatus
+    {
+        Selected,
+        NoDependencyGroups,
+        NoMatchingTargetFramework
+    }
+
+    public sealed record DependencyGroupSelection(
+        DependencyGroup? Group,
+        string? TargetFramework,
+        DependencyGroupSelectionStatus Status,
+        IReadOnlyList<string> AvailableTargetFrameworks)
+    {
+        public bool IsSelected => Status == DependencyGroupSelectionStatus.Selected && Group != null;
+    }
+
     /// <summary>
     /// Resolves the full transitive dependency tree for a set of direct dependencies.
     /// </summary>
@@ -42,14 +58,44 @@ public static class DependencyResolutionService
             g.TargetFramework.Equals(targetTfm, StringComparison.OrdinalIgnoreCase));
         if (exact != null) return exact;
 
-        var targetPriority = TfmResolver.GetTfmPriority(targetTfm);
+        var targetPriority = TfmSelector.GetTfmPriority(targetTfm);
 
-        return groups
-            .Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
-                        g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                        TfmResolver.GetTfmPriority(g.TargetFramework) <= targetPriority)
-            .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
+        return TfmSelector.OrderByTfmPriorityDescending(
+                groups.Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
+                                  g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
+                                  TfmSelector.GetTfmPriority(g.TargetFramework) <= targetPriority),
+                g => g.TargetFramework)
             .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Selects the dependency group to use for a package dependency tree.
+    /// </summary>
+    public static DependencyGroupSelection SelectDependencyGroup(
+        List<DependencyGroup>? groups,
+        string? requestedTfm,
+        bool allowCompatibleFallbackForRequestedTfm = true)
+    {
+        if (groups is not { Count: > 0 })
+        {
+            return new DependencyGroupSelection(null, requestedTfm, DependencyGroupSelectionStatus.NoDependencyGroups, []);
+        }
+
+        var availableTfms = groups.Select(g => g.TargetFramework).ToArray();
+        if (requestedTfm != null)
+        {
+            var group = allowCompatibleFallbackForRequestedTfm
+                ? FindBestMatchingTfmGroup(groups, requestedTfm)
+                : groups.FirstOrDefault(g => g.TargetFramework.Equals(requestedTfm, StringComparison.OrdinalIgnoreCase));
+
+            return group == null
+                ? new DependencyGroupSelection(null, requestedTfm, DependencyGroupSelectionStatus.NoMatchingTargetFramework, availableTfms)
+                : new DependencyGroupSelection(group, requestedTfm, DependencyGroupSelectionStatus.Selected, availableTfms);
+        }
+
+        var highest = TfmSelector.OrderByTfmPriorityDescending(groups, g => g.TargetFramework)
+            .First();
+        return new DependencyGroupSelection(highest, highest.TargetFramework, DependencyGroupSelectionStatus.Selected, availableTfms);
     }
 
     private static async Task<(List<DependencyNode> Children, string? Author)> ResolveChildDependenciesAsync(
@@ -72,10 +118,10 @@ public static class DependencyResolutionService
 
             if (nuspec.DependencyGroups is not { Count: > 0 }) return ([], nuspec.Authors);
 
-            var group = FindBestMatchingTfmGroup(nuspec.DependencyGroups, tfm);
-            if (group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
+            var selection = SelectDependencyGroup(nuspec.DependencyGroups, tfm);
+            if (selection.Group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
 
-            var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, log).ConfigureAwait(false);
+            var children = await ResolveDependencyTreeAsync(client, selection.Group.Dependencies, selection.TargetFramework ?? tfm, globalSeen, log).ConfigureAwait(false);
             return (children, nuspec.Authors);
         }
         catch (Exception ex)

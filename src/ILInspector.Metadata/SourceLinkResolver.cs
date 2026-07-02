@@ -71,6 +71,78 @@ public class SourceLinkResolver
         int EndLine
     );
 
+    /// <summary>
+    /// Reconstructs a method's source text from the full file <paramref name="sourceText"/> and the
+    /// sequence-point line range (<paramref name="startLine"/>..<paramref name="endLine"/>, 1-based).
+    /// Sequence points cover the body, so this scans backward to capture the signature (skipping
+    /// doc comments, attributes, and preprocessor lines) and forward to include the closing brace,
+    /// then dedents the block. Line numbers outside the file bounds surface as an
+    /// <see cref="IndexOutOfRangeException"/>, which callers already handle by treating the source
+    /// as unavailable.
+    /// </summary>
+    public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName)
+    {
+        var lines = sourceText.Split('\n');
+        int start = startLine;
+        int end = Math.Min(endLine, lines.Length);
+
+        // Scan backward from the first sequence point to capture the method signature.
+        int sigStart = start;
+        for (int i = start - 2; i >= Math.Max(0, start - 15); i--)
+        {
+            var trimmed = lines[i].TrimStart();
+            if (trimmed.Length == 0 || trimmed.StartsWith("///") || trimmed.StartsWith("//")
+                || trimmed.StartsWith("[") || trimmed.StartsWith("#"))
+                continue;
+            if (trimmed == "{")
+                continue;
+            if (trimmed.StartsWith("}"))
+            {
+                sigStart = i + 2;
+                break;
+            }
+
+            sigStart = i + 1;
+            if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
+                || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
+                || trimmed.StartsWith("static") || trimmed.Contains(methodName))
+                break;
+        }
+
+        int from = sigStart - 1;
+        int to = end;
+
+        // Scan forward to include the closing brace.
+        for (int i = to; i < Math.Min(to + 3, lines.Length); i++)
+        {
+            var trimmed = lines[i].TrimStart();
+            if (trimmed.StartsWith("}"))
+            {
+                to = i + 1;
+                break;
+            }
+            if (trimmed.Length > 0)
+                break;
+        }
+
+        if (from < 0) from = 0;
+        if (to > lines.Length) to = lines.Length;
+
+        while (from < to && lines[from].TrimStart().Length == 0)
+            from++;
+
+        var methodLines = lines[from..to];
+
+        int minIndent = methodLines
+            .Where(l => l.TrimStart().Length > 0)
+            .Select(l => l.Length - l.TrimStart().Length)
+            .DefaultIfEmpty(0)
+            .Min();
+
+        var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
+        return string.Join('\n', dedented).TrimEnd();
+    }
+
     private SourceLinkResolver(SLF.SourceLinkResolver slfResolver)
     {
         _slfResolver = slfResolver;

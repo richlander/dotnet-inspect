@@ -175,6 +175,7 @@ public class ApiSignature
     public string? ReturnType { get; set; }
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
+    public List<TypeParameter> TypeParameters { get; set; } = [];
     public List<ApiParameter> Parameters { get; set; } = [];
     public List<ApiAccessor> Accessors { get; set; } = [];
 
@@ -192,6 +193,7 @@ public class ApiSignature
 
 public class ApiParameter
 {
+    public List<string> Attributes { get; set; } = [];
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public string? Modifier { get; set; }
@@ -206,12 +208,16 @@ public class ApiParameter
     {
         get
         {
+            var attributes = Attributes.Count == 0
+                ? ""
+                : $"[{string.Join(", ", Attributes)}] ";
             var head = string.IsNullOrWhiteSpace(Name)
                 ? TypeWithModifier
                 : $"{TypeWithModifier} {Name}";
-            return HasDefault && DefaultValueText is { Length: > 0 }
+            var declaration = HasDefault && DefaultValueText is { Length: > 0 }
                 ? $"{head} = {DefaultValueText}"
                 : head;
+            return attributes + declaration;
         }
     }
 }

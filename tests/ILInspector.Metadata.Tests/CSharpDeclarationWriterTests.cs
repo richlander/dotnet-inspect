@@ -125,7 +125,133 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
-    public void GenericMethodDeclaration_KeepsCompatibilitySignature()
+    public void GenericMethodDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Map",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "TResult",
+                MemberName = "Map<TSource, TResult>",
+                TypeParameters =
+                [
+                    new TypeParameter { Name = "TSource", Constraints = ["unmanaged"] },
+                    new TypeParameter { Name = "TResult", Constraints = ["System.IComparable<TResult>", "new()"] }
+                ],
+                Parameters =
+                [
+                    new ApiParameter { Type = "TSource", Name = "source" }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+
+            public TResult Map<TSource, TResult>(TSource source) where TSource : unmanaged where TResult : IComparable<TResult>, new();
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void MethodDeclaration_CanRenderStructuredParameterAttributes()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"Regex\")"],
+                        Type = "string",
+                        Name = "pattern"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System.Diagnostics.CodeAnalysis;
+
+            public void Validate([StringSyntax("Regex")] string pattern);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void MethodDeclaration_DoesNotShortenTypeNamesInsideParameterAttributeStringLiterals()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"System.String\")"],
+                        Type = "string",
+                        Name = "pattern"
+                    }
+                ]
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System.Diagnostics.CodeAnalysis;
+
+            public void Validate([StringSyntax("System.String")] string pattern);
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void GenericMethodDeclaration_WithoutGenericParameterFactsKeepsCompatibilitySignature()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
         var member = new ApiMember
@@ -295,6 +421,39 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void IndexerDeclaration_CanRenderStructuredParameterAttributes()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Item",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "this[]",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.StringSyntax(\"Uri\")"],
+                        Type = "string",
+                        Name = "key"
+                    }
+                ],
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public string this[[System.Diagnostics.CodeAnalysis.StringSyntax(\"Uri\")] string key] { get; }", declaration);
+    }
+
+    [Fact]
     public void ExplicitPropertyDeclaration_KeepsCompatibilitySignature()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
@@ -317,6 +476,80 @@ public sealed class CSharpDeclarationWriterTests
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
 
         Assert.Equal("public string ITest.Prop { get; }", declaration);
+    }
+
+    [Fact]
+    public void EventDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed"
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+
+            public event EventHandler Changed;
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void EventDeclaration_EscapesStructuredKeywordMemberName()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "event",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "event"
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public event System.EventHandler @event", declaration);
+    }
+
+    [Fact]
+    public void ExplicitEventDeclaration_KeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "ITest.Changed",
+            Kind = "event",
+            Signature = "System.EventHandler ITest.Changed",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "ITest.Changed"
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public event System.EventHandler ITest.Changed", declaration);
     }
 
     [Fact]

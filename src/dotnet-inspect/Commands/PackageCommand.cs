@@ -339,10 +339,7 @@ public class PackageCommand
             }
 
             // Parse nuspec (needed for --readme and --dependencies early exits, and full inspection)
-            NuspecData? nuspec = null;
-            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length > 0)
-                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1143,10 +1140,7 @@ public class PackageCommand
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
 
-            NuspecData? nuspec = null;
-            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length > 0)
-                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             var packageId = nuspec?.PackageName ?? target.PackageName;
             var packageVersion = nuspec?.Version ?? version;
@@ -1201,10 +1195,7 @@ public class PackageCommand
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
 
-            NuspecData? nuspec = null;
-            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length > 0)
-                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             long? packageSize = null;
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
@@ -2688,33 +2679,25 @@ public class PackageCommand
     private static async Task<int> ShowDependencyTreeAsync(
         HttpClient client, InspectionResult result, InspectionOptions options, VerboseLogger logger)
     {
-        if (result.DependencyGroups is not { Count: > 0 })
+        var selection = DependencyResolutionService.SelectDependencyGroup(
+            result.DependencyGroups,
+            options.Tfm,
+            allowCompatibleFallbackForRequestedTfm: false);
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
         {
             Console.Error.WriteLine("No dependencies declared in package.");
             return 0;
         }
 
-        // Pick TFM: explicit --tfm, or highest available
-        var tfm = options.Tfm;
-        DependencyGroup? group;
-        if (!string.IsNullOrEmpty(tfm))
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
         {
-            group = result.DependencyGroups.FirstOrDefault(g =>
-                g.TargetFramework.Equals(tfm, StringComparison.OrdinalIgnoreCase));
-            if (group == null)
-            {
-                Console.Error.WriteLine($"Error: No dependencies found for TFM '{tfm}'.");
-                Console.Error.WriteLine("Available TFMs: " + string.Join(", ", result.DependencyGroups.Select(g => g.TargetFramework)));
-                return 1;
-            }
+            Console.Error.WriteLine($"Error: No dependencies found for TFM '{selection.TargetFramework}'.");
+            Console.Error.WriteLine("Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
+            return 1;
         }
-        else
-        {
-            group = result.DependencyGroups
-                .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
-                .First();
-            tfm = group.TargetFramework;
-        }
+
+        var group = selection.Group!;
+        var tfm = selection.TargetFramework ?? group.TargetFramework;
 
         if (group.Dependencies.Count == 0)
         {

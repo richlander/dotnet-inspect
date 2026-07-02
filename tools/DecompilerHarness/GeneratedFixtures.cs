@@ -152,6 +152,162 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "static", "method-call"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalStaticConstructor = new(
+        "minimal.static-constructor",
+        """
+        namespace GeneratedFixtures.MinimalStaticConstructor;
+
+        public class Class1
+        {
+            private static int s_value;
+
+            static Class1()
+            {
+                s_value = 42;
+            }
+
+            public static int Method1() => s_value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStaticConstructor.Class1", ".cctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticConstructor.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticConstructor.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "static", "constructor", "field"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalStaticClass = new(
+        "minimal.static-class",
+        """
+        namespace GeneratedFixtures.MinimalStaticClass;
+
+        public static class Class1
+        {
+            private static int s_value = 42;
+
+            public static int Value => s_value;
+
+            public static int Method1(int value) => value + s_value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStaticClass.Class1", ".cctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticClass.Class1", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStaticClass.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "static", "class", "field"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalInterfaceImplementation = new(
+        "minimal.interface-implementation",
+        """
+        namespace GeneratedFixtures.MinimalInterfaceImplementation;
+
+        public interface IValue
+        {
+            int GetValue();
+        }
+
+        public class Class1 : IValue
+        {
+            public int GetValue() => 42;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalInterfaceImplementation.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalInterfaceImplementation.Class1", "GetValue",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "interface", "implementation"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalObjectInitializer = new(
+        "minimal.object-initializer",
+        """
+        namespace GeneratedFixtures.MinimalObjectInitializer;
+
+        public class Helper
+        {
+            public int Value { get; set; }
+        }
+
+        public class Class1
+        {
+            public Helper Method1(int value) => new Helper { Value = value };
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalObjectInitializer.Helper", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Helper", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Helper", "set_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalObjectInitializer.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "object-initializer", "property", "setter"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalCollectionInitializer = new(
+        "minimal.collection-initializer",
+        """
+        namespace GeneratedFixtures.MinimalCollectionInitializer;
+
+        public class Class1
+        {
+            public System.Collections.Generic.List<int> Method1(int value)
+                => new System.Collections.Generic.List<int> { value };
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalCollectionInitializer.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalCollectionInitializer.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "collection", "initializer", "generic"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalGenericMethods = new(
+        "minimal.generic-methods",
+        """
+        namespace GeneratedFixtures.MinimalGenericMethods;
+
+        public class Class1
+        {
+            public T Echo<T>(T value) => value;
+
+            public T Choose<T>(T left, T right) where T : class => left;
+
+            public T Create<T>() where T : new() => new T();
+
+            public T DefaultValue<T>() where T : struct => default;
+
+            public T Comparable<T>(T value) where T : System.IComparable<T> => value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Echo",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Choose",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Create",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "DefaultValue",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Comparable",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "generic", "method", "constraints"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -194,6 +350,68 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "integer", "arithmetic", "addition"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalStructMembers = new(
+        "minimal.struct-members",
+        """
+        namespace GeneratedFixtures.MinimalStructMembers;
+
+        public struct Counter
+        {
+            private int _value;
+
+            public Counter(int value)
+            {
+                _value = value;
+            }
+
+            public int Value
+            {
+                get => _value;
+                set => _value = value;
+            }
+
+            public int Add(int value) => _value + value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalStructMembers.Counter", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStructMembers.Counter", "set_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalStructMembers.Counter", "Add",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "struct", "value-type", "property", "setter"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalStructConstructorFieldInit = new(
+        "minimal.struct-constructor.field-init",
+        """
+        namespace GeneratedFixtures.MinimalStructConstructorFieldInit;
+
+        public struct Counter
+        {
+            private int _value;
+
+            public Counter(int value)
+            {
+                _value = value;
+            }
+
+            public int Value
+            {
+                get => _value;
+                set => _value = value;
+            }
+        }
+        """,
+        [
+            new(
+                "GeneratedFixtures.MinimalStructConstructorFieldInit.Counter",
+                ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "struct", "constructor", "value-type"]);
+
     public static readonly GeneratedFixtureDefinition MinimalArrayIndex = new(
         "minimal.array-index",
         """
@@ -231,6 +449,55 @@ internal static class GeneratedFixtureCatalog
                 ExpectedShape: SyntaxKind.SimpleMemberAccessExpression),
         ],
         ["minimal", "array", "length"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalIndexerGetter = new(
+        "minimal.indexer.getter",
+        """
+        namespace GeneratedFixtures.MinimalIndexerGetter;
+
+        public class Class1
+        {
+            public int this[int index] => index + 1;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalIndexerGetter.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIndexerGetter.Class1", "get_Item",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "indexer", "property"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalIndexerSetter = new(
+        "minimal.indexer.setter",
+        """
+        namespace GeneratedFixtures.MinimalIndexerSetter;
+
+        public class Class1
+        {
+            private readonly int[] _values;
+
+            public Class1()
+            {
+                _values = new int[4];
+            }
+
+            public int this[int index]
+            {
+                get => _values[index];
+                set => _values[index] = value;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalIndexerSetter.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIndexerSetter.Class1", "get_Item",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalIndexerSetter.Class1", "set_Item",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "indexer", "property", "setter"]);
 
     public static readonly GeneratedFixtureDefinition MinimalStringLength = new(
         "minimal.string-length",
@@ -529,10 +796,20 @@ internal static class GeneratedFixtureCatalog
         MinimalAutoPropertyGetter,
         MinimalMethodCallSameType,
         MinimalStaticMethodCall,
+        MinimalStaticConstructor,
+        MinimalStaticClass,
+        MinimalInterfaceImplementation,
+        MinimalObjectInitializer,
+        MinimalCollectionInitializer,
+        MinimalGenericMethods,
         MinimalIfElse,
         MinimalIntegerAddition,
+        MinimalStructMembers,
+        MinimalStructConstructorFieldInit,
         MinimalArrayIndex,
         MinimalArrayLength,
+        MinimalIndexerGetter,
+        MinimalIndexerSetter,
         MinimalStringLength,
         MinimalNullCoalesce,
         MinimalTryFinally,

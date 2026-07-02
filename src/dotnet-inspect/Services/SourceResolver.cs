@@ -1,5 +1,3 @@
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
@@ -194,7 +192,7 @@ public static class SourceResolver
         if (assemblyPath == null || error != null)
             return null;
 
-        var match = FindUniquePublicType(assemblyPath, typeName);
+        var match = AssemblyReader.FindUniquePublicType(assemblyPath, typeName);
         return match != null
             ? new LocalProbeResult(CoreLibAssemblyName, match, LocalSourceKind.Platform)
             : null;
@@ -207,53 +205,6 @@ public static class SourceResolver
         return ILInspector.Metadata.PrimitiveTypeNames.TryToClrFullName(trimmed.ToLowerInvariant(), out var full)
             ? full
             : trimmed;
-    }
-
-    private static string? FindUniquePublicType(string assemblyPath, string typeName)
-    {
-        var normalized = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
-
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        if (!peReader.HasMetadata)
-            return null;
-
-        var reader = peReader.GetMetadataReader();
-        List<string> publicTypes = [];
-        foreach (var handle in reader.TypeDefinitions)
-        {
-            var typeDef = reader.GetTypeDefinition(handle);
-            if (!typeDef.IsPublic)
-                continue;
-
-            var name = reader.GetString(typeDef.Name);
-            var ns = reader.GetString(typeDef.Namespace);
-            var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-            publicTypes.Add(fullName);
-        }
-
-        var exactMatches = publicTypes.Where(fullName =>
-            fullName.Equals(normalized, StringComparison.OrdinalIgnoreCase)
-            || ILInspector.Metadata.TypeMatcher.GetSimpleName(fullName).Equals(normalized, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (exactMatches.Count == 1)
-            return exactMatches[0];
-        if (exactMatches.Count > 1)
-            return null;
-
-        string? match = null;
-        foreach (var fullName in publicTypes)
-        {
-            if (!ILInspector.Metadata.TypeMatcher.Matches(fullName, normalized))
-                continue;
-
-            if (match != null)
-                return null;
-
-            match = fullName;
-        }
-
-        return match;
     }
 
     /// <summary>

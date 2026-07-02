@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -60,5 +61,20 @@ public class AttributeReaderTests
             return;
         }
         Assert.Fail("CLSCompliant attribute not found on CoreLib");
+    }
+
+    [Theory]
+    [InlineData("Attribute", "Attribute")]
+    [InlineData("Samples.Attribute", "Samples.Attribute")]
+    [InlineData("Samples.WidgetAttribute", "Samples.Widget")]
+    [InlineData("Samples.AttributeAttribute", "Samples.Attribute")]
+    public void QualifiedAttributeName_DoesNotStripToInvalidName(string fullName, string expected)
+    {
+        var method = typeof(AttributeReader).GetMethod(
+            "GetQualifiedAttributeName",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.NotNull(method);
+        Assert.Equal(expected, method!.Invoke(null, [fullName]));
     }
 }

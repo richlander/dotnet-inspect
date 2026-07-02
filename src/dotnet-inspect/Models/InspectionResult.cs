@@ -114,7 +114,7 @@ public class InspectionResult
     public string? Tfm
     {
         get => TfmOverride ?? (TargetFrameworks is { Count: > 0 }
-            ? TargetFrameworks.OrderByDescending(TfmResolver.GetTfmPriority).First()
+            ? TfmSelector.SelectHighestTfm(TargetFrameworks)
             : null);
         set => TfmOverride = value;
     }

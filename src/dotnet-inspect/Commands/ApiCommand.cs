@@ -546,65 +546,8 @@ public class ApiCommand
             if (content == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
-            var lines = content.Split('\n');
-            int startLine = methodInfo.StartLine;
-            int endLine = Math.Min(methodInfo.EndLine, lines.Length);
-
-            // Scan backward from first sequence point to capture method signature
-            int sigStart = startLine;
-            for (int i = startLine - 2; i >= Math.Max(0, startLine - 15); i--)
-            {
-                var trimmed = lines[i].TrimStart();
-                if (trimmed.Length == 0 || trimmed.StartsWith("///") || trimmed.StartsWith("//")
-                    || trimmed.StartsWith("[") || trimmed.StartsWith("#"))
-                    continue;
-                if (trimmed == "{")
-                    continue;
-                if (trimmed.StartsWith("}"))
-                {
-                    sigStart = i + 2;
-                    break;
-                }
-
-                sigStart = i + 1;
-                if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
-                    || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
-                    || trimmed.StartsWith("static") || trimmed.Contains(methodName))
-                    break;
-            }
-
-            int from = sigStart - 1;
-            int to = endLine;
-
-            // Scan forward to include the closing brace
-            for (int i = to; i < Math.Min(to + 3, lines.Length); i++)
-            {
-                var trimmed = lines[i].TrimStart();
-                if (trimmed.StartsWith("}"))
-                {
-                    to = i + 1;
-                    break;
-                }
-                if (trimmed.Length > 0)
-                    break;
-            }
-
-            if (from < 0) from = 0;
-            if (to > lines.Length) to = lines.Length;
-
-            while (from < to && lines[from].TrimStart().Length == 0)
-                from++;
-
-            var methodLines = lines[from..to];
-
-            int minIndent = methodLines
-                .Where(l => l.TrimStart().Length > 0)
-                .Select(l => l.Length - l.TrimStart().Length)
-                .DefaultIfEmpty(0)
-                .Min();
-
-            var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
-            var sourceCode = string.Join('\n', dedented).TrimEnd();
+            var sourceCode = SourceLinkResolver.ExtractMethodBody(
+                content, methodInfo.StartLine, methodInfo.EndLine, methodName);
 
             return new ResolvedMethodSource(new MethodSourceContext(sourceCode, methodInfo.SourceUrl), pdbPath);
         }

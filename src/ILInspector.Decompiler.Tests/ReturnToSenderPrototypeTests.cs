@@ -23,7 +23,7 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact, $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Equal("Class1", result.Plan.TargetMethod.Type);
             Assert.Equal("get_Method1", result.Plan.TargetMethod.Method);
             Assert.Contains("public class Class1", result.Source);
@@ -97,7 +97,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("External", result.Plan.Module.Usings);
             Assert.Contains("public External.Greeting Method1", result.Source);
         }
@@ -240,7 +242,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             var type = Assert.Single(result.Plan.Types);
             Assert.Contains(type.SourceFacts, fact =>
                 fact.Producer == "roslyn"
@@ -830,6 +834,350 @@ public class ReturnToSenderPrototypeTests
             ["public class Class1<T> where T : class", "string message"]));
 
         Assert.Equal("public class Class1<T>(string message) where T : class", result);
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsAutoPropertySetter()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Value { get; set; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int Value { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsIndexerSetter()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private readonly int[] _values;
+
+                public Class1()
+                {
+                    _values = new int[4];
+                }
+
+                public int this[int index]
+                {
+                    get => _values[index];
+                    set => _values[index] = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Item", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int this[int index]", result.Source);
+            Assert.Contains("set", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_OverloadedIndexerSetterComparesSingleShellAccessor()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private readonly int[] _values;
+                private readonly string[] _names;
+
+                public Class1()
+                {
+                    _values = new int[4];
+                    _names = new string[4];
+                }
+
+                public int this[int index]
+                {
+                    get => _values[index];
+                    set => _values[index] = value;
+                }
+
+                public string this[string key]
+                {
+                    get => _names[key.Length];
+                    set => _names[key.Length] = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Item", 1)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(1, result.Plan.TargetMethod.Overload);
+            Assert.Contains("public string this[string key]", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsGenericMethodSignatures()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public T Echo<T>(T value) => value;
+
+                public T Choose<T>(T left, T right) where T : class => left;
+
+                public T Create<T>() where T : new() => new T();
+
+                public T DefaultValue<T>() where T : struct => default;
+
+                public T Comparable<T>(T value) where T : System.IComparable<T> => value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Echo", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Choose", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Create", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "DefaultValue", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Comparable", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Echo<T>(T value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Choose<T>(T left, T right) where T : class", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Create<T>() where T : new()", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T DefaultValue<T>() where T : struct", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Comparable<T>(T value) where T : System.IComparable<T>", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsStructPropertyTargets()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Counter
+            {
+                private int _value;
+
+                public int Value
+                {
+                    get => _value;
+                    set => _value = value;
+                }
+
+                public int Add(int value) => _value + value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Counter", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Counter", "set_Value", 0),
+                    new ReturnToSender.RequestedTarget("Counter", "Add", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+            Assert.All(results, result => Assert.Contains("public struct Counter", result.Source));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_SurfacesStructNonAutoPropertyWithoutBackingField()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Counter
+            {
+                private int _value;
+
+                public int Value
+                {
+                    get => _value;
+                    set => _value = value;
+                }
+            }
+
+            public class Class1
+            {
+                public int Read(Counter counter) => counter.Value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Read", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int Value", result.Source);
+            Assert.Contains("throw null", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsStaticClassTargets()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class Class1
+            {
+                private static int s_value = 42;
+
+                public static int Value => s_value;
+
+                public static int Method1(int value) => value + s_value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", ".cctor", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Method1", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotDuplicateBodyBackedSetterDuringClosureSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private int _value;
+
+                public int Value
+                {
+                    set => _value = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public int Value", result.Source);
+            Assert.DoesNotContain("throw null", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_EmitsGetterStubForSetterBodyThatReadsProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private int _value;
+
+                public int Value
+                {
+                    get => _value;
+                    set
+                    {
+                        if (Value != value)
+                            _value = value;
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("get", result.Source);
+            Assert.Contains("throw null", result.Source);
+            Assert.Contains("Value != value", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
     }
 
     [Fact]
