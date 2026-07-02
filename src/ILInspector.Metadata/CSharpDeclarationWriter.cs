@@ -518,10 +518,19 @@ public static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
             return true;
         }
+        if (member.Kind == "method"
+            && methodParameters is not { Count: > 0 }
+            && model.MemberName is { Length: > 0 } memberName
+            && !memberName.Contains('<', StringComparison.Ordinal)
+            && model.ReturnType is { Length: > 0 } returnType)
+        {
+            signature = $"{returnType} {memberName}({parameters})";
+            return true;
+        }
 
-        // Keep method/property/event rendering on compatibility text until
-        // generic parameters, constraints, attributes, and default-value text are
-        // represented in ApiSignature.
+        // Keep generic methods, extension methods, explicit implementations,
+        // operators, properties, and events on compatibility text until the
+        // remaining declaration-level facts are represented in ApiSignature.
         return false;
 
         static string ParameterDeclaration(ApiParameter parameter)
