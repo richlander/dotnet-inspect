@@ -587,6 +587,7 @@ public class ReturnToSenderPrototypeTests
             {
                 public class Inner
                 {
+                    internal static Hidden LeakNested() => new Hidden();
                 }
 
                 internal static Hidden Leak() => new Hidden();
@@ -606,6 +607,7 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("public class Inner", result.Source);
             Assert.DoesNotContain("Leak", result.Source);
+            Assert.DoesNotContain("LeakNested", result.Source);
         }
         finally
         {

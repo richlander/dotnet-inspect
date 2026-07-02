@@ -841,7 +841,15 @@ static class ReturnToSender
                     var typeName = names[0];
                     var index = typeName.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
                     var key = typeName.Contains('.', StringComparison.Ordinal) ? typeName : NormalizeTypeName(typeName);
-                    grew |= AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    var typeGrew = AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts, out var typeResolved);
+                    grew |= typeGrew;
+                    if (!typeResolved)
+                    {
+                        string memberName = names[1];
+                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                        grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                        grew |= AddRoots(indexes, indexes.Fields, memberName, diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    }
                 }
                 else
                 {
@@ -860,7 +868,15 @@ static class ReturnToSender
                     var typeName = names[0];
                     var index = typeName.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
                     var key = typeName.Contains('.', StringComparison.Ordinal) ? typeName : NormalizeTypeName(typeName);
-                    grew |= AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    var typeGrew = AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts, out var typeResolved);
+                    grew |= typeGrew;
+                    if (!typeResolved)
+                    {
+                        string memberName = names[1];
+                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                        grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                        grew |= AddRoots(indexes, indexes.Fields, memberName, diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    }
                 }
             }
         }
@@ -879,7 +895,33 @@ static class ReturnToSender
         bool addMemberSurfaceFact,
         HashSet<TypeDefinitionHandle> closureRoots,
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+        => AddRoots(
+            indexes,
+            index,
+            key,
+            diagnostic,
+            detail,
+            targetNamespace,
+            preferredRoot,
+            addMemberSurfaceFact,
+            closureRoots,
+            closureFacts,
+            out _);
+
+    static bool AddRoots(
+        ClosureIndex indexes,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> index,
+        string key,
+        Diagnostic diagnostic,
+        string detail,
+        string targetNamespace,
+        TypeDefinitionHandle preferredRoot,
+        bool addMemberSurfaceFact,
+        HashSet<TypeDefinitionHandle> closureRoots,
+        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        out bool resolved)
     {
+        resolved = false;
         if (!index.TryGetValue(key, out var roots))
             return false;
 
@@ -901,6 +943,7 @@ static class ReturnToSender
             }
         }
 
+        resolved = true;
         bool changed = false;
         foreach (var root in roots)
         {

@@ -823,7 +823,11 @@ public static class CompileBackSourceComposer
                     Interfaces: InterfaceSignatures(reader, typeDef),
                     members,
                     requirement.SourceFacts,
-                    NestedTypes(reader, typeDef, diagnostics)));
+                    NestedTypes(
+                        reader,
+                        typeDef,
+                        includeMemberSurface: requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"),
+                        diagnostics)));
             }
 
             return shells;
@@ -832,6 +836,7 @@ public static class CompileBackSourceComposer
         static IReadOnlyList<CompileBackTypeDeclaration> NestedTypes(
             MetadataReader reader,
             TypeDefinition typeDef,
+            bool includeMemberSurface,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
             var nestedTypes = new List<CompileBackTypeDeclaration>();
@@ -854,7 +859,8 @@ public static class CompileBackSourceComposer
                     RequiredMembers: [],
                     SourceFacts: [new CompileBackFact("metadata", "nested-closure-type", identity.FullName)]);
                 var members = new List<CompileBackMemberDeclaration>();
-                AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics);
+                if (includeMemberSurface)
+                    AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics);
                 nestedTypes.Add(new CompileBackTypeDeclaration(
                     identity,
                     kind,
@@ -863,7 +869,7 @@ public static class CompileBackSourceComposer
                     Interfaces: InterfaceSignatures(reader, nestedDef),
                     members,
                     requirement.SourceFacts,
-                    NestedTypes(reader, nestedDef, diagnostics)));
+                    NestedTypes(reader, nestedDef, includeMemberSurface, diagnostics)));
             }
 
             return nestedTypes;
@@ -901,7 +907,8 @@ public static class CompileBackSourceComposer
             if (requirement.RequiredKind == CompileBackTypeKind.Enum)
                 return;
 
-            bool allowUnsafeSurface = requirement.RequiredMembers.Count != 0;
+            bool allowUnsafeSurface = requirement.RequiredMembers.Count != 0
+                || requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
             var typeContext = GenericContext.ForType(reader, typeDef);
             foreach (var fieldHandle in typeDef.GetFields())
