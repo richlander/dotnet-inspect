@@ -1289,6 +1289,10 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
         writer.WriteString("pathConfidence", candidate.PathConfidence);
     if (candidate.PostDominance is not null)
         writer.WriteString("postDominance", candidate.PostDominance);
+    if (candidate.EstimatedSizeBytes is int estSize)
+        writer.WriteNumber("estSize", estSize);
+    if (candidate.SizeTier is not null)
+        writer.WriteString("sizeTier", candidate.SizeTier);
     if (candidate.Detail is not null)
         writer.WriteString("evidence", candidate.Detail);
     if (candidate.Fix is not null)
@@ -1515,7 +1519,9 @@ sealed class AllocationCandidate(
     string? rootReach,
     string? pathKind,
     string? pathConfidence,
-    string? postDominance)
+    string? postDominance,
+    int? estimatedSizeBytes = null,
+    string? sizeTier = null)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -1539,6 +1545,8 @@ sealed class AllocationCandidate(
     public string? PathKind { get; } = string.IsNullOrWhiteSpace(pathKind) ? null : pathKind;
     public string? PathConfidence { get; } = string.IsNullOrWhiteSpace(pathConfidence) ? null : pathConfidence;
     public string? PostDominance { get; } = string.IsNullOrWhiteSpace(postDominance) ? null : postDominance;
+    public int? EstimatedSizeBytes { get; } = estimatedSizeBytes;
+    public string? SizeTier { get; } = string.IsNullOrWhiteSpace(sizeTier) ? null : sizeTier;
     public int RuntimeHits { get; set; }
     public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
@@ -1643,9 +1651,41 @@ sealed class AllocationCandidate(
         null,
         null,
         null,
-        occurrence.InLoop ? "loop body" : null,
-        null,
-        null);
+        FormatPathContext(occurrence.PathContext),
+        FormatPathConfidence(occurrence.PathConfidence),
+        FormatPostDominance(occurrence.PostDominance),
+        occurrence.EstimatedSizeBytes,
+        occurrence.SizeTier == AllocationSizeTier.Unknown ? null : FormatSizeTier(occurrence.SizeTier));
+
+    static string FormatPathContext(AllocationPathContext context) => context switch
+    {
+        AllocationPathContext.StraightLine => "straight-line",
+        AllocationPathContext.Branch => "branch",
+        AllocationPathContext.SwitchArm => "switch arm",
+        AllocationPathContext.LoopBody => "loop body",
+        AllocationPathContext.ErrorPath => "error path",
+        _ => "straight-line",
+    };
+
+    static string? FormatPathConfidence(AllocationPathConfidence confidence) => confidence switch
+    {
+        AllocationPathConfidence.DominatesReturn => "dominates-return",
+        AllocationPathConfidence.BehindBranch => "behind-branch",
+        _ => null,
+    };
+
+    static string? FormatPostDominance(AllocationPostDominance postDominance) => postDominance switch
+    {
+        AllocationPostDominance.ReturnPostDominates => "return-post-dominates",
+        _ => null,
+    };
+
+    static string FormatSizeTier(AllocationSizeTier tier) => tier switch
+    {
+        AllocationSizeTier.Exact => "Exact",
+        AllocationSizeTier.Approx => "Approx",
+        _ => "Unknown",
+    };
 }
 
 sealed class CandidateLookup
