@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler;
@@ -129,10 +130,10 @@ static class ValidityCheck
         return 0;
     }
 
-    internal static IReadOnlyList<MethodResult> Evaluate(string assemblyPath, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false)
-        => Evaluate([assemblyPath], cap, lowered, importSiblingBodies);
+    internal static IReadOnlyList<MethodResult> Evaluate(string assemblyPath, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false, int? workers = null, bool sequential = false)
+        => Evaluate([assemblyPath], cap, lowered, importSiblingBodies, workers, sequential);
 
-    internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false)
+    internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false, int? workers = null, bool sequential = false)
     {
         var references = RuntimeReferences();
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -158,8 +159,10 @@ static class ValidityCheck
             .WithMetadataImportOptions(MetadataImportOptions.All);
 
         int semChecked = 0;
-        var results = new List<MethodResult>();
+        var results = new ConcurrentBag<MethodResult>();
         using var metadata = CorpusMetadata.Create(assemblies);
+        var options = new ParallelOptions { MaxDegreeOfParallelism = sequential ? 1 : (workers ?? Math.Max(1, Environment.ProcessorCount - 2)) };
+
         foreach (var path in assemblies)
         {
             MetadataSource source;
@@ -167,10 +170,15 @@ static class ValidityCheck
             catch { continue; }
             using (source)
             {
+                // Pre-warm type maps.
+                _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
+
                 var productSignatures = ProductSignatureQueues(source.Pe);
                 // Reconstruct generic-parameter `where` clauses so the shell binds
                 // constrained generic calls the runtime accepts (no phantom CS0314).
                 var constraints = ShellConstraints.Build(source);
+                
+                var candidates = new List<(string TypeName, string MethodName, IrFunction Function)>();
                 foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
                 {
                     // Compiler-generated types/members (anonymous types, closures,
@@ -180,6 +188,16 @@ static class ValidityCheck
                     // shell with identifier-syntax errors. Skip them.
                     if (typeName.Contains('<') || methodName.Contains('<'))
                         continue;
+                    candidates.Add((typeName, methodName, function));
+                }
+
+                Parallel.ForEach(candidates, options, item =>
+                {
+                    var (typeName, methodName, function) = item;
+                    
+                    if (Volatile.Read(ref semChecked) >= cap)
+                        return;
+
                     Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
                         ? method => IrImporter.Import(source, method)
                         : null;
@@ -187,7 +205,7 @@ static class ValidityCheck
                         ? CSharpPrinter.PrintLowered(function, importMethodBody)
                         : CSharpPrinter.PrintRaised(function, importMethodBody)).Output;
                     if (rendered is null)
-                        continue;
+                        return;
                     bool full = function.Fidelity == DecompilationFidelity.Full;
                     string? productSignatureParameters = DequeueProductParameterList(productSignatures, typeName, methodName);
                     string? productParameterList = function.Signature.Parameters.Any(p => p.HasDefault)
@@ -206,17 +224,17 @@ static class ValidityCheck
                     if (malformed.Count > 0)
                     {
                         results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, malformed.ToImmutable(), SemanticChecked: false, []));
-                        continue;
+                        return; // parallel return
                     }
 
                     // Bind only Full, syntactically-valid methods (the set that
                     // claims to be good) up to the cap — binding is the slow part.
-                    if (!full || semChecked >= cap)
+                    if (!full || Volatile.Read(ref semChecked) >= cap)
                     {
                         results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: false, []));
-                        continue;
+                        return; // parallel return
                     }
-                    semChecked++;
+                    Interlocked.Increment(ref semChecked);
                     var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
                     var semanticModel = compilation.GetSemanticModel(tree);
                     var defects = compilation.GetDiagnostics()
@@ -229,10 +247,13 @@ static class ValidityCheck
                         .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
                         .ToImmutableArray();
                     results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: true, defects));
-                }
+                });
             }
         }
-        return results;
+        return results.OrderBy(r => r.TypeName, StringComparer.Ordinal)
+            .ThenBy(r => r.MethodName, StringComparer.Ordinal)
+            .ThenBy(r => r.Signature, StringComparer.Ordinal)
+            .ToList();
     }
 
     static void Record(Dictionary<string, SortedSet<string>> map, string method, IEnumerable<string> codes)

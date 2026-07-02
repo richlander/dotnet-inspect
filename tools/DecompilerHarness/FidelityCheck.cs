@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
@@ -321,10 +322,10 @@ static class FidelityCheck
         return results;
     }
 
-    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered)
-        => Evaluate(assemblies, perAssemblyCap, lowered, includeAllResults: false);
+    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered, int? workers = null, bool sequential = false)
+        => Evaluate(assemblies, perAssemblyCap, lowered, includeAllResults: false, workers, sequential);
 
-    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered, bool includeAllResults)
+    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered, bool includeAllResults, int? workers = null, bool sequential = false)
     {
         if (perAssemblyCap <= 0)
             return [];
@@ -337,11 +338,15 @@ static class FidelityCheck
 
         var results = new List<CompileBackResult>();
         using var metadata = CorpusMetadata.Create(assemblies);
+        var options = new ParallelOptions { MaxDegreeOfParallelism = sequential ? 1 : (workers ?? Math.Max(1, Environment.ProcessorCount - 2)) };
+
         foreach (var assemblyPath in assemblies)
         {
-            var assemblyResults = new List<CompileBackResult>();
+            var assemblyResults = new ConcurrentBag<CompileBackResult>();
             int attempts = 0;
             int attemptCap = perAssemblyCap * 10;
+            int successCount = 0;
+
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(assemblyPath)); }
             catch { continue; }
@@ -355,21 +360,45 @@ static class FidelityCheck
                 catch { continue; }
                 using (source)
                 {
-                    var render = Renderer(source, lowered);
+                    // Pre-warm type maps.
+                    _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
                     var references = RuntimeReferences(assemblyPath);
-                    foreach (var typeHandle in reader.TypeDefinitions)
+
+                    Parallel.ForEach(reader.TypeDefinitions, options, (typeHandle, state) =>
                     {
-                        if (assemblyResults.Count >= perAssemblyCap || attempts >= attemptCap)
-                            break;
+                        if (Volatile.Read(ref successCount) >= perAssemblyCap || Volatile.Read(ref attempts) >= attemptCap)
+                        {
+                            state.Break();
+                            return;
+                        }
+
+                        // Each type compilation has its own render lambda so it's safe.
+                        // Wait, Renderer isn't thread safe if it holds state. Let's create it per type compilation.
+                        var render = Renderer(source, lowered);
+
                         var typeResults = new List<CompileBackResult>();
-                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, typeResults, Math.Min(8, attemptCap - attempts));
-                        attempts += typeResults.Count;
+                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, typeResults, Math.Min(8, attemptCap - Volatile.Read(ref attempts)));
+                        Interlocked.Add(ref attempts, typeResults.Count);
+                        
                         var selectableResults = includeAllResults ? typeResults : typeResults.Where(IsUsefulCorpusSample);
-                        assemblyResults.AddRange(selectableResults.Take(perAssemblyCap - assemblyResults.Count));
-                    }
+                        foreach (var res in selectableResults)
+                        {
+                            if (Interlocked.Increment(ref successCount) <= perAssemblyCap)
+                            {
+                                assemblyResults.Add(res);
+                            }
+                            else
+                            {
+                                Interlocked.Decrement(ref successCount);
+                                break;
+                            }
+                        }
+                    });
                 }
             }
-            results.AddRange(assemblyResults.Take(perAssemblyCap));
+            results.AddRange(assemblyResults.OrderBy(r => r.Type, StringComparer.Ordinal)
+                                            .ThenBy(r => r.Method, StringComparer.Ordinal)
+                                            .ThenBy(r => r.Signature, StringComparer.Ordinal));
         }
         return results;
     }

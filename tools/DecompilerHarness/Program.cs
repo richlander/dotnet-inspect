@@ -25,6 +25,11 @@ static class Program
         List<string> inputs = [];
         int maxExamples = 5;
 
+        int? workers = null;
+        bool sequential = false;
+        string? renderAb = null;
+        string? emitRenderAb = null;
+
         string? dumpMethod = null;
         int dumpIndex = 0;
         bool listOverloads = false;
@@ -165,6 +170,10 @@ static class Program
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
                 case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
                 case "--cap": cap = int.Parse(args[++i]); break;
+                case "--workers": workers = int.Parse(args[++i]); break;
+                case "--sequential": sequential = true; break;
+                case "--render-ab": renderAb = args[++i]; break;
+                case "--emit-render-ab": emitRenderAb = args[++i]; break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -223,7 +232,10 @@ static class Program
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || emitCorpusDelta is not null || qualityDiffCard)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap);
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential);
+
+        if (renderAb is not null || emitRenderAb is not null)
+            return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);

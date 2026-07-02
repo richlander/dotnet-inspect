@@ -271,11 +271,17 @@ public sealed class MetadataSource : IDisposable
         return _enumUnderlyingTypes!.GetValueOrDefault(type);
     }
 
+    readonly object _mapLock = new();
+
     void EnsureTypeMaps()
     {
         if (_shapes is not null)
             return;
-        var shapes = new Dictionary<TypeRef, TypeShape>();
+        lock (_mapLock)
+        {
+            if (_shapes is not null)
+                return;
+            var shapes = new Dictionary<TypeRef, TypeShape>();
         var enums = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>();
         var enumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>();
         var bases = new Dictionary<TypeRef, TypeRef?>();
@@ -317,6 +323,7 @@ public sealed class MetadataSource : IDisposable
         _interfaceImpls = interfaceImpls;
         _unionTypes = unionTypes;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
+        }
     }
 
     ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
