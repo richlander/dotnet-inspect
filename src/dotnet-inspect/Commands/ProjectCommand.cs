@@ -660,10 +660,7 @@ public class ProjectCommand
 
     private static string? ReadDeclaredReadme(string packagePath)
     {
-        var nuspecFiles = Directory.GetFiles(packagePath, "*.nuspec", SearchOption.TopDirectoryOnly);
-        return nuspecFiles.Length == 0
-            ? null
-            : NuspecParser.Parse(nuspecFiles[0]).ReadmeFile;
+        return NuspecParser.FindAndParse(packagePath)?.ReadmeFile;
     }
 
     private static void WriteOutput(string output, string? outputPath)

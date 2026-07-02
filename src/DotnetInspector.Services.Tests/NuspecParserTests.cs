@@ -313,4 +313,64 @@ public class NuspecParserTests : IDisposable
         Assert.Equal("NoNamespacePackage", result.PackageName);
         Assert.Equal("2.0.0", result.Version);
     }
+
+    [Fact]
+    public void FindNuspec_NoNuspecInPackageDirectory_ReturnsNull()
+    {
+        Assert.Null(NuspecParser.FindNuspec(_tempDir));
+    }
+
+    [Fact]
+    public void FindNuspec_NuspecInPackageDirectory_ReturnsPath()
+    {
+        var nuspec = WriteNuspec("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>FindMe</id>
+                <version>1.0.0</version>
+              </metadata>
+            </package>
+            """);
+
+        Assert.Equal(nuspec, NuspecParser.FindNuspec(_tempDir));
+    }
+
+    [Fact]
+    public void FindNuspec_NuspecOnlyInNestedDirectory_ReturnsNull()
+    {
+        var nestedDir = Path.Combine(_tempDir, "nested");
+        Directory.CreateDirectory(nestedDir);
+        File.WriteAllText(Path.Combine(nestedDir, "nested.nuspec"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Nested</id>
+                <version>1.0.0</version>
+              </metadata>
+            </package>
+            """);
+
+        Assert.Null(NuspecParser.FindNuspec(_tempDir));
+    }
+
+    [Fact]
+    public void FindAndParse_NuspecInPackageDirectory_ParsesMetadata()
+    {
+        WriteNuspec("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>ParsedFromDirectory</id>
+                <version>2.3.4</version>
+              </metadata>
+            </package>
+            """);
+
+        var result = NuspecParser.FindAndParse(_tempDir);
+
+        Assert.NotNull(result);
+        Assert.Equal("ParsedFromDirectory", result.PackageName);
+        Assert.Equal("2.3.4", result.Version);
+    }
 }

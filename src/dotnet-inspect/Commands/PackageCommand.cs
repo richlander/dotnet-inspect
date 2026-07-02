@@ -339,10 +339,7 @@ public class PackageCommand
             }
 
             // Parse nuspec (needed for --readme and --dependencies early exits, and full inspection)
-            NuspecData? nuspec = null;
-            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length > 0)
-                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1143,10 +1140,7 @@ public class PackageCommand
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
 
-            NuspecData? nuspec = null;
-            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length > 0)
-                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             var packageId = nuspec?.PackageName ?? target.PackageName;
             var packageVersion = nuspec?.Version ?? version;
@@ -1201,10 +1195,7 @@ public class PackageCommand
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
 
-            NuspecData? nuspec = null;
-            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length > 0)
-                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             long? packageSize = null;
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
