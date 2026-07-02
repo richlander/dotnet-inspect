@@ -12,7 +12,16 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class CoercionSinks
 {
-    public readonly record struct TypedSink(IrExpression Value, TypeRef Target);
+    /// <summary>
+    /// Who decides the sink's coercion. <see cref="Wrappable"/> sinks are the
+    /// insertion pass's to wrap; <see cref="PrinterOwned"/> sinks are rendered
+    /// by CoerceText's own targeted branches (merge-node arms at non-enum
+    /// joins) — the checker counts their mismatches as residuals so the
+    /// invariant's scope limit is visible, never vacuous (#2145).
+    /// </summary>
+    public enum SinkScope { Wrappable, PrinterOwned }
+
+    public readonly record struct TypedSink(IrExpression Value, TypeRef Target, SinkScope Scope = SinkScope.Wrappable);
 
     /// <summary>
     /// One shared decision for pass and checker: an enumerated sink requires a
@@ -29,7 +38,19 @@ public static class CoercionSinks
         // own branches (TryConditionalTextForTarget and siblings), and wrapping
         // them re-routes statement-position spellings into the inline forms
         // (a multi-line switch expression collapsing to one line).
-        => sink.Value is not (Coerce or LoadStackSlot or Conditional or Coalesce or SwitchExpression or UnionSwitchExpression)
+        => sink.Scope == SinkScope.Wrappable
+            && sink.Value is not (Coerce or LoadStackSlot or Conditional or Coalesce or SwitchExpression or UnionSwitchExpression)
+            && CoercionDomain.InDomain(sink.Target, shapes)
+            && !CoercionDomain.IsAtTarget(sink.Value, sink.Target);
+
+    /// <summary>
+    /// A sink the invariant cannot assert but must not hide: in-domain,
+    /// mismatched, and owned by a later or targeted decider. Counted by
+    /// CoercionInvariant so "0 violations" is never read as covering them.
+    /// </summary>
+    public static bool IsResidual(TypedSink sink, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => !RequiresCoercion(sink, shapes)
+            && sink.Value is not Coerce
             && CoercionDomain.InDomain(sink.Target, shapes)
             && !CoercionDomain.IsAtTarget(sink.Value, sink.Target);
 
@@ -130,14 +151,17 @@ public static class CoercionSinks
                     for (int i = 0; i < ctor.Constructor.ParameterTypes.Length && i < ctor.Arguments.Count; i++)
                         yield return new(ctor.Arguments[i], ctor.Constructor.ParameterTypes[i]);
                     break;
-                // An enum-typed join types both arms. Enum merges only: bool
-                // joins belong to BooleanFoldingPass's 0/1 reconciliation, and
-                // int-merge arm rendering (bool arms as `(cond ? 1 : 0)`) is
-                // still a printer rule — residual for the burn-down.
-                case Conditional { MergedType: { } merged } conditional
-                    when function.TypeShapes.GetValueOrDefault(merged) == TypeShape.Enum:
-                    yield return new(conditional.WhenTrue, merged);
-                    yield return new(conditional.WhenFalse, merged);
+                // A typed join types both arms. Enum merges are wrappable; other
+                // in-domain merges (int joins with bool or enum arms) are
+                // printer-owned — ConditionalArm renders them, and the checker
+                // counts their mismatches as residuals rather than hiding them
+                // behind the exclusion (#2145).
+                case Conditional { MergedType: { } merged } conditional:
+                    var armScope = function.TypeShapes.GetValueOrDefault(merged) == TypeShape.Enum
+                        ? SinkScope.Wrappable
+                        : SinkScope.PrinterOwned;
+                    yield return new(conditional.WhenTrue, merged, armScope);
+                    yield return new(conditional.WhenFalse, merged, armScope);
                     break;
                 // Switch case labels are deliberately not enumerated:
                 // SwitchSection holds them outside the child tree (ReplaceWith
@@ -200,7 +224,7 @@ public sealed class CoercionInsertionPass : IIrPass
             .Where(s => CoercionSinks.RequiresCoercion(s, shapes))
             .OrderByDescending(s => Depth(s.Value))
             .ToList();
-        foreach (var (value, target) in sinks)
+        foreach (var (value, target, _) in sinks)
         {
             context.Stepper.StepOver($"coerce sink value to {target.Name}", value);
             // Clone so the wrapper owns a detached copy before the in-place
@@ -226,17 +250,39 @@ public sealed class CoercionInsertionPass : IIrPass
 /// </summary>
 public static class CoercionInvariant
 {
-    public static IReadOnlyList<string> Check(IrFunction function)
+    /// <summary>
+    /// <see cref="Violations"/> break the invariant (gates assert zero);
+    /// <see cref="Residuals"/> are in-domain mismatches the invariant's scope
+    /// deliberately leaves to later or targeted deciders, counted by value
+    /// kind so the scope limit is measurable burn-down, never silent (#2145).
+    /// </summary>
+    public readonly record struct CoercionAudit(
+        IReadOnlyList<string> Violations,
+        IReadOnlyDictionary<string, int> Residuals);
+
+    public static IReadOnlyList<string> Check(IrFunction function) => Audit(function).Violations;
+
+    public static CoercionAudit Audit(IrFunction function)
     {
         var shapes = function.TypeShapes;
         List<string>? violations = null;
+        Dictionary<string, int>? residuals = null;
         foreach (var sink in CoercionSinks.Enumerate(function))
         {
-            if (!CoercionSinks.RequiresCoercion(sink, shapes))
-                continue;
-            (violations ??= []).Add(
-                $"{function.Name}: {sink.Value.Describe()} occupies a {sink.Target.ToDisplayString()} sink without a Coerce");
+            if (CoercionSinks.RequiresCoercion(sink, shapes))
+            {
+                (violations ??= []).Add(
+                    $"{function.Name}: {sink.Value.Describe()} occupies a {sink.Target.ToDisplayString()} sink without a Coerce");
+            }
+            else if (CoercionSinks.IsResidual(sink, shapes))
+            {
+                var kind = sink.Scope == CoercionSinks.SinkScope.PrinterOwned
+                    ? $"printer-owned arm ({sink.Value.GetType().Name})"
+                    : sink.Value.GetType().Name;
+                residuals ??= [];
+                residuals[kind] = residuals.GetValueOrDefault(kind) + 1;
+            }
         }
-        return violations ?? [];
+        return new(violations ?? [], residuals ?? []);
     }
 }

@@ -2142,9 +2142,12 @@ public sealed partial class CSharpPrinter
         => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
 
     /// <summary>
-    /// True when rendered text is a bare identifier chain or numeric literal
-    /// (`LEnum.High`, `10`, `-1`) — safe unparenthesized in any operand
-    /// position, including as a member-access receiver.
+    /// True when rendered text is a bare identifier chain or non-negative
+    /// numeric literal (`LEnum.High`, `10`) — safe unparenthesized in any
+    /// operand position, including as a member-access receiver. A leading
+    /// minus is deliberately NOT an atom: `-1` as a receiver misbinds
+    /// (`-1.ToString()` negates the call), so negative literals keep
+    /// Operand's parens (#2145).
     /// </summary>
     static bool IsSimpleAtomText(string text)
     {
@@ -2152,7 +2155,7 @@ public sealed partial class CSharpPrinter
             return false;
         foreach (char c in text)
         {
-            if (!char.IsLetterOrDigit(c) && c is not ('.' or '_' or '@' or '-'))
+            if (!char.IsLetterOrDigit(c) && c is not ('.' or '_' or '@'))
                 return false;
         }
         return true;

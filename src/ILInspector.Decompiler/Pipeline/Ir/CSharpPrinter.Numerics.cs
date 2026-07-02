@@ -1212,6 +1212,13 @@ public sealed partial class CSharpPrinter
             // and renders its member name via Operand.
             : TryCoerceEnumOperand(arm, target) is { } coercedArm
                 ? coercedArm
+            // The mirror direction (#2145): an enum arm flowing into an
+            // integer-typed join (`c ? E.One : e` merged as int) is CS0266 too —
+            // cast the enum arm to the integer target, the same enum→underlying
+            // rule CoerceText applies to whole values at integer sinks.
+            : target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
+            && EnumUnderlyingType(EffectiveType(arm)) is not null
+                ? $"({TypeText(integerTarget)}){Operand(arm)}"
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
                 ? $"({Condition(arm)} ? 1 : 0)"
