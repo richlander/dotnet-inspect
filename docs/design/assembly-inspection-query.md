@@ -3,7 +3,10 @@
 > Design north-star for the CLI-thinning work tracked in
 > [#2122](https://github.com/richlander/dotnet-inspect/issues/2122). Describes the target
 > boundary between the CLI and the metadata/service layers for *acquiring and inspecting an
-> assembly*. This is the acquisition-seam counterpart to
+> assembly*: the CLI forms a query, the service resolves, opens, and returns the finished shape.
+> It defines the **assembly** seam concretely and its **method-body / coordinate** sibling seam
+> (see [below](#the-sibling-seam-method-body--coordinate-inspection)). This is the
+> acquisition-seam counterpart to
 > [`service-model-refactoring.md`](service-model-refactoring.md), which covers the
 > output-shape seam.
 
@@ -194,15 +197,53 @@ public sealed class AssemblyInspectionSession : IDisposable
 }
 ```
 
-The CLI collapses to orchestration plus mapping — no PE types, no re-derived provenance:
+The CLI collapses to *selection and rendering* — it chooses the source and sections (the
+query) and renders the returned shape, but it does not construct facts, hold PE types, or
+re-derive provenance:
 
 ```csharp
 foreach (var resolved in await resolver.ResolveAsync(query.Source))  // rich descriptors, nothing discarded
 {
     using var asm = AssemblyInspectionSession.Open(resolved);
-    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // final shape
+    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // final, section-shaped result
 }
 ```
+
+The boundary is deliberate: per [`service-model-refactoring.md`](service-model-refactoring.md)
+the returned shape should already be *view-compatible* (section-shaped), so the CLI selects
+lenses and renders (Markout / writers) rather than transforming service data into view models.
+"Mapping" that constructs inspection facts or section shapes belongs **below** the CLI; only
+lens selection and rendering stay above it. This is what keeps the "service returns the final
+shape" promise from quietly regressing into today's formatter/service leakage.
+
+## The sibling seam: method-body / coordinate inspection
+
+Assembly-level inspection is only half the surface. The other half is **method-body /
+coordinate** inspection — "given an assembly and a member (or an IL coordinate), produce
+body-level facts, source, and semantics." Today it is split across two one-offs that do not
+share a model:
+
+- `MemberCodeProvider` — per-member decompiled source / IL / attributes / facts (drives the
+  decompiler and Research overlays).
+- `ILOffsetSourceQuery` (the `library --il-offset` path) — resolves an IL coordinate to a
+  source location and builds allocation / safety / cost contexts inline from the PDB.
+
+These want the same shape as the assembly seam, one level down: a query in, a finished result
+out, over the *same* shared PE-owner (so the body path does not re-open the image either).
+
+```text
+   MemberQuery / ILCoordinateQuery                 MethodBodyInspection
+ CLI  ─────────────────────────────►  Service  ──────────────────────────►  CLI
+      (assembly + member or IL coord;        (locate member → import body →
+       which body sections)                   source / IL / facts → final shape)
+```
+
+`MethodBodyInspectionSession` (opened over the same shared PE-owner as the assembly session,
+composing `MetadataSource` for decompilation) is the target. The explicit goal is that
+`ILOffsetSourceQuery` **disappears** into this seam rather than becoming a third one-off, and
+`MemberCodeProvider` becomes a thin caller. This doc defines the assembly seam concretely; the
+method-body seam is its sibling and should follow the same query → session → final-shape
+pattern. Treat them as one program of work under #2122, not two.
 
 ## Relationship to the `AssemblyRef` boundary (#2051 / #2052)
 
@@ -231,8 +272,10 @@ pipeline.
 
 ## What legitimately stays in the CLI / elsewhere
 
-- **Orchestration:** building the `AssemblyQuery` from options, choosing the source, and
-  mapping the returned shape into view models is CLI work.
+- **Selection and rendering:** building the query from options (source + sections/lenses) and
+  rendering the returned section-shaped result (Markout / writers) is CLI work. Constructing
+  the inspection facts / section shapes is **not** — that lives in the service (see the
+  boundary note above).
 
 Two things are often *called* "already correct" but really need to be **unified by the
 session**, not left parallel (they are the source of [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)):
@@ -266,6 +309,10 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 5. **Proof of concept.** Thread one flow end-to-end first — the platform-assembly `library`
    path is the smallest (single assembly, no package fan-out) — and confirm the CLI loses its
    `System.Reflection.Metadata` / `PortableExecutable` usings for that path.
+6. **Method-body seam.** Apply the same query → session → final-shape pattern one level down:
+   a `MethodBodyInspectionSession` over the shared PE-owner, folding `ILOffsetSourceQuery` and
+   `MemberCodeProvider` into `MemberQuery` / `ILCoordinateQuery` (see
+   [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
 ## Open questions
 
