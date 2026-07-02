@@ -271,6 +271,55 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.generic-type",
+            "GeneratedFixtures.MinimalGenericType.Box`1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.generic-type",
+            "GeneratedFixtures.MinimalGenericType.Box`1",
+            "get_Value",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.generic-type",
+            "GeneratedFixtures.MinimalGenericType.Box`1",
+            "set_Value",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.generic-type",
+            "GeneratedFixtures.MinimalGenericType.Box`1",
+            "Echo",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.generic-type-constraints",
+            "GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.generic-type-constraints",
+            "GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1",
+            "Create",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.generic-type-constraints",
+            "GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1",
+            "Echo",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.if-else",
             "GeneratedFixtures.MinimalIfElse.Class1",
             ".ctor",
@@ -526,6 +575,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.object-initializer", report);
         Assert.Contains("minimal.collection-initializer", report);
         Assert.Contains("minimal.generic-methods", report);
+        Assert.Contains("minimal.generic-type", report);
+        Assert.Contains("minimal.generic-type-constraints", report);
         Assert.Contains("minimal.if-else", report);
         Assert.Contains("minimal.integer-addition", report);
         Assert.Contains("minimal.struct-members", report);
@@ -582,6 +633,8 @@ public class GeneratedFixtureCatalogTests
                 "minimal.for-loop",
                 "minimal.foreach-array",
                 "minimal.generic-methods",
+                "minimal.generic-type",
+                "minimal.generic-type-constraints",
                 "minimal.if-else",
                 "minimal.indexer.getter",
                 "minimal.indexer.setter",
@@ -633,6 +686,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.object-initializer");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.collection-initializer");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.generic-methods");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.generic-type");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.generic-type-constraints");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.if-else");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.integer-addition");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.struct-members");

@@ -308,6 +308,63 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "generic", "method", "constraints"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalGenericType = new(
+        "minimal.generic-type",
+        """
+        namespace GeneratedFixtures.MinimalGenericType;
+
+        public class Box<T>
+        {
+            private T _value;
+
+            public Box(T value)
+            {
+                _value = value;
+            }
+
+            public T Value
+            {
+                get => _value;
+                set => _value = value;
+            }
+
+            public T Echo(T value) => value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalGenericType.Box`1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericType.Box`1", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericType.Box`1", "set_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericType.Box`1", "Echo",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "generic", "type", "property", "setter"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalGenericTypeConstraints = new(
+        "minimal.generic-type-constraints",
+        """
+        namespace GeneratedFixtures.MinimalGenericTypeConstraints;
+
+        public class Factory<T> where T : class, new()
+        {
+            public T Create() => new T();
+
+            public T Echo(T value) => value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1", "Create",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1", "Echo",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "generic", "type", "constraints"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -802,6 +859,8 @@ internal static class GeneratedFixtureCatalog
         MinimalObjectInitializer,
         MinimalCollectionInitializer,
         MinimalGenericMethods,
+        MinimalGenericType,
+        MinimalGenericTypeConstraints,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,
