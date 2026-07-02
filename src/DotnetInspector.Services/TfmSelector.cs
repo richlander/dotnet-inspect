@@ -42,6 +42,21 @@ public static class TfmSelector
         return candidates.OrderBy(f => f).ToList();
     }
 
+    public static List<string> GetPackageAssemblies(string extractPath)
+        => FilterResourceAssemblies(GetPackageDlls(extractPath));
+
+    public static List<string> GetPackageTfms(string extractPath)
+        => GetPackageTfms(GetPackageDlls(extractPath), extractPath);
+
+    public static List<string> GetPackageTfms(IEnumerable<string> paths, string extractPath)
+        => paths
+            .Select(path => GetTfm(extractPath, path))
+            .Where(tfm => tfm != null)
+            .Select(tfm => tfm!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(TfmResolver.GetTfmPriority)
+            .ToList();
+
     public static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath, string? packageName = null)
     {
         dlls = FilterResourceAssemblies(dlls);
@@ -129,9 +144,33 @@ public static class TfmSelector
         return (byTfm[highestTfm], highestTfm);
     }
 
+    public static (List<string> paths, string? tfm) SelectHighestAssembliesFromPackage(string extractPath, string? tfm = null)
+        => SelectHighestAssemblies(GetPackageDlls(extractPath), extractPath, tfm);
+
+    public static (List<string> paths, string? tfm) SelectHighestAssemblies(List<string> dlls, string extractPath, string? tfm = null)
+    {
+        dlls = FilterResourceAssemblies(dlls);
+        if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
+            return (dlls, null);
+
+        if (dlls.Count == 0)
+            return ([], string.IsNullOrWhiteSpace(tfm) ? null : tfm);
+
+        if (!string.IsNullOrWhiteSpace(tfm))
+        {
+            var selected = dlls
+                .Where(path => string.Equals(GetTfm(extractPath, path), tfm, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            return (selected, tfm);
+        }
+
+        var (highestTfmDlls, highestTfm) = SelectHighestTfmAssemblies(dlls, extractPath);
+        return highestTfmDlls.Count > 0 ? (highestTfmDlls, highestTfm) : (dlls, null);
+    }
+
     public static (string? path, string? tfm) FindAssemblyInPackage(string extractPath, string assemblyName, string? tfm = null)
     {
-        var dlls = FilterResourceAssemblies(GetPackageDlls(extractPath));
+        var dlls = GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
             return (null, null);
 
@@ -177,7 +216,7 @@ public static class TfmSelector
 
     public static (string? path, string? tfm) FindAssemblyContainingType(string extractPath, string typeName, string? tfm = null)
     {
-        var dlls = FilterResourceAssemblies(GetPackageDlls(extractPath));
+        var dlls = GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
             return (null, null);
 
@@ -186,21 +225,11 @@ public static class TfmSelector
 
         if (!string.IsNullOrEmpty(tfm))
         {
-            candidateDlls = dlls
-                .Where(dll => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/')),
-                    tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            (candidateDlls, selectedTfm) = SelectHighestAssemblies(dlls, extractPath, tfm);
         }
         else
         {
-            var (highestTfmDlls, highestTfm) = SelectHighestTfmAssemblies(dlls, extractPath);
-            if (highestTfmDlls.Count > 0)
-            {
-                candidateDlls = highestTfmDlls;
-                selectedTfm = highestTfm;
-            }
+            (candidateDlls, selectedTfm) = SelectHighestAssemblies(dlls, extractPath);
         }
 
         foreach (var dll in candidateDlls)
@@ -225,6 +254,9 @@ public static class TfmSelector
 
         return (null, selectedTfm);
     }
+
+    private static string? GetTfm(string extractPath, string path)
+        => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/'));
 
     public static string? FindAssemblyByTfm(string extractPath, string tfm, string? packageName = null)
     {

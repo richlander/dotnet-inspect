@@ -281,29 +281,12 @@ public class DiffCommand
             return (null, null, null, outcome.ErrorMessage);
 
         var extracted = outcome.Result!;
-        var dlls = TfmSelector.GetPackageDlls(extracted.ExtractPath);
+        var dlls = TfmSelector.GetPackageAssemblies(extracted.ExtractPath);
         if (dlls.Count == 0)
             return (null, null, extracted.TempDir, "No DLLs found in package.");
 
-        List<string> paths;
-        string? selectedTfm;
-        if (!string.IsNullOrEmpty(options.Tfm))
-        {
-            paths = dlls
-                .Where(path =>
-                {
-                    var relativePath = Path.GetRelativePath(extracted.ExtractPath, path).Replace('\\', '/');
-                    return relativePath.Split('/').Any(part => string.Equals(part, options.Tfm, StringComparison.OrdinalIgnoreCase));
-                })
-                .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToList();
-            selectedTfm = options.Tfm;
-        }
-        else
-        {
-            (paths, selectedTfm) = TfmSelector.SelectHighestTfmAssemblies(dlls, extracted.ExtractPath);
-        }
+        var (paths, selectedTfm) = TfmSelector.SelectHighestAssemblies(dlls, extracted.ExtractPath, options.Tfm);
+        paths = paths.OrderBy(path => path, StringComparer.Ordinal).ToList();
 
         if (paths.Count == 0)
             return (null, null, extracted.TempDir, "No DLLs found for selected TFM.");

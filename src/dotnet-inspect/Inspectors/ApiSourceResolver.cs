@@ -269,7 +269,7 @@ internal static class ApiSourceResolver
 
         if (Directory.Exists(searchPath))
         {
-            var dlls = TfmSelector.GetPackageDlls(searchPath);
+            var dlls = TfmSelector.GetPackageAssemblies(searchPath);
             if (dlls.Count > 1)
             {
                 var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);

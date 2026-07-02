@@ -86,7 +86,7 @@ internal static class ApiServices
                 }
                 else
                 {
-                    var (highestPath, _) = TfmSelector.SelectHighestTfmAssembly(TfmSelector.GetPackageDlls(searchPath), searchPath, packageName);
+                    var (highestPath, _) = TfmSelector.SelectHighestTfmAssembly(TfmSelector.GetPackageAssemblies(searchPath), searchPath, packageName);
                     if (highestPath != null)
                         searchPath = highestPath;
                 }
@@ -199,7 +199,7 @@ internal static class ApiServices
             string? selectedTfm = null;
             if (Directory.Exists(searchPath))
             {
-                var dlls = TfmSelector.GetPackageDlls(searchPath);
+                var dlls = TfmSelector.GetPackageAssemblies(searchPath);
                 if (dlls.Count > 1)
                 {
                     var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
@@ -258,7 +258,7 @@ internal static class ApiServices
             var (searchPath, packageName) = (extracted.ExtractPath, extracted.PackageName);
             tempDir = extracted.TempDir;
 
-            var dlls = TfmSelector.GetPackageDlls(searchPath);
+            var dlls = TfmSelector.GetPackageAssemblies(searchPath);
             if (dlls.Count == 0)
                 return (null, null);
 
@@ -266,7 +266,7 @@ internal static class ApiServices
             if (dlls.Count == 1)
                 return await ExtractApiSurfaceAsync(options, logger, httpClient);
 
-            var (tfmDlls, selectedTfm) = TfmSelector.SelectHighestTfmAssemblies(dlls, searchPath);
+            var (tfmDlls, selectedTfm) = TfmSelector.SelectHighestAssemblies(dlls, searchPath);
             if (tfmDlls.Count == 0)
                 return (null, null);
 

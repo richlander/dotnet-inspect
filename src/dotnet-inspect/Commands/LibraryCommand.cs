@@ -1585,7 +1585,7 @@ public class LibraryCommand
         // --tfm all: return all assemblies from every TFM
         if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
         {
-            var candidates = TfmSelector.GetPackageDlls(extractPath);
+            var (candidates, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm);
             if (candidates.Count == 0)
             {
                 Console.Error.WriteLine("Error: No DLLs found in package.");
@@ -1603,11 +1603,7 @@ public class LibraryCommand
             {
                 Console.Error.WriteLine($"Error: No library found for TFM '{tfm}'.");
                 Console.Error.WriteLine("Available TFMs:");
-                var tfms = allDlls
-                    .Select(d => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
-                    .Where(t => t != null)
-                    .Distinct()
-                    .OrderByDescending(t => TfmResolver.GetTfmPriority(t!));
+                var tfms = TfmSelector.GetPackageTfms(allDlls, extractPath);
                 foreach (var t in tfms)
                 {
                     Console.Error.WriteLine($"  {t}");
@@ -1622,7 +1618,7 @@ public class LibraryCommand
         // No --tfm and no assembly name: select the highest-priority TFM (default)
         if (string.IsNullOrEmpty(assemblyName))
         {
-            var candidates = TfmSelector.GetPackageDlls(extractPath);
+            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
             if (candidates.Count == 0)
             {
                 Console.Error.WriteLine("Error: No DLLs found in package.");
