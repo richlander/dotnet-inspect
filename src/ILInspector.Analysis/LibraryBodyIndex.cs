@@ -3778,7 +3778,7 @@ public sealed class LibraryBodyIndex
                 "Boolean" or "Byte" or "SByte" => 1,
                 "Char" or "Int16" or "UInt16" => 2,
                 "Int32" or "UInt32" or "Single" => 4,
-                "Int64" or "UInt64" or "Double" => 8,
+                "Int64" or "UInt64" or "Double" or "IntPtr" or "UIntPtr" => 8,
                 _ => 0,
             };
             return size != 0 && FrameworkIdentity.IsCoreLibraryType(element, "System", element.Name);

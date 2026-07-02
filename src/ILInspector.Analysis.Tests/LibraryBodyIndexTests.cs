@@ -1293,6 +1293,8 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsByteArray100), 128)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsStringArray8), 88)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsLongArray4), 56)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntPtrArray3), 48)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsUIntPtrArray3), 48)]
     public void AllocationOccurrences_EstimatesExactSizeForConstantSzArrays(string methodName, int expectedSizeBytes)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -3325,6 +3327,10 @@ public class OptimizationOpportunityFixtures
     public static string[] ReturnsStringArray8() => new string[8];
 
     public static long[] ReturnsLongArray4() => new long[4];
+
+    public static IntPtr[] ReturnsIntPtrArray3() => new IntPtr[3];
+
+    public static UIntPtr[] ReturnsUIntPtrArray3() => new UIntPtr[3];
 
     public static Guid[] ReturnsGuidArray4() => new Guid[4];
 
