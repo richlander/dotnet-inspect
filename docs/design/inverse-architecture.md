@@ -76,9 +76,15 @@ it solves *our subproblem*: it also reads IL and must **reconstruct the types IL
 erased** (for codegen, where we do it for C#). That makes RyuJIT's importer our
 **soundness oracle**:
 
-> Any type or shape we assert from IL, RyuJIT's importer must be able to assert
-> soundly from the same IL. Where our recovery is *weaker* than RyuJIT's, we are
-> merely incomplete; where it is *stronger*, we are **unsound**.
+> Any **type or shape we recover from an IL method body** (the erased evaluation
+> stack), RyuJIT's importer must be able to assert soundly from the same IL. Where
+> that body-derived recovery is *weaker* than RyuJIT's, we are merely incomplete;
+> where it is *stronger*, we are **unsound**.
+
+The oracle scopes to *stack- and body-derived* type recovery. It does **not** bound
+what we recover from **metadata and structure** — enum member names, sugar shapes,
+generic context — which RyuJIT never asserts and which are sound because they come
+from metadata, not from the erased stack.
 
 This is what "confident" in *confident inverse* means: our recovered facts are a
 subset of what RyuJIT soundly recovers. RyuJIT's rules are therefore load-bearing
@@ -86,8 +92,12 @@ spec, not analogy. The clearest example: RyuJIT normalizes `bool`/`byte`/`short`
 `int32` on the evaluation stack and re-narrows on store (the ECMA-335 stack model).
 Any decompiler stage that forgets this — that treats a stack `bool` as
 distinguishable from a stack `int32` at a sink — is unsound against the oracle, and
-will miscompile. (This is not hypothetical; it is the precise shape of the
-value-typed-emission slice-3 regressions.)
+will miscompile. (This is not hypothetical: it is the shape of one of the two
+value-typed-emission slice-3 findings — the premature sink-type assertion on a value
+whose C# type the slot unifier had not yet decided. The other slice-3 finding, a
+lambda return mis-attributed to the outer signature, was a scope-attribution bug in
+the sink enumerator, not a stack-model violation. Both were caught by the slice's
+adversarial render A/B in branch review; neither landed.)
 
 ## The stage ledger (the vertical)
 
@@ -102,8 +112,8 @@ its forward counterpart consumed.
 | Conversion classification (`BoundConversion`) | **coercion insertion** (typed-sink wrapping) | every sink value is at, or explicitly coerced to, its target | the sink type is recoverable **and** distinguishable from the stack type |
 | Constant handling / typed constants | **typed-constants** | a constant carries its semantic (e.g. enum) type | the sink's semantic type is resolved in the current assembly |
 
-The two rows in bold below the raise step — structuring and coercion — are the two
-pass exemplars that complete the "full vertical" from IL up to C#. The others are
+The **structuring** and **coercion insertion** rows are the two pass exemplars that
+complete the "full vertical" from IL up to C#. The others are
 governed by their own design notes ([control-flow-structuring.md](control-flow-structuring.md),
 [value-typed-emission.md](value-typed-emission.md)).
 
@@ -123,7 +133,7 @@ the worked example the generator will subsume.
 | Node | Forward construct (Roslyn / RyuJIT) | Precondition | Witness |
 | --- | --- | --- | --- |
 | `Convert` | `BoundConversion` (numeric) / `GT_CAST` | none — models the `conv.*` that ran | round-trips by construction; corpus compile-back |
-| `Coerce` *(value-typed-emission)* | `BoundConversion` (the implicit, target-driven part) | sink type recoverable and distinguishable from the stack type | compile-back Exact on the coercion fixtures |
+| `Coerce` *(value-typed-emission)* | `BoundConversion` (the implicit, target-driven part) | sink type recoverable and distinguishable from the stack type | `CoerceChokePointTests` / `CoercionInvariantTests` (Roslyn compile-gated), the corpus render-text A/B, and the invariant sweep (landing with slice 3) |
 | `Box` | `BoundConversion` (boxing) / `GT_BOX` | target is the boxed value type | `box`/`unbox` fixtures |
 
 `Convert` and `Coerce` are the same forward concept (`BoundConversion`) split into
@@ -227,6 +237,15 @@ Two design rules keep this honest and cheap:
   in-domain node to carry `[InverseOf(...)]` or an explicit `[NotInverted(reason)]`,
   and CI diffs the generated ledger against the committed copy. If nothing goes red
   when an annotation is wrong or missing, it is just a fancy comment.
+- **Every `assumes:` must name an executable predicate.** Presence and ledger↔attribute
+  agreement are not enough — nothing above forces the *assumption itself* to stay true
+  when a pass rewrite changes a node's real precondition. So the rule is: every
+  `assumes:` names a member exposing a release-capable `Check()`, and the coverage test
+  **invokes** those predicates over the fixture corpus. An assumption that cannot be
+  spelled as a predicate does not go in the attribute — it goes in prose behind a
+  `[NotInverted(reason)]`-style honesty marker. This is the residual-drift guard: it
+  binds the attribute's claim to a runnable check, the same discipline the node ledger's
+  witness column enforces.
 
 The reflector that reads the annotations and emits the ledger lives in tools/tests,
 never in the shipped decompiler.
@@ -256,4 +275,7 @@ a `[NotInverted(reason)]` row so the boundary is visible, not implicit.
   `SinkDistinguishableFromStack` assertion): planned. First slice is the conversion
   family (`Convert` / `Coerce` / `Box`).
 - **Node annotations applied across the IR:** planned, to follow the infrastructure.
+  Because the annotations land in `IrNodes.cs`, which value-typed-emission slices 4–5
+  actively edit, the annotation slice is sequenced *after* the slice-3 merge and the
+  follow-up infra, to keep the churn on that file serialized.
 - **Generated ledger:** planned; will replace the hand-written seed rows above.
