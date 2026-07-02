@@ -750,6 +750,7 @@ public class LibraryInspectionView
                 o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
                 o.EstimatedSizeBytes,
                 o.SizeTier,
+                o.Escape,
                 o.Path,
                 o.PathConfidence,
                 o.PostDominance,

@@ -15,7 +15,8 @@ public sealed record OptimizationOpportunity(
     string? PathContext = null,
     string? PathConfidence = null,
     int? EstimatedSizeBytes = null,
-    string? SizeTier = null)
+    string? SizeTier = null,
+    string? Escape = null)
 {
     public bool Amortized { get; init; }
     public string? PostDominance { get; init; }

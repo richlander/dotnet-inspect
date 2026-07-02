@@ -889,6 +889,7 @@ public record OptimizationOpportunityRow(
     [property: MarkoutPropertyName("Est Size")]
     [property: MarkoutSkipNull] int? EstSize,
     [property: MarkoutSkipNull] string? SizeTier,
+    [property: MarkoutSkipNull] string? Escape,
     [property: MarkoutSkipNull] string? Path,
     [property: MarkoutSkipNull] string? PathConfidence,
     [property: MarkoutPropertyName("Post Dominance")]
