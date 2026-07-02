@@ -1006,6 +1006,207 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsParameterModifierSignatures()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public void Increment(ref int value)
+                {
+                    value++;
+                }
+
+                public void Set(out int value)
+                {
+                    value = 42;
+                }
+
+                public int Read(in int value) => value;
+
+                public int Sum(params int[] values)
+                {
+                    var sum = 0;
+                    foreach (var value in values)
+                        sum += value;
+                    return sum;
+                }
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Increment", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Set", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Read", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Sum", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public void Increment(ref int value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public void Set(out int value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int Read(in int value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int Sum(params int[] values)", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsDefaultParameterSignatures()
+    {
+        var assemblyPath = CompileFixture("""
+            public enum Choice
+            {
+                None = 0,
+                One = 1,
+            }
+
+            public class Class1
+            {
+                public int Add(int value = 42, bool enabled = true)
+                    => enabled ? value + 1 : value;
+
+                public string Format(string text = "hello", object value = null)
+                    => value is null ? text : text + value.ToString();
+
+                public decimal DecimalDefault(decimal value = 1.25m)
+                    => value;
+
+                public int EnumDefault(Choice choice = Choice.One)
+                    => (int)choice;
+
+                public long DateTimeDefault(
+                    [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                    => when.Ticks;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Add", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Format", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "DecimalDefault", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "EnumDefault", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "DateTimeDefault", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int Add(int value = 42, bool enabled = true)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public string Format(string text = \"hello\", object value = null)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public System.Decimal DecimalDefault(System.Decimal value = 1.25m)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int EnumDefault(Choice choice = (Choice)1)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)", result.Source);
+                    Assert.Contains("System.DateTime when", result.Source);
+                    Assert.DoesNotContain("System.DateTime when =", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsParameterAttributes()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Length([System.Diagnostics.CodeAnalysis.NotNull] string value)
+                    => value.Length;
+
+                public int Copy([System.Runtime.InteropServices.Out] int value)
+                    => value;
+
+                public int Update([System.Runtime.InteropServices.In, System.Runtime.InteropServices.Out] ref int value)
+                {
+                    value++;
+                    return value;
+                }
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Length", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Copy", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Update", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Diagnostics.CodeAnalysis.NotNull", result.Source);
+                    Assert.Contains("int Length(", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("int Copy(", result.Source);
+                    Assert.DoesNotContain("out int value", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("ref int value", result.Source);
+                    Assert.DoesNotContain("out int value", result.Source);
+                    Assert.DoesNotContain("in int value", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""

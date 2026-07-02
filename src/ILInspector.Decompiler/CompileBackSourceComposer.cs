@@ -213,7 +213,13 @@ public sealed record CompileBackTypeSignature(CompileBackTypeSignatureKind Kind,
         => new(CompileBackTypeSignatureKind.Definition, identity.FullName, identity);
 }
 
-public sealed record CompileBackParameter(string Name, CompileBackTypeSignature Type);
+public sealed record CompileBackParameter(
+    string Name,
+    CompileBackTypeSignature Type,
+    string? Modifier = null,
+    IReadOnlyList<string>? Attributes = null,
+    bool HasDefault = false,
+    string? DefaultValueText = null);
 
 public sealed record CompileBackTypeParameter(string Name, IReadOnlyList<string> Constraints);
 
@@ -900,10 +906,18 @@ public static class CompileBackSourceComposer
                     })
                     .ToList(),
                 Parameters = member.Parameters
-                    .Select(parameter => new ApiParameter
+                    .Select(parameter =>
                     {
-                        Name = parameter.Name,
-                        Type = parameter.Type.DisplayName,
+                        var (type, modifier) = NormalizeParameter(parameter);
+                        return new ApiParameter
+                        {
+                            Attributes = parameter.Attributes?.ToList() ?? [],
+                            Name = parameter.Name,
+                            Type = type,
+                            Modifier = modifier,
+                            HasDefault = parameter.HasDefault,
+                            DefaultValueText = parameter.DefaultValueText,
+                        };
                     })
                     .ToList(),
             };
@@ -958,19 +972,386 @@ public static class CompileBackSourceComposer
         MethodSignature<string> signature)
     {
         var names = new Dictionary<int, string>();
+        var modifiers = new Dictionary<int, string>();
+        var refKinds = new Dictionary<int, string>();
+        var attributes = new Dictionary<int, IReadOnlyList<string>>();
+        var defaultParameters = new Dictionary<int, System.Reflection.Metadata.Parameter>();
+        var attributedDefaultValues = new Dictionary<int, string>();
+        var attributedDefaultAttributes = new Dictionary<int, IReadOnlyList<string>>();
         foreach (var parameterHandle in method.GetParameters())
         {
             var parameter = reader.GetParameter(parameterHandle);
             if (parameter.SequenceNumber > 0)
+            {
                 names[parameter.SequenceNumber - 1] = reader.GetString(parameter.Name);
+                var customAttributes = parameter.GetCustomAttributes();
+                bool isParams = AttributeReader.HasAttribute(reader, customAttributes, "System.ParamArrayAttribute")
+                    || AttributeReader.HasAttribute(reader, customAttributes, KnownAttributeNames.ParamCollectionAttribute);
+                if (isParams)
+                    modifiers[parameter.SequenceNumber - 1] = "params";
+                var isOut = (parameter.Attributes & System.Reflection.ParameterAttributes.Out) != 0;
+                var isIn = (parameter.Attributes & System.Reflection.ParameterAttributes.In) != 0;
+                if (isOut && !isIn)
+                    refKinds[parameter.SequenceNumber - 1] = "out";
+                else if (isIn && !isOut)
+                    refKinds[parameter.SequenceNumber - 1] = "in";
+                var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, parameterHandle);
+                if (renderedAttributes.Count != 0)
+                    attributes[parameter.SequenceNumber - 1] = renderedAttributes;
+                if (TryFormatAttributedParameterDefault(
+                    reader,
+                    customAttributes,
+                    out var attributedDefaultValue,
+                    out var attributedDefaultAttributeList))
+                {
+                    attributedDefaultValues[parameter.SequenceNumber - 1] = attributedDefaultValue;
+                    if (attributedDefaultAttributeList.Count != 0)
+                        attributedDefaultAttributes[parameter.SequenceNumber - 1] = attributedDefaultAttributeList;
+                }
+                if ((parameter.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0)
+                    defaultParameters[parameter.SequenceNumber - 1] = parameter;
+            }
         }
 
         return signature.ParameterTypes
-            .Select((type, index) => new CompileBackParameter(
-                Identifier(names.TryGetValue(index, out var name) && name.Length > 0 ? name : $"arg{index}"),
-                CompileBackTypeSignature.Display(type)))
+            .Select((type, index) =>
+            {
+                var typeSignature = CompileBackTypeSignature.Display(type);
+                var parameterAttributes = attributes.TryGetValue(index, out var attributeList)
+                    ? attributeList.ToList()
+                    : [];
+                if (attributedDefaultAttributes.TryGetValue(index, out var defaultAttributeList))
+                {
+                    foreach (var defaultAttribute in defaultAttributeList)
+                    {
+                        if (!parameterAttributes.Contains(defaultAttribute, StringComparer.Ordinal))
+                            parameterAttributes.Add(defaultAttribute);
+                    }
+                }
+                string? modifier = modifiers.TryGetValue(index, out var explicitModifier)
+                    ? explicitModifier
+                    : typeSignature.DisplayName.StartsWith("ref ", StringComparison.Ordinal)
+                        && refKinds.TryGetValue(index, out var refKind)
+                            ? refKind
+                            : null;
+                string? defaultValue = null;
+                bool hasDefault = false;
+                if (attributedDefaultValues.TryGetValue(index, out var attributedDefaultValue))
+                {
+                    hasDefault = true;
+                    if (attributedDefaultValue.Length == 0)
+                    {
+                        if (!parameterAttributes.Contains("System.Runtime.InteropServices.Optional", StringComparer.Ordinal))
+                            parameterAttributes.Add("System.Runtime.InteropServices.Optional");
+                    }
+                    else
+                    {
+                        defaultValue = attributedDefaultValue;
+                    }
+                }
+                else if (defaultParameters.TryGetValue(index, out var parameter))
+                {
+                    hasDefault = true;
+                    if (TryFormatParameterDefault(reader, parameter, typeSignature.DisplayName, out var formattedDefault))
+                    {
+                        defaultValue = formattedDefault;
+                    }
+                    else if (!parameterAttributes.Contains("System.Runtime.InteropServices.Optional", StringComparer.Ordinal))
+                    {
+                        parameterAttributes.Add("System.Runtime.InteropServices.Optional");
+                    }
+                }
+
+                return new CompileBackParameter(
+                    Identifier(names.TryGetValue(index, out var name) && name.Length > 0 ? name : $"arg{index}"),
+                    typeSignature,
+                    modifier,
+                    parameterAttributes,
+                    hasDefault,
+                    hasDefault ? defaultValue : null);
+            })
             .ToArray();
     }
+
+    static bool TryFormatAttributedParameterDefault(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string defaultValueText,
+        out IReadOnlyList<string> defaultAttributes)
+    {
+        foreach (var attributeHandle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(attributeHandle);
+            var attributeTypeName = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
+            if (attributeTypeName == KnownAttributeNames.DecimalConstantAttribute
+                && TryReadDecimalConstantAttribute(reader, attribute, out var decimalValue))
+            {
+                defaultValueText = FormatDecimalDefault(decimalValue);
+                defaultAttributes = [];
+                return true;
+            }
+
+            if (attributeTypeName == KnownAttributeNames.DateTimeConstantAttribute
+                && TryReadDateTimeConstantAttribute(reader, attribute, out var ticks))
+            {
+                defaultValueText = "";
+                defaultAttributes =
+                [
+                    "System.Runtime.InteropServices.Optional",
+                    $"System.Runtime.CompilerServices.DateTimeConstant({FormatInt64Default(ticks)})",
+                ];
+                return true;
+            }
+        }
+
+        defaultValueText = "";
+        defaultAttributes = [];
+        return false;
+    }
+
+    static bool TryReadDateTimeConstantAttribute(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        out long ticks)
+    {
+        if (AttributeDecoder.TryDecode(reader, attribute) is { FixedArguments.Length: 1 } decoded
+            && decoded.FixedArguments[0].Value is long value)
+        {
+            ticks = value;
+            return true;
+        }
+
+        ticks = 0;
+        return false;
+    }
+
+    static bool TryReadDecimalConstantAttribute(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        out decimal value)
+    {
+        if (AttributeDecoder.TryDecode(reader, attribute) is not { } decoded
+            || decoded.FixedArguments.Length != 5
+            || decoded.FixedArguments[0].Value is not byte scale
+            || decoded.FixedArguments[1].Value is not byte sign
+            || !TryGetUInt32(decoded.FixedArguments[2].Value, out var hi)
+            || !TryGetUInt32(decoded.FixedArguments[3].Value, out var mid)
+            || !TryGetUInt32(decoded.FixedArguments[4].Value, out var low)
+            || scale > 28
+            || sign > 1)
+        {
+            value = default;
+            return false;
+        }
+
+        value = new decimal(
+            unchecked((int)low),
+            unchecked((int)mid),
+            unchecked((int)hi),
+            sign != 0,
+            scale);
+        return true;
+    }
+
+    static bool TryGetUInt32(object? value, out uint result)
+    {
+        switch (value)
+        {
+            case uint unsigned:
+                result = unsigned;
+                return true;
+            case int signed:
+                result = unchecked((uint)signed);
+                return true;
+            default:
+                result = 0;
+                return false;
+        }
+    }
+
+    static string FormatDecimalDefault(decimal value)
+        => value.ToString("G29", CultureInfo.InvariantCulture) + "m";
+
+    static string FormatInt64Default(long value)
+    {
+        long minValue = long.MaxValue;
+        minValue = -minValue - 1;
+        return value == minValue
+            ? "long.MinValue"
+            : value.ToString(CultureInfo.InvariantCulture) + "L";
+    }
+
+    static bool TryFormatParameterDefault(
+        MetadataReader reader,
+        System.Reflection.Metadata.Parameter parameter,
+        string parameterType,
+        out string defaultValueText)
+    {
+        defaultValueText = "";
+        if ((parameter.Attributes & System.Reflection.ParameterAttributes.HasDefault) == 0)
+            return false;
+
+        var constantHandle = parameter.GetDefaultValue();
+        if (constantHandle.IsNil)
+            return false;
+
+        var constant = reader.GetConstant(constantHandle);
+        var blob = reader.GetBlobReader(constant.Value);
+        defaultValueText = constant.TypeCode switch
+        {
+            ConstantTypeCode.Boolean when IsDefaultType(parameterType, "bool") => blob.ReadBoolean() ? "true" : "false",
+            ConstantTypeCode.Char when IsDefaultType(parameterType, "char") => $"'{EscapeCharLiteral(blob.ReadChar())}'",
+            ConstantTypeCode.SByte when IsDefaultType(parameterType, "sbyte") => blob.ReadSByte().ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.Byte when IsDefaultType(parameterType, "byte") => blob.ReadByte().ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.Int16 when IsDefaultType(parameterType, "short") => blob.ReadInt16().ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.UInt16 when IsDefaultType(parameterType, "ushort") => blob.ReadUInt16().ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.Int32 when IsDefaultType(parameterType, "int") => blob.ReadInt32().ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.Int32 when IsLikelyEnumDefaultType(parameterType) => FormatEnumParameterDefault(
+                reader,
+                blob.ReadInt32(),
+                parameterType),
+            ConstantTypeCode.UInt32 when IsDefaultType(parameterType, "uint") => blob.ReadUInt32().ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.UInt32 when IsLikelyEnumDefaultType(parameterType) => FormatEnumParameterDefault(
+                reader,
+                blob.ReadUInt32(),
+                parameterType),
+            ConstantTypeCode.Int64 when IsDefaultType(parameterType, "long") => blob.ReadInt64().ToString(CultureInfo.InvariantCulture) + "L",
+            ConstantTypeCode.Int64 when IsLikelyEnumDefaultType(parameterType) => FormatEnumParameterDefault(
+                reader,
+                blob.ReadInt64(),
+                parameterType),
+            ConstantTypeCode.UInt64 when IsDefaultType(parameterType, "ulong") => blob.ReadUInt64().ToString(CultureInfo.InvariantCulture) + "UL",
+            ConstantTypeCode.UInt64 when IsLikelyEnumDefaultType(parameterType) => FormatEnumParameterDefault(
+                reader,
+                blob.ReadUInt64(),
+                parameterType),
+            ConstantTypeCode.Single when IsDefaultType(parameterType, "float") => FormatParameterSingleDefault(blob.ReadSingle()),
+            ConstantTypeCode.Double when IsDefaultType(parameterType, "double") => FormatParameterDoubleDefault(blob.ReadDouble()),
+            ConstantTypeCode.String when IsDefaultType(parameterType, "string") => StringLiteral(blob.ReadUTF16(blob.Length)),
+            ConstantTypeCode.NullReference when AcceptsNullParameterDefault(parameterType) => "null",
+            _ => "",
+        };
+        return defaultValueText.Length != 0;
+    }
+
+    static bool IsDefaultType(string parameterType, string expected)
+        => string.Equals(parameterType, expected, StringComparison.Ordinal);
+
+    static bool AcceptsNullParameterDefault(string parameterType)
+        => parameterType is not ("bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
+            or "short" or "ushort" or "System.DateTime");
+
+    static bool IsLikelyEnumDefaultType(string parameterType)
+        => parameterType is not ("bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
+            or "short" or "ushort" or "string" or "object" or "System.Boolean" or "System.Byte"
+            or "System.SByte" or "System.Char" or "System.Decimal" or "System.Double" or "System.Single"
+            or "System.Int32" or "System.UInt32" or "System.IntPtr" or "System.UIntPtr" or "System.Int64"
+            or "System.UInt64" or "System.Int16" or "System.UInt16" or "System.String" or "System.Object"
+            or "System.DateTime");
+
+    static string FormatEnumParameterDefault(MetadataReader reader, object value, string parameterType)
+    {
+        if (!TryConvertEnumConstant(value, out var defaultValue))
+            return "";
+
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (TypeResolver.GetTypeName(reader, typeDef.BaseType) != "System.Enum"
+                || !string.Equals(TypeResolver.GetFullName(reader, typeDef), parameterType, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return $"({parameterType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+        }
+
+        return "";
+    }
+
+    static bool TryConvertEnumConstant(object value, out decimal converted)
+    {
+        switch (value)
+        {
+            case sbyte v:
+                converted = v;
+                return true;
+            case byte v:
+                converted = v;
+                return true;
+            case short v:
+                converted = v;
+                return true;
+            case ushort v:
+                converted = v;
+                return true;
+            case int v:
+                converted = v;
+                return true;
+            case uint v:
+                converted = v;
+                return true;
+            case long v:
+                converted = v;
+                return true;
+            case ulong v:
+                converted = v;
+                return true;
+            default:
+                converted = 0;
+                return false;
+        }
+    }
+
+    static string FormatParameterSingleDefault(float value)
+    {
+        if (float.IsNaN(value))
+            return "float.NaN";
+        if (float.IsPositiveInfinity(value))
+            return "float.PositiveInfinity";
+        if (float.IsNegativeInfinity(value))
+            return "float.NegativeInfinity";
+        return value.ToString("R", CultureInfo.InvariantCulture) + "f";
+    }
+
+    static string FormatParameterDoubleDefault(double value)
+    {
+        if (double.IsNaN(value))
+            return "double.NaN";
+        if (double.IsPositiveInfinity(value))
+            return "double.PositiveInfinity";
+        if (double.IsNegativeInfinity(value))
+            return "double.NegativeInfinity";
+        return value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
+    static string StringLiteral(string value)
+    {
+        var sb = new StringBuilder(value.Length + 2);
+        sb.Append('"');
+        foreach (char ch in value)
+            sb.Append(EscapeCharLiteral(ch));
+        sb.Append('"');
+        return sb.ToString();
+    }
+
+    static string EscapeCharLiteral(char ch) => ch switch
+    {
+        '\\' => "\\\\",
+        '\'' => "\\'",
+        '\0' => "\\0",
+        '\a' => "\\a",
+        '\b' => "\\b",
+        '\f' => "\\f",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        '\v' => "\\v",
+        _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+        _ => ch.ToString(),
+    };
 
     static IReadOnlyList<CompileBackTypeParameter> MethodTypeParameters(MetadataReader reader, MethodDefinition method)
     {
@@ -1132,7 +1513,30 @@ public static class CompileBackSourceComposer
     }
 
     static string RenderParameter(CompileBackParameter parameter)
-        => $"{parameter.Type.DisplayName} {parameter.Name}";
+    {
+        var (type, modifier) = NormalizeParameter(parameter);
+        var declaration = string.IsNullOrWhiteSpace(modifier)
+            ? $"{type} {parameter.Name}"
+            : $"{modifier} {type} {parameter.Name}";
+        if (parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 })
+            declaration = $"{declaration} = {parameter.DefaultValueText}";
+        return parameter.Attributes is { Count: > 0 }
+            ? $"[{string.Join(", ", parameter.Attributes)}] {declaration}"
+            : declaration;
+    }
+
+    static (string Type, string? Modifier) NormalizeParameter(CompileBackParameter parameter)
+    {
+        string type = parameter.Type.DisplayName;
+        string? modifier = parameter.Modifier;
+        if (type.StartsWith("ref ", StringComparison.Ordinal))
+        {
+            type = type["ref ".Length..];
+            modifier ??= "ref";
+        }
+
+        return (type, modifier);
+    }
 
     static Dictionary<int, string> ParameterNames(MetadataReader reader, MethodDefinition method)
     {
