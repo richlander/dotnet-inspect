@@ -178,10 +178,10 @@ public sealed record ResolvedAssemblyReference(
     string? Provenance = null);
 ```
 
-So the inspection path should **adopt this existing descriptor**, not invent a parallel one. It
-already answers "path vs stream vs opener" (it carries both). The one likely change is widening
-`string? Provenance` into a structured value (package@version, tfm, rid, platform-or-not,
-resolver source) if inspection needs to read those back rather than re-derive them.
+So the inspection path **adopts this existing descriptor**, not a parallel one. It already
+answers "path vs stream vs opener" (it carries both). The one change: widen `string? Provenance`
+into a structured value — package@version, tfm, rid, platform-or-not, resolver source — so
+inspection reads provenance back instead of re-deriving it.
 
 **Multi-assembly locations (one query type).** There is a **single** `InspectionQuery`; there is
 no separate `PackageInspectionQuery`. Resolving `Target.Location` yields
@@ -298,18 +298,21 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
 
 1. **Parse (CLI).** The positional `JsonSerializer.Serialize:1` splits into a `Type.Member`
    selector plus the overload shorthand `:N`; the assembly comes from `--platform System.Text.Json`
-   (or `--package`, or a dll path). No PE is opened. The CLI assembles **one request** from three
-   typed pieces — one `InspectionQuery`:
-   - a **target** — `InspectionTarget(Location: platform System.Text.Json, Selector:
-     MemberQuery(TypeName: "…JsonSerializer", MemberName: "Serialize", OverloadIndex: 1,
-     PublicOnly: true))`. The location is the assembly; the selector rides alongside it.
-   - a **facet set** — the product capabilities that the requested sections / verbosity map to
-     at the command boundary.
-   - **options** — tfm / rid / includeAll as applicable.
+   (or `--package`, or a dll path). No PE is opened. The CLI assembles one `InspectionQuery`:
 
-   The positional `:1` is now just `MemberQuery.OverloadIndex` — a carried value, never
-   re-parsed downstream. (A bare fully-qualified `Type.Member:N` with no `--platform`/`--package`
-   uses the existing type-lookup path to supply the location — the *defining* assembly — first.)
+   ```csharp
+   new InspectionQuery(
+       Target:  new InspectionTarget(
+                    Location: AssemblyLocation.Platform("System.Text.Json"),
+                    Selector: new MemberQuery("…JsonSerializer", "Serialize", OverloadIndex: 1, PublicOnly: true)),
+       Facets:  facets,     // what the requested sections / verbosity mapped to
+       Options: options);   // tfm / rid / includeAll as applicable
+   ```
+
+   The location is the assembly; the selector rides alongside it in the `Target`. The positional
+   `:1` is now just `MemberQuery.OverloadIndex` — a carried value, never re-parsed downstream. (A
+   bare `Type.Member:N` with no `--platform`/`--package` uses the existing type-lookup path to
+   supply the location — the *defining* assembly — first.)
 2. **Resolve (service).** The pipeline hands **only `Target.Location`** to the resolver (not the
    selector, not the facets). For `platform: System.Text.Json`, `PlatformResolver` locates the
    assembly in the shared framework and returns a `ResolvedAssemblyReference` carrying its
@@ -324,7 +327,9 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
    [Method Body Inspection](method-body-inspection.md).
 5. **Render (CLI).** The CLI maps requested sections onto facets and renders the returned shape
    (Markout / writers). It never opened a `PEReader`, never classified an opcode, never
-   re-derived the assembly's identity.
+   re-derived the assembly's identity. Because the selector narrowed resolution to the one
+   defining assembly (the fan-out rule above), this `InspectionQuery` returns a single
+   `MethodBodyInspection` — not a multi-assembly `InspectionReport`.
 
 The positional argument's whole journey: a string the CLI parses once into a typed **selector**
 (`:1` → `MemberQuery.OverloadIndex`), paired with an assembly **location** that resolves to a
