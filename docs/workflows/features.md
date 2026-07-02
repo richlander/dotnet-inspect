@@ -142,7 +142,7 @@
 | Feature | Commit | Version | Description |
 | --------- | -------- | --------- | ------------- |
 | `--filter` option | 447d003 | 0.1.1 | Filter results by pattern |
-| `--project` scope | acef0e1 | 0.2.x | Search project dependencies |
+| `--project` scope | acef0e1 | 0.2.x | Search restored project dependencies |
 | `--bin` scope | acef0e1 | 0.2.x | Search build output directory |
 | `--extensions` scope | 55f2ecf | 0.2.x | Search Microsoft.Extensions.* packages |
 | `--aspnetcore` scope | — | 0.2.x | Search Microsoft.AspNetCore.* packages |

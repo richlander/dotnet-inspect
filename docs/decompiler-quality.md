@@ -501,7 +501,11 @@ drill-down. To reproduce the full row set behind a capped card, follow
 [Reproducing decompiler corpus deltas](decompiler-corpus-delta-repro.md).
 Use the terse PR body shape in
 [docs/templates/decompiler-pr.md](templates/decompiler-pr.md) when writing the
-human summary around the generated card.
+human summary around the generated card. For DecompilerHarness,
+ReturnToSender, fidelity skeleton, or compile-back coverage PRs, use
+[docs/templates/decompiler-compile-back-harness-pr.md](templates/decompiler-compile-back-harness-pr.md)
+instead so the PR records the targeted checked population and RTS/current A/B
+evidence.
 
 Rate deltas in card prose use **percentage points** (`pp`): `+0.49 pp` means
 the rate increased from, for example, `82.17%` to `82.66%`. Counts still use raw

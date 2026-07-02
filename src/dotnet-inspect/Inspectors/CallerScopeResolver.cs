@@ -53,10 +53,9 @@ public static class CallerScopeResolver
         // Projects: restored dependencies via project.assets.json
         foreach (var projectPath in projects)
         {
-            var assetsPath = FindProjectAssets(projectPath);
-            if (assetsPath == null)
+            if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
             {
-                Console.Error.WriteLine($"Warning: project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.");
+                Console.Error.WriteLine($"Warning: {ProjectAssetsParser.DescribeMissingAssets(projectPath, status)}");
                 continue;
             }
 
@@ -81,35 +80,6 @@ public static class CallerScopeResolver
         return result;
     }
 
-    static string? FindProjectAssets(string projectPath)
-    {
-        var fullPath = Path.GetFullPath(projectPath);
-        var projectDir = Path.GetDirectoryName(fullPath);
-        var projectName = Path.GetFileNameWithoutExtension(fullPath);
-
-        if (projectDir == null || !File.Exists(fullPath))
-        {
-            Console.Error.WriteLine($"Warning: Project not found '{projectPath}', skipping.");
-            return null;
-        }
-
-        var candidates = new[]
-        {
-            Path.Combine(projectDir, "obj", "project.assets.json"),
-            Path.Combine(projectDir, "..", "..", "artifacts", "obj", projectName, "project.assets.json"),
-            Path.Combine(projectDir, "artifacts", "obj", projectName, "project.assets.json")
-        };
-
-        foreach (var candidate in candidates)
-        {
-            var normalized = Path.GetFullPath(candidate);
-            if (File.Exists(normalized))
-                return normalized;
-        }
-
-        return null;
-    }
-
     /// <summary>
     /// Minimal IAssemblySourceOptions implementation for caller-scope package resolution.
     /// </summary>
@@ -125,6 +95,7 @@ public static class CallerScopeResolver
         public string[] Assemblies { get; } = [];
         public string[] PlatformAssemblies { get; } = [];
         public string[] PlatformFrameworks { get; } = [];
+        public string[] Projects { get; } = [];
         public string? Tfm { get; }
         
         NuGetSourceOptions? IAssemblySourceOptions.SourceOptions => null;

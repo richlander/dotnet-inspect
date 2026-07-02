@@ -26,6 +26,11 @@ const string Usage =
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
 
+      --allocation-readout <file> [--top N] [--json]
+          Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
+          distributions: allocation, path, path confidence, post dominance, escape, shape, and
+          cross-tabs. Text output prints the top-N buckets per dimension; JSON emits every bucket.
+
       --allocation-parity <expected-annotations.json> <actual-annotations.json> [--json]
           Compare allocation annotations from the legacy decompiler classifier and a candidate
           occurrence-derived projection. The gate is exact on id, IL offset, detail, and
@@ -54,6 +59,7 @@ bool list = false;
 string? recallAssembly = null;
 string? referenceFile = null;
 string? precisionAssembly = null;
+string? allocationReadoutList = null;
 string? allocationParityExpected = null;
 string? allocationParityActual = null;
 string? annotationParityCategory = null;
@@ -84,6 +90,9 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--precision-sample":
             precisionAssembly = NextValue(args, ref i);
+            break;
+        case "--allocation-readout":
+            allocationReadoutList = NextValue(args, ref i);
             break;
         case "--allocation-parity":
             allocationParityExpected = NextPathValue(args, ref i);
@@ -125,6 +134,9 @@ if (recallAssembly is not null)
 if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);
 
+if (allocationReadoutList is not null)
+    return RunAllocationReadout(allocationReadoutList, top, json);
+
 if (allocationParityExpected is not null)
     return RunAnnotationParity("Allocation", allocationParityExpected, allocationParityActual, json);
 
@@ -162,6 +174,31 @@ static int RunPrecision(string assembly, int top)
 {
     if (!File.Exists(assembly)) { Console.Error.WriteLine($"Assembly not found: {assembly}"); return 2; }
     Console.WriteLine(PrecisionRecall.ToJson(PrecisionRecall.Sample(assembly, top)));
+    return 0;
+}
+
+static int RunAllocationReadout(string corpusList, int top, bool json)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var readout = AllocationMetadataReadout.Measure(paths);
+    Console.Write(json ? AllocationMetadataReadout.ToJson(readout) : AllocationMetadataReadout.FormatCard(readout, top));
+    if (json)
+        Console.WriteLine();
     return 0;
 }
 

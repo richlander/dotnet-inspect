@@ -161,12 +161,7 @@ public sealed partial class CSharpPrinter
                 labelEnum)));
 
     string SwitchArmValueText(IrExpression value, TypeRef? target)
-        => target is { } enumTarget
-            && IsEnumLikeInteger(enumTarget)
-            && value.ResultType is { } valueType
-            && TypeFamilies.IsIntegerLike(valueType)
-                ? EnumIntegerCast(value, enumTarget)
-                : Expression(value);
+        => TryCoerceEnumOperand(value, target) is { } coerced ? coerced : Expression(value);
 
     /// <summary>The single-line form of a switch expression, used when it is nested inside another expression.</summary>
     string SwitchExpressionInline(SwitchExpression node, TypeRef? target = null)

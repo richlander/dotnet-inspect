@@ -42,14 +42,25 @@ public class DiamondArmTypeReconciliationTests
     }
 
     [Fact]
-    public void ConflictingArmType_OutOfRangeConstantAndByteBackedEnum_IsUnresolved()
+    public void ConflictingArmType_OutOfRangeConstantAndByteBackedEnum_ResolvesToEnum()
     {
-        // `(Kind)300` where `Kind : byte` is CS0221 — the printer's enum cast is a
-        // constant-expression conversion, so it only compiles in range. Decline
-        // rather than emit invalid C#.
+        // #2076: still anchored even out of the underlying range. The printer wraps
+        // the reinterpret in `unchecked((Kind)300)` (see EnumIntegerCast), which is
+        // valid and faithful, so the fold no longer needs to decline.
         var function = FunctionWithEnum(Byte);
         var enumValue = new Call(new MethodRef(Kind, "Get", Kind, [], HasThis: false), isVirtual: false, []);
-        Assert.Null(DiamondArmTypes.ConflictingArmType(new Constant(300, Int32), enumValue, function));
+        Assert.Equal(Kind, DiamondArmTypes.ConflictingArmType(new Constant(300, Int32), enumValue, function));
+    }
+
+    [Fact]
+    public void ConflictingArmType_NegativeConstantAndUnsignedEnum_ResolvesToEnum()
+    {
+        // #2076: an unsigned-backed enum whose high-bit value is emitted as a
+        // negative `ldc.i4` (e.g. 0x80000000u -> -1). `ConstantFits(-1, uint)` is
+        // false, but the printer renders `unchecked((Kind)(-1))`, so anchor it.
+        var function = FunctionWithEnum(TypeRef.CoreLib("System", "UInt32"));
+        var enumValue = new Call(new MethodRef(Kind, "Get", Kind, [], HasThis: false), isVirtual: false, []);
+        Assert.Equal(Kind, DiamondArmTypes.ConflictingArmType(new Constant(-1, Int32), enumValue, function));
     }
 
     [Fact]

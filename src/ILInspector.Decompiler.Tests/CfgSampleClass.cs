@@ -4070,6 +4070,7 @@ public sealed class JoinTypeProvider
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
 public enum CfgLongPriority : long { Low = 0, High = 2 }
+public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 
 // uint-underlying with a high-bit member: the value 0x80000000 emits as the
 // signed int -2147483648, the case the member-map key must agree on.
@@ -4347,6 +4348,48 @@ public static class EnumCastSamples
             0 => CfgPriority.High,
             _ => CfgPriority.Critical,
         };
+
+    // #2076: a conditional whose reused stack slot merges an integer constant and a
+    // same-assembly unsigned-backed enum (CfgFlags : uint). CfgFlags.Top =
+    // 0x80000000u is emitted as `ldc.i4` int.MinValue (negative as a signed int),
+    // so the importer cannot type the slot join. The slot-diamond fold must anchor
+    // the enum type and the printer must emit `unchecked((CfgFlags)(-2147483648))`;
+    // a bare or checked cast is CS0221, and a lost cast is CS0029.
+    public static bool UnsignedEnumConditionalArm(bool c, CfgFlags e)
+    {
+        CfgFlags x = c ? CfgFlags.Top : e;
+        return x == CfgFlags.None;
+    }
+
+    // #2076 (review): a retyped same-assembly unsigned-enum constant with no named
+    // member — (CfgFlags)uint.MaxValue folds to `ldc.i4.m1` (-1) — must render an
+    // `unchecked` cast in comparison, bitwise, and coalesce positions, not a bare
+    // `(CfgFlags)(-1)` (CS0221).
+    public static bool UnsignedEnumConstantComparison(CfgFlags f) => f == (CfgFlags)uint.MaxValue;
+
+    public static CfgFlags UnsignedEnumConstantBitwise(CfgFlags f) => f & (CfgFlags)uint.MaxValue;
+
+    public static CfgFlags UnsignedEnumConstantCoalesce(CfgFlags? f) => f ?? (CfgFlags)uint.MaxValue;
+
+    // #2076 (review): long-backed enum constants in array-element and box
+    // positions. The `stelem.i8` element type and `box` drop the enum type, so a
+    // long constant printed bare is CS0266/CS0029 unless cast.
+    public static CfgLongPriority[] LongEnumArray() => new[] { CfgLongPriority.High, (CfgLongPriority)5000000000L };
+
+    public static System.Enum LongEnumBoxed() => CfgLongPriority.High;
+
+    // #2076 (review): an unsigned long-backed enum value lowers as
+    // `ldc.i4.m1; conv.i8`, so the enum cast's operand is a `Convert(long, ...)`.
+    // The overflow decision must see through it and wrap `unchecked((CfgULong)(...))`.
+    public static System.Enum ULongEnumBoxedMax() => CfgULong.All;
+
+    public static CfgULong[] ULongEnumArrayMax() => new[] { CfgULong.All };
+
+    // #2076 (review): a cross-assembly enum array (StringComparison resolves to
+    // TypeShape.Unknown). The `stelem.i4` storage type must not drop the element
+    // below its enum type — a bare `[0] = 4;` is CS0266.
+    public static System.StringComparison[] CrossAssemblyEnumArray()
+        => new[] { (System.StringComparison)4, System.StringComparison.OrdinalIgnoreCase };
 }
 
 

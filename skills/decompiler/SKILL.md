@@ -27,6 +27,8 @@ Source` when SourceLink is available — see the `sourcelink` skill):
 
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
 calls matter. Use `--bare` for a whole-type listing.
+`--project` reads existing restored assets; restore/build first if dependencies
+changed.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S @Source

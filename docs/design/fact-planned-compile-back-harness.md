@@ -231,7 +231,8 @@ particular fact is required to turn `RecompileFail` into `Exact`.
 
 ### TypeProducer
 
-Own structured type shell construction.
+Own structured type shell construction, but do not become a harness-only C#
+writer.
 
 Input: `ReconstructionPlan`.
 
@@ -245,19 +246,30 @@ requirements into complete shell records:
 - fields, properties, methods, events, constructors, and explicit interface
   members needed by the target body;
 - typed parameter, return, receiver, and generic argument signatures;
-- stub behavior that is safe for compile-back.
+- namespace usage and declaration grouping facts;
+- constructor and base-chain facts: real constructors, base type, available base
+  constructors, and whether each relationship is spellable;
+- stub needs that are safe for compile-back.
 
 If TypeProducer cannot produce a typed signature, it should fail with a named
 planning reason rather than emit a stringly stub such as `MergeFrom(...)`.
+
+The product/shared side should own truthful declaration facts that are useful
+beyond ReturnToSender: namespaces, type/member signatures, base/interface
+relationships, constructor signatures, generic constraints, and explicit
+interface shapes. ReturnToSender may prototype the data model, but the long-term
+architecture should not leave those capabilities as harness-only code because
+they are also needed by whole-type decompiler output.
 
 ### TypePrinter
 
 Own C# declaration rendering for structured shells.
 
-TypePrinter is conceptually paired with `CSharpPrinter`, but it should not live
-beside `CSharpPrinter` in `ILInspector.Decompiler` if its input types live above
-Decompiler. The likely owner is the same tools-only reconstruction project as
-`TypeShell`.
+TypePrinter is conceptually paired with `CSharpPrinter`, but the strategic
+destination is a shared C# declaration composition layer, not a second product
+writer hidden in the harness. The harness can carry a prototype while the model
+settles, but reusable rendering should migrate product/shared-side once the
+declaration contract is clear.
 
 TypePrinter prints:
 
@@ -266,11 +278,31 @@ TypePrinter prints:
 - base/interface clauses;
 - generic parameters and constraints;
 - field/property/method signatures;
+- constructors and constructor initializers;
 - generated-family explicit stubs;
 - nested type declarations.
 
 TypePrinter should be a renderer, not a planner. It should not query Research or
 read Roslyn diagnostics.
+
+Namespace handling is the canonical example of why this should be reusable:
+TypeProducer can determine namespace usage from metadata and closure roots, and a
+shared writer can render block-scoped or file-scoped namespace declarations from
+that usage. ReturnToSender needs that for compile-back shells; whole-type
+decompiler output needs the same capability to write coherent type files.
+
+Constructor/base-chain handling has the same split:
+
+- product/shared declaration facts answer **what exists and how it is spelled**:
+  constructor signatures, base type, base constructors, generic constraints,
+  type kind, and spellability;
+- the shared writer renders those facts, such as `class C : Base`,
+  `public C(int x) : base(x)`, and `static C()`;
+- ReturnToSender owns only **compile-back repair policy**: whether to include a
+  needed base constructor shell, synthesize a parameterless constructor, omit an
+  unsafe base clause, or bail with a named reason. Synthetic constructors must be
+  explicitly marked as scaffolding and ordered so they cannot shift target
+  overload ordinals.
 
 ### ModuleWriter
 
@@ -667,11 +699,13 @@ rather than carrying forward the old skeleton shape.
    records.
 4. Define `ModuleRequirement` and a minimal `ModuleWriter`.
 5. Keep current `CB_CLUSTER` membership growth as the closure source.
-6. Implement TypePrinter for a minimal subset:
+6. Prototype TypePrinter for a minimal subset, with the explicit goal of
+   extracting reusable declaration composition once the contract is proven:
    - class/interface declarations;
    - namespace nesting;
    - base/interface clauses;
    - generic constraints;
+   - constructor declarations and base-chain syntax;
    - properties;
    - methods as throwing stubs;
    - explicit interface property stubs.

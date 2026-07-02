@@ -27,48 +27,29 @@ static class DiamondArmTypes
     /// </summary>
     public static TypeRef? ConflictingArmType(IrExpression whenTrue, IrExpression whenFalse, IrFunction function)
     {
-        if (IsIntegerConstant(whenTrue, out var trueValue) && !IsIntegerConstant(whenFalse, out _) && FitsEnumTarget(trueValue, whenFalse.ResultType, function))
+        if (IsIntegerConstant(whenTrue) && !IsIntegerConstant(whenFalse) && IsKnownUnderlyingEnum(whenFalse.ResultType, function))
             return whenFalse.ResultType;
-        if (IsIntegerConstant(whenFalse, out var falseValue) && !IsIntegerConstant(whenTrue, out _) && FitsEnumTarget(falseValue, whenTrue.ResultType, function))
+        if (IsIntegerConstant(whenFalse) && !IsIntegerConstant(whenTrue) && IsKnownUnderlyingEnum(whenTrue.ResultType, function))
             return whenTrue.ResultType;
         return null;
     }
 
-    static bool IsIntegerConstant(IrExpression expression, out long value)
-    {
-        if (expression is Constant constant && TypeFamilies.IsIntegerLike(constant.Type) && TryToInt64(constant.Value, out value))
-            return true;
-        value = 0;
-        return false;
-    }
+    // An `ldc.i4`/`ldc.i8` constant arm — the shape the printer's enum-cast path
+    // (EnumIntegerCast) recognizes and, when out of the underlying range, wraps in
+    // `unchecked(...)`.
+    static bool IsIntegerConstant(IrExpression expression)
+        => expression is Constant { Value: int or long };
 
-    // Anchors only to an enum whose underlying type can represent the constant. The
-    // printer renders an integer arm of an enum-typed conditional as an explicit
-    // `(EnumType)value` cast; that cast is a constant-expression conversion, so it
-    // only compiles when the value is in the underlying type's range (`(Tiny)300`
-    // for `enum Tiny : byte` is CS0221). A plain (non-enum) integer target is
-    // excluded entirely: the arm printer omits the cast a narrower or out-of-range
-    // constant would need (e.g. `byte b = c ? 300 : x`).
-    static bool FitsEnumTarget(long value, TypeRef? type, IrFunction function)
+    // Anchors to a same-assembly enum with a known underlying type. The printer
+    // renders the integer arm of an enum-typed conditional as an explicit
+    // `(EnumType)value` cast and wraps it in `unchecked(...)` when the value is out
+    // of the underlying type's range (see EnumIntegerCast), so the cast is valid
+    // and faithful for any integer constant — the IL stored that integer into the
+    // same slot, and unchecked truncation matches. A cross-assembly enum has no
+    // resolved underlying type here, and a plain (non-enum) integer target is
+    // excluded because the arm printer only casts toward enum targets.
+    static bool IsKnownUnderlyingEnum(TypeRef? type, IrFunction function)
         => type is not null
             && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum
-            && function.EnumUnderlyingTypes.TryGetValue(type, out var underlying)
-            && TypeFamilies.ConstantFits(value, underlying);
-
-    static bool TryToInt64(object? value, out long result)
-    {
-        switch (value)
-        {
-            case int i: result = i; return true;
-            case long l: result = l; return true;
-            case short s: result = s; return true;
-            case sbyte sb: result = sb; return true;
-            case byte b: result = b; return true;
-            case ushort us: result = us; return true;
-            case uint ui: result = ui; return true;
-            case char c: result = c; return true;
-            case ulong ul when ul <= long.MaxValue: result = (long)ul; return true;
-            default: result = 0; return false;
-        }
-    }
+            && function.EnumUnderlyingTypes.ContainsKey(type);
 }

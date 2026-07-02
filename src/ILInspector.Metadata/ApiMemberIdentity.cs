@@ -7,6 +7,11 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ApiMemberIdentity
 {
+    public sealed record XmlDocMemberIdentity(
+        string LookupKey,
+        IReadOnlyList<string> NormalizedParameters,
+        string? NormalizedReturnType = null);
+
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
         var declaringType = string.IsNullOrWhiteSpace(member.DeclaringType)
@@ -88,4 +93,338 @@ public static class ApiMemberIdentity
 
     static string NormalizeCanonicalCommas(string value)
         => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
+
+    public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
+    {
+        var typeXmlName = ToXmlDocName(type.FullName);
+        var memberName = member.Name == ".ctor" ? "#ctor" : ToXmlDocMemberName(member.Name);
+        var prefix = member.Kind switch
+        {
+            "property" => "P",
+            "field" => "F",
+            "event" => "E",
+            _ => "M"
+        };
+
+        var lookupKey = $"{prefix}:{typeXmlName}.{memberName}";
+        if (member.SignatureModel is not { } signature)
+        {
+            identity = new XmlDocMemberIdentity("", []);
+            return false;
+        }
+
+        var typeParameterMap = type.TypeParameters
+            .Select((p, i) => (p.Name, Index: i))
+            .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
+        var methodParameterMap = GetMethodGenericParameterMap(signature.MemberName);
+        var parameters = signature.Parameters
+            .Select(parameter => NormalizeXmlDocParameterType(parameter.TypeWithModifier, typeParameterMap, methodParameterMap))
+            .ToList();
+        var returnType = IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType)
+            ? NormalizeXmlDocParameterType(signature.ReturnType!, typeParameterMap, methodParameterMap)
+            : null;
+        identity = new XmlDocMemberIdentity(lookupKey, parameters, returnType);
+        return true;
+    }
+
+    public static string NormalizeXmlDocParameterType(string parameter)
+        => NormalizeXmlDocParameterType(parameter, EmptyParameterMap, EmptyParameterMap);
+
+    internal static string NormalizeXmlDocSignatureParameter(
+        string parameter,
+        IReadOnlyDictionary<string, int> typeParameterMap,
+        IReadOnlyDictionary<string, int> methodParameterMap)
+        => NormalizeXmlDocParameterType(ExtractSignatureParameterType(parameter), typeParameterMap, methodParameterMap);
+
+    static readonly IReadOnlyDictionary<string, int> EmptyParameterMap =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
+    static readonly HashSet<string> KnownNullableValueTypes = new(StringComparer.Ordinal)
+    {
+        "System.DateTime",
+        "System.DateTimeOffset",
+        "System.Decimal",
+        "System.Guid",
+        "System.TimeSpan",
+        "System.IntPtr",
+        "System.UIntPtr"
+    };
+
+    internal static string NormalizeXmlDocParameterType(
+        string parameter,
+        IReadOnlyDictionary<string, int> typeParameterMap,
+        IReadOnlyDictionary<string, int> methodParameterMap)
+    {
+        var type = StripLeadingAttributes(parameter.Trim());
+        var isByRef = false;
+        foreach (var prefix in (string[])["ref ", "out ", "in ", "params ", "this "])
+        {
+            if (type.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                isByRef = prefix is "ref " or "out " or "in ";
+                type = type[prefix.Length..].TrimStart();
+                break;
+            }
+        }
+
+        if (type.EndsWith('@'))
+        {
+            isByRef = true;
+            type = type.TrimEnd('@');
+        }
+        var nullableValueType = false;
+        if (type.EndsWith("?", StringComparison.Ordinal))
+        {
+            var unwrapped = type[..^1];
+            if (PrimitiveTypeNames.TryToClrFullName(unwrapped, out var primitive)
+                && primitive is not ("System.String" or "System.Object" or "System.Void"))
+            {
+                type = $"System.Nullable<{primitive}>";
+                nullableValueType = true;
+            }
+            else if (KnownNullableValueTypes.Contains(unwrapped))
+            {
+                type = $"System.Nullable<{unwrapped}>";
+                nullableValueType = true;
+            }
+            else
+            {
+                type = unwrapped;
+            }
+        }
+
+        string normalized;
+        if (!nullableValueType && TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
+        {
+            normalized = genericParameter;
+        }
+        else if (type.EndsWith("[]", StringComparison.Ordinal))
+        {
+            normalized = $"{NormalizeXmlDocParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
+        }
+        else if (type.EndsWith("*", StringComparison.Ordinal))
+        {
+            normalized = $"{NormalizeXmlDocParameterType(type[..^1], typeParameterMap, methodParameterMap)}*";
+        }
+        else if (TryGetArraySuffix(type, out var arrayElementType, out var arraySuffix))
+        {
+            normalized = $"{NormalizeXmlDocParameterType(arrayElementType, typeParameterMap, methodParameterMap)}{arraySuffix}";
+        }
+        else
+        {
+            var genericStart = IndexOfAny(type, '<', '{');
+            if (genericStart >= 0 && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
+            {
+                var normalizedType = PrimitiveTypeNames.ToClrFullName(genericType);
+                var normalizedArgs = SplitParameters(genericArgs)
+                    .Select(p => NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap));
+                normalized = $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
+            }
+            else
+            {
+                normalized = PrimitiveTypeNames.ToClrFullName(type);
+            }
+        }
+
+        return isByRef ? $"{normalized}@" : normalized;
+    }
+
+    static string ExtractSignatureParameterType(string parameter)
+    {
+        parameter = StripLeadingAttributes(parameter.TrimStart());
+        var eqIndex = parameter.IndexOf('=');
+        if (eqIndex >= 0)
+            parameter = parameter[..eqIndex].Trim();
+
+        var depth = 0;
+        var lastSpace = -1;
+        for (var i = 0; i < parameter.Length; i++)
+        {
+            var c = parameter[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ' ' && depth == 0)
+                lastSpace = i;
+        }
+
+        return lastSpace > 0 ? parameter[..lastSpace] : parameter;
+    }
+
+    static string StripLeadingAttributes(string parameter)
+    {
+        while (parameter.StartsWith('['))
+        {
+            var depth = 0;
+            var end = -1;
+            for (var i = 0; i < parameter.Length; i++)
+            {
+                if (parameter[i] == '[') depth++;
+                else if (parameter[i] == ']')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+
+            if (end < 0)
+                return parameter;
+            parameter = parameter[(end + 1)..].TrimStart();
+        }
+
+        return parameter;
+    }
+
+    static Dictionary<string, int> GetMethodGenericParameterMap(string? memberName)
+    {
+        if (string.IsNullOrWhiteSpace(memberName))
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        var memberSegmentStart = memberName.LastIndexOf('.');
+        var memberSegment = memberSegmentStart >= 0 ? memberName[(memberSegmentStart + 1)..] : memberName;
+        var genericStart = memberSegment.IndexOf('<');
+        if (genericStart < 0)
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        if (!TryGetGenericParts(memberSegment, genericStart, out _, out var parameters))
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        return SplitParameters(parameters)
+            .Select((name, index) => (Name: name.Trim(), Index: index))
+            .Where(p => p.Name.Length > 0)
+            .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
+    }
+
+    static IEnumerable<string> SplitParameters(string parameters)
+    {
+        var depth = 0;
+        var lastSplit = 0;
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            var c = parameters[i];
+            if (c is '<' or '{' or '(')
+                depth++;
+            else if (c is '>' or '}' or ')')
+                depth--;
+            else if (c == ',' && depth == 0)
+            {
+                yield return parameters[lastSplit..i].Trim();
+                lastSplit = i + 1;
+            }
+        }
+
+        yield return parameters[lastSplit..].Trim();
+    }
+
+    static int IndexOfAny(string value, char first, char second)
+    {
+        var firstIndex = value.IndexOf(first);
+        var secondIndex = value.IndexOf(second);
+        return (firstIndex, secondIndex) switch
+        {
+            (< 0, < 0) => -1,
+            (< 0, _) => secondIndex,
+            (_, < 0) => firstIndex,
+            _ => Math.Min(firstIndex, secondIndex)
+        };
+    }
+
+    static bool TryGetGenericParts(string type, int genericStart, out string genericType, out string genericArgs)
+    {
+        genericType = type[..genericStart];
+        genericArgs = "";
+
+        var open = type[genericStart];
+        var close = open == '<' ? '>' : '}';
+        var depth = 0;
+        for (var i = genericStart; i < type.Length; i++)
+        {
+            var c = type[i];
+            if (c == open)
+                depth++;
+            else if (c == close)
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    genericArgs = type[(genericStart + 1)..i];
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryNormalizeGenericParameterReference(
+        string type,
+        IReadOnlyDictionary<string, int> typeParameterMap,
+        IReadOnlyDictionary<string, int> methodParameterMap,
+        out string normalized)
+    {
+        normalized = "";
+        if (type.StartsWith("``", StringComparison.Ordinal) && int.TryParse(type[2..], out var methodIndex))
+        {
+            normalized = $"M{methodIndex}";
+            return true;
+        }
+
+        if (type.StartsWith('`') && int.TryParse(type[1..], out var typeIndex))
+        {
+            normalized = $"T{typeIndex}";
+            return true;
+        }
+
+        if (methodParameterMap.TryGetValue(type, out methodIndex))
+        {
+            normalized = $"M{methodIndex}";
+            return true;
+        }
+
+        if (typeParameterMap.TryGetValue(type, out typeIndex))
+        {
+            normalized = $"T{typeIndex}";
+            return true;
+        }
+
+        return false;
+    }
+
+    static string ToXmlDocName(string typeName)
+        => typeName.Replace('+', '.');
+
+    static string ToXmlDocMemberName(string memberName)
+        => memberName is ".cctor"
+            ? memberName
+            : memberName
+                .Replace('.', '#')
+                .Replace('<', '{')
+                .Replace('>', '}');
+
+    static bool IsConversionOperator(string memberName)
+        => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+
+    static bool TryGetArraySuffix(string type, out string elementType, out string suffix)
+    {
+        elementType = "";
+        suffix = "";
+        if (!type.EndsWith("]", StringComparison.Ordinal))
+            return false;
+
+        var open = type.LastIndexOf('[');
+        if (open <= 0)
+            return false;
+
+        var rankSpec = type[(open + 1)..^1];
+        if (rankSpec.Length == 0)
+            return false;
+
+        elementType = type[..open];
+        var rank = rankSpec.Count(c => c == ',') + 1;
+        suffix = "[" + new string(',', rank - 1) + "]";
+        return true;
+    }
 }

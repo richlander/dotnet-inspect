@@ -107,30 +107,35 @@ public sealed class TypedConstantsPass : IIrPass
         // identity to recover; skip it rather than dereference a null target.
         if (target is null)
             return;
-        if (constant.Value is not int value)
-            return;
-        if (target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
+        if (constant.Value is int value)
         {
-            switch (target.Name)
+            if (target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
             {
-                case "Boolean" when value is 0 or 1:
-                    stepper.StepOver($"retype constant {value} to bool", constant);
-                    constant.ReplaceWith(new Constant(value == 1, target));
-                    return;
-                case "Char" when value >= char.MinValue && value <= char.MaxValue:
-                    stepper.StepOver($"retype constant {value} to char", constant);
-                    constant.ReplaceWith(new Constant((char)value, target));
-                    return;
+                switch (target.Name)
+                {
+                    case "Boolean" when value is 0 or 1:
+                        stepper.StepOver($"retype constant {value} to bool", constant);
+                        constant.ReplaceWith(new Constant(value == 1, target));
+                        return;
+                    case "Char" when value >= char.MinValue && value <= char.MaxValue:
+                        stepper.StepOver($"retype constant {value} to char", constant);
+                        constant.ReplaceWith(new Constant((char)value, target));
+                        return;
+                }
             }
+        }
+        else if (constant.Value is not long)
+        {
+            return;
         }
 
         // An integer flowing into an enum position carries the enum's identity;
         // the printer names it from the resolved member map. The value is kept
-        // (still an int); only the constant's type changes.
+        // (an int, or an ldc.i8 for a long-backed enum); only the type changes.
         if (shapes.GetValueOrDefault(target) == TypeShape.Enum)
         {
-            stepper.StepOver($"retype constant {value} to enum {target.Name}", constant);
-            constant.ReplaceWith(new Constant(value, target));
+            stepper.StepOver($"retype constant to enum {target.Name}", constant);
+            constant.ReplaceWith(new Constant(constant.Value, target));
         }
     }
 }

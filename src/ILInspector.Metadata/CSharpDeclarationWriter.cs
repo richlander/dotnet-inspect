@@ -179,7 +179,9 @@ public static class CSharpDeclarationWriter
     {
         var signature = member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType)
             ? $"{member.ReturnType} {member.Name}"
-            : member.Signature ?? member.ReturnType ?? "";
+            : TryRenderSignatureModel(type, member, methodParameters, out var modelSignature)
+                ? modelSignature
+                : member.Signature ?? member.ReturnType ?? "";
         if (string.IsNullOrWhiteSpace(signature))
         {
             if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
@@ -307,6 +309,14 @@ public static class CSharpDeclarationWriter
     {
         if (!string.IsNullOrWhiteSpace(member.ReturnType))
             yield return member.ReturnType!;
+        if (member.SignatureModel is { } signatureModel)
+        {
+            if (!string.IsNullOrWhiteSpace(signatureModel.ReturnType))
+                yield return signatureModel.ReturnType!;
+            foreach (var parameter in signatureModel.Parameters)
+                if (!string.IsNullOrWhiteSpace(parameter.Type))
+                    yield return parameter.Type;
+        }
 
         var signature = member.Signature;
         if (string.IsNullOrWhiteSpace(signature))
@@ -480,6 +490,56 @@ public static class CSharpDeclarationWriter
         }
 
         return declaration;
+    }
+
+    static bool TryRenderSignatureModel(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodParameters,
+        out string signature)
+    {
+        signature = "";
+        if (member.SignatureModel is not { } model)
+            return false;
+
+        // Keep compatibility text when a default exists but has no source-level
+        // spelling in the structured model (for example DateTimeConstantAttribute).
+        if (model.Parameters.Any(static parameter => parameter.HasDefault && string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
+            return false;
+
+        var parameters = string.Join(", ", model.Parameters.Select(ParameterDeclaration));
+        if (member.Name == ".cctor")
+        {
+            signature = $"{FormatConstructorTypeName(type.Name)}()";
+            return true;
+        }
+        if (member.Kind == "constructor")
+        {
+            signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
+            return true;
+        }
+        if (member.Kind == "method"
+            && methodParameters is not { Count: > 0 }
+            && model.MemberName is { Length: > 0 } memberName
+            && !memberName.Contains('<', StringComparison.Ordinal)
+            && model.ReturnType is { Length: > 0 } returnType)
+        {
+            signature = $"{returnType} {memberName}({parameters})";
+            return true;
+        }
+
+        // Keep generic methods, extension methods, explicit implementations,
+        // operators, properties, and events on compatibility text until the
+        // remaining declaration-level facts are represented in ApiSignature.
+        return false;
+
+        static string ParameterDeclaration(ApiParameter parameter)
+        {
+            var declaration = string.IsNullOrWhiteSpace(parameter.Name)
+                ? parameter.TypeWithModifier
+                : parameter.Declaration;
+            return declaration;
+        }
     }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
@@ -694,7 +754,9 @@ public static class CSharpDeclarationWriter
             return parameter;
 
         string name = prefix[start..(end + 1)];
-        string escaped = name.StartsWith('@', StringComparison.Ordinal) ? name : EscapeIdentifier(name);
+        // StartsWith(char) — the (char, StringComparison) overload is net11-only
+        // and breaks the net10.0 OfficialBuild package floor (CS1503 in pack).
+        string escaped = name.StartsWith('@') ? name : EscapeIdentifier(name);
         return prefix[..start] + escaped + prefix[(end + 1)..] + suffix;
     }
 

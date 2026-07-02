@@ -592,7 +592,12 @@ public class LibraryInspectionView
                 context.CountedAsHeap,
                 context.Frequency,
                 context.Escape,
+                context.EstimatedSizeBytes,
+                context.SizeTier,
                 context.InLoop,
+                context.Path,
+                context.PathConfidence,
+                context.PostDominance,
                 context.Evidence))
             .ToList();
 
@@ -1012,7 +1017,12 @@ public record ILOffsetAllocationContextRow(
     [property: MarkoutPropertyName("Counted As Heap")] string? CountedAsHeap,
     string? Frequency,
     string? Escape,
+    [property: MarkoutPropertyName("Est Size")] int? EstSize,
+    string? SizeTier,
     [property: MarkoutPropertyName("In Loop")] string? InLoop,
+    string? Path,
+    [property: MarkoutPropertyName("Path Confidence")] string? PathConfidence,
+    [property: MarkoutPropertyName("Post Dominance")] string? PostDominance,
     string? Evidence);
 
 [MarkoutSerializable]
