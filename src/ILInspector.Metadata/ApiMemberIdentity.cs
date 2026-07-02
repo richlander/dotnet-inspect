@@ -172,6 +172,14 @@ public static class ApiMemberIdentity
         {
             normalized = $"{NormalizeXmlDocParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
         }
+        else if (type.EndsWith("*", StringComparison.Ordinal))
+        {
+            normalized = $"{NormalizeXmlDocParameterType(type[..^1], typeParameterMap, methodParameterMap)}*";
+        }
+        else if (TryGetArraySuffix(type, out var arrayElementType, out var arraySuffix))
+        {
+            normalized = $"{NormalizeXmlDocParameterType(arrayElementType, typeParameterMap, methodParameterMap)}{arraySuffix}";
+        }
         else
         {
             var genericStart = IndexOfAny(type, '<', '{');
@@ -193,10 +201,10 @@ public static class ApiMemberIdentity
 
     static string ExtractSignatureParameterType(string parameter)
     {
+        parameter = StripLeadingAttributes(parameter.TrimStart());
         var eqIndex = parameter.IndexOf('=');
         if (eqIndex >= 0)
             parameter = parameter[..eqIndex].Trim();
-        parameter = StripLeadingAttributes(parameter.TrimStart());
 
         var depth = 0;
         var lastSpace = -1;
@@ -245,11 +253,13 @@ public static class ApiMemberIdentity
         if (string.IsNullOrWhiteSpace(memberName))
             return new Dictionary<string, int>(StringComparer.Ordinal);
 
-        var genericStart = memberName.IndexOf('<');
+        var memberSegmentStart = memberName.LastIndexOf('.');
+        var memberSegment = memberSegmentStart >= 0 ? memberName[(memberSegmentStart + 1)..] : memberName;
+        var genericStart = memberSegment.IndexOf('<');
         if (genericStart < 0)
             return new Dictionary<string, int>(StringComparer.Ordinal);
 
-        if (!TryGetGenericParts(memberName, genericStart, out _, out var parameters))
+        if (!TryGetGenericParts(memberSegment, genericStart, out _, out var parameters))
             return new Dictionary<string, int>(StringComparer.Ordinal);
 
         return SplitParameters(parameters)
@@ -357,8 +367,33 @@ public static class ApiMemberIdentity
         => typeName.Replace('+', '.');
 
     static string ToXmlDocMemberName(string memberName)
-        => memberName is ".cctor" ? memberName : memberName.Replace('.', '#');
+        => memberName is ".cctor"
+            ? memberName
+            : memberName
+                .Replace('.', '#')
+                .Replace('<', '{')
+                .Replace('>', '}');
 
     static bool IsConversionOperator(string memberName)
         => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+
+    static bool TryGetArraySuffix(string type, out string elementType, out string suffix)
+    {
+        elementType = "";
+        suffix = "";
+        if (!type.EndsWith("]", StringComparison.Ordinal))
+            return false;
+
+        var open = type.LastIndexOf('[');
+        if (open <= 0)
+            return false;
+
+        var rankSpec = type[(open + 1)..^1];
+        if (rankSpec.Any(c => c != ',' && !char.IsWhiteSpace(c)))
+            return false;
+
+        elementType = type[..open];
+        suffix = type[open..];
+        return true;
+    }
 }

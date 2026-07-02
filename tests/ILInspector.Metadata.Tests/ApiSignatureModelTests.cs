@@ -201,6 +201,27 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void XmlDocIdentity_UsesBracesForGenericExplicitInterfaceMembers()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Impl" };
+        var member = new ApiMember
+        {
+            Name = "System.IEquatable<System.String>.Equals",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "System.IEquatable<System.String>.Equals",
+                Parameters = [new ApiParameter { Name = "other", Type = "System.String" }]
+            }
+        };
+
+        Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
+
+        Assert.Equal("M:Samples.Impl.System#IEquatable{System#String}#Equals", identity.LookupKey);
+        Assert.Equal(["System.String"], identity.NormalizedParameters);
+    }
+
+    [Fact]
     public void XmlDocIdentity_IncludesConversionOperatorReturnType()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Number" };
@@ -280,6 +301,12 @@ public sealed class ApiSignatureModelTests
                 "[System.Runtime.InteropServices.In] ref int value",
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new Dictionary<string, int>(StringComparer.Ordinal)));
+        Assert.Equal(
+            "System.Int32",
+            ApiMemberIdentity.NormalizeXmlDocSignatureParameter(
+                """[System.ComponentModel.DefaultValue("=")] int value = 0""",
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, int>(StringComparer.Ordinal)));
     }
 
     [Theory]
@@ -288,6 +315,8 @@ public sealed class ApiSignatureModelTests
     [InlineData("in int", "System.Int32@")]
     [InlineData("System.Int32@", "System.Int32@")]
     [InlineData("params int[]", "System.Int32[]")]
+    [InlineData("int*", "System.Int32*")]
+    [InlineData("int[,]", "System.Int32[,]")]
     public void XmlDocParameterNormalization_PreservesByRefMarkers(string input, string expected)
     {
         Assert.Equal(expected, ApiMemberIdentity.NormalizeXmlDocParameterType(input));
