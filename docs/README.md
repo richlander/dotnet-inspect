@@ -64,6 +64,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [ReturnToSender: Fact-Planned Compile-Back Harness](design/fact-planned-compile-back-harness.md) | Spec for a fresh tools-side compile-back harness with fact-planned TypeProducer/TypePrinter shells. |
 | [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool. |
 | [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
+| [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the final shape (why the CLI should not hold a `PEReader`). |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 
 ### Design history and backlog
