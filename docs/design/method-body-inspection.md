@@ -2,9 +2,9 @@
 
 > Design north-star for raising `member` body sections and `library --il-offset`
 > onto one service model. This complements the assembly acquisition/session seam
-> in the #2122 inspection-query work: assembly inspection opens and identifies
-> an assembly; method-body inspection explains one method body or one IL
-> coordinate inside it.
+> in the [assembly inspection query model](https://github.com/richlander/dotnet-inspect/pull/2138):
+> assembly inspection opens and identifies an assembly; method-body inspection
+> explains one method body or one IL coordinate inside it.
 
 ## Problem
 
@@ -98,7 +98,7 @@ CLI section name. Section selection maps to lenses at the command boundary.
 | `Source` | source file, line, SourceLink URL, browsable URL | Metadata / SourceLink |
 | `ExceptionRegions` | region, clause, try/handler/filter ranges, caught type | Metadata / PDB context |
 | `Calls` | direct call sites, call kind, callee, operand token, return address | Analysis |
-| `Callers` | inbound caller sites and caller-scope provenance | Analysis / Services |
+| `Callers` | inbound caller sites and caller-scope provenance | Analysis / composition |
 | `Graphs` | call graph and caller graph nodes with signal annotations | Analysis |
 | `Unsafe` | unsafe API/member evidence and unsafe operations | Analysis |
 | `AllocationFacts` | allocation facts at method or coordinate scope | Analysis |
@@ -188,7 +188,7 @@ Owns offset-keyed overlays that join Analysis (R1) and Decompiler (R2):
 Research remains the bridge. Analysis should not depend on Decompiler or
 Research.
 
-### `DotnetInspector.Services`
+### Composition layer
 
 Owns composition:
 
@@ -197,7 +197,18 @@ Owns composition:
 - coordinate metadata, analysis, source acquisition, and Research
 - return `MethodBodyInspection`
 
-This is the natural home for caching and lazy lens execution.
+This layer must sit **above** Metadata, Analysis, Decompiler, and Research. It
+must not be `DotnetInspector.Services`, because that project is a lower-level
+shared services layer used by package/source/TFM infrastructure. Putting
+Research or Decompiler orchestration there would invert the dependency graph and
+pull R2 concerns into lower-layer consumers.
+
+Initial implementations may live in `src/dotnet-inspect/Inspectors/` while the
+service shape proves out. If this grows beyond CLI-local orchestration, prefer a
+new high-level inspection/composition project over expanding
+`DotnetInspector.Services`.
+
+This composition layer is the natural home for caching and lazy lens execution.
 
 ### CLI
 
@@ -222,6 +233,12 @@ assembly session design settles, but the target constructor should consume the
 assembly session or its `ResolvedAssemblyReference`, not introduce another
 string-only seam.
 
+This depends on the sibling assembly acquisition design in
+[PR #2138](https://github.com/richlander/dotnet-inspect/pull/2138). Treat the
+two docs as one program of work under #2122: assembly inspection owns resolution
+and PE lifetime; method-body inspection owns member/coordinate facts inside the
+resolved assembly.
+
 ## Migration
 
 Move in reviewable slices.
@@ -229,8 +246,10 @@ Move in reviewable slices.
 1. **Design the shared model.** Land this doc and agree on the lens ownership
    table.
 2. **Add a path-backed adapter.** Add `MethodBodyInspectionSession.Open(path)`
-   or an internal service equivalent that can be swapped later for
-   `AssemblyInspectionSession`.
+   or an internal composition-layer equivalent that can be swapped later for
+   `AssemblyInspectionSession`. Keep this above Metadata, Analysis, Decompiler,
+   and Research; do not add Research/Decompiler dependencies to
+   `DotnetInspector.Services`.
 3. **Raise semantic facts first.** Move `ILOffsetSourceQuery` allocation,
    safety, and cost construction to Analysis-backed method/coordinate APIs.
    Preserve the current instruction-only fallback behavior deliberately or
