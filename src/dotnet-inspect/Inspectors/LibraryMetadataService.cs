@@ -2,7 +2,6 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using System.Globalization;
 using System.Reflection;
-using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -1231,84 +1230,22 @@ internal static class LibraryMetadataService
     {
         try
         {
-            var reader = peReader.GetMetadataReader();
-            var results = new List<UnionTypeSummary>();
-
-            foreach (var typeHandle in reader.TypeDefinitions)
-            {
-                var typeDef = reader.GetTypeDefinition(typeHandle);
-                if (!AttributeReader.HasAttribute(reader, typeDef.GetCustomAttributes(), KnownAttributeNames.UnionAttribute))
-                    continue;
-
-                var context = GenericContext.ForType(reader, typeDef);
-                bool implementsIUnion = ImplementsIUnion(reader, typeDef, context);
-                var caseTypes = UnionCaseTypes(reader, typeDef).ToList();
-
-                results.Add(new UnionTypeSummary
+            var results = UnionTypeScanner.Scan(peReader);
+            return results.Count == 0
+                ? null
+                : results.Select(t => new UnionTypeSummary
                 {
-                    TypeName = reader.GetFullTypeName(typeDef),
-                    Kind = TypeKind(reader, typeDef),
-                    ImplementsIUnion = implementsIUnion,
-                    CaseTypes = caseTypes
-                });
-            }
-
-            return results.Count == 0 ? null : results;
+                    TypeName = t.TypeName,
+                    Kind = t.Kind,
+                    ImplementsIUnion = t.ImplementsIUnion,
+                    CaseTypes = t.CaseTypes.ToList()
+                }).ToList();
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning union types in {path}: {ex.Message}");
             return null;
         }
-    }
-
-    static bool ImplementsIUnion(MetadataReader reader, TypeDefinition typeDef, GenericContext context)
-    {
-        foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
-        {
-            var iface = reader.GetInterfaceImplementation(interfaceHandle);
-            if (TypeResolver.GetTypeName(reader, iface.Interface, context) == "System.Runtime.CompilerServices.IUnion")
-                return true;
-        }
-
-        return false;
-    }
-
-    static IEnumerable<string> UnionCaseTypes(MetadataReader reader, TypeDefinition typeDef)
-    {
-        foreach (var methodHandle in typeDef.GetMethods())
-        {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != ".ctor")
-                continue;
-            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
-                continue;
-            if ((method.Attributes & MethodAttributes.Static) != 0)
-                continue;
-
-            MethodSignature<string> signature;
-            try
-            {
-                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (signature.ParameterTypes.Length == 1)
-                yield return signature.ParameterTypes[0];
-        }
-    }
-
-    static string TypeKind(MetadataReader reader, TypeDefinition typeDef)
-    {
-        var attrs = typeDef.Attributes;
-        if ((attrs & TypeAttributes.Interface) != 0)
-            return "interface";
-        if (TypeResolver.GetTypeName(reader, typeDef.BaseType) == "System.ValueType")
-            return "struct";
-        return "class";
     }
 
     /// <summary>
