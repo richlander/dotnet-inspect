@@ -414,40 +414,14 @@ internal static class TypeSearchService
         {
             if (ReachedLimit()) break;
 
-            var fullPath = Path.GetFullPath(projectPath);
-            var projectDir = Path.GetDirectoryName(fullPath);
-            var projectName = Path.GetFileNameWithoutExtension(fullPath);
-
-            if (projectDir == null || !File.Exists(fullPath))
-            {
-                Console.Error.WriteLine($"Warning: Project not found '{projectPath}', skipping.");
-                continue;
-            }
-
-            var candidatePaths = new[]
-            {
-                Path.Combine(projectDir, "obj", "project.assets.json"),
-                Path.Combine(projectDir, "..", "..", "artifacts", "obj", projectName, "project.assets.json"),
-                Path.Combine(projectDir, "artifacts", "obj", projectName, "project.assets.json")
-            };
-
-            string? assetsPath = null;
-            foreach (var candidate in candidatePaths)
-            {
-                var normalized = Path.GetFullPath(candidate);
-                if (File.Exists(normalized))
-                {
-                    assetsPath = normalized;
-                    break;
-                }
-            }
-
+            var assetsPath = ProjectAssetsParser.FindAssets(projectPath);
             if (assetsPath == null)
             {
                 Console.Error.WriteLine($"Warning: project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.");
                 continue;
             }
 
+            var projectName = Path.GetFileNameWithoutExtension(projectPath);
             logger.Log($"Using assets: {assetsPath}");
             var assemblies = ProjectAssetsParser.Parse(assetsPath, options.Tfm, logger.Log);
             logger.Log($"Searching {assemblies.Count} libraries from {projectName}");
