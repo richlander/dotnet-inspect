@@ -173,7 +173,7 @@ public sealed partial class CSharpPrinter
     /// — <c>(MethodAttributes)access</c> — so an enum-vs-integer comparison or
     /// bitwise op type-checks (CS0019). The cast reinterprets the integer bits
     /// the IL already carries as the enum, so it is faithful. A negative literal
-    /// is parenthesized (CS0075), mirroring <see cref="Coerce"/>'s enum path.
+    /// is parenthesized (CS0075), mirroring <see cref="CoerceText"/>'s enum path.
     /// </summary>
     string EnumIntegerCast(IrExpression value, TypeRef enumType)
     {
@@ -378,8 +378,8 @@ public sealed partial class CSharpPrinter
 
         var leftEnumUnderlying = EnumUnderlyingType(binary.Left.ResultType);
         var rightEnumUnderlying = EnumUnderlyingType(binary.Right.ResultType);
-        string left = leftEnumUnderlying is not null ? Coerce(binary.Left, target) : Operand(binary.Left);
-        string right = rightEnumUnderlying is not null ? Coerce(binary.Right, target) : Operand(binary.Right);
+        string left = leftEnumUnderlying is not null ? CoerceText(binary.Left, target) : Operand(binary.Left);
+        string right = rightEnumUnderlying is not null ? CoerceText(binary.Right, target) : Operand(binary.Right);
         return $"{left} {BinaryOperator(binary)} {right}";
     }
 
@@ -1012,7 +1012,7 @@ public sealed partial class CSharpPrinter
     /// reconciling against an enum sibling use <see cref="TryCoerceEnumOperand"/>,
     /// the operand-shaped door into the same rules.
     /// </summary>
-    string Coerce(IrExpression value, TypeRef? target)
+    string CoerceText(IrExpression value, TypeRef? target)
     {
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)

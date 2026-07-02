@@ -321,6 +321,11 @@ public static class IrPasses
         // mismatch) renders an honest marker instead of an uncompilable fp(x).
         new CallIndirectSpellabilityPass(),
         new RefKindDiagnosticsPass(),
+        // Last: wrap every in-domain typed-sink value not provably at its
+        // target in a Coerce node, so the printer receives a decided tree and
+        // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
+        // Nothing may reshape sink values after this.
+        new CoercionInsertionPass(),
     ];
 
     /// <summary>

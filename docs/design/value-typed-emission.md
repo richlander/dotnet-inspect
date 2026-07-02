@@ -268,17 +268,26 @@ IL conversion into the rendering one — is what lets the overflow rule see thro
 
 ### The invariant
 
-With the node in place, well-formedness becomes checkable: **no value may occupy a
-typed sink except through a `Coerce`** (or be provably already at the target type).
-`CheckInvariant()` asserts it; a violation fails at the pass level, in a unit test,
-instead of being discovered by recompiling corpus output.
+With the node in place, well-formedness is checkable: **no value may occupy a
+typed sink except through a `Coerce`** (or be provably already at the target
+type). `CoercionInvariant.Check` asserts it; a violation fails at the pass
+level, in a unit test, instead of being discovered by recompiling corpus
+output. Three structural guarantees keep the assertion honest:
 
-The exemption is itself a choke point. "Provably already at the target type"
-must be **one shared type-identity predicate**, not a per-sink judgment —
-otherwise the scattered-partial-rule problem reappears one level up, as
-identity checks with per-sink blind spots (`int`-only here, `Unknown`-blind
-there) exempting exactly the sinks that need coercion. One `Coerce` renderer,
-one identity predicate that gates skipping it.
+- **One sink model.** `CoercionSinks.Enumerate` is the single enumeration of
+  typed sinks and their semantic targets; the insertion pass wraps through it
+  and the checker asserts through it, so the two cannot disagree about what a
+  sink is. The sink set grows in one reviewed place.
+- **One exemption predicate.** "Provably already at the target type" is
+  `CoercionTyping.IsAtTarget` — never a per-sink judgment, or the
+  scattered-partial-rule problem reappears one level up as identity checks
+  with per-sink blind spots exempting exactly the sinks that need coercion.
+- **A declared domain.** The invariant owns the value-flow class this lane
+  treats — integer-family primitives, `bool`/`char`, and resolved enums
+  (`CoercionTyping.InDomain`). Reference and struct conversions join when an
+  inverse conversion-classifier exists; a cross-assembly `Unknown` definition
+  cannot be *proven* an enum, so it stays render-time-handled and outside the
+  checkable domain.
 
 This proves **routing, not rendering**: the invariant guarantees every sink *reaches*
 the one coercion function, collapsing the leak surface from ~12 sites to one — but it
@@ -402,10 +411,30 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `CfgULong.All`, not `unchecked((CfgULong)((long)(-1)))`. Switch labels stay
    printer-spelled (`EnumConstantText`): `SwitchSection` holds them outside the
    rewritable tree.
-3. **Turn the invariant on.** Assert every typed sink routes through `Coerce`;
-   burn down the violations it flags (these are the remaining leak sites, now
-   enumerated by the checker rather than by adversarial review). Slices 1–3 deliver
-   the coercion choke point and can land without step 4.
+3. **Turn the invariant on.** Landed: the `Coerce` node,
+   `CoercionInsertionPass` (pipeline-last), and `CoercionInvariant.Check`, with
+   one shared `RequiresCoercion` decision so pass and checker cannot drift.
+   Corpus evidence: 15 assemblies, 134,373 methods — 0 violations, 7,954
+   `Coerce` nodes routed across 3,225 methods (active, not vacuous), and a
+   **render-text A/B against the merge base** in which every one of the 17
+   changed methods is a verified fidelity fix (wrong `op_Implicit`
+   overloads/values at call arguments, CS1929 extension receivers, CS0266
+   iterator yields) — neutral on common sinks, correcting
+   previously-unfaithful casts at call-argument sinks. The insertion domain is
+   deliberately "sinks whose printer rendering is provably CoerceText with the
+   same target"; everything else is an enumerated residual for the burn-down:
+   slot-carried values (the unifier owns their type until instance 2), lambda
+   returns (delegate `Invoke` signature not yet resolved), merge-node values
+   (CoerceText's own targeted branches render them, statement-position
+   formatting included), `Box` operands (the unbox-over-box spelling renders
+   through `ConvertText`, and a bare constant under `(object)` boxes the
+   literal's own type), `StoreIndirect` targets (printer's `IndirectStoreType`
+   not yet shared), `switch` labels (outside the rewritable tree), and operand
+   positions (`TryCoerceEnumOperand` — reconciliation, not sinks). Slices 1–3
+   deliver the coercion choke point; step 4 is independent — and the
+   longer-term end state is Roslyn's: establish the invariant **at
+   construction** (importer emits coerced trees) rather than by a
+   pipeline-last mutating pass.
 4. **Complete join typing — the shared type-propagation spine** (worth its own
    slice/issue). Where the importer drops to `Unknown` but a sound common type
    exists, propagate types at joins (the RyuJIT typed-temp model), reducing
