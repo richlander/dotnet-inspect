@@ -450,12 +450,27 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    longer-term end state is Roslyn's: establish the invariant **at
    construction** (importer emits coerced trees) rather than by a
    pipeline-last mutating pass.
-4. **Complete join typing — the shared type-propagation spine** (worth its own
-   slice/issue). Where the importer drops to `Unknown` but a sound common type
-   exists, propagate types at joins (the RyuJIT typed-temp model), reducing
-   `Partial`-by-unknown-join. This is the prerequisite *both* instances lean on:
-   it feeds instance 1's constant/`Convert` typing and is what instance 2 needs to
-   materialize locals.
+4. **Complete join typing — the shared type-propagation spine.** Opened: the
+   importer's `MergeSlotTypes` types an enum-meets-integer join as the enum
+   **only when the integer side is exactly the enum's underlying type** —
+   nominal equality, so width and sign exact, same-assembly resolved enums
+   only, bool excluded. The merge is then a pure reinterpretation and every
+   downstream sink coercion is value-preserving. Two adversarial rounds set
+   that bar: a family-level match let a byte-backed enum absorb a full-int
+   path (`(BE)x` turned 300 into 44, marked Full — the
+   recompiles-to-a-different-program class), and the cross-assembly
+   pairing-proves-enum argument was dropped entirely because it proves the
+   family but never the width. The printer side gained `TryCoerceJoinArm` —
+   the one join-arm rule, both directions, serving conditional, switch-
+   expression, and coalesce arms alike, family-guarded so the underlying cast
+   can never truncate. Join-census over the 15-assembly corpus:
+   `Partial`-by-unknown-join methods 155 → 119; the enum/int bucket for
+   same-assembly int-backed enums is zero. Remaining, by census: cross-assembly
+   enum-likes (width unprovable — recoverable later only with sink-context
+   evidence), the reference-merge lane (cross-assembly base chains and
+   constructed-generic interfaces, SRM-boundary work), and the `void*`/`nuint`
+   native clique. The full RyuJIT typed-temp model (spill and re-import) stays
+   open here for instance 2.
 5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
    each slot's live ranges as typed local IR nodes and **delete
    `TryChooseUnifiedStackSlotType`** — the writer stops inventing and unifying
