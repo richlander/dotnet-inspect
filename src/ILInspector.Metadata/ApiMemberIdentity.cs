@@ -7,7 +7,10 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ApiMemberIdentity
 {
-    public sealed record XmlDocMemberIdentity(string LookupKey, IReadOnlyList<string> NormalizedParameters);
+    public sealed record XmlDocMemberIdentity(
+        string LookupKey,
+        IReadOnlyList<string> NormalizedParameters,
+        string? NormalizedReturnType = null);
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
@@ -94,7 +97,7 @@ public static class ApiMemberIdentity
     public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
     {
         var typeXmlName = ToXmlDocName(type.FullName);
-        var memberName = member.Name == ".ctor" ? "#ctor" : member.Name;
+        var memberName = member.Name == ".ctor" ? "#ctor" : ToXmlDocMemberName(member.Name);
         var prefix = member.Kind switch
         {
             "property" => "P",
@@ -117,7 +120,10 @@ public static class ApiMemberIdentity
         var parameters = signature.Parameters
             .Select(parameter => NormalizeXmlDocParameterType(parameter.TypeWithModifier, typeParameterMap, methodParameterMap))
             .ToList();
-        identity = new XmlDocMemberIdentity(lookupKey, parameters);
+        var returnType = IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType)
+            ? NormalizeXmlDocParameterType(signature.ReturnType!, typeParameterMap, methodParameterMap)
+            : null;
+        identity = new XmlDocMemberIdentity(lookupKey, parameters, returnType);
         return true;
     }
 
@@ -139,34 +145,50 @@ public static class ApiMemberIdentity
         IReadOnlyDictionary<string, int> methodParameterMap)
     {
         var type = parameter.Trim();
+        var isByRef = false;
         foreach (var prefix in (string[])["ref ", "out ", "in ", "params ", "this "])
         {
             if (type.StartsWith(prefix, StringComparison.Ordinal))
             {
+                isByRef = prefix is "ref " or "out " or "in ";
                 type = type[prefix.Length..].TrimStart();
                 break;
             }
         }
 
-        type = type.TrimEnd('@');
+        if (type.EndsWith('@'))
+        {
+            isByRef = true;
+            type = type.TrimEnd('@');
+        }
         type = type.Replace("?", "", StringComparison.Ordinal);
 
+        string normalized;
         if (TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
-            return genericParameter;
-
-        if (type.EndsWith("[]", StringComparison.Ordinal))
-            return $"{NormalizeXmlDocParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
-
-        var genericStart = IndexOfAny(type, '<', '{');
-        if (genericStart >= 0 && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
         {
-            var normalizedType = PrimitiveTypeNames.ToClrFullName(genericType);
-            var normalizedArgs = SplitParameters(genericArgs)
-                .Select(p => NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap));
-            return $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
+            normalized = genericParameter;
+        }
+        else if (type.EndsWith("[]", StringComparison.Ordinal))
+        {
+            normalized = $"{NormalizeXmlDocParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
+        }
+        else
+        {
+            var genericStart = IndexOfAny(type, '<', '{');
+            if (genericStart >= 0 && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
+            {
+                var normalizedType = PrimitiveTypeNames.ToClrFullName(genericType);
+                var normalizedArgs = SplitParameters(genericArgs)
+                    .Select(p => NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap));
+                normalized = $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
+            }
+            else
+            {
+                normalized = PrimitiveTypeNames.ToClrFullName(type);
+            }
         }
 
-        return PrimitiveTypeNames.ToClrFullName(type);
+        return isByRef ? $"{normalized}@" : normalized;
     }
 
     static string ExtractSignatureParameterType(string parameter)
@@ -174,6 +196,7 @@ public static class ApiMemberIdentity
         var eqIndex = parameter.IndexOf('=');
         if (eqIndex >= 0)
             parameter = parameter[..eqIndex].Trim();
+        parameter = StripLeadingAttributes(parameter.TrimStart());
 
         var depth = 0;
         var lastSpace = -1;
@@ -187,6 +210,34 @@ public static class ApiMemberIdentity
         }
 
         return lastSpace > 0 ? parameter[..lastSpace] : parameter;
+    }
+
+    static string StripLeadingAttributes(string parameter)
+    {
+        while (parameter.StartsWith('['))
+        {
+            var depth = 0;
+            var end = -1;
+            for (var i = 0; i < parameter.Length; i++)
+            {
+                if (parameter[i] == '[') depth++;
+                else if (parameter[i] == ']')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+
+            if (end < 0)
+                return parameter;
+            parameter = parameter[(end + 1)..].TrimStart();
+        }
+
+        return parameter;
     }
 
     static Dictionary<string, int> GetMethodGenericParameterMap(string? memberName)
@@ -304,4 +355,10 @@ public static class ApiMemberIdentity
 
     static string ToXmlDocName(string typeName)
         => typeName.Replace('+', '.');
+
+    static string ToXmlDocMemberName(string memberName)
+        => memberName is ".cctor" ? memberName : memberName.Replace('.', '#');
+
+    static bool IsConversionOperator(string memberName)
+        => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 }

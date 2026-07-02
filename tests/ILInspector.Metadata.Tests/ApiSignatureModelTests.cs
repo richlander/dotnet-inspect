@@ -156,7 +156,7 @@ public sealed class ApiSignatureModelTests
 
         Assert.Equal("M:ILInspector.Metadata.Tests.ApiSignatureFixtures.MethodWithRefKinds", identity.LookupKey);
         Assert.Equal(
-            ["System.Int32", "System.String", "System.Int64", "System.Int32", "System.Byte[]"],
+            ["System.Int32@", "System.String@", "System.Int64@", "System.Int32", "System.Byte[]"],
             identity.NormalizedParameters);
     }
 
@@ -182,6 +182,44 @@ public sealed class ApiSignatureModelTests
 
         Assert.Equal("P:ILInspector.Metadata.Tests.ApiSignatureFixtures.Item", identity.LookupKey);
         Assert.Equal(["System.Int32"], identity.NormalizedParameters);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_UsesHashForExplicitInterfaceMembers()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Impl" };
+        var member = new ApiMember
+        {
+            Name = "IFoo.Bar",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature { MemberName = "IFoo.Bar" }
+        };
+
+        Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
+
+        Assert.Equal("M:Samples.Impl.IFoo#Bar", identity.LookupKey);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_IncludesConversionOperatorReturnType()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Number" };
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "operator",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "op_Implicit",
+                ReturnType = "int",
+                Parameters = [new ApiParameter { Name = "value", Type = "Samples.Number" }]
+            }
+        };
+
+        Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
+
+        Assert.Equal("System.Int32", identity.NormalizedReturnType);
+        Assert.Equal(["Samples.Number"], identity.NormalizedParameters);
     }
 
     [Fact]
@@ -236,6 +274,23 @@ public sealed class ApiSignatureModelTests
                 "System.Collections.Generic.Dictionary<string, int> values = null",
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new Dictionary<string, int>(StringComparer.Ordinal)));
+        Assert.Equal(
+            "System.Int32@",
+            ApiMemberIdentity.NormalizeXmlDocSignatureParameter(
+                "[System.Runtime.InteropServices.In] ref int value",
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, int>(StringComparer.Ordinal)));
+    }
+
+    [Theory]
+    [InlineData("ref int", "System.Int32@")]
+    [InlineData("out int", "System.Int32@")]
+    [InlineData("in int", "System.Int32@")]
+    [InlineData("System.Int32@", "System.Int32@")]
+    [InlineData("params int[]", "System.Int32[]")]
+    public void XmlDocParameterNormalization_PreservesByRefMarkers(string input, string expected)
+    {
+        Assert.Equal(expected, ApiMemberIdentity.NormalizeXmlDocParameterType(input));
     }
 
     static ApiType GetType(string typeName)

@@ -226,7 +226,8 @@ public class XmlDocFileParser
                     .ToList();
                 var matchingKey = parameterizedCandidates.FirstOrDefault(key =>
                     TryGetXmlDocParameters(key, out var xmlParameters)
-                    && ParametersMatch(identity.NormalizedParameters, xmlParameters));
+                    && ParametersMatch(identity.NormalizedParameters, xmlParameters)
+                    && ReturnTypeMatches(identity.NormalizedReturnType, key));
                 return matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode)
                     ? ParseMemberNode(matchingNode)
                     : null;
@@ -250,7 +251,8 @@ public class XmlDocFileParser
         {
             var matchingKey = candidates.FirstOrDefault(key =>
                 TryGetXmlDocParameters(key, out var xmlParameters)
-                && ParametersMatch(identity.NormalizedParameters, xmlParameters));
+                && ParametersMatch(identity.NormalizedParameters, xmlParameters)
+                && ReturnTypeMatches(identity.NormalizedReturnType, key));
             if (matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode))
                 return ParseMemberNode(matchingNode);
 
@@ -316,6 +318,19 @@ public class XmlDocFileParser
                 .Select(ApiMemberIdentity.NormalizeXmlDocParameterType)
                 .ToList();
         return true;
+    }
+
+    private static bool ReturnTypeMatches(string? normalizedReturnType, string key)
+    {
+        if (normalizedReturnType is null)
+            return true;
+
+        var suffixStart = key.LastIndexOf('~');
+        if (suffixStart < 0 || suffixStart == key.Length - 1)
+            return false;
+
+        var keyReturnType = ApiMemberIdentity.NormalizeXmlDocParameterType(key[(suffixStart + 1)..]);
+        return string.Equals(normalizedReturnType, keyReturnType, StringComparison.Ordinal);
     }
 
     private static bool ParametersMatch(IReadOnlyList<string> signatureParameters, IReadOnlyList<string> xmlParameters)
