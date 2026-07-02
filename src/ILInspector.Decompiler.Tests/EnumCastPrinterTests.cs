@@ -285,26 +285,31 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void UnsignedLongEnumConstant_ConvertWrapped_ForcesUncheckedCast()
+    public void UnsignedLongEnumMaxConstant_ConvertWrapped_NamesMember()
     {
-        // ulong.MaxValue lowers as `ldc.i4.m1; conv.i8`, so the enum cast operand is
-        // a Convert; the overflow decision must pierce it and wrap `unchecked`.
+        // ulong.MaxValue lowers as `ldc.i4.m1; conv.i8`; TypedConstantsPass folds
+        // the widening into an enum-typed constant (sign-extended payload -1
+        // matches the member map's keying), so the value renders by name — the
+        // ideal spelling for leak case #6, replacing
+        // `unchecked((CfgULong)((long)(-1)))`. The unnamed-value unchecked
+        // fallback stays pinned by the Unknown-enum and CoerceChokePoint tests.
         const string declaration = "public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }";
 
         string boxed = RenderRaisedFixture(nameof(EnumCastSamples.ULongEnumBoxedMax));
-        Assert.Contains("unchecked((CfgULong)", boxed);
+        Assert.Contains("CfgULong.All", boxed);
+        Assert.DoesNotContain("(long)(-1)", boxed);
         AssertCompiles("public static System.Enum M()", boxed, declaration);
 
         string array = RenderRaisedFixture(nameof(EnumCastSamples.ULongEnumArrayMax));
-        Assert.Contains("unchecked((CfgULong)", array);
+        Assert.Contains("CfgULong.All", array);
         AssertCompiles("public static CfgULong[] M()", array, declaration);
     }
 
     [Fact]
     public void LongBackedEnumConstants_InArrayAndBox_CastOrName()
     {
-        // Array elements: long constants render as enum casts, never a bare `long`
-        // (CS0266). AssertCompiles is the real validity gate.
+        // Array elements: an unnamed long payload renders as the enum cast, never
+        // a bare `long` (CS0266). AssertCompiles is the real validity gate.
         string array = RenderRaisedFixture(nameof(EnumCastSamples.LongEnumArray));
         Assert.Contains("(CfgLongPriority)5000000000", array);
         Assert.DoesNotContain("= 5000000000;", array);
@@ -314,10 +319,10 @@ public class EnumCastPrinterTests
             "public enum CfgLongPriority : long { Low = 0, High = 2 }");
 
         // Box target: the enum value must keep its type (bare long is CS0029 for
-        // System.Enum). A small value arrives as `Convert(long, ...)`, so it casts
-        // rather than names.
+        // System.Enum). The small value arrives as `Convert(long, ...)`;
+        // TypedConstantsPass folds it, so the named member renders.
         string boxed = RenderRaisedFixture(nameof(EnumCastSamples.LongEnumBoxed));
-        Assert.Contains("(CfgLongPriority)", boxed);
+        Assert.Contains("CfgLongPriority.High", boxed);
         Assert.DoesNotContain("return (long)", boxed);
         AssertCompiles(
             "public static System.Enum M()",

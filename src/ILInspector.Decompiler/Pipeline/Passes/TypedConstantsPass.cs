@@ -18,17 +18,29 @@ public sealed class TypedConstantsPass : IIrPass
         {
             switch (node)
             {
-                case Return { Value: Constant constant }:
-                    Retype(constant, function.Signature.ReturnType, shapes, stepper);
+                case Return { Value: { } value }:
+                    Retype(value, function.Signature.ReturnType, shapes, stepper);
                     break;
-                case StoreLocal { Value: Constant constant } store:
-                    Retype(constant, store.Type, shapes, stepper);
+                case StoreLocal { Value: { } value } store:
+                    Retype(value, store.Type, shapes, stepper);
                     break;
-                case StoreArgument { Value: Constant constant } store:
-                    Retype(constant, store.Type, shapes, stepper);
+                case StoreArgument { Value: { } value } store:
+                    Retype(value, store.Type, shapes, stepper);
                     break;
-                case StoreField { Value: Constant constant } store:
-                    Retype(constant, store.Field.Type, shapes, stepper);
+                case StoreField { Value: { } value } store:
+                    Retype(value, store.Field.Type, shapes, stepper);
+                    break;
+                case StoreProperty { Value: { } value } store:
+                    Retype(value, store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter ? setter[^1] : null, shapes, stepper);
+                    break;
+                case NullCoalescingAssignment { Value: { } value } assign:
+                    Retype(value, assign.LocalType, shapes, stepper);
+                    break;
+                case NullCoalescingFieldAssignment { Value: { } value } assign:
+                    Retype(value, assign.Field.Type, shapes, stepper);
+                    break;
+                case NullCoalescingPropertyAssignment { Value: { } value } assign:
+                    Retype(value, assign.PropertyType, shapes, stepper);
                     break;
                 case Call call:
                     RetypeArguments(call.Callee, call.Arguments, call.Callee.HasThis ? 1 : 0, shapes, stepper);
@@ -36,37 +48,64 @@ public sealed class TypedConstantsPass : IIrPass
                 case NewObject ctor:
                     RetypeArguments(ctor.Constructor, ctor.Arguments, 0, shapes, stepper);
                     break;
-                case Comparison { Left: { } left, Right: Constant constant }
-                    when left is not Constant && left.ResultType is { } leftType:
-                    Retype(constant, leftType, shapes, stepper);
+                // Either side: a constant compared against a typed non-constant
+                // carries that side's identity (`5 == e` occurs in IL as readily
+                // as `e == 5`).
+                case Comparison { Left: { } left, Right: { } right }:
+                    if (left is not Constant && left.ResultType is { } leftType)
+                        Retype(right, leftType, shapes, stepper);
+                    else if (right is not Constant && right.ResultType is { } rightType)
+                        Retype(left, rightType, shapes, stepper);
                     break;
-                case Box { Operand: Constant constant } box:
-                    Retype(constant, box.Type, shapes, stepper);
+                case Box { Operand: { } operand } box:
+                    Retype(operand, box.Type, shapes, stepper);
                     break;
-                case StoreElement { Value: Constant constant, ElementType: { } elementType }:
-                    Retype(constant, elementType, shapes, stepper);
+                // The stelem opcode carries only a storage width (`stelem.i8` says
+                // Int64, not the long-backed enum), so the semantic target is the
+                // array's element type when it resolves — the same
+                // storage-vs-semantic split the printer's StoreElementTargetType
+                // makes.
+                case StoreElement { Value: { } value } store:
+                    Retype(value, ElementTargetType(store), shapes, stepper);
                     break;
                 // `stind.i1`/`stind.i2` carry only a storage width (sbyte/short), so a
                 // `bool`/`char` location stored through a managed ref or pointer keeps
                 // the opcode's integer type. The address's pointee type is the real
                 // target — `ref bool wasSymlink = 0` is `wasSymlink = false`.
-                case StoreIndirect { Value: Constant constant } store
+                case StoreIndirect { Value: { } value } store
                     when (PointeeType(store.Address.ResultType) ?? store.Type) is { } indirectType:
-                    Retype(constant, indirectType, shapes, stepper);
+                    Retype(value, indirectType, shapes, stepper);
                     break;
                 // `flags & 16` is `BindingFlags & int` — CS0019. The bitwise
                 // operators are the enum-flag idiom; an int constant beside an
                 // enum operand carries that enum's identity, so retype it (the
                 // printer then names the member or casts).
                 case Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary:
-                    if (EnumOperandType(binary.Left, shapes) is { } leftEnum && binary.Right is Constant rightConst)
-                        Retype(rightConst, leftEnum, shapes, stepper);
-                    else if (EnumOperandType(binary.Right, shapes) is { } rightEnum && binary.Left is Constant leftConst)
-                        Retype(leftConst, rightEnum, shapes, stepper);
+                    if (EnumOperandType(binary.Left, shapes) is { } leftEnum && binary.Right is Constant or Convert)
+                        Retype(binary.Right, leftEnum, shapes, stepper);
+                    else if (EnumOperandType(binary.Right, shapes) is { } rightEnum && binary.Left is Constant or Convert)
+                        Retype(binary.Left, rightEnum, shapes, stepper);
                     break;
+                // An enum-typed join (set by the diamond/store-chain folds) types
+                // both arms. Enum only: bool/char conditionals belong to
+                // BooleanFoldingPass, whose 0/1-arm reconciliation must not be
+                // preempted here.
+                case Conditional { MergedType: { } merged } conditional
+                    when shapes.GetValueOrDefault(merged) == TypeShape.Enum:
+                    Retype(conditional.WhenTrue, merged, shapes, stepper);
+                    Retype(conditional.WhenFalse, merged, shapes, stepper);
+                    break;
+                // Switch case labels are deliberately not retyped: SwitchSection
+                // holds them outside the child tree (ReplaceWith cannot reach
+                // them) and the printer spells labels through EnumConstantText.
             }
         }
     }
+
+    static TypeRef? ElementTargetType(StoreElement store)
+        => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
+            ? element
+            : store.ElementType;
 
     static TypeRef? PointeeType(TypeRef? type)
         => type is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } ? type.ElementType : null;
@@ -95,18 +134,46 @@ public sealed class TypedConstantsPass : IIrPass
         if (callee.ParameterTypes.IsDefault)
             return;
         for (int i = 0; i < callee.ParameterTypes.Length && i + receiverOffset < arguments.Count; i++)
-        {
-            if (arguments[i + receiverOffset] is Constant constant)
-                Retype(constant, callee.ParameterTypes[i], shapes, stepper);
-        }
+            Retype(arguments[i + receiverOffset], callee.ParameterTypes[i], shapes, stepper);
     }
 
-    static void Retype(Constant constant, TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
+    static void Retype(IrExpression expression, TypeRef? target, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
     {
         // A retype position whose target type did not resolve carries no
         // identity to recover; skip it rather than dereference a null target.
         if (target is null)
             return;
+        switch (expression)
+        {
+            case Constant constant:
+                RetypeConstant(constant, target, shapes, stepper);
+                return;
+            // A long/ulong-backed enum constant lowers as `ldc.i4 N; conv.i8`
+            // (or `conv.u8`), so at the sink the payload is a Convert over the
+            // int constant, not a constant — and it never names or retypes.
+            // Fold the widening into a typed constant: the value survives (a
+            // conv.u8 target zero-extends the 32-bit payload, a conv.i8 target
+            // sign-extends — keyed off the target, as in TryEnumCastLiteral)
+            // and csc regenerates the identical ldc.i4/conv pair from the
+            // member name or cast on recompile. Unchecked 8-byte widenings
+            // only: a conv.ovf traps on an out-of-range value and a narrowing
+            // truncates, so neither folds; enum targets only, where the
+            // recovered identity pays for erasing the IL-history node.
+            case Convert
+            {
+                IsChecked: false,
+                Target: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" or "UInt64" } convertTarget,
+                Operand: Constant { Value: int payload },
+            } convert when shapes.GetValueOrDefault(target) == TypeShape.Enum:
+                long widened = convertTarget.Name == "UInt64" ? (uint)payload : payload;
+                stepper.StepOver($"fold widening conv into enum {target.Name} constant", convert);
+                convert.ReplaceWith(new Constant(widened, target));
+                return;
+        }
+    }
+
+    static void RetypeConstant(Constant constant, TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
+    {
         if (constant.Value is int value)
         {
             if (target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
@@ -132,7 +199,9 @@ public sealed class TypedConstantsPass : IIrPass
         // An integer flowing into an enum position carries the enum's identity;
         // the printer names it from the resolved member map. The value is kept
         // (an int, or an ldc.i8 for a long-backed enum); only the type changes.
-        if (shapes.GetValueOrDefault(target) == TypeShape.Enum)
+        // Idempotent: a constant already carrying the target (an earlier run of
+        // this pass) is left alone rather than re-replaced on every run.
+        if (shapes.GetValueOrDefault(target) == TypeShape.Enum && constant.Type?.Equals(target) != true)
         {
             stepper.StepOver($"retype constant to enum {target.Name}", constant);
             constant.ReplaceWith(new Constant(constant.Value, target));

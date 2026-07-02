@@ -393,9 +393,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    surfaced and fixed a guard-drift invalid-C# class (bool operands at enum
    positions) and extended member naming to un-retyped constants, with the
    corpus card flat against a same-corpus base A/B.
-2. **Complete constant typing.** Extend `TypedConstantsPass` to retype `int`,
-   `long`, and `Convert`-wrapped integer constants into every enum-typed sink, so
-   the printer sees enum-typed values uniformly.
+2. **Complete constant typing.** Landed (#2120): `TypedConstantsPass` retypes
+   `int`, `long`, and unchecked 8-byte-widening `Convert`-wrapped constants into
+   enum-typed sinks (semantic array-element targets, either-side comparisons,
+   `??=`/property stores, enum-merged conditional arms), with a third pipeline
+   run after reconstruction for late-created sinks. The `ldc.i4; conv.i8`
+   lowering of long/ulong-backed enum constants now names its member —
+   `CfgULong.All`, not `unchecked((CfgULong)((long)(-1)))`. Switch labels stay
+   printer-spelled (`EnumConstantText`): `SwitchSection` holds them outside the
+   rewritable tree.
 3. **Turn the invariant on.** Assert every typed sink routes through `Coerce`;
    burn down the violations it flags (these are the remaining leak sites, now
    enumerated by the checker rather than by adversarial review). Slices 1–3 deliver
