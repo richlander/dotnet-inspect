@@ -291,7 +291,7 @@ public class XmlDocFileParser
             return [];
 
         return SplitParameters(inner)
-            .Select(p => NormalizeParameterType(p, typeParameterMap, methodParameterMap))
+            .Select(p => ApiMemberIdentity.NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap))
             .ToList();
     }
 
@@ -382,47 +382,6 @@ public class XmlDocFileParser
             .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
     }
 
-    private static string NormalizeParameterType(
-        string parameter,
-        IReadOnlyDictionary<string, int> typeParameterMap,
-        IReadOnlyDictionary<string, int> methodParameterMap)
-    {
-        var type = SignatureParser.ExtractParamType(parameter.Trim());
-        foreach (var prefix in new[] { "ref ", "out ", "in ", "params ", "this " })
-        {
-            if (type.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                type = type[prefix.Length..].TrimStart();
-                break;
-            }
-        }
-
-        type = type.TrimEnd('@');
-        type = RemoveNullableAnnotations(type);
-
-        if (TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
-            return genericParameter;
-
-        if (type.EndsWith("[]", StringComparison.Ordinal))
-            return $"{NormalizeParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
-
-        var genericStart = IndexOfAny(type, '<', '{');
-        if (genericStart >= 0 && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
-        {
-            var normalizedType = NormalizeSimpleTypeName(genericType);
-            var normalizedArgs = SplitParameters(genericArgs)
-                .Select(p => NormalizeParameterType(p, typeParameterMap, methodParameterMap));
-            return $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
-        }
-
-        return NormalizeSimpleTypeName(type);
-    }
-
-    private static string NormalizeSimpleTypeName(string type) => PrimitiveTypeNames.ToClrFullName(type);
-
-    private static string RemoveNullableAnnotations(string type)
-        => type.Replace("?", "", StringComparison.Ordinal);
-
     private static bool TryGetGenericParts(string type, int genericStart, out string genericType, out string genericArgs)
     {
         genericType = type[..genericStart];
@@ -448,53 +407,6 @@ public class XmlDocFileParser
         }
 
         return false;
-    }
-
-    private static bool TryNormalizeGenericParameterReference(
-        string type,
-        IReadOnlyDictionary<string, int> typeParameterMap,
-        IReadOnlyDictionary<string, int> methodParameterMap,
-        out string normalized)
-    {
-        normalized = "";
-        if (type.StartsWith("``", StringComparison.Ordinal) && int.TryParse(type[2..], out var methodIndex))
-        {
-            normalized = $"M{methodIndex}";
-            return true;
-        }
-
-        if (type.StartsWith('`') && int.TryParse(type[1..], out var typeIndex))
-        {
-            normalized = $"T{typeIndex}";
-            return true;
-        }
-
-        if (methodParameterMap.TryGetValue(type, out methodIndex))
-        {
-            normalized = $"M{methodIndex}";
-            return true;
-        }
-
-        if (typeParameterMap.TryGetValue(type, out typeIndex))
-        {
-            normalized = $"T{typeIndex}";
-            return true;
-        }
-
-        return false;
-    }
-
-    private static int IndexOfAny(string value, char first, char second)
-    {
-        var firstIndex = value.IndexOf(first);
-        var secondIndex = value.IndexOf(second);
-        return (firstIndex, secondIndex) switch
-        {
-            (< 0, < 0) => -1,
-            (< 0, _) => secondIndex,
-            (_, < 0) => firstIndex,
-            _ => Math.Min(firstIndex, secondIndex)
-        };
     }
 
     /// <summary>

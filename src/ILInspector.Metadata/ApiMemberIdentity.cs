@@ -106,12 +106,6 @@ public static class ApiMemberIdentity
         var lookupKey = $"{prefix}:{typeXmlName}.{memberName}";
         if (member.SignatureModel is not { } signature)
         {
-            if (member.Kind is "property" or "field" or "event")
-            {
-                identity = new XmlDocMemberIdentity(lookupKey, []);
-                return true;
-            }
-
             identity = new XmlDocMemberIdentity("", []);
             return false;
         }
@@ -133,7 +127,7 @@ public static class ApiMemberIdentity
     static readonly IReadOnlyDictionary<string, int> EmptyParameterMap =
         new Dictionary<string, int>(StringComparer.Ordinal);
 
-    static string NormalizeXmlDocParameterType(
+    internal static string NormalizeXmlDocParameterType(
         string parameter,
         IReadOnlyDictionary<string, int> typeParameterMap,
         IReadOnlyDictionary<string, int> methodParameterMap)

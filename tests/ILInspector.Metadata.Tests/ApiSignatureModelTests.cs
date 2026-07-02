@@ -184,6 +184,43 @@ public sealed class ApiSignatureModelTests
         Assert.Equal(["System.Int32"], identity.NormalizedParameters);
     }
 
+    [Fact]
+    public void XmlDocIdentity_FallsBackWhenSignatureModelIsMissing()
+    {
+        var type = GetType(nameof(ApiSignatureFixtures));
+        var source = GetMember(nameof(ApiSignatureFixtures), "Item");
+        var member = new ApiMember
+        {
+            Name = source.Name,
+            Kind = source.Kind,
+            Signature = source.Signature
+        };
+
+        Assert.False(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out _));
+    }
+
+    [Fact]
+    public void XmlDocParameterNormalization_UsesGenericMaps()
+    {
+        Dictionary<string, int> typeParameters = new(StringComparer.Ordinal)
+        {
+            ["TType"] = 0
+        };
+        Dictionary<string, int> methodParameters = new(StringComparer.Ordinal)
+        {
+            ["TMethod"] = 0
+        };
+
+        Assert.Equal("T0", ApiMemberIdentity.NormalizeXmlDocParameterType("TType", typeParameters, methodParameters));
+        Assert.Equal("M0", ApiMemberIdentity.NormalizeXmlDocParameterType("TMethod", typeParameters, methodParameters));
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary{T0,M0}",
+            ApiMemberIdentity.NormalizeXmlDocParameterType(
+                "System.Collections.Generic.Dictionary<TType, TMethod>",
+                typeParameters,
+                methodParameters));
+    }
+
     static ApiType GetType(string typeName)
         => Surface.Types.First(type => type.Name == typeName);
 
