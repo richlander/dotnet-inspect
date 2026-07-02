@@ -893,6 +893,50 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_OverloadedIndexerSetterComparesSingleShellAccessor()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private readonly int[] _values;
+                private readonly string[] _names;
+
+                public Class1()
+                {
+                    _values = new int[4];
+                    _names = new string[4];
+                }
+
+                public int this[int index]
+                {
+                    get => _values[index];
+                    set => _values[index] = value;
+                }
+
+                public string this[string key]
+                {
+                    get => _names[key.Length];
+                    set => _names[key.Length] = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "set_Item", 1)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(1, result.Plan.TargetMethod.Overload);
+            Assert.Contains("public string this[string key]", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_DoesNotDuplicateBodyBackedSetterDuringClosureSurface()
     {
         var assemblyPath = CompileFixture("""
