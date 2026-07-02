@@ -300,6 +300,12 @@ public static class IrPasses
         // earlier IncrementDecrementPass run (before reconstruction) never saw.
         // Re-run it to fold those back into `i++`/`i--` on the rebuilt body.
         new IncrementDecrementPass(),
+        // Structuring, sugar, and reconstruction create typed sinks that did not
+        // exist at the first two runs — enum-merged conditional arms, ??= and
+        // property stores, reconstructed bodies. The late run retypes (and
+        // Convert-folds) constants into those positions so the printer sees
+        // enum-typed values uniformly (value-typed-emission.md, slice 2).
+        new TypedConstantsPass(),
         // After post-reconstruction cleanup, verify the recovered iterator still has
         // a safe structured shape; otherwise degrade honestly instead of claiming Full.
         new IteratorReconstructionSafetyPass(),
