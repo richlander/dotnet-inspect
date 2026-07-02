@@ -181,6 +181,24 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void MethodSignatureModel_EscapesCharArguments()
+    {
+        var quote = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithQuoteCharAttribute));
+        var backslash = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithBackslashCharAttribute));
+        var newline = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithNewlineCharAttribute));
+
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterCharMarker('\\'')"],
+            quote.SignatureModel?.Parameters[0].Attributes);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterCharMarker('\\\\')"],
+            backslash.SignatureModel?.Parameters[0].Attributes);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterCharMarker('\\n')"],
+            newline.SignatureModel?.Parameters[0].Attributes);
+    }
+
+    [Fact]
     public void CanonicalSignature_NormalizesMultiGenericMethodNameWhitespace()
     {
         var type = GetType(nameof(ApiSignatureFixtures));
@@ -464,6 +482,18 @@ public sealed class ApiSignatureFixtures
     {
     }
 
+    public void MethodWithQuoteCharAttribute([ParameterCharMarker('\'')] string value)
+    {
+    }
+
+    public void MethodWithBackslashCharAttribute([ParameterCharMarker('\\')] string value)
+    {
+    }
+
+    public void MethodWithNewlineCharAttribute([ParameterCharMarker('\n')] string value)
+    {
+    }
+
     public sealed class Nested
     {
     }
@@ -497,4 +527,15 @@ public sealed class ParameterTypeMarkerAttribute : Attribute
 
     public Type Type { get; }
     public string? Text { get; set; }
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterCharMarkerAttribute : Attribute
+{
+    public ParameterCharMarkerAttribute(char value)
+    {
+        Value = value;
+    }
+
+    public char Value { get; }
 }

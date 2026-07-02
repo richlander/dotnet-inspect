@@ -391,9 +391,15 @@ public static class AttributeReader
     }
 
     static string GetQualifiedAttributeName(string fullName)
-        => fullName.EndsWith("Attribute", StringComparison.Ordinal)
-            ? fullName[..^9]
-            : fullName;
+    {
+        if (!fullName.EndsWith("Attribute", StringComparison.Ordinal))
+            return fullName;
+
+        var trimmed = fullName[..^9];
+        return trimmed.Length == 0 || trimmed.EndsWith('.', StringComparison.Ordinal)
+            ? fullName
+            : trimmed;
+    }
 
     /// <summary>Renders one attribute-argument value, or null when its shape is not faithfully spellable (arrays, unknown).</summary>
     static string? RenderArgument(string type, object? value) => value switch
@@ -404,7 +410,7 @@ public static class AttributeReader
         _ when type == "System.Type" && value is string typeName => RenderTypeArgument(typeName),
         string s => "\"" + EscapeStringLiteral(s) + "\"",
         bool b => b ? "true" : "false",
-        char c => $"'{c}'",
+        char c => $"'{EscapeCharLiteral(c)}'",
         // A primitive keyword type came from the provider; render the literal.
         _ when type is "byte" or "sbyte" or "short" or "ushort" or "int" or "uint" or "double" => value.ToString(),
         _ when type == "long" => value + "L",
@@ -424,27 +430,72 @@ public static class AttributeReader
         return $"typeof({typeName.Replace('+', '.')})";
     }
 
+    static string EscapeCharLiteral(char value) => value switch
+    {
+        '\\' => "\\\\",
+        '\'' => "\\'",
+        '\0' => "\\0",
+        '\a' => "\\a",
+        '\b' => "\\b",
+        '\f' => "\\f",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        '\v' => "\\v",
+        '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)value:x4}",
+        _ when char.IsControl(value) => $"\\u{(int)value:x4}",
+        _ => value.ToString()
+    };
+
     static string EscapeStringLiteral(string value)
     {
         var builder = new StringBuilder(value.Length);
         foreach (var c in value)
         {
-            builder.Append(c switch
+            switch (c)
             {
-                '\\' => "\\\\",
-                '"' => "\\\"",
-                '\0' => "\\0",
-                '\a' => "\\a",
-                '\b' => "\\b",
-                '\f' => "\\f",
-                '\n' => "\\n",
-                '\r' => "\\r",
-                '\t' => "\\t",
-                '\v' => "\\v",
-                '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)c:x4}",
-                _ when char.IsControl(c) => $"\\u{(int)c:x4}",
-                _ => c
-            });
+                case '\\':
+                    builder.Append("\\\\");
+                    break;
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\0':
+                    builder.Append("\\0");
+                    break;
+                case '\a':
+                    builder.Append("\\a");
+                    break;
+                case '\b':
+                    builder.Append("\\b");
+                    break;
+                case '\f':
+                    builder.Append("\\f");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                case '\v':
+                    builder.Append("\\v");
+                    break;
+                case '\u0085':
+                case '\u2028':
+                case '\u2029':
+                    builder.Append($"\\u{(int)c:x4}");
+                    break;
+                default:
+                    if (char.IsControl(c))
+                        builder.Append($"\\u{(int)c:x4}");
+                    else
+                        builder.Append(c);
+                    break;
+            }
         }
 
         return builder.ToString();
