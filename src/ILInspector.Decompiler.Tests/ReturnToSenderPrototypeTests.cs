@@ -675,6 +675,40 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsNonFiniteClosureConstFields()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public const float FloatNaN = float.NaN;
+                public const double DoubleInfinity = double.PositiveInfinity;
+                public int Value => 42;
+                public static Helper Create() => new Helper();
+            }
+
+            public class Class1
+            {
+                public int FromHelper => Helper.Create().Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("public const float FloatNaN = float.NaN;", result.Source);
+            Assert.Contains("public const double DoubleInfinity = double.PositiveInfinity;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_EmitsUnsafePointerTargetAndField()
     {
         var assemblyPath = CompileFixture("""

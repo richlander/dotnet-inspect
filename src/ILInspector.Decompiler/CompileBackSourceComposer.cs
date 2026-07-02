@@ -1121,14 +1121,36 @@ public static class CompileBackSourceComposer
                 ConstantTypeCode.UInt32 => blob.ReadUInt32().ToString(CultureInfo.InvariantCulture),
                 ConstantTypeCode.Int64 => blob.ReadInt64().ToString(CultureInfo.InvariantCulture) + "L",
                 ConstantTypeCode.UInt64 => blob.ReadUInt64().ToString(CultureInfo.InvariantCulture) + "UL",
-                ConstantTypeCode.Single => blob.ReadSingle().ToString("R", CultureInfo.InvariantCulture) + "f",
-                ConstantTypeCode.Double => blob.ReadDouble().ToString("R", CultureInfo.InvariantCulture),
+                ConstantTypeCode.Single => FormatSingleConstant(blob.ReadSingle()),
+                ConstantTypeCode.Double => FormatDoubleConstant(blob.ReadDouble()),
                 ConstantTypeCode.String => StringLiteral(blob.ReadUTF16(blob.Length)),
                 ConstantTypeCode.NullReference => "null",
                 _ => null,
             };
 
             return constant is not null;
+        }
+
+        static string FormatSingleConstant(float value)
+        {
+            if (float.IsNaN(value))
+                return "float.NaN";
+            if (float.IsPositiveInfinity(value))
+                return "float.PositiveInfinity";
+            if (float.IsNegativeInfinity(value))
+                return "float.NegativeInfinity";
+            return value.ToString("R", CultureInfo.InvariantCulture) + "f";
+        }
+
+        static string FormatDoubleConstant(double value)
+        {
+            if (double.IsNaN(value))
+                return "double.NaN";
+            if (double.IsPositiveInfinity(value))
+                return "double.PositiveInfinity";
+            if (double.IsNegativeInfinity(value))
+                return "double.NegativeInfinity";
+            return value.ToString("R", CultureInfo.InvariantCulture);
         }
 
         static string StringLiteral(string value)
