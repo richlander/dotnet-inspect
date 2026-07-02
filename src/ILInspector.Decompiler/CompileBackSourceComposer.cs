@@ -217,6 +217,7 @@ public enum CompileBackStubBodyKind
 {
     None,
     Throw,
+    ThrowGetSet,
     TargetBody,
     TargetGetterWithSetter,
     TargetSetterWithGetter,
@@ -702,6 +703,22 @@ public static class CompileBackSourceComposer
                 {
                     declaration = StripPropertyAccessorBlock(declaration);
                     sb.AppendLine($"{pad}{declaration} {{ get; set; }}");
+                    break;
+                }
+                if (member.StubBody == CompileBackStubBodyKind.ThrowGetSet)
+                {
+                    declaration = StripPropertyAccessorBlock(declaration);
+                    sb.AppendLine($"{pad}{declaration}");
+                    sb.AppendLine($"{pad}{{");
+                    sb.AppendLine($"{pad}    get");
+                    sb.AppendLine($"{pad}    {{");
+                    sb.AppendLine($"{pad}        throw null;");
+                    sb.AppendLine($"{pad}    }}");
+                    sb.AppendLine($"{pad}    set");
+                    sb.AppendLine($"{pad}    {{");
+                    sb.AppendLine($"{pad}        throw null;");
+                    sb.AppendLine($"{pad}    }}");
+                    sb.AppendLine($"{pad}}}");
                     break;
                 }
 
@@ -1503,8 +1520,6 @@ public static class CompileBackSourceComposer
                 var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
                 bool isAutoProperty = !accessors.Getter.IsNil
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
-                if (requirement.RequiredKind == CompileBackTypeKind.Struct && !isAutoProperty)
-                    continue;
                 bool hasSetter = !accessors.Setter.IsNil;
                 members.Add(new CompileBackMemberDeclaration(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {signature.ReturnType}"),
@@ -1515,10 +1530,12 @@ public static class CompileBackSourceComposer
                     Parameters: [],
                     requirement.RequiredKind == CompileBackTypeKind.Interface
                         ? CompileBackStubBodyKind.None
-                        : hasSetter
+                        : hasSetter && isAutoProperty
                             ? CompileBackStubBodyKind.AutoPropertyGetSet
                             : isAutoProperty
                                 ? CompileBackStubBodyKind.AutoProperty
+                                : hasSetter
+                                    ? CompileBackStubBodyKind.ThrowGetSet
                                 : CompileBackStubBodyKind.Throw,
                     TargetBody: null,
                     [new CompileBackFact("metadata", "closure-property", propertyName)]));
