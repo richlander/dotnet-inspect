@@ -2354,6 +2354,7 @@ public sealed class LibraryBodyIndex
             var occurrences = ImmutableArray.CreateBuilder<AllocationOccurrence>();
             ILOpCode previousOpcode = default;
             int? pendingArrayLength = null;
+            int pendingArrayLengthBlock = -1;
             foreach (var instruction in decodedBody.Instructions)
             {
                 int offset = instruction.Offset;
@@ -2372,43 +2373,45 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Ldc_i4_6:
                         case ILOpCode.Ldc_i4_7:
                         case ILOpCode.Ldc_i4_8:
-                            pendingArrayLength = opcode switch
-                            {
-                                ILOpCode.Ldc_i4_m1 => -1,
-                                ILOpCode.Ldc_i4_0 => 0,
-                                ILOpCode.Ldc_i4_1 => 1,
-                                ILOpCode.Ldc_i4_2 => 2,
-                                ILOpCode.Ldc_i4_3 => 3,
-                                ILOpCode.Ldc_i4_4 => 4,
-                                ILOpCode.Ldc_i4_5 => 5,
-                                ILOpCode.Ldc_i4_6 => 6,
-                                ILOpCode.Ldc_i4_7 => 7,
-                                _ => 8,
-                            };
+                            SetPendingArrayLength(
+                                opcode switch
+                                {
+                                    ILOpCode.Ldc_i4_m1 => -1,
+                                    ILOpCode.Ldc_i4_0 => 0,
+                                    ILOpCode.Ldc_i4_1 => 1,
+                                    ILOpCode.Ldc_i4_2 => 2,
+                                    ILOpCode.Ldc_i4_3 => 3,
+                                    ILOpCode.Ldc_i4_4 => 4,
+                                    ILOpCode.Ldc_i4_5 => 5,
+                                    ILOpCode.Ldc_i4_6 => 6,
+                                    ILOpCode.Ldc_i4_7 => 7,
+                                    _ => 8,
+                                },
+                                offset);
                             break;
                         case ILOpCode.Ldc_i4_s:
-                            pendingArrayLength = (int)instruction.OperandValue;
+                            SetPendingArrayLength((int)instruction.OperandValue, offset);
                             break;
                         case ILOpCode.Ldc_i4:
-                            pendingArrayLength = OperandInt32(instruction);
+                            SetPendingArrayLength(OperandInt32(instruction), offset);
                             break;
                         case ILOpCode.Newarr:
                         {
                             int token = OperandInt32(instruction);
                             var element = ResolveTypeToken(token, callerScope);
                             var array = TypeRef.SzArray(element);
-                            var (estimatedSizeBytes, sizeTier) = EstimateNewarrSize(element, token, pendingArrayLength);
+                            var (estimatedSizeBytes, sizeTier) = EstimateNewarrSize(element, token, ValidPendingArrayLength(offset));
                             occurrences.Add(MakeAllocation(
                                 caller, offset, token, AllocationKind.Array, array, array.ToDisplayString(), countsAsHeapAllocation: true,
                                 AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
                                 AllocationEscape.Unknown, AllocationFactSource.Newarr,
                                 estimatedSizeBytes, sizeTier));
-                            pendingArrayLength = null;
+                            ClearPendingArrayLength();
                             break;
                         }
                         case ILOpCode.Newobj:
                         {
-                            pendingArrayLength = null;
+                            ClearPendingArrayLength();
                             int token = OperandInt32(instruction);
                             var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                             if (IsNonHeapNewObj(token, constructor.DeclaringType))
@@ -2430,7 +2433,7 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Call:
                         case ILOpCode.Callvirt:
                         {
-                            pendingArrayLength = null;
+                            ClearPendingArrayLength();
                             int token = OperandInt32(instruction);
                             var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                             if (IsInterfaceEnumeratorAllocation(callee))
@@ -2444,7 +2447,7 @@ public sealed class LibraryBodyIndex
                         }
                         case ILOpCode.Box:
                         {
-                            pendingArrayLength = null;
+                            ClearPendingArrayLength();
                             int token = OperandInt32(instruction);
                             var boxed = ResolveTypeToken(token, callerScope);
                             occurrences.Add(MakeAllocation(
@@ -2456,7 +2459,7 @@ public sealed class LibraryBodyIndex
                             break;
                         }
                         default:
-                            pendingArrayLength = null;
+                            ClearPendingArrayLength();
                             break;
                     }
                 }
@@ -2472,6 +2475,26 @@ public sealed class LibraryBodyIndex
             return collected.Length == 0 || !classifyEscapes
                 ? collected
                 : ClassifyAllocationEscapes(collected, il, decodedBody, exceptionRegions, caller, callerScope);
+
+            void SetPendingArrayLength(int length, int instructionOffset)
+            {
+                pendingArrayLength = length;
+                pendingArrayLengthBlock = decodedBody.BlockGraph.BlockIndexAt(instructionOffset);
+            }
+
+            void ClearPendingArrayLength()
+            {
+                pendingArrayLength = null;
+                pendingArrayLengthBlock = -1;
+            }
+
+            int? ValidPendingArrayLength(int newarrOffset)
+                => pendingArrayLength is { } length
+                    && decodedBody.BlockGraph.IsComplete
+                    && pendingArrayLengthBlock >= 0
+                    && pendingArrayLengthBlock == decodedBody.BlockGraph.BlockIndexAt(newarrOffset)
+                    ? length
+                    : null;
 
             AllocationOccurrence? ClassifyNewObjectAllocation(
                 byte[] ilBytes,

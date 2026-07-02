@@ -1290,6 +1290,8 @@ public class LibraryBodyIndexTests
 
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray10), 64)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5), 48)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5AfterUnrelatedBranch), 48)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsByteArray100), 128)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsStringArray8), 88)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsLongArray4), 56)]
@@ -1303,6 +1305,25 @@ public class LibraryBodyIndexTests
 
         Assert.Equal(expectedSizeBytes, occurrence.EstimatedSizeBytes);
         Assert.Equal(AllocationSizeTier.Exact, occurrence.SizeTier);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalSmallOrHugeArray))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalHugeOrSmallArray))]
+    public void AllocationFacts_LeaveConditionalLengthArraysUnknown(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Array);
+
+        var fact = Assert.Single(SemanticFactProjection.AllocationFacts(
+            index.GetAllocationOccurrences(),
+            occurrence.Method.MetadataToken,
+            occurrence.ILOffset));
+
+        Assert.Null(occurrence.EstimatedSizeBytes);
+        Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
+        Assert.Null(fact.EstimatedSizeBytes);
+        Assert.Null(fact.SizeTier);
     }
 
     [Theory]
@@ -3322,6 +3343,22 @@ public class OptimizationOpportunityFixtures
 
     public static int[] ReturnsIntArray10() => new int[10];
 
+    public static int[] ReturnsIntArray5() => new int[5];
+
+    public static int[] ReturnsIntArray5AfterUnrelatedBranch(bool condition)
+    {
+        if (condition)
+            ConsumeBoolean(condition);
+
+        return new int[5];
+    }
+
+    public static int[] ReturnsConditionalSmallOrHugeArray(bool condition)
+        => new int[condition ? 5 : 1_000_000];
+
+    public static int[] ReturnsConditionalHugeOrSmallArray(bool condition)
+        => new int[condition ? 1_000_000 : 5];
+
     public static byte[] ReturnsByteArray100() => new byte[100];
 
     public static string[] ReturnsStringArray8() => new string[8];
@@ -3743,6 +3780,8 @@ public class OptimizationOpportunityFixtures
     private static void ConsumeArray(int[] data) => Console.WriteLine(data.Length);
 
     private static void ConsumeObject(object? value) => Console.WriteLine(value);
+
+    private static void ConsumeBoolean(bool value) => Console.WriteLine(value);
 
     // --- Delegate allocation (capture detection + de-dup) ---
 
