@@ -144,7 +144,7 @@ public class TfmSelectorTests : IDisposable
     public void FindAssemblyByTfm_FiltersResourceAssemblies()
     {
         var primary = WriteDll("tools/net8.0/any/MyTool.dll");
-        WriteDll("tools/net8.0/any/MyTool.resources.dll");
+        WriteDll("tools/net8.0/any/fr/MyTool.resources.dll");
 
         var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0");
 

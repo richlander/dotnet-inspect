@@ -103,7 +103,8 @@ public static class ToolsAnalyzer
     /// </summary>
     public static int CountAssemblies(string extractPath)
     {
-        var dlls = TfmSelector.GetPackageAssemblies(extractPath);
+        var dlls = TfmSelector.GetPackageDlls(extractPath)
+            .Where(f => !f.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase));
 
         // Count unique assembly names (deduplicated across TFMs)
         return dlls
