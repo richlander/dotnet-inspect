@@ -2353,6 +2353,7 @@ public sealed class LibraryBodyIndex
         {
             var occurrences = ImmutableArray.CreateBuilder<AllocationOccurrence>();
             ILOpCode previousOpcode = default;
+            int? pendingArrayLength = null;
             foreach (var instruction in decodedBody.Instructions)
             {
                 int offset = instruction.Offset;
@@ -2371,24 +2372,43 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Ldc_i4_6:
                         case ILOpCode.Ldc_i4_7:
                         case ILOpCode.Ldc_i4_8:
+                            pendingArrayLength = opcode switch
+                            {
+                                ILOpCode.Ldc_i4_m1 => -1,
+                                ILOpCode.Ldc_i4_0 => 0,
+                                ILOpCode.Ldc_i4_1 => 1,
+                                ILOpCode.Ldc_i4_2 => 2,
+                                ILOpCode.Ldc_i4_3 => 3,
+                                ILOpCode.Ldc_i4_4 => 4,
+                                ILOpCode.Ldc_i4_5 => 5,
+                                ILOpCode.Ldc_i4_6 => 6,
+                                ILOpCode.Ldc_i4_7 => 7,
+                                _ => 8,
+                            };
                             break;
                         case ILOpCode.Ldc_i4_s:
+                            pendingArrayLength = (int)instruction.OperandValue;
                             break;
                         case ILOpCode.Ldc_i4:
+                            pendingArrayLength = OperandInt32(instruction);
                             break;
                         case ILOpCode.Newarr:
                         {
                             int token = OperandInt32(instruction);
                             var element = ResolveTypeToken(token, callerScope);
                             var array = TypeRef.SzArray(element);
+                            var (estimatedSizeBytes, sizeTier) = EstimateNewarrSize(element, token, pendingArrayLength);
                             occurrences.Add(MakeAllocation(
                                 caller, offset, token, AllocationKind.Array, array, array.ToDisplayString(), countsAsHeapAllocation: true,
                                 AllocationFrequency.Always, IsInLoopRegion(offset, loopRegions),
-                                AllocationEscape.Unknown, AllocationFactSource.Newarr));
+                                AllocationEscape.Unknown, AllocationFactSource.Newarr,
+                                estimatedSizeBytes, sizeTier));
+                            pendingArrayLength = null;
                             break;
                         }
                         case ILOpCode.Newobj:
                         {
+                            pendingArrayLength = null;
                             int token = OperandInt32(instruction);
                             var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                             if (IsNonHeapNewObj(token, constructor.DeclaringType))
@@ -2410,6 +2430,7 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Call:
                         case ILOpCode.Callvirt:
                         {
+                            pendingArrayLength = null;
                             int token = OperandInt32(instruction);
                             var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                             if (IsInterfaceEnumeratorAllocation(callee))
@@ -2423,6 +2444,7 @@ public sealed class LibraryBodyIndex
                         }
                         case ILOpCode.Box:
                         {
+                            pendingArrayLength = null;
                             int token = OperandInt32(instruction);
                             var boxed = ResolveTypeToken(token, callerScope);
                             occurrences.Add(MakeAllocation(
@@ -2434,6 +2456,7 @@ public sealed class LibraryBodyIndex
                             break;
                         }
                         default:
+                            pendingArrayLength = null;
                             break;
                     }
                 }
@@ -2503,7 +2526,9 @@ public sealed class LibraryBodyIndex
                 AllocationFrequency frequency,
                 bool inLoop,
                 AllocationEscape escape,
-                AllocationFactSource source)
+                AllocationFactSource source,
+                int? estimatedSizeBytes = null,
+                AllocationSizeTier sizeTier = AllocationSizeTier.Unknown)
                 => new(
                     method,
                     offset,
@@ -2518,7 +2543,9 @@ public sealed class LibraryBodyIndex
                     source,
                     RuntimeAllocationType(kind, allocatedType),
                     AllocationPathContextFor(decodedBody, offset, loopRegions, escape),
-                    AllocationPathConfidenceFor(decodedBody, offset, escape))
+                    AllocationPathConfidenceFor(decodedBody, offset, escape),
+                    estimatedSizeBytes,
+                    sizeTier)
                 {
                     PostDominance = AllocationPostDominanceFor(decodedBody, offset, escape),
                 };
@@ -3350,6 +3377,12 @@ public sealed class LibraryBodyIndex
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                         PostDominance = opportunity.PostDominance ?? FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
+                        EstimatedSizeBytes = allocationByOffset.TryGetValue(opportunityOffset, out allocation)
+                            ? allocation.EstimatedSizeBytes
+                            : opportunity.EstimatedSizeBytes,
+                        SizeTier = allocation?.SizeTier == AllocationSizeTier.Unknown
+                            ? opportunity.SizeTier
+                            : allocation?.SizeTier.ToString(),
                     };
                 }
                 return AddFallbackOpportunityMetadata(annotated);
@@ -3691,6 +3724,93 @@ public sealed class LibraryBodyIndex
                 return TypeRef.Unsupported("newarr element");
             }
         }
+
+        const int X64SzArrayHeaderBytes = 24;
+        const int X64ReferenceOrPointerElementBytes = 8;
+        const int X64ObjectAlignmentBytes = 8;
+
+        // Exact size estimates are calibrated to the x64 managed object layout:
+        // 8-byte object header + 8-byte method-table pointer + 4-byte length padded to 24,
+        // then element payload rounded up to the 8-byte allocation quantum.
+        (int? Size, AllocationSizeTier Tier) EstimateNewarrSize(TypeRef element, int elementToken, int? length)
+        {
+            if (length is null or < 0)
+                return (null, AllocationSizeTier.Unknown);
+            if (!TryGetNewarrElementSize(element, elementToken, out int elementSize))
+                return (null, AllocationSizeTier.Unknown);
+
+            long rawSize = X64SzArrayHeaderBytes + (long)length.Value * elementSize;
+            long alignedSize = AlignUp(rawSize, X64ObjectAlignmentBytes);
+            return alignedSize <= int.MaxValue
+                ? ((int)alignedSize, AllocationSizeTier.Exact)
+                : (null, AllocationSizeTier.Unknown);
+        }
+
+        bool TryGetNewarrElementSize(TypeRef element, int elementToken, out int size)
+        {
+            if (TryGetPrimitiveElementSize(element, out size))
+                return true;
+            if (element.Kind is TypeRefKind.Pointer or TypeRefKind.SzArray or TypeRefKind.Array)
+            {
+                size = X64ReferenceOrPointerElementBytes;
+                return true;
+            }
+            if (element.Kind != TypeRefKind.Definition)
+            {
+                size = 0;
+                return false;
+            }
+            if (IsKnownCoreLibraryReferenceElement(element)
+                || IsInAssemblyReferenceTypeElement(elementToken))
+            {
+                size = X64ReferenceOrPointerElementBytes;
+                return true;
+            }
+
+            size = 0;
+            return false;
+        }
+
+        static bool TryGetPrimitiveElementSize(TypeRef element, out int size)
+        {
+            if (element.Kind != TypeRefKind.Definition || element.Namespace != "System")
+            {
+                size = 0;
+                return false;
+            }
+
+            size = element.Name switch
+            {
+                "Boolean" or "Byte" or "SByte" => 1,
+                "Char" or "Int16" or "UInt16" => 2,
+                "Int32" or "UInt32" or "Single" => 4,
+                "Int64" or "UInt64" or "Double" => 8,
+                _ => 0,
+            };
+            return size != 0 && FrameworkIdentity.IsCoreLibraryType(element, "System", element.Name);
+        }
+
+        static bool IsKnownCoreLibraryReferenceElement(TypeRef element)
+            => FrameworkIdentity.IsCoreLibraryType(element, "System", "Object")
+               || FrameworkIdentity.IsCoreLibraryType(element, "System", "String")
+               || FrameworkIdentity.IsCoreLibraryType(element, "System", "Type");
+
+        bool IsInAssemblyReferenceTypeElement(int elementToken)
+        {
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(elementToken);
+                return handle.Kind == HandleKind.TypeDefinition
+                    && !IsValueTypeDefinition((TypeDefinitionHandle)handle);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return false;
+            }
+        }
+
+        static long AlignUp(long value, int alignment)
+            => (value + alignment - 1) / alignment * alignment;
 
         // True only for the unmanaged primitive element types that C# stackalloc accepts.
         // Enums and unmanaged structs are also stackalloc-eligible but require resolving the

@@ -676,6 +676,11 @@ public record class OptimizationOpportunitySummary
     public string Loop { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Allocation { get; init; }
+    [JsonPropertyName("est_size")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? EstimatedSizeBytes { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SizeTier { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

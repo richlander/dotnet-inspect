@@ -1829,6 +1829,8 @@ public static class ApiOutputFormatter
                 opportunity.Confidence,
                 opportunity.InLoop ? "loop" : "",
                 opportunity.RuntimeAllocationType is { Length: > 0 } allocation ? MarkoutInline.Code(allocation) : null,
+                opportunity.EstimatedSizeBytes,
+                opportunity.SizeTier,
                 opportunity.PathContext,
                 opportunity.PathConfidence,
                 opportunity.PostDominance,

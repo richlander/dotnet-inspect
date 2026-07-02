@@ -1288,6 +1288,49 @@ public class LibraryBodyIndexTests
         Assert.Equal(expectedPostDominance, occurrence.PostDominance);
     }
 
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray10), 64)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsByteArray100), 128)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsStringArray8), 88)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsLongArray4), 56)]
+    public void AllocationOccurrences_EstimatesExactSizeForConstantSzArrays(string methodName, int expectedSizeBytes)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Array);
+
+        Assert.Equal(expectedSizeBytes, occurrence.EstimatedSizeBytes);
+        Assert.Equal(AllocationSizeTier.Exact, occurrence.SizeTier);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.MakesArrayAfterCallAndArgument), AllocationKind.Array)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsGuidArray4), AllocationKind.Array)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object)]
+    public void AllocationOccurrences_LeavesLayoutDependentOrNonConstantSizesUnknown(string methodName, AllocationKind kind)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+
+        Assert.Null(occurrence.EstimatedSizeBytes);
+        Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SurfaceExactSizeMetadataFromArrayOccurrence()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ReturnsSmallArray)
+            && o.Shape == "small-array"));
+
+        Assert.Equal(40, opportunity.EstimatedSizeBytes);
+        Assert.Equal(nameof(AllocationSizeTier.Exact), opportunity.SizeTier);
+    }
+
     [Fact]
     public void AllocationOccurrences_IncludeBranchAndSwitchPathContext()
     {
@@ -3287,6 +3330,16 @@ public class OptimizationOpportunityFixtures
 
     // Returned -> escapes.
     public static int[] ReturnsSmallArray() => new int[4];
+
+    public static int[] ReturnsIntArray10() => new int[10];
+
+    public static byte[] ReturnsByteArray100() => new byte[100];
+
+    public static string[] ReturnsStringArray8() => new string[8];
+
+    public static long[] ReturnsLongArray4() => new long[4];
+
+    public static Guid[] ReturnsGuidArray4() => new Guid[4];
 
     // Constructed and popped without leaving the method -> local-only lifetime.
     public static int DropsPlainObject()

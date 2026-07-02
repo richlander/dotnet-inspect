@@ -748,6 +748,8 @@ public class LibraryInspectionView
                 o.Confidence,
                 o.Loop,
                 o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
+                o.EstimatedSizeBytes,
+                o.SizeTier,
                 o.Path,
                 o.PathConfidence,
                 o.PostDominance,
