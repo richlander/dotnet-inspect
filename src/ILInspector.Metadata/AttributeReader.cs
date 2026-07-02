@@ -399,8 +399,9 @@ public static class AttributeReader
     static string? RenderArgument(string type, object? value) => value switch
     {
         null => "null",
-        // A Type argument decodes to its name string; spell it typeof(...).
-        _ when type == "System.Type" && value is string typeName => $"typeof({typeName})",
+        // A Type argument decodes to its name string; spell only simple source
+        // type names we can render faithfully.
+        _ when type == "System.Type" && value is string typeName => RenderTypeArgument(typeName),
         string s => "\"" + EscapeStringLiteral(s) + "\"",
         bool b => b ? "true" : "false",
         char c => $"'{c}'",
@@ -415,6 +416,13 @@ public static class AttributeReader
             => $"({type}){value}",
         _ => null,
     };
+
+    static string? RenderTypeArgument(string typeName)
+    {
+        if (typeName.IndexOfAny(['`', '[', ',']) >= 0)
+            return null;
+        return $"typeof({typeName.Replace('+', '.')})";
+    }
 
     static string EscapeStringLiteral(string value)
     {

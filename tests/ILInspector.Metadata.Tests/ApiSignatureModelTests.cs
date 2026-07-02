@@ -152,6 +152,26 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void MethodSignatureModel_RendersNestedTypeParameterAttributeArguments()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithNestedTypeParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal(
+            ["ILInspector.Metadata.Tests.ParameterTypeMarker(typeof(ILInspector.Metadata.Tests.ApiSignatureFixtures.Nested))"],
+            member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_SkipsUnspellableGenericTypeParameterAttributeArguments()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithGenericTypeParameterAttribute));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Empty(member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    [Fact]
     public void MethodSignatureModel_SuppressesCompilerReservedRefReadonlyParameterAttributes()
     {
         var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithRefReadonlyParameter));
@@ -432,7 +452,19 @@ public sealed class ApiSignatureFixtures
     {
     }
 
+    public void MethodWithNestedTypeParameterAttribute([ParameterTypeMarker(typeof(Nested))] string value)
+    {
+    }
+
+    public void MethodWithGenericTypeParameterAttribute([ParameterTypeMarker(typeof(List<int>))] string value)
+    {
+    }
+
     public void MethodWithRefReadonlyParameter(ref readonly int value)
+    {
+    }
+
+    public sealed class Nested
     {
     }
 
