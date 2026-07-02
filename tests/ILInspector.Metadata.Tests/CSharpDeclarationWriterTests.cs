@@ -362,6 +362,80 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void EventDeclaration_CanRenderFromStructuredSignatureModel()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed"
+            }
+        };
+
+        var rendered = CSharpDeclarationWriter.RenderMemberUnit(
+            type,
+            member,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true
+            });
+
+        Assert.Equal(
+            """
+            using System;
+
+            public event EventHandler Changed;
+            """,
+            rendered.Source);
+    }
+
+    [Fact]
+    public void EventDeclaration_EscapesStructuredKeywordMemberName()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "event",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "event"
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public event System.EventHandler @event", declaration);
+    }
+
+    [Fact]
+    public void ExplicitEventDeclaration_KeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "ITest.Changed",
+            Kind = "event",
+            Signature = "System.EventHandler ITest.Changed",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "ITest.Changed"
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public event System.EventHandler ITest.Changed", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsings_KeepsCollidingSimpleNamesQualified()
     {
         var type = new ApiType

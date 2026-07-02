@@ -182,6 +182,45 @@ public sealed class CSharpDeclarationFormatterTests
     }
 
     [Fact]
+    public void MemberSignatureSection_CanRenderEventFromStructuredSignature()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "StructuredHost",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Changed",
+                    Kind = "event",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.EventHandler",
+                        MemberName = "Changed"
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new MemberOptions { OverloadIndex = 1 });
+
+        ApiOutputFormatter.PopulateMemberSignature(view, type, new MemberOptions { OverloadIndex = 1 });
+
+        Assert.Contains("event System.EventHandler", view.SignatureRows![0].Signature);
+        Assert.Contains("Changed", view.SignatureRows[0].Signature);
+        Assert.DoesNotContain("BROKEN", view.SignatureRows[0].Signature);
+    }
+
+    [Fact]
     public void ConstructorOverloadSnippet_UsesStructuredDefaultValueText()
     {
         var type = new ApiType
