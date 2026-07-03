@@ -1554,12 +1554,12 @@ internal static class GeneratedFixtureCatalog
         MinimalWhileLoop,
         MinimalDoWhileLoop,
         MinimalSwitchInt,
+        MinimalConditionalExpressionShapeFrontier,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Frontiers { get; } =
     [
         MinimalSwitchTwoCaseLowersIf,
-        MinimalConditionalExpressionShapeFrontier,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> AssertionCoverage { get; } =
