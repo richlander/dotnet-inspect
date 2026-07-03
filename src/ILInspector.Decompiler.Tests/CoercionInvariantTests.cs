@@ -141,6 +141,36 @@ public class CoercionInvariantTests
     }
 
     [Fact]
+    public void SlotStore_IsATypedSink_WhenLoadsTestifyToOneType()
+    {
+        // Slice 5b: the census's dominant multi-typed-slot shape is the diamond
+        // whose arms store different types into a slot the join reads at one
+        // type. 5a reconciled constant arms; the non-constant arm now wraps in
+        // a Coerce at the slot store, and the printer's type-keyed naming
+        // collapses to one declaration by construction.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new LoadArgument(0, "e", Enum32)));
+        block.Add(new StoreStackSlot(3, new LoadArgument(1, "raw", Int32Type)));
+        block.Add(new Return(new LoadStackSlot(3, Enum32)));
+        container.Add(block);
+        var function = Function(container, Enum32,
+            new Parameter("e", Enum32), new Parameter("raw", Int32Type));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var stores = function.Descendants.OfType<StoreStackSlot>().ToList();
+        Assert.IsType<LoadArgument>(stores[0].Value);
+        var coerced = Assert.IsType<Coerce>(stores[1].Value);
+        Assert.Equal(Enum32, coerced.Target);
+        Assert.Empty(CoercionInvariant.Check(function));
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(E32)raw", output);
+        Assert.DoesNotContain("S_3_1", output);
+    }
+
+    [Fact]
     public void SlotCarriedValue_IsExcluded_UntilInstanceTwoTypesIt()
     {
         // Review finding #1: wrapping a LoadStackSlot breaks the printer's slot
