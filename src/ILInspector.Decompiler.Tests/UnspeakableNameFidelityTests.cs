@@ -100,7 +100,10 @@ public class UnspeakableNameFidelityTests
     [Fact]
     public void CrossAssemblyBackingFieldEvidence_RecoversMatchingProperty()
     {
-        using var source = MetadataSource.Open(typeof(object).Assembly.Location, locator: LocateTestAssembly);
+        using var source = MetadataSource.Open(
+            typeof(object).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.SingleAssembly(typeof(CfgSampleClass).Assembly.Location));
         var declaringType = TypeRef.Definition(
             typeof(CfgSampleClass).Assembly.GetName().Name!,
             typeof(CfgSampleClass).Namespace!,
@@ -115,7 +118,10 @@ public class UnspeakableNameFidelityTests
     [Fact]
     public void CrossAssemblyBackingFieldEvidence_DeclinesMissingProperty()
     {
-        using var source = MetadataSource.Open(typeof(object).Assembly.Location, locator: LocateTestAssembly);
+        using var source = MetadataSource.Open(
+            typeof(object).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.SingleAssembly(typeof(CfgSampleClass).Assembly.Location));
         var declaringType = TypeRef.Definition(
             typeof(CfgSampleClass).Assembly.GetName().Name!,
             typeof(CfgSampleClass).Namespace!,
@@ -126,11 +132,6 @@ public class UnspeakableNameFidelityTests
 
         Assert.Null(upgraded.BackingPropertyName);
     }
-
-    static string? LocateTestAssembly(string assemblyName, AssemblyResolutionScope _)
-        => assemblyName == typeof(CfgSampleClass).Assembly.GetName().Name
-            ? typeof(CfgSampleClass).Assembly.Location
-            : null;
 
     [Fact]
     public void LocalFunctionMetadataName_StaysFull()

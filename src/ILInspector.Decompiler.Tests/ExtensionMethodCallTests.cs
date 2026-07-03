@@ -5,20 +5,15 @@ namespace ILInspector.Decompiler.Tests;
 public class ExtensionMethodCallTests
 {
     // Extension-ness is a cross-assembly fact (System.Linq lives in the shared
-    // framework, not beside the test assembly), so the default sibling locator
+    // framework, not beside the test assembly), so the default sibling resolver
     // cannot resolve it. Reach the running runtime directory, the same pattern
     // AllocationOccurrenceFactTests uses for its corelib base-chain checks.
-    static readonly ILInspector.Metadata.AssemblyLocator RuntimeLocator = (name, trust) =>
-    {
-        string dir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
-        string path = System.IO.Path.Combine(dir, name + ".dll");
-        return System.IO.File.Exists(path) ? path : null;
-    };
+    static readonly ILInspector.Metadata.IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.RuntimeAssemblies();
 
     static string PrintRaised(string methodName)
     {
-        using var context = new MetadataContext(RuntimeLocator);
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, null, RuntimeLocator, context);
+        using var context = new MetadataContext(RuntimeResolver);
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, null, RuntimeResolver, context);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
         Assert.NotNull(function);
 
