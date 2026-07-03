@@ -79,6 +79,15 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundLambda</c> (a <c>(params) =&gt; body</c> lambda).</summary>
     RoslynBoundLambda,
+
+    /// <summary>Roslyn's <c>BoundRangeExpression</c> (a <c>start..end</c> range).</summary>
+    RoslynBoundRangeExpression,
+
+    /// <summary>Roslyn's <c>BoundFromEndIndexExpression</c> (a <c>^n</c> from-end index).</summary>
+    RoslynBoundFromEndIndexExpression,
+
+    /// <summary>Roslyn's <c>BoundStackAllocArrayCreation</c> (a <c>stackalloc T[n]</c> expression).</summary>
+    RoslynBoundStackAllocArrayCreation,
 }
 
 /// <summary>
