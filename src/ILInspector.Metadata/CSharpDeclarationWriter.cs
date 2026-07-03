@@ -180,11 +180,21 @@ public static class CSharpDeclarationWriter
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
-        var signature = member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType)
-            ? $"{member.ReturnType} {member.Name}"
-            : TryRenderSignatureModel(type, member, methodParameters, out var modelSignature)
-                ? modelSignature
-                : member.Signature ?? member.ReturnType ?? "";
+        var usedSignatureModel = false;
+        string signature;
+        if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
+        {
+            signature = $"{member.ReturnType} {member.Name}";
+        }
+        else if (TryRenderSignatureModel(type, member, methodParameters, out var modelSignature))
+        {
+            signature = modelSignature;
+            usedSignatureModel = true;
+        }
+        else
+        {
+            signature = member.Signature ?? member.ReturnType ?? "";
+        }
         if (string.IsNullOrWhiteSpace(signature))
         {
             if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
@@ -234,7 +244,7 @@ public static class CSharpDeclarationWriter
         List<string> parts = [];
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
-        if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
+        if (usedSignatureModel && member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
             parts.Add($"[return: {string.Join(", ", returnAttributes)}]");
 
         List<string> modifiers = [];
