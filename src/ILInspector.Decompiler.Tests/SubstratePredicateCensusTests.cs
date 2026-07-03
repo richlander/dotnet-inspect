@@ -10,8 +10,6 @@ public class SubstratePredicateCensusTests
     {
         [new("BooleanFoldingPass.cs", "SameNullTestedLoad")] =
             "Pass-local composition of PlaceIdentity.SameVariable and SameStackSlot for the null-tested value accepted by boolean folding.",
-        [new("CoercionInsertionPass.cs", "SameSemanticFamily")] =
-            "The slot-store wrappability gate mirroring CoerceText's renderable-coercion domain (semantic family with directional booleanness); approximates a printer rendering contract, not a reusable rewrite gate.",
         [new("ConstructorCallDiagnosticsPass.cs", "SameDefinition")] =
             "Constructor diagnostics compare the declaring type with the current/base type; this is diagnostic routing, not a reusable rewrite gate.",
         [new("EhStructuringPass.cs", "SameZone")] =

@@ -226,6 +226,80 @@ public class CoercionInvariantTests
     }
 
     [Fact]
+    public void CrossEnumSlotStore_IsNotWrapped()
+    {
+        // Round 3 (Gemini): CoerceText has no enum→enum spelling, so a
+        // same-underlying cross-enum pair is not wrappable — split naming
+        // keeps the ranges as separate correctly-typed variables.
+        var otherEnum = TypeRef.Definition("synthetic", "", "OtherE32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, otherEnum)));
+        container.Add(block);
+        var function = Function(container, otherEnum, new Parameter("e", Enum32));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Enum32] = TypeShape.Enum,
+            [otherEnum] = TypeShape.Enum,
+        };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [Enum32] = Int32Type,
+            [otherEnum] = Int32Type,
+        };
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("OtherE32 S_0 = e;", output);
+    }
+
+    [Fact]
+    public void BoolStore_AtNarrowIntegerTestifiedSlot_IsNotWrapped()
+    {
+        // Round 3 (Gemini): `? 1 : 0` is int-typed and does not implicitly
+        // convert to byte/char/short/unsigned — bool composes only to
+        // int/long testified slots.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "boolValue", boolType)));
+        block.Add(new Return(new LoadStackSlot(0, byteType)));
+        container.Add(block);
+        var function = Function(container, byteType, new Parameter("boolValue", boolType));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("byte S_0 = boolValue ? 1 : 0;", output);
+    }
+
+    [Fact]
+    public void EnumStore_WithoutUnderlyingMetadata_IsNotWrapped()
+    {
+        // Round 3 (MAI): the printer's enum→primitive branch requires the
+        // underlying to actually resolve; the gate must share that
+        // prerequisite rather than assume int backing. Without metadata the
+        // store stays PrinterOwned and split naming keeps typed ranges.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(block);
+        var function = Function(container, Int32Type, new Parameter("e", Enum32));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("int S_0 = e;", output);
+    }
+
+    [Fact]
     public void CrossFamilySlotStore_IsNotWrapped_DisjointRangeKeepsSplitNaming()
     {
         // Slice-5b adversarial review (Gemini, blocking): a dead `long` store
