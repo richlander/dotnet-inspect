@@ -209,6 +209,88 @@ public class TypedConstantsPassTests
         Assert.Equal(LongEnum, constant.Type);
     }
 
+    // --- Slice 5a: slot-store reconciliation against the slot's unique load
+    // type (the phantom-split fix: `E S_3; int S_3_1;` where `S_3_1 = 0` was
+    // written but the load read `S_3`). ---
+
+    static BlockContainer SlotDiamond(IrExpression storeA, IrExpression storeB, TypeRef? loadType, TypeRef returnType)
+    {
+        // Two stores to slot 3 (the diamond arms) and one load (the join read),
+        // flattened — the pass only needs the access population, not the CFG.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, storeA));
+        block.Add(new StoreStackSlot(3, storeB));
+        block.Add(new Return(new LoadStackSlot(3, loadType)));
+        container.Add(block);
+        return container;
+    }
+
+    [Fact]
+    public void SlotConstantStore_ReconcilesToUniqueLoadType_AndCollapsesNaming()
+    {
+        // The enum-diamond slot: one arm stores the enum, the other `0`; the
+        // load carries the joined enum type. The constant store retypes, and
+        // the printer's type-keyed naming collapses to ONE declaration whose
+        // constant arm renders by member name — no phantom `int S_3_1`.
+        var body = SlotDiamond(
+            new LoadArgument(0, "e", LongEnum),
+            new Constant(0, Int32Type),
+            LongEnum,
+            LongEnum);
+        var function = EnumFunction(body, LongEnum, new Parameter("e", LongEnum));
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            function.Descendants.OfType<StoreStackSlot>().Last().Value);
+        Assert.Equal(LongEnum, constant.Type);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("S_3_1", output);
+        Assert.DoesNotContain("int S_3", output);
+    }
+
+    [Fact]
+    public void SlotWithDisagreeingLoadTypes_IsNotReconciled()
+    {
+        // Ambiguity is not an invitation to guess: two typed loads that
+        // disagree veto reconciliation and the constant keeps its type.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(0, Int32Type)));
+        block.Add(new StoreLocal(0, LongEnum, new LoadStackSlot(3, LongEnum)));
+        block.Add(new Return(new LoadStackSlot(3, Int32Type)));
+        container.Add(block);
+        var function = EnumFunction(container, Int32Type);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(Int32Type, constant.Type);
+    }
+
+    [Fact]
+    public void UntypedLoads_DoNotVetoReconciliation()
+    {
+        // An untyped load is silence, not disagreement: the slot still
+        // reconciles to the one typed load's type (review verify item).
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(2, Int32Type)));
+        block.Add(new StoreLocal(0, LongEnum, new LoadStackSlot(3, null)));
+        block.Add(new Return(new LoadStackSlot(3, LongEnum)));
+        container.Add(block);
+        var function = EnumFunction(container, LongEnum);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(LongEnum, constant.Type);
+    }
+
     [Fact]
     public void ConstantOnlyBoolSpill_RendersAsBool()
     {
