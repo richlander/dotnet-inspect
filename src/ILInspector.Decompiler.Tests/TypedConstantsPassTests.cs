@@ -209,6 +209,191 @@ public class TypedConstantsPassTests
         Assert.Equal(LongEnum, constant.Type);
     }
 
+    // --- Slice 5a: slot-store reconciliation against the slot's unique load
+    // type (the phantom-split fix: `E S_3; int S_3_1;` where `S_3_1 = 0` was
+    // written but the load read `S_3`). ---
+
+    static BlockContainer SlotDiamond(IrExpression storeA, IrExpression storeB, TypeRef? loadType, TypeRef returnType)
+    {
+        // Two stores to slot 3 (the diamond arms) and one load (the join read),
+        // flattened — the pass only needs the access population, not the CFG.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, storeA));
+        block.Add(new StoreStackSlot(3, storeB));
+        block.Add(new Return(new LoadStackSlot(3, loadType)));
+        container.Add(block);
+        return container;
+    }
+
+    [Fact]
+    public void SlotConstantStore_ReconcilesToUniqueLoadType_AndCollapsesNaming()
+    {
+        // The enum-diamond slot: one arm stores the enum, the other `0`; the
+        // load carries the joined enum type. The constant store retypes, and
+        // the printer's type-keyed naming collapses to ONE declaration whose
+        // constant arm renders by member name — no phantom `int S_3_1`.
+        var body = SlotDiamond(
+            new LoadArgument(0, "e", LongEnum),
+            new Constant(0, Int32Type),
+            LongEnum,
+            LongEnum);
+        var function = EnumFunction(body, LongEnum, new Parameter("e", LongEnum));
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            function.Descendants.OfType<StoreStackSlot>().Last().Value);
+        Assert.Equal(LongEnum, constant.Type);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("S_3_1", output);
+        Assert.DoesNotContain("int S_3", output);
+    }
+
+    [Fact]
+    public void SlotWithDisagreeingLoadTypes_IsNotReconciled()
+    {
+        // Ambiguity is not an invitation to guess: two typed loads that
+        // disagree veto reconciliation and the constant keeps its type.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(0, Int32Type)));
+        block.Add(new StoreLocal(0, LongEnum, new LoadStackSlot(3, LongEnum)));
+        block.Add(new Return(new LoadStackSlot(3, Int32Type)));
+        container.Add(block);
+        var function = EnumFunction(container, Int32Type);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(Int32Type, constant.Type);
+    }
+
+    [Fact]
+    public void UntypedLoadWithConflictingSink_VetoesReconciliation()
+    {
+        // Slice-5a second round (GPT-5.5): an untyped load is not silence — it
+        // testifies through its consuming sink. Here the untyped load feeds an
+        // int local while the typed load says enum: reconciliation must veto,
+        // or slot reuse smuggles the enum type onto the int range's store.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(0, Int32Type)));
+        block.Add(new StoreLocal(0, Int32Type, new LoadStackSlot(3, null)));
+        block.Add(new Return(new LoadStackSlot(3, LongEnum)));
+        container.Add(block);
+        var function = EnumFunction(container, LongEnum);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(Int32Type, constant.Type);
+    }
+
+    [Fact]
+    public void NestedLambdaSlots_ReconcilePerScope()
+    {
+        // Slice-5a second round (GPT-5.5): slot ids are per-body. The outer
+        // scope's slot 3 (int) and the lambda's slot 3 (enum) are different
+        // variables; each reconciles in its own scope only.
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new StoreStackSlot(3, new Constant(2, Int32Type)));
+        lambdaBlock.Add(new StoreLocal(0, LongEnum, new LoadStackSlot(3, LongEnum)));
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            TypeRef.Definition("System.Private.CoreLib", "System", "Action"),
+            [], [], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false,
+            lambdaBody);
+
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(0, Int32Type)));
+        block.Add(new StoreLocal(1, Int32Type, new LoadStackSlot(3, Int32Type)));
+        block.Add(new StoreLocal(2, TypeRef.Definition("System.Private.CoreLib", "System", "Action"), lambda));
+        container.Add(block);
+        var function = EnumFunction(container, Int32Type);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var stores = function.Descendants.OfType<StoreStackSlot>().ToList();
+        var outer = Assert.IsType<Constant>(stores.Single(s => ((Constant)s.Value).Value is 0).Value);
+        Assert.Equal(Int32Type, outer.Type);
+        var nested = Assert.IsType<Constant>(stores.Single(s => ((Constant)s.Value).Value is not 0).Value);
+        Assert.Equal(LongEnum, nested.Type);
+    }
+
+    [Fact]
+    public void LambdaReturn_IsNotRetypedToOuterSignature()
+    {
+        // The pass's own latent CoercionSinks-class bug, fixed by the scope
+        // walk: a constant returned from a lambda body must not be retyped
+        // against the OUTER method's return type.
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new Return(new Constant(1, Int32Type)));
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            TypeRef.Definition("System.Private.CoreLib", "System", "Func`1"),
+            [], [], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false,
+            lambdaBody);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, TypeRef.Definition("System.Private.CoreLib", "System", "Func`1"), lambda));
+        block.Add(new Return(new Constant(2, Int32Type)));
+        container.Add(block);
+        var function = EnumFunction(container, LongEnum);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var lambdaReturn = Assert.IsType<Constant>(
+            function.Descendants.OfType<Lambda>().Single()
+                .Descendants.OfType<Return>().Single().Value);
+        Assert.Equal(Int32Type, lambdaReturn.Type);
+    }
+
+    [Fact]
+    public void UntypedLoads_DoNotVetoReconciliation()
+    {
+        // An untyped load testifies through its consuming sink; when that sink
+        // AGREES with the typed evidence, the slot still reconciles (the
+        // sink-evidence rule from the slice-5a second round).
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(2, Int32Type)));
+        block.Add(new StoreLocal(0, LongEnum, new LoadStackSlot(3, null)));
+        block.Add(new Return(new LoadStackSlot(3, LongEnum)));
+        container.Add(block);
+        var function = EnumFunction(container, LongEnum);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(LongEnum, constant.Type);
+    }
+
+    [Fact]
+    public void LoneSurrogateCharConstant_RendersAsUnicodeEscape()
+    {
+        // A lone surrogate emitted raw cannot survive a UTF-8 encode (writers
+        // substitute U+FFFD, corrupting the literal — char.IsHighSurrogate's
+        // own bounds rendered as replacement characters). It must escape.
+        var charType = TypeRef.CoreLib("System", "Char");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new Constant('\ud800', charType)));
+        container.Add(block);
+        var function = EnumFunction(container, charType);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("'\\ud800'", output);
+        Assert.DoesNotContain('\ud800'.ToString(), output);
+    }
+
     [Fact]
     public void ConstantOnlyBoolSpill_RendersAsBool()
     {

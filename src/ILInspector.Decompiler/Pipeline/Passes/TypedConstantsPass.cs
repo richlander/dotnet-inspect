@@ -11,15 +11,47 @@ public sealed class TypedConstantsPass : IIrPass
     public string Name => "typed-constants";
 
     public void Run(IrFunction function, PassContext context)
+        => RunScope(function.Body, function.Signature.ReturnType, function, context.Stepper);
+
+    /// <summary>
+    /// One body scope at a time: nested <see cref="Lambda"/> and
+    /// <see cref="LocalFunctionStatement"/> bodies carry their own return types
+    /// and their own slot numbering, so both the return target and the slot
+    /// reconciliation maps are per-scope — a parent's slot 3 and a lambda's
+    /// slot 3 are different variables (slice-5a review), and a lambda's return
+    /// is not the outer method's (the CoercionSinks lesson, which this pass had
+    /// latently too).
+    /// </summary>
+    void RunScope(IrNode scope, TypeRef? returnType, IrFunction function, Stepper stepper)
     {
         var shapes = function.TypeShapes;
-        var stepper = context.Stepper;
-        foreach (var node in function.Descendants.ToList())
+        var slotTypes = UniqueSlotLoadTypes(scope, returnType);
+        foreach (var node in ScopeNodes(scope).ToList())
         {
             switch (node)
             {
-                case Return { Value: { } value }:
-                    Retype(value, function.Signature.ReturnType, shapes, stepper);
+                case Lambda lambda:
+                    RunScope(lambda, returnType: null, function, stepper);
+                    continue;
+                case LocalFunctionStatement local:
+                    RunScope(local, local.ReturnType, function, stepper);
+                    continue;
+            }
+            switch (node)
+            {
+                case Return { Value: { } value } when returnType is { } scopeReturn:
+                    Retype(value, scopeReturn, shapes, stepper);
+                    break;
+                // A synthetic slot whose loads all agree on one type — the join
+                // type the importer recovered (an enum diamond's entry state) —
+                // types its stores too: the `0` arm of `c ? E.A : 0` stored to
+                // the slot is that enum's constant. Reconciling the store here
+                // collapses the printer's type-keyed naming to one variable per
+                // slot, instead of a phantom pair (`E S_3; int S_3_1;`) whose
+                // load reads the range the store never wrote (slice 5a).
+                case StoreStackSlot { Value: { } slotValue } slotStore
+                    when slotTypes.GetValueOrDefault(slotStore.Slot) is { } slotType:
+                    Retype(slotValue, slotType, shapes, stepper);
                     break;
                 case StoreLocal { Value: { } value } store:
                     Retype(value, store.Type, shapes, stepper);
@@ -101,6 +133,73 @@ public sealed class TypedConstantsPass : IIrPass
             }
         }
     }
+
+    /// <summary>Scope-bounded descendants: yields every node in this body but does not cross into nested lambda / local-function bodies (their scopes recurse separately).</summary>
+    static IEnumerable<IrNode> ScopeNodes(IrNode scope)
+    {
+        foreach (var child in scope.Children)
+        {
+            yield return child;
+            if (child is not (Lambda or LocalFunctionStatement))
+            {
+                foreach (var nested in ScopeNodes(child))
+                    yield return nested;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Per slot, the single type every load of that slot agrees on — the
+    /// importer's recovered join type. Every load must testify: a typed load
+    /// contributes its type, an untyped load contributes its consuming sink's
+    /// target type, and an untyped load with no derivable sink vetoes the slot
+    /// (slice-5a review: an untyped load feeding an int sink must not be
+    /// silenced while the typed evidence says enum — slot reuse would smuggle
+    /// one range's type onto another's store). Disagreement vetoes; ambiguity
+    /// is not an invitation to guess.
+    /// </summary>
+    static Dictionary<int, TypeRef> UniqueSlotLoadTypes(IrNode scope, TypeRef? returnType)
+    {
+        var types = new Dictionary<int, TypeRef>();
+        var ambiguous = new HashSet<int>();
+        foreach (var load in ScopeNodes(scope).OfType<LoadStackSlot>())
+        {
+            if (ambiguous.Contains(load.Slot))
+                continue;
+            var evidence = load.Type ?? LoadSinkTargetType(load, returnType);
+            if (evidence is null)
+            {
+                types.Remove(load.Slot);
+                ambiguous.Add(load.Slot);
+                continue;
+            }
+            if (types.TryGetValue(load.Slot, out var existing))
+            {
+                if (!existing.Equals(evidence))
+                {
+                    types.Remove(load.Slot);
+                    ambiguous.Add(load.Slot);
+                }
+            }
+            else
+            {
+                types[load.Slot] = evidence;
+            }
+        }
+        return types;
+    }
+
+    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the same sink-target vocabulary the printer's StackSlotLoadTargetType uses.</summary>
+    static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType)
+        => load.Parent switch
+        {
+            StoreLocal store when ReferenceEquals(store.Value, load) => store.Type,
+            StoreArgument store when ReferenceEquals(store.Value, load) => store.Type,
+            StoreField store when ReferenceEquals(store.Value, load) => store.Field.Type,
+            StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
+            Return ret when ReferenceEquals(ret.Value, load) => returnType,
+            _ => null,
+        };
 
     static TypeRef? ElementTargetType(StoreElement store)
         => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }

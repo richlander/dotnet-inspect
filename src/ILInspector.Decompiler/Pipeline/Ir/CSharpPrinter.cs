@@ -3251,6 +3251,11 @@ public sealed partial class CSharpPrinter
         '\u2028' => "\\u2028",
         '\u2029' => "\\u2029",
         _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+        // A lone surrogate code unit has no valid UTF-8/UTF-16 text form: emitted
+        // raw it cannot survive an encode (writers substitute U+FFFD, corrupting
+        // the literal \u2014 char.IsHighSurrogate's own bounds rendered as two
+        // replacement characters). Always the \u escape.
+        _ when char.IsSurrogate(c) => $"\\u{(int)c:x4}",
         _ => c.ToString(),
     };
 

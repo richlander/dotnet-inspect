@@ -30,7 +30,7 @@ public class LibraryInspectionView
     public string? Name => _topFieldsOnly ? _data.AssemblyInfo?.AssemblyName : null;
 
     [MarkoutSkipNull]
-    public string? Version => _topFieldsOnly ? ResolveVersion() : null;
+    public string? Version => _topFieldsOnly ? LibraryInspectionDisplay.ResolveVersion(_data) : null;
 
     [MarkoutPropertyName("TFM")]
     [MarkoutSkipNull]
@@ -160,7 +160,7 @@ public class LibraryInspectionView
         TypeForwarders = CountOrZero(_data.TypeForwarders),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         UnionTypes = CountOrZero(_data.UnionTypes),
-        Version = ResolveVersion(),
+        Version = LibraryInspectionDisplay.ResolveVersion(_data),
     };
 
     [MarkoutSection(Name = "References")]
@@ -770,38 +770,6 @@ public class LibraryInspectionView
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
     public static bool TopLeverageSelectorEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Selector));
-
-    /// <summary>
-    /// Resolves the display version using priority: PlatformVersion, InformationalVersion (prefix), AssemblyVersion, FileVersion.
-    /// </summary>
-    private string ResolveVersion()
-    {
-        if (!string.IsNullOrEmpty(_data.PlatformVersion))
-            return _data.PlatformVersion;
-
-        if (_data.AssemblyInfo is { } info)
-        {
-            if (!string.IsNullOrEmpty(info.InformationalVersion))
-            {
-                var ver = info.InformationalVersion;
-                var plusIndex = ver.IndexOf('+');
-                if (plusIndex > 0)
-                    ver = ver[..plusIndex];
-                var dashIndex = ver.IndexOf('-');
-                var versionPart = dashIndex > 0 ? ver[..dashIndex] : ver;
-                if (versionPart.Split('.').All(p => int.TryParse(p, out _)))
-                    return dashIndex > 0 ? ver : versionPart;
-            }
-
-            if (!string.IsNullOrEmpty(info.AssemblyVersion))
-                return info.AssemblyVersion;
-
-            if (!string.IsNullOrEmpty(info.FileVersion))
-                return info.FileVersion;
-        }
-
-        return "";
-    }
 
     private static int CountOrZero<T>(List<T>? values) => values?.Count ?? 0;
 
