@@ -242,6 +242,9 @@ jobs:
       - name: Run analysis tests (fast)
         run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
 
+      - name: Run runfaster tests
+        run: dotnet run --project src/runfaster.Tests -c Release
+
       # The IL round-trip oracle (vendored managed ILAssembler) is
       # platform-neutral at the IL level, so one leg suffices. It is expensive,
       # so it only runs when the round-trip tests or their source dependencies
