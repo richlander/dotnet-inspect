@@ -377,6 +377,24 @@ public class TypedConstantsPassTests
     }
 
     [Fact]
+    public void LoneSurrogateCharConstant_RendersAsUnicodeEscape()
+    {
+        // A lone surrogate emitted raw cannot survive a UTF-8 encode (writers
+        // substitute U+FFFD, corrupting the literal — char.IsHighSurrogate's
+        // own bounds rendered as replacement characters). It must escape.
+        var charType = TypeRef.CoreLib("System", "Char");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new Constant('\ud800', charType)));
+        container.Add(block);
+        var function = EnumFunction(container, charType);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("'\\ud800'", output);
+        Assert.DoesNotContain('\ud800'.ToString(), output);
+    }
+
+    [Fact]
     public void ConstantOnlyBoolSpill_RendersAsBool()
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");
