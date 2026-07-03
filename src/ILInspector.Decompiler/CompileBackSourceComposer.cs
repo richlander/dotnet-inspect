@@ -745,7 +745,7 @@ public static class CompileBackSourceComposer
                 }
                 if (member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
                 {
-                    sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)}; }}");
+                    sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)};{(HasSetterShape(member) ? " set;" : "")} }}");
                     break;
                 }
                 if (member.StubBody == CompileBackStubBodyKind.AutoProperty)
@@ -920,7 +920,7 @@ public static class CompileBackSourceComposer
             Signature = member.Kind switch
             {
                 CompileBackMemberKind.PropertyGet when member.Parameters.Count > 0 => $"{returnType ?? "void"} this[{parameterList}] {{ get; }}",
-                CompileBackMemberKind.PropertyGet when type.Kind == CompileBackTypeKind.Interface => $"{returnType ?? "void"} {member.Name} {{ get; }}",
+                CompileBackMemberKind.PropertyGet when type.Kind == CompileBackTypeKind.Interface => $"{returnType ?? "void"} {member.Name} {{ get;{(HasSetterShape(member) ? " set;" : "")} }}",
                 CompileBackMemberKind.PropertyGet => $"{returnType ?? "void"} {member.Name}",
                 CompileBackMemberKind.PropertySet when member.Parameters.Count > 0 => $"{returnType ?? "void"} this[{parameterList}] {{ set; }}",
                 CompileBackMemberKind.PropertySet => $"{returnType ?? "void"} {member.Name} {{ set; }}",
@@ -1025,6 +1025,11 @@ public static class CompileBackSourceComposer
         => member.ReturnAttributes is { Count: > 0 }
             ? $"[return: {string.Join(", ", member.ReturnAttributes)}] get"
             : "get";
+
+    static bool HasSetterShape(CompileBackMemberDeclaration member)
+        => member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
+            or CompileBackStubBodyKind.ThrowGetSet
+            or CompileBackStubBodyKind.TargetGetterWithSetter;
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
         MetadataReader reader,
@@ -1249,10 +1254,47 @@ public static class CompileBackSourceComposer
 
     static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
     {
-        var typeParameters = typeDef.GetGenericParameters()
+        var directTypeParameters = TypeParameterNames(reader, typeDef);
+        var typeParameters = directTypeParameters.Count >= GenericArity(typeIdentity.MetadataFullName)
+            ? directTypeParameters
+            : TypeAndDeclaringTypeParameters(reader, typeDef);
+        return TypeResolver.ApplyGenericArguments(typeIdentity.MetadataFullName, typeParameters);
+    }
+
+    static IReadOnlyList<string> TypeAndDeclaringTypeParameters(MetadataReader reader, TypeDefinition typeDef)
+    {
+        var parameters = new List<string>();
+        var declaringType = typeDef.GetDeclaringType();
+        if (!declaringType.IsNil)
+            parameters.AddRange(TypeAndDeclaringTypeParameters(reader, reader.GetTypeDefinition(declaringType)));
+        parameters.AddRange(TypeParameterNames(reader, typeDef));
+        return parameters;
+    }
+
+    static IReadOnlyList<string> TypeParameterNames(MetadataReader reader, TypeDefinition typeDef)
+        => typeDef.GetGenericParameters()
             .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
             .ToArray();
-        return TypeResolver.ApplyGenericArguments(typeIdentity.MetadataFullName, typeParameters);
+
+    static int GenericArity(string metadataFullName)
+    {
+        int arity = 0;
+        for (int i = 0; i < metadataFullName.Length; i++)
+        {
+            if (metadataFullName[i] != '`')
+                continue;
+            int start = i + 1;
+            int end = start;
+            while (end < metadataFullName.Length && char.IsDigit(metadataFullName[end]))
+                end++;
+            if (end > start && int.TryParse(metadataFullName.AsSpan(start, end - start), out var value))
+            {
+                arity += value;
+                i = end - 1;
+            }
+        }
+
+        return arity;
     }
 
     static string MethodSignatureText(string name, MethodSignature<string> signature)
@@ -2264,6 +2306,18 @@ public static class CompileBackSourceComposer
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
                 bool hasSetter = !accessors.Setter.IsNil;
                 bool isAbstractAccessor = !accessor.IsNil && IsAbstractMethod(accessorMethod);
+                var noBodyProperty = requirement.RequiredKind == CompileBackTypeKind.Interface || isAbstractAccessor;
+                var stubBody = noBodyProperty
+                    ? hasSetter
+                        ? CompileBackStubBodyKind.AutoPropertyGetSet
+                        : CompileBackStubBodyKind.None
+                    : hasSetter && isAutoProperty
+                        ? CompileBackStubBodyKind.AutoPropertyGetSet
+                        : isAutoProperty
+                            ? CompileBackStubBodyKind.AutoProperty
+                            : hasSetter
+                                ? CompileBackStubBodyKind.ThrowGetSet
+                                : CompileBackStubBodyKind.Throw;
                 members.Add(new CompileBackMemberDeclaration(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {signature.ReturnType}"),
                     CompileBackMemberKind.PropertyGet,
@@ -2272,15 +2326,7 @@ public static class CompileBackSourceComposer
                     returnType,
                     Parameters: [],
                     TypeParameters: [],
-                    requirement.RequiredKind == CompileBackTypeKind.Interface || isAbstractAccessor
-                        ? CompileBackStubBodyKind.None
-                        : hasSetter && isAutoProperty
-                            ? CompileBackStubBodyKind.AutoPropertyGetSet
-                            : isAutoProperty
-                                ? CompileBackStubBodyKind.AutoProperty
-                                : hasSetter
-                                    ? CompileBackStubBodyKind.ThrowGetSet
-                                : CompileBackStubBodyKind.Throw,
+                    stubBody,
                     TargetBody: null,
                     [new CompileBackFact("metadata", "closure-property", propertyName)],
                     IsAbstract: isAbstractAccessor,

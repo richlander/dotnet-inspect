@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1767,18 +1768,49 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture("""
             public abstract class Row
             {
-                public abstract string Name { get; }
-                public string Describe() => Name;
+                public abstract string Name { get; set; }
+                public void SetName(string value) => Name = value;
             }
             """);
         try
         {
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("Row", "Describe", 0)]));
+                [new ReturnToSender.RequestedTarget("Row", "SetName", 0)]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            Assert.Contains("public abstract string Name { get; }", result.Source);
+            Assert.Contains("public abstract string Name { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSelfTypeSignature_IncludesDeclaringGenericParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Container<T>
+            {
+                public record Row<U>(T Outer, U Value);
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeHandle = reader.TypeDefinitions
+                .Single(handle => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)) == "Container`1.Row`1");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            var helper = typeof(CompileBackSourceComposer).GetMethod(
+                "SelfTypeSignature",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            var selfType = Assert.IsType<string>(helper!.Invoke(null, [reader, typeDef, identity]));
+
+            Assert.Equal("Container<T>.Row<U>", selfType);
         }
         finally
         {
