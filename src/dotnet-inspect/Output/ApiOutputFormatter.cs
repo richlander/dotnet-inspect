@@ -1129,9 +1129,8 @@ public static class ApiOutputFormatter
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var rows = index.DirectCalls
-                .Where(call => call.Caller.MetadataToken == token)
+            var rows = MethodBodyInspectionSession.Open(dllPath, assemblyResolver)
+                .DirectCalls(token)
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
@@ -1296,9 +1295,8 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var evidence = index.UnsafeEvidence
-                .Where(evidence => evidence.Member.MetadataToken == unsafeToken)
+            var evidence = MethodBodyInspectionSession.Open(dllPath, assemblyResolver)
+                .UnsafeEvidence(unsafeToken)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
                 .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
                 .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)

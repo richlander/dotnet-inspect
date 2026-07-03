@@ -1443,11 +1443,47 @@ public static class IrImporter
             if (source.MergeReferenceTypes(a, b) is { } merged)
                 return merged;
         }
+        // An enum meeting an integer of its underlying family (a
+        // `cond ? RefKind.Ref : local` diamond, a flags accumulator): ECMA-335
+        // verification carries an enum on the evaluation stack as its
+        // underlying's verification type, so the integer path IS the enum's
+        // representation and the semantic type survives the join — the
+        // census's dominant Partial-by-unknown-join class (RefKind/int and
+        // kin, value-typed-emission step 4). Same-assembly resolved enums
+        // only (the underlying map is the proof); asserting enum for an
+        // unresolved definition would outrun the verifier's knowledge. Bool
+        // stays out: a bool path is BooleanFolding's lane, not an enum
+        // representation.
+        if (EnumOverUnderlyingFamily(source, a, b) is { } enumA)
+            return enumA;
+        if (EnumOverUnderlyingFamily(source, b, a) is { } enumB)
+            return enumB;
         var familyA = TypeFamilies.Of(a);
         var familyB = TypeFamilies.Of(b);
         if (familyA is not null && familyB is not null && familyA == familyB)
             return TypeFamilies.Canonical(familyA.Value);
         return null;
+    }
+
+    static TypeRef? EnumOverUnderlyingFamily(MetadataSource source, TypeRef enumSide, TypeRef integerSide)
+    {
+        // The integer side must be EXACTLY the enum's underlying type, not
+        // merely its stack family. A family-level match let a byte-backed enum
+        // absorb a full-int path, narrowing values the original program
+        // preserved — `int y = c ? (int)e : x` boxed 300 as int; the enum-typed
+        // join re-emitted `(BE)x` = 44, a recompiles-to-a-different-program
+        // corruption marked Full (slice-4 adversarial review, GPT-5.5 fixture).
+        // With an exact match the merge is a pure reinterpretation: same width,
+        // same sign, and every downstream sink coercion is value-preserving.
+        // Cross-assembly enum-like definitions are deliberately NOT merged:
+        // the pairing proves "an enum over this family" but never the width,
+        // which is exactly the unprovable fact the corruption rode in on.
+        // Bool stays out (BooleanFolding's lane).
+        return !TypeFamilies.IsBoolean(integerSide)
+            && source.ResolveEnumUnderlyingType(enumSide) is { } underlying
+            && underlying.Equals(integerSide)
+            ? enumSide
+            : null;
     }
 
     /// <summary>A reference type: object, string, an array, or a definition (or generic instantiation of one) the source resolves to a reference shape.</summary>

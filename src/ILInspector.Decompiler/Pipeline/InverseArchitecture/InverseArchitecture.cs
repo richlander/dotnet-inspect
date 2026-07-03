@@ -1,0 +1,136 @@
+using System;
+
+namespace ILInspector.Decompiler.Pipeline.InverseArchitecture;
+
+// The co-located half of the inverse architecture
+// (docs/design/inverse-architecture.md). These attributes and enums annotate IR
+// nodes with the forward construct they invert and the assumption that makes the
+// inverse sound; a test/tooling reflector turns them into the generated node
+// ledger, and the coverage test enforces that they stay honest. This is metadata
+// only — it adds no product-path behavior and keeps the shipped decompiler
+// SRM-only and NativeAOT-friendly.
+
+/// <summary>
+/// The forward-compiler construct an inverse IR node undoes. The decompiler is
+/// the confident inverse of Roslyn's IL emission and a sibling of RyuJIT's
+/// importer; a node names the forward construct it is the inverse of.
+/// </summary>
+public enum Forward
+{
+    /// <summary>No forward construct — a decompiler-native node.</summary>
+    None,
+
+    /// <summary>Roslyn's <c>BoundConversion</c> (the bound-tree conversion node).</summary>
+    RoslynBoundConversion,
+
+    /// <summary>RyuJIT's <c>GT_CAST</c>.</summary>
+    RyuJitCast,
+
+    /// <summary>RyuJIT's <c>GT_BOX</c>.</summary>
+    RyuJitBox,
+}
+
+/// <summary>
+/// The soundness oracle a node's type recovery is bounded by. RyuJIT's importer
+/// solves the same erased-type recovery problem from the same IL, so it bounds
+/// what the decompiler may soundly assert.
+/// </summary>
+public enum Oracle
+{
+    /// <summary>No oracle bound declared.</summary>
+    None,
+
+    /// <summary>RyuJIT's ECMA-335 stack normalization (<c>bool</c>/<c>byte</c>/<c>short</c> widened to <c>int32</c>).</summary>
+    RyuJitStackNormalization,
+
+    /// <summary>RyuJIT's IL-importer type reconstruction, generally.</summary>
+    RyuJitImporter,
+}
+
+/// <summary>
+/// Whether an inverse node's name follows, inverts, or is native to the forward
+/// vocabulary. Native names carry the highest drift risk — no forward anchor —
+/// and form the standing rename-review queue.
+/// </summary>
+public enum NameProvenance
+{
+    /// <summary>Deliberately follows a forward name (e.g. <c>Convert</c> ← <c>BoundConversion</c>).</summary>
+    Inherited,
+
+    /// <summary>A deliberate antonym of the forward name (e.g. <c>raise</c> ← <c>lower</c>).</summary>
+    Inverted,
+
+    /// <summary>No forward analog — decompiler-born; must carry its own rationale.</summary>
+    Native,
+}
+
+/// <summary>
+/// Marks an IR node as the inverse of a forward-compiler construct (the node
+/// ledger of docs/design/inverse-architecture.md). The reflector reads these to
+/// generate the ledger; the coverage test enforces that every declared in-domain
+/// node carries this or <see cref="NotInvertedAttribute"/>, and that any
+/// <see cref="Assumes"/> resolves to a runnable predicate on
+/// <see cref="InverseAssumptions"/>.
+/// </summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+public sealed class InverseOfAttribute : Attribute
+{
+    public InverseOfAttribute(
+        Forward forward,
+        NameProvenance naming = NameProvenance.Native,
+        Oracle oracle = Oracle.None,
+        string? forwardName = null,
+        string? precondition = null,
+        string? assumes = null,
+        string? witness = null)
+    {
+        Forward = forward;
+        Naming = naming;
+        Oracle = oracle;
+        ForwardName = forwardName;
+        Precondition = precondition;
+        Assumes = assumes;
+        Witness = witness;
+    }
+
+    /// <summary>The forward construct this node is the inverse of.</summary>
+    public Forward Forward { get; }
+
+    /// <summary>Whether this node's name follows, inverts, or is native to the forward vocabulary.</summary>
+    public NameProvenance Naming { get; }
+
+    /// <summary>The soundness oracle bounding this node's type recovery.</summary>
+    public Oracle Oracle { get; }
+
+    /// <summary>The forward construct's own name — the ledger's forward-construct column.</summary>
+    public string? ForwardName { get; }
+
+    /// <summary>Descriptive precondition under which the inverse is exact — the ledger's Precondition column.</summary>
+    public string? Precondition { get; }
+
+    /// <summary>
+    /// Name of the runnable assumption predicate on <see cref="InverseAssumptions"/>
+    /// that verifies <see cref="Precondition"/>. When set it must resolve to a
+    /// release-capable <c>Check(IrFunction)</c>; the coverage test enforces this
+    /// and invokes it over a fixture corpus.
+    /// </summary>
+    public string? Assumes { get; }
+
+    /// <summary>Descriptive witnesses that prove the inverse — the ledger's Witness column (fixtures, tests, harness modes).</summary>
+    public string? Witness { get; }
+}
+
+/// <summary>
+/// Marks an IR node as deliberately outside the inverse's checkable domain
+/// (docs/design/inverse-architecture.md, "Declared non-inverse boundaries"). It
+/// satisfies the coverage rule without asserting an inverse, so a boundary is
+/// visible rather than an unexplained gap.
+/// </summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+public sealed class NotInvertedAttribute : Attribute
+{
+    public NotInvertedAttribute(string reason) => Reason = reason;
+
+    /// <summary>Why this node is outside the checkable inverse domain.</summary>
+    public string Reason { get; }
+}
