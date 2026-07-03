@@ -12,7 +12,7 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 | `Box` | BoundConversion (boxing) | RyuJitImporter | Inherited | target is the boxed value type | box/unbox fixtures |
 | `CastClass` | BoundConversion (reference cast) | RyuJitImporter | Inherited | target is the reference type the cast checks | cast fixtures; corpus compile-back |
 | `Coerce` | BoundConversion (implicit, target-driven) | RyuJitStackNormalization | Native | sink type recoverable and distinguishable from the stack type | CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B |
-| `Comparison` | BoundBinaryOperator (comparison) / ceq·clt·cgt | RyuJitImporter | Inherited | result is bool (the ceq/clt/cgt integer 0/1 result) | corpus compile-back |
+| `Comparison` | BoundBinaryOperator (comparison) / ceq·clt·cgt | RyuJitImporter | Native | result is bool (the ceq/clt/cgt integer 0/1 result) | corpus compile-back |
 | `Convert` | BoundConversion (numeric) | RyuJitStackNormalization | Inherited | none — models the conv.* that ran | round-trips by construction; corpus compile-back |
 | `LoadArgument` | BoundParameter / ldarg | None | Inherited | type is the argument's declared type (parameter signature; declaring type for `this`) | corpus compile-back |
 | `LoadField` | BoundFieldAccess / ldfld·ldsfld | None | Inherited | type is the field's declared type (field signature) | corpus compile-back |

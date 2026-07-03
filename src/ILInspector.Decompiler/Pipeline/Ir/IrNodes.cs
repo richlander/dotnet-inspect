@@ -929,10 +929,15 @@ public sealed class Continue : IrNode
 
 public enum ComparisonKind { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }
 
-/// <summary>An integer/float comparison (<c>ceq</c>/<c>clt</c>/<c>cgt</c> family), producing a boolean.</summary>
+/// <summary>
+/// An integer/float comparison (<c>ceq</c>/<c>clt</c>/<c>cgt</c> family), producing a boolean.
+/// Native name: Roslyn has no distinct comparison node (it is <c>BoundBinaryOperator</c> with a
+/// comparison kind) and IL uses <c>ceq</c>/<c>clt</c>/<c>cgt</c> — the decompiler groups them into
+/// one boolean-yielding node.
+/// </summary>
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundBinaryOperator,
-    naming: Inverse.NameProvenance.Inherited,
+    naming: Inverse.NameProvenance.Native,
     oracle: Inverse.Oracle.RyuJitImporter,
     forwardName: "BoundBinaryOperator (comparison) / ceq·clt·cgt",
     precondition: "result is bool (the ceq/clt/cgt integer 0/1 result)",
