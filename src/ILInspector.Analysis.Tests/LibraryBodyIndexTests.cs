@@ -1299,16 +1299,18 @@ public class LibraryBodyIndexTests
         Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
     }
 
-    [Fact]
-    public void AllocationOccurrences_IteratorYieldedValue_IsNotLabeledCapture()
+    [Theory]
+    [InlineData("YieldsPlainObject")]
+    [InlineData("YieldsPlainObjectAsync")]
+    public void AllocationOccurrences_IteratorYieldedValue_IsNotLabeledCapture(string iteratorMethod)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        // The yielded value is stored into the iterator state machine's <>2__current
-        // field. That is not a hoisted capture, so the verdict stays Escapes but the
-        // refined kind is fail-honest None rather than Capture.
+        // The yielded value is stored into the (sync or async) iterator state machine's
+        // <>2__current field. That is not a hoisted capture, so the verdict stays Escapes
+        // but the refined kind is fail-honest None rather than Capture.
         var occurrence = index.Methods
-            .Where(m => m.DeclaringType.Name.Contains("YieldsPlainObject", StringComparison.Ordinal)
+            .Where(m => m.DeclaringType.Name.Contains("<" + iteratorMethod + ">", StringComparison.Ordinal)
                 && m.Name == "MoveNext")
             .SelectMany(m => index.GetAllocationOccurrences().TryGetValue(m.MetadataToken, out var occ) ? occ : [])
             .Single(o => o.CountsAsHeapAllocation
@@ -3859,6 +3861,13 @@ public class OptimizationOpportunityFixtures
     // The yielded allocation is stored into the iterator's <>2__current field.
     public static IEnumerable<PlainObject> YieldsPlainObject()
     {
+        yield return new PlainObject(1);
+    }
+
+    // Async iterators use the same <>2__current field for the yielded value.
+    public static async IAsyncEnumerable<PlainObject> YieldsPlainObjectAsync()
+    {
+        await Task.Yield();
         yield return new PlainObject(1);
     }
 
