@@ -192,7 +192,7 @@ public static class IrImporter
     /// under unrelated method insertions unless the new method hashes into the
     /// sample itself.
     /// </summary>
-    public readonly record struct StableSampleCandidate(string TypeName, string MethodName, TypeDefinitionHandle TypeDefHandle, MethodDefinitionHandle MethodHandle)
+    public readonly record struct StableSampleCandidate(string TypeName, string MethodName, int Overload, TypeDefinitionHandle TypeDefHandle, MethodDefinitionHandle MethodHandle)
     {
         public IrFunction Build(MetadataSource source)
         {
@@ -225,12 +225,16 @@ public static class IrImporter
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             string typeName = reader.GetFullTypeName(typeDef);
+            var seen = new Dictionary<string, int>();
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
+                string memberName = reader.GetString(method.Name);
+                int overloadIndex = seen.GetValueOrDefault(memberName);
+                seen[memberName] = overloadIndex + 1;
+
                 if (method.RelativeVirtualAddress == 0)
                     continue;
-                string memberName = reader.GetString(method.Name);
                 string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
                 candidates.Add(new MethodCandidate(
                     typeDefHandle,
@@ -239,7 +243,8 @@ public static class IrImporter
                     memberName,
                     sequence++,
                     StableHash(key),
-                    key));
+                    key,
+                    overloadIndex));
             }
         }
 
@@ -249,7 +254,7 @@ public static class IrImporter
             .Take(sampleSize)
             .OrderBy(c => c.Sequence))
         {
-            yield return new StableSampleCandidate(candidate.TypeName, candidate.MethodName, candidate.TypeDefHandle, candidate.MethodHandle);
+            yield return new StableSampleCandidate(candidate.TypeName, candidate.MethodName, candidate.OverloadIndex, candidate.TypeDefHandle, candidate.MethodHandle);
         }
     }
 
@@ -352,7 +357,8 @@ public static class IrImporter
         string MethodName,
         int Sequence,
         ulong Hash,
-        string Key);
+        string Key,
+        int OverloadIndex = 0);
 
     static IrFunction CrashFunction(string methodName, string typeName, Exception ex)
     {

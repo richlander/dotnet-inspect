@@ -183,17 +183,15 @@ internal static class CorpusSensor
 
             int methods = 0;
             string portablePath = PortablePath(assemblyPath);
-            var overloads = new ConcurrentDictionary<(string Type, string Method), int>();
-
             var stableSample = IrImporter.GetStableSampleCandidates(source, methodCap).ToList();
 
             Parallel.ForEach(stableSample, options, item =>
             {
                 var typeName = item.TypeName;
                 var methodName = item.MethodName;
+                var overload = item.Overload;
                 var function = item.Build(source);
                 
-                int overload = overloads.AddOrUpdate((typeName, methodName), 0, (_, v) => v + 1);
                 Interlocked.Increment(ref methods);
                 string? residual = null;
                 string? passBug = null;
@@ -243,7 +241,7 @@ internal static class CorpusSensor
             assemblyReports.OrderBy(r => r.Path, StringComparer.Ordinal).ToImmutableArray(),
             fullyRaised,
             passBugs,
-            residualBuckets.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
+            residualBuckets.OrderBy(kvp => kvp.Key, StringComparer.Ordinal).ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
             methodReports.OrderBy(m => MethodKey(m), StringComparer.Ordinal).ToImmutableArray());
     }
 
@@ -320,7 +318,7 @@ internal static class CorpusSensor
             });
         }
 
-        return new StructuringSensorMetrics(total, structured, stoppedContainers, methodsWithStop, crashes, reasons.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
+        return new StructuringSensorMetrics(total, structured, stoppedContainers, methodsWithStop, crashes, reasons.OrderBy(kvp => kvp.Key, StringComparer.Ordinal).ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
     }
 
     static ImmutableArray<FidelityCapReport> AnalyzeFidelity(
