@@ -325,6 +325,12 @@ public static class IrPasses
         // target in a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
         // Nothing may reshape sink values after this.
+        // A decided in-domain slot (one testified type, all stores at it or
+        // renderably coercible) is a finished variable: materialize it as a
+        // typed local BEFORE insertion, so its minted locals are coerced at
+        // their sinks like any local (slice 5b-2; the assertion diff caught
+        // the reverse ordering leaving them bare).
+        new SlotMaterializationPass(),
         new CoercionInsertionPass(),
     ];
 
