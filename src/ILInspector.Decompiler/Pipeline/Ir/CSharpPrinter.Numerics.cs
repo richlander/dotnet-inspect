@@ -849,7 +849,7 @@ public sealed partial class CSharpPrinter
         if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual)
         {
             if (IsCurrentEqualityOperator()
-                && IsFirstTwoArgumentReferenceComparison(left, right))
+                && IsKnownReferenceComparison(left, right))
             {
                 return $"(object){Operand(left)} {ComparisonOperator(kind)} (object){Operand(right)}";
             }
@@ -907,20 +907,8 @@ public sealed partial class CSharpPrinter
     bool IsCurrentEqualityOperator()
         => _function.Name is "op_Equality" or "op_Inequality";
 
-    bool IsFirstTwoArgumentReferenceComparison(IrExpression left, IrExpression right)
-        => ArgumentIndex(left) is 0 && ArgumentIndex(right) is 1
-                && IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType)
-            || ArgumentIndex(left) is 1 && ArgumentIndex(right) is 0
-                && IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType);
-
-    static int? ArgumentIndex(IrExpression expression)
-        => expression switch
-        {
-            LoadArgument argument => argument.Index,
-            LoadIndirect { Address: LoadArgument argument } => argument.Index,
-            LoadIndirect { Address: LoadArgumentAddress argument } => argument.Index,
-            _ => null,
-        };
+    bool IsKnownReferenceComparison(IrExpression left, IrExpression right)
+        => IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType);
 
     bool IsKnownReferenceType(TypeRef? type)
         => TypeFamilies.Of(type) == StackFamily.O
