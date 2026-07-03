@@ -22,6 +22,21 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundConversion</c> (the bound-tree conversion node).</summary>
     RoslynBoundConversion,
+
+    /// <summary>Roslyn's <c>BoundParameter</c> (a method parameter / <c>this</c> reference).</summary>
+    RoslynBoundParameter,
+
+    /// <summary>Roslyn's <c>BoundLocal</c> (a local variable reference).</summary>
+    RoslynBoundLocal,
+
+    /// <summary>Roslyn's <c>BoundFieldAccess</c> (an instance or static field read).</summary>
+    RoslynBoundFieldAccess,
+
+    /// <summary>Roslyn's <c>BoundBinaryOperator</c> (arithmetic, bitwise, shift, and comparison).</summary>
+    RoslynBoundBinaryOperator,
+
+    /// <summary>Roslyn's <c>BoundUnaryOperator</c> (negation, bitwise complement).</summary>
+    RoslynBoundUnaryOperator,
 }
 
 /// <summary>

@@ -22,7 +22,7 @@ public class InverseArchitectureTests
     // In-domain product nodes that MUST carry [InverseOf] or [NotInverted]. The
     // conversion family is the first annotated slice (docs/design/inverse-architecture.md);
     // the set grows as the ledger's declared domain grows.
-    static readonly string[] EnforcedProductNodes = ["Box", "CastClass", "Coerce", "Convert", "Unbox", "UnboxAny"];
+    static readonly string[] EnforcedProductNodes = ["Binary", "Box", "CastClass", "Coerce", "Comparison", "Convert", "LoadArgument", "LoadField", "LoadLocal", "Unary", "Unbox", "UnboxAny"];
 
     static Assembly ProductAssembly => typeof(IrFunction).Assembly;
     Assembly TestAssembly => GetType().Assembly;

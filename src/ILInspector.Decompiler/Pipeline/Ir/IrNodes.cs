@@ -929,6 +929,14 @@ public sealed class Continue : IrNode
 
 public enum ComparisonKind { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }
 
+/// <summary>An integer/float comparison (<c>ceq</c>/<c>clt</c>/<c>cgt</c> family), producing a boolean.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundBinaryOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundBinaryOperator (comparison) / ceq·clt·cgt",
+    precondition: "result is bool (the ceq/clt/cgt integer 0/1 result)",
+    witness: "corpus compile-back")]
 public sealed class Comparison : IrExpression
 {
     public Comparison(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
@@ -1152,6 +1160,14 @@ public sealed class LogicalNot : IrExpression
 
 public enum UnaryKind { Negate, BitwiseNot }
 
+/// <summary>A unary arithmetic operator: negation (<c>neg</c>) or bitwise complement (<c>not</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundUnaryOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundUnaryOperator (neg/not)",
+    precondition: "result type is the operand's type (neg/not preserve the operand type)",
+    witness: "corpus compile-back")]
 public sealed class Unary : IrExpression
 {
     public Unary(UnaryKind kind, IrExpression operand)
@@ -1293,6 +1309,13 @@ public sealed class ExpressionStatement : IrNode
     public override string Describe() => "ExpressionStatement";
 }
 
+/// <summary>A method argument (or <c>this</c>) read — the <c>ldarg</c> family.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundParameter,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundParameter / ldarg",
+    precondition: "type is the argument's declared type (parameter signature; declaring type for `this`)",
+    witness: "corpus compile-back")]
 public sealed class LoadArgument : IrExpression
 {
     public LoadArgument(int index, string name, TypeRef type)
@@ -1329,6 +1352,13 @@ public sealed class StoreArgument : IrNode
     public override string Describe() => $"StoreArgument {Index} ({Type.ToDisplayString()} {Name})";
 }
 
+/// <summary>A local variable read — the <c>ldloc</c> family.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundLocal,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundLocal / ldloc",
+    precondition: "type is the local's declared type (local variable signature)",
+    witness: "corpus compile-back")]
 public sealed class LoadLocal : IrExpression
 {
     public LoadLocal(int index, TypeRef type)
@@ -1383,6 +1413,14 @@ public sealed class Constant : IrExpression
 
 public enum BinaryKind { Add, Subtract, Multiply, Divide, Remainder, And, Or, Xor, ShiftLeft, ShiftRight }
 
+/// <summary>An arithmetic, bitwise, or shift operator (<c>add</c>/<c>sub</c>/<c>and</c>/<c>shl</c> …).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundBinaryOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundBinaryOperator (arithmetic/bitwise/shift)",
+    precondition: "result type is the ECMA binary-numeric result of the operand stack types",
+    witness: "corpus compile-back")]
 public sealed class Binary : IrExpression
 {
     public Binary(BinaryKind kind, bool isChecked, bool isUnsigned, IrExpression left, IrExpression right)
@@ -2181,6 +2219,13 @@ public sealed class Throw : IrNode
     public override string Describe() => "Throw";
 }
 
+/// <summary>A field read — instance (<c>ldfld</c>) or static (<c>ldsfld</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFieldAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundFieldAccess / ldfld·ldsfld",
+    precondition: "type is the field's declared type (field signature)",
+    witness: "corpus compile-back")]
 public sealed class LoadField : IrExpression
 {
     public LoadField(FieldRef field, IrExpression? instance)
