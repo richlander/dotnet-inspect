@@ -88,6 +88,16 @@ public sealed class MethodBodyInspectionSession
             : _index.BuildCallerTree(methodToken);
 
     /// <summary>
+    /// Inbound caller graph rooted at one method, extended across sibling caller-scope
+    /// <paramref name="scopes"/> (opened as their own sessions). Empty scopes fall back to the
+    /// same-assembly-only reverse graph.
+    /// </summary>
+    public Analysis.CallTreeNode CallerTree(int methodToken, IReadOnlyList<MethodBodyInspectionSession> scopes)
+        => scopes is { Count: > 0 }
+            ? _index.BuildCallerTree(methodToken, scopes.Select(s => s._index).ToArray())
+            : _index.BuildCallerTree(methodToken);
+
+    /// <summary>
     /// Inbound call edges targeting one method (<paramref name="targetToken"/>), each tagged with the
     /// <see cref="SourceName"/> of the assembly it originates in.
     ///
@@ -154,6 +164,22 @@ public sealed class MethodBodyInspectionSession
     /// <summary>Leverage ranking (highest first) of up to <paramref name="count"/> methods matching <paramref name="scope"/>.</summary>
     public ImmutableArray<Analysis.MethodLeverage> TopLeverage(int count, Func<Analysis.MethodIdentity, bool> scope)
         => _index.TopLeverage(count, scope);
+
+    /// <summary>Leverage ranking (highest first) of up to <paramref name="count"/> methods across the whole assembly.</summary>
+    public ImmutableArray<Analysis.MethodLeverage> TopLeverage(int count)
+        => _index.TopLeverage(count);
+
+    /// <summary>All method identities defined in the assembly.</summary>
+    public ImmutableArray<Analysis.MethodIdentity> Methods
+        => _index.Methods;
+
+    /// <summary>Per-method body/call signals keyed by metadata token.</summary>
+    public IReadOnlyDictionary<int, Analysis.MethodSignals> MethodSignalsByToken
+        => _index.GetMethodSignals();
+
+    /// <summary>Diagnostics recorded while analyzing method bodies (e.g. bodies skipped by the analyzer).</summary>
+    public ImmutableArray<Analysis.AnalysisDiagnostic> Diagnostics
+        => _index.Diagnostics;
 }
 
 /// <summary>An inbound call edge targeting a selected member, tagged with its originating assembly.</summary>

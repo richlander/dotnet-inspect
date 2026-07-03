@@ -215,4 +215,52 @@ public class MethodBodyInspectionSessionTests
             expected.Select(e => e.Method.MetadataToken),
             actual.Select(e => e.Method.MetadataToken));
     }
+
+    [Fact]
+    public void TopLeverage_NoScope_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var expected = index.TopLeverage(int.MaxValue);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).TopLeverage(int.MaxValue);
+        Assert.Equal(
+            expected.Select(e => e.Method.MetadataToken),
+            actual.Select(e => e.Method.MetadataToken));
+    }
+
+    [Fact]
+    public void Methods_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).Methods;
+        Assert.Equal(index.Methods.Length, actual.Length);
+    }
+
+    [Fact]
+    public void MethodSignalsByToken_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).MethodSignalsByToken;
+        Assert.Equal(index.GetMethodSignals().Count, actual.Count);
+    }
+
+    [Fact]
+    public void Diagnostics_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).Diagnostics;
+        Assert.Equal(index.Diagnostics.Length, actual.Length);
+    }
+
+    [Fact]
+    public void CallerTree_SessionScopes_MatchesIndexScopes()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var token = CalledToken(index);
+
+        var expected = index.BuildCallerTree(token, new[] { Analysis.LibraryBodyIndex.Open(SelfPath) });
+        var actual = MethodBodyInspectionSession.Open(SelfPath)
+            .CallerTree(token, new[] { MethodBodyInspectionSession.Open(SelfPath) });
+
+        Assert.Equal(expected.Children.Count(), actual.Children.Count());
+    }
 }
