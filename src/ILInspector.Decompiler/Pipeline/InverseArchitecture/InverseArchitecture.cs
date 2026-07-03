@@ -52,6 +52,21 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundFunctionPointerInvocation</c> (a <c>delegate*</c> invocation).</summary>
     RoslynBoundFunctionPointerInvocation,
+
+    /// <summary>Roslyn's <c>BoundArrayCreation</c> (a <c>new T[n]</c> array creation).</summary>
+    RoslynBoundArrayCreation,
+
+    /// <summary>Roslyn's <c>BoundArrayLength</c> (an array's <c>.Length</c>).</summary>
+    RoslynBoundArrayLength,
+
+    /// <summary>Roslyn's <c>BoundTypeOfOperator</c> (a <c>typeof(T)</c> expression).</summary>
+    RoslynBoundTypeOfOperator,
+
+    /// <summary>Roslyn's <c>BoundSizeOfOperator</c> (a <c>sizeof(T)</c> expression).</summary>
+    RoslynBoundSizeOfOperator,
+
+    /// <summary>Roslyn's <c>BoundAsOperator</c> (a <c>value as T</c> type test).</summary>
+    RoslynBoundAsOperator,
 }
 
 /// <summary>
