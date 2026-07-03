@@ -875,8 +875,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.while-loop", report);
         Assert.Contains("minimal.do-while", report);
         Assert.Contains("minimal.switch-int", report);
+        Assert.Contains("minimal.conditional-expression-shape-frontier", report);
         Assert.DoesNotContain("minimal.switch-two-case-lowers-if", report);
-        Assert.DoesNotContain("minimal.conditional-expression-shape-frontier", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
         Assert.Contains("shape=ForStatement", report);
@@ -893,6 +893,7 @@ public class GeneratedFixtureCatalogTests
         AssertShape(run, "minimal.while-loop", "Method1", SyntaxKind.WhileStatement);
         AssertShape(run, "minimal.do-while", "Method1", SyntaxKind.DoStatement);
         AssertShape(run, "minimal.switch-int", "Method1", SyntaxKind.SwitchStatement);
+        AssertShape(run, "minimal.conditional-expression-shape-frontier", "Method1", SyntaxKind.ReturnStatement);
     }
 
     [Fact]
@@ -1068,7 +1069,7 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void CompilerLoweringFrontiers_AreSelectableButNotInDefaultRun()
+    public void CompilerLoweringFrontier_IsSelectableButNotInDefaultRun()
     {
         var switchRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));
         string switchReport = GeneratedFixtureRunner.FormatReport(switchRun);
@@ -1089,7 +1090,7 @@ public class GeneratedFixtureCatalogTests
             FidelityCheck.CompileBackStatus.OpcodeDiff,
             frontier: true);
 
-        var shapeRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.conditional-expression-shape-frontier"));
+        var shapeRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.MinimalCompileBackRungs);
         string shapeReport = GeneratedFixtureRunner.FormatReport(shapeRun);
 
         Assert.True(shapeRun.Passed, shapeReport);
@@ -1118,7 +1119,9 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(GeneratedFixtureCatalog.Frontiers, fixture =>
             fixture.Id == "minimal.switch-two-case-lowers-if" &&
             fixture.Tags.Contains("compiler-lowering"));
-        Assert.Contains(GeneratedFixtureCatalog.Frontiers, fixture =>
+        Assert.DoesNotContain(GeneratedFixtureCatalog.Frontiers, fixture =>
+            fixture.Id == "minimal.conditional-expression-shape-frontier");
+        Assert.Contains(GeneratedFixtureCatalog.MinimalCompileBackRungs, fixture =>
             fixture.Id == "minimal.conditional-expression-shape-frontier" &&
             fixture.Tags.Contains("shape"));
     }
