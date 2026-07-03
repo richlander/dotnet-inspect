@@ -114,6 +114,16 @@ The important rule: a facet has one canonical owner. CLI sections such as
 render different projections, but they should not compute the underlying facts
 independently.
 
+Facet identity is typed here (a `MethodBodyFacetSet` over named facets), which suits a
+closed, product-owned catalog — see the *facet-identity design axis* (string vs typed
+vs generic type-as-key) in the
+[Assembly Inspection Query Model](assembly-inspection-query.md) for when each applies.
+This service is also a **producer registry**: it delegates each facet to its one owning
+layer and composes the results, exactly the pattern `ILInspector.Research`'s
+`IResearchFactProducer` / `ResearchFactRegistry` already use over a build-once context
+(the *prior art* section of that same doc). Prefer generalizing that pattern over a
+green-field mechanism.
+
 ## Service shape
 
 ```csharp
@@ -228,16 +238,27 @@ I open it once, and what assembly-level scanners are requested?"
 The method-body session answers: "inside that assembly, which method body or IL
 coordinate am I explaining, and which facets are requested?"
 
-Method-body inspection should be able to start from today's `dllPath` while the
-assembly session design settles, but the target constructor should consume the
-assembly session or its `ResolvedAssemblyReference`, not introduce another
-string-only seam.
+Method-body inspection can start from today's `dllPath` for early slices, but the
+target constructor consumes the assembly session or its `ResolvedAssemblyReference`,
+not another string-only seam. That assembly session is **no longer pending**:
+`AssemblyInspectionSession` and its `AssemblyImage` shipped in #2156–#2162 (see the
+[Assembly Inspection Query Model](assembly-inspection-query.md)), so the method-body
+session can consume the real type from the start rather than a placeholder.
+
+One caveat on "open the image once": true single-open convergence — sharing the
+assembly's `AssemblyImage` with `PdbContext`, `MetadataSource`, and `LibraryBodyIndex`
+— depends on the shared-PE-owner composition that is **still pending** (the `PdbContext`
+/ `MetadataSource` work called out as Symptom 3 in the assembly design). Until it lands,
+early method-body slices will still open their own readers for the decompiler/analysis
+paths; the single-open convergence arrives with that composition, not this doc.
 
 This depends on the sibling assembly acquisition design in
 [Assembly Inspection Query Model](assembly-inspection-query.md). Treat the
 two docs as one program of work under #2122: assembly inspection owns resolution
 and PE lifetime; method-body inspection owns member/coordinate facts inside the
-resolved assembly.
+resolved assembly. In request terms, the CLI builds one `InspectionQuery` whose
+`Target.Selector` is a `MemberQuery` / `ILCoordinateQuery`; it hands that selector
+plus the requested facets to the method-body session.
 
 ## Migration
 
@@ -245,10 +266,10 @@ Move in reviewable slices.
 
 1. **Design the shared model.** Land this doc and agree on the facet ownership
    table.
-2. **Add a path-backed adapter.** Add `MethodBodyInspectionSession.Open(path)`
-   or an internal composition-layer equivalent that can be swapped later for
-   `AssemblyInspectionSession`. Keep this above Metadata, Analysis, Decompiler,
-   and Research; do not add Research/Decompiler dependencies to
+2. **Add a session-backed adapter.** Add `MethodBodyInspectionSession` that consumes
+   the existing `AssemblyInspectionSession` (or a `ResolvedAssemblyReference`), with a
+   `dllPath` convenience entry for early slices. Keep this above Metadata, Analysis,
+   Decompiler, and Research; do not add Research/Decompiler dependencies to
    `DotnetInspector.Services`.
 3. **Raise semantic facts first.** Move `ILOffsetSourceQuery` allocation,
    safety, and cost construction to Analysis-backed method/coordinate APIs.
