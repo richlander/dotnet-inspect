@@ -957,7 +957,8 @@ static class Program
                 continue;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, assertions)");
-            var stages = IrPasses.RunWithStages(function, IrPasses.Default, new AssertionPrinter.StatefulPrinter().Dump, ImportSeam(source));
+            var printer = new AssertionPrinter.StatefulPrinter(IrPasses.Default.Length + 1);
+            var stages = IrPasses.RunWithStages(function, IrPasses.Default, printer.Dump, ImportSeam(source));
             Console.Write(StageDump.Format(stages));
             return 0;
         }

@@ -204,6 +204,47 @@ public class AssertionScanTests
         Assert.Empty(AssertionScan.InvalidFixtureGuaranteeIds());
     }
 
+    [Fact]
+    public void AssertionPrinter_MarksNonFinalStagesObligation_FinalStageUnsound()
+    {
+        // A LoadArgument occupying an enum sink with no Coerce is an undischarged
+        // typing assertion. Across stages it should read as an informational
+        // OBLIGATION until the final stage, where an undischarged survivor is the
+        // real UNSOUND soundness failure. (#2269)
+        var function = Function(
+            Returning(new LoadArgument(0, "raw", Int32)),
+            Enum32,
+            new Parameter("raw", Int32));
+
+        var printer = new AssertionPrinter.StatefulPrinter(totalStages: 3);
+        var stage1 = printer.Dump(function);
+        var stage2 = printer.Dump(function);
+        var stageFinal = printer.Dump(function);
+
+        Assert.Contains("OBLIGATION (informational)", stage1);
+        Assert.DoesNotContain("UNSOUND", stage1);
+        Assert.Contains("OBLIGATION (informational)", stage2);
+        Assert.DoesNotContain("UNSOUND", stage2);
+
+        Assert.Contains("UNSOUND (error)", stageFinal);
+        Assert.Contains("FIRST UNSOUND SURVIVOR", stageFinal);
+        Assert.DoesNotContain("OBLIGATION", stageFinal);
+    }
+
+    [Fact]
+    public void AssertionPrinter_DefaultSingleStage_TreatsViolationAsUnsound()
+    {
+        var function = Function(
+            Returning(new LoadArgument(0, "raw", Int32)),
+            Enum32,
+            new Parameter("raw", Int32));
+
+        var dump = new AssertionPrinter.StatefulPrinter().Dump(function);
+
+        Assert.Contains("UNSOUND (error)", dump);
+        Assert.DoesNotContain("OBLIGATION", dump);
+    }
+
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
         => new(
             "M",
