@@ -64,7 +64,7 @@ public sealed class IteratorReconstructionPass : IIrPass
             return;
 
         var moveNextMethod = handoff.Constructor with { Name = "MoveNext" };
-        if (!context.TryImportAndRunMethodBody(moveNextMethod, IrPasses.Default, out var moveNext)
+        if (!context.TryImportAndRunMethodBody(moveNextMethod, IrPasses.ForReconstruction<IteratorReconstructionPass>(), out var moveNext)
             || moveNext is null)
             return;
 

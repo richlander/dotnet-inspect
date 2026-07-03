@@ -98,6 +98,20 @@ public sealed class SlotMaterializationPass : IIrPass
             // when a later increment migrates the printer's consumer fold.
             if (slotStores.Count > 1 && slotLoads.Count == 1)
                 continue;
+            // Stores spanning multiple blocks are the printer's goto-region
+            // ternary fold: in unstructured regions the structuring passes
+            // decline, and the printer folds each StoreStackSlot arm pair into
+            // `S_0 = c ? a : b;` per site — folds a StoreLocal pair does not
+            // get (Number::TryParseNumber grew +50 lines). Same-block
+            // sequential reuse (a re-stored decided slot) materializes fine.
+            if (slotStores.Count > 1 && slotStores.Select(store => store.Parent).Distinct().Count() > 1)
+                continue;
+            // A single-load slot whose one store is a folded conditional is the
+            // printer's inline consumer fold from the other side: it renders
+            // `Use(c ? a : b)` with no statement at all; a materialized local
+            // forces the standalone `T S_n = c ? a : b;` line back in.
+            if (slotLoads.Count == 1 && slotStores is [{ Value: Conditional }])
+                continue;
             // A slot loaded into an array-element store whose semantic element
             // type disagrees with the testified type stays deferred: the
             // printer RE-TYPES such slots (the #1751 char identity recovery —

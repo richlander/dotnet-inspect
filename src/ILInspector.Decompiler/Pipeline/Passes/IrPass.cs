@@ -351,6 +351,21 @@ public static class IrPasses
     public static ImmutableArray<IIrPass> Lowered { get; } =
         [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass))];
 
+    /// <summary>
+    /// The sub-pipeline for cross-method reconstruction imports (async and
+    /// iterator <c>MoveNext</c> bodies): <see cref="Default"/> without the
+    /// requesting pass and without <see cref="SlotMaterializationPass"/>.
+    /// Reconstruction pattern-matches structural slot nodes (the state
+    /// machine's spilled stores/loads), so materializing them inside the
+    /// sub-pipeline breaks the match — and it buys nothing: the transplanted
+    /// body re-enters the host pipeline, where materialization runs at its own
+    /// position. Running an emission-stage pass inside an earlier pass is the
+    /// ordering inversion the obligations model forbids. Lambda raising keeps
+    /// <see cref="Default"/>: its embedded body IS final output.
+    /// </summary>
+    public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
+        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass))];
+
     public static void Run(IrFunction function) => Run(function, Default);
 
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes)

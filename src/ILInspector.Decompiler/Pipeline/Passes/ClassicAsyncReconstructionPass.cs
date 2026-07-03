@@ -29,9 +29,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             TypeRef.CoreLib("System", "Void"),
             [],
             HasThis: true);
-        var moveNextPasses = IrPasses.Default
-            .Where(static pass => pass is not ClassicAsyncReconstructionPass)
-            .ToImmutableArray();
+        var moveNextPasses = IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>();
         if (!context.TryImportAndRunMethodBody(moveNextMethod, moveNextPasses, out var moveNext)
             || moveNext is null)
             return;
