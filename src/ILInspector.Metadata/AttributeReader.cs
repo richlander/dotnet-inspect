@@ -637,6 +637,7 @@ public static class AttributeReader
         KnownAttributeNames.AsyncStateMachineAttribute => true,
         KnownAttributeNames.IteratorStateMachineAttribute => true,
         "System.Runtime.CompilerServices.IntrinsicAttribute" => true,
+        "System.Runtime.Versioning.NonVersionableAttribute" => true,
         "System.Reflection.DefaultMemberAttribute" => true,
         _ => false,
     };
