@@ -3178,7 +3178,7 @@ public sealed class Unbox : IrExpression
     naming: Inverse.NameProvenance.Inherited,
     oracle: Inverse.Oracle.RyuJitImporter,
     forwardName: "BoundConversion (unboxing)",
-    precondition: "target is the unbox.any type token — an unboxed value type or a type parameter",
+    precondition: "target is the unbox.any type token (value type, reference type, or type parameter)",
     witness: "box/unbox fixtures; corpus compile-back")]
 public sealed class UnboxAny : IrExpression
 {
