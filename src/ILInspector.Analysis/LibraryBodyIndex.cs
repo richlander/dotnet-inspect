@@ -148,7 +148,10 @@ public sealed class LibraryBodyIndex
         var pathContext = opportunity.PathContext ?? FallbackPathContext(opportunity);
         var pathConfidence = opportunity.PathConfidence;
         var postDominance = opportunity.PostDominance;
-        var weight = opportunity.Weight ?? ComputeOpportunityWeight(opportunity, runtimeAllocation);
+        // Weight depends on the FINAL RootReach, which is applied after the per-method
+        // pass, so always recompute it here (this runs again post-reach) rather than
+        // caching a stale pre-reach value.
+        var weight = ComputeOpportunityWeight(opportunity, runtimeAllocation);
         return runtimeAllocation != opportunity.RuntimeAllocationType
             || pathContext != opportunity.PathContext
             || pathConfidence != opportunity.PathConfidence
@@ -3998,31 +4001,43 @@ public sealed class LibraryBodyIndex
         }
 
         // Per-invocation multiplicity, consolidated from the existing path axes.
-        // A thrown allocation exits the frame, so it runs at most once even inside a
-        // loop -> Conditional takes precedence over loop membership. Otherwise loop
-        // membership wins (a catch-block or normal allocation whose loop continues runs
-        // 0..N per call), then:
+        // Precedence favors soundness (never confidently wrong) over completeness:
+        //   post-dominates return -> the block reaches a return with NO loop backedge,
+        //     so it runs at most once (Once if it also dominates return, else Conditional).
+        //     This correctly demotes a `return new T()` early-exit inside a loop.
+        //   thrown value in a loop -> ambiguous (caught-in-loop iterates N times,
+        //     uncaught exits after one) so fail-honest Unknown; a non-loop throw is
+        //     Conditional (runs 0/1).
+        //   loop body        -> Loop (0..N per call; N is not statically resolved)
         //   error path       -> Conditional (runs only when the exception fires)
-        //   dominates-return -> Once (runs on every returning path, exactly once)
-        //   behind a branch  -> Conditional (0 or 1 per call)
-        //   otherwise        -> Unknown (straight-line but not proven to dominate return)
+        //   dominates-return -> Once
+        //   behind a branch  -> Conditional
+        //   otherwise        -> Unknown (fail-honest)
         static AllocationMultiplicity AllocationMultiplicityFor(
             DecodedBody decodedBody,
             int offset,
             IReadOnlyList<(int Start, int End)> loopRegions,
             AllocationEscape escape)
         {
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            var confidence = decodedBody.PathConfidences.ConfidenceFor(blockIndex);
+
+            // Reaches a return without cycling back -> at most one execution per call,
+            // even when the block's IL offset happens to sit inside a loop region.
+            if (decodedBody.PostDominances.PostDominanceFor(blockIndex) == AllocationPostDominance.ReturnPostDominates)
+                return confidence == AllocationPathConfidence.DominatesReturn
+                    ? AllocationMultiplicity.Once
+                    : AllocationMultiplicity.Conditional;
+
+            bool inLoop = IsInLoopRegion(offset, loopRegions);
             if (escape == AllocationEscape.ThrowPath)
-                return AllocationMultiplicity.Conditional;
-            if (IsInLoopRegion(offset, loopRegions))
+                return inLoop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional;
+            if (inLoop)
                 return AllocationMultiplicity.Loop;
 
-            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
             var context = decodedBody.PathContexts.ContextFor(blockIndex);
             if (context == AllocationPathContext.ErrorPath)
                 return AllocationMultiplicity.Conditional;
-
-            var confidence = decodedBody.PathConfidences.ConfidenceFor(blockIndex);
             if (confidence == AllocationPathConfidence.DominatesReturn)
                 return AllocationMultiplicity.Once;
             if (confidence == AllocationPathConfidence.BehindBranch
@@ -4125,7 +4140,7 @@ public sealed class LibraryBodyIndex
                         PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
                         PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
                         Multiplicity = escape.Escape == AllocationEscape.ThrowPath
-                            ? AllocationMultiplicity.Conditional
+                            ? (occurrence.Multiplicity == AllocationMultiplicity.Loop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional)
                             : occurrence.Multiplicity,
                     });
             }
