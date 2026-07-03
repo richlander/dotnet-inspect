@@ -734,6 +734,34 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "member", "attributes"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalTypeAttributes = new(
+        "minimal.type-attributes",
+        """
+        namespace GeneratedFixtures.MinimalTypeAttributes;
+
+        [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+        public class Class1
+        {
+            public int Method1()
+                => 42;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalTypeAttributes.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public class Class1",
+                ]),
+            new("GeneratedFixtures.MinimalTypeAttributes.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public class Class1",
+                ]),
+        ],
+        ["minimal", "type", "attributes"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -1237,6 +1265,7 @@ internal static class GeneratedFixtureCatalog
         MinimalReturnParameterMetadata,
         MinimalPropertyReturnMetadata,
         MinimalMemberAttributes,
+        MinimalTypeAttributes,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,

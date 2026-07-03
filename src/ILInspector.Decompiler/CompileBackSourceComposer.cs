@@ -128,7 +128,8 @@ public sealed record CompileBackTypeDeclaration(
     IReadOnlyList<CompileBackTypeSignature> Interfaces,
     IReadOnlyList<CompileBackMemberDeclaration> Members,
     IReadOnlyList<CompileBackFact> SourceFacts,
-    IReadOnlyList<CompileBackTypeDeclaration> NestedTypes)
+    IReadOnlyList<CompileBackTypeDeclaration> NestedTypes,
+    IReadOnlyList<string>? Attributes = null)
 {
     public string Namespace => Identity.Namespace;
     public string Name => Identity.DisplayName;
@@ -864,6 +865,7 @@ public static class CompileBackSourceComposer
                 })
                 .ToList(),
             Interfaces = type.Interfaces.Select(type => type.DisplayName).ToList(),
+            Attributes = type.Attributes?.ToList() ?? [],
         };
 
     static ApiMember ToApiMember(CompileBackTypeDeclaration type, CompileBackMemberDeclaration member)
@@ -1892,7 +1894,8 @@ public static class CompileBackSourceComposer
                         reader,
                         typeDef,
                         includeMemberSurface: requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"),
-                        diagnostics)));
+                        diagnostics),
+                    TypeAttributeList(reader, typeDef)));
             }
 
             return shells;
@@ -1937,11 +1940,15 @@ public static class CompileBackSourceComposer
                     Interfaces: InterfaceSignatures(reader, nestedDef),
                     members,
                     requirement.SourceFacts,
-                    NestedTypes(reader, nestedDef, includeMemberSurface, diagnostics)));
+                    NestedTypes(reader, nestedDef, includeMemberSurface, diagnostics),
+                    TypeAttributeList(reader, nestedDef)));
             }
 
             return nestedTypes;
         }
+
+        static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
+            => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
 
         static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(MetadataReader reader, TypeDefinition typeDef)
         {

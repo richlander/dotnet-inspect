@@ -168,7 +168,10 @@ public static class CSharpDeclarationWriter
         if (bases.Count > 0)
             declaration += " : " + string.Join(", ", bases);
 
-        return AppendTypeParameterConstraints(declaration, type.TypeParameters);
+        declaration = AppendTypeParameterConstraints(declaration, type.TypeParameters);
+        return type.Attributes.Count == 0
+            ? declaration
+            : $"[{string.Join(", ", type.Attributes)}] {declaration}";
     }
 
     static bool NeedsTerminator(string declaration)

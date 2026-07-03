@@ -50,6 +50,7 @@ public static class ApiSurfaceExtractor
                 Name = typeName,
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
+                Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
             };
 
             // Determine kind

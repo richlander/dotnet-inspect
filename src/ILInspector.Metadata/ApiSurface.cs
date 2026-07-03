@@ -244,6 +244,7 @@ public class ApiType
     public string? Namespace { get; set; }
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
+    public List<string> Attributes { get; set; } = [];
 
     /// <summary>The C# enum underlying type, captured from the special <c>value__</c> field.</summary>
     public string? EnumUnderlyingType { get; set; }
