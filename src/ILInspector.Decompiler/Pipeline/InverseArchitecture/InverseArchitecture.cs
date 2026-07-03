@@ -106,7 +106,8 @@ public sealed class InverseOfAttribute : Attribute
     /// Name of the runnable assumption predicate on <see cref="InverseAssumptions"/>
     /// that verifies <see cref="Precondition"/>. When set it must resolve to a
     /// release-capable <c>Check(IrFunction)</c>; the coverage test enforces this
-    /// and invokes it over a fixture corpus.
+    /// and structurally invokes it (per-predicate behavior is covered by
+    /// predicate-specific tests).
     /// </summary>
     public string? Assumes { get; }
 

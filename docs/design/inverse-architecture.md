@@ -230,7 +230,8 @@ Two design rules keep this sound and cheap:
   agreement are not enough — nothing above forces the *assumption itself* to stay true
   when a pass rewrite changes a node's real precondition. So the rule is: every
   `assumes:` names a member exposing a release-capable `Check()`, and the coverage test
-  **invokes** those predicates over the fixture corpus. An assumption that cannot be
+  resolves and **invokes** it structurally (per-predicate behavior — non-vacuity — lives
+  in predicate-specific tests). An assumption that cannot be
   spelled as a predicate does not go in the attribute — it goes in prose behind a
   `[NotInverted(reason)]`-style marker. This is the residual-drift guard: it
   binds the attribute's claim to a runnable check, the same discipline the node ledger's
