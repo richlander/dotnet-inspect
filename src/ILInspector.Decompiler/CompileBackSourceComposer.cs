@@ -545,6 +545,8 @@ public static class CompileBackSourceComposer
                 IsOverride: false,
                 IsSealed: false)
         ];
+        if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature))
+            targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
         if (!isConstructor
             && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
         {
@@ -1202,6 +1204,55 @@ public static class CompileBackSourceComposer
         => left.ReturnType == right.ReturnType
             && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
 
+    static bool IsRecordGeneratedFieldReadHelper(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity typeIdentity,
+        string methodName,
+        MethodSignature<string> signature)
+    {
+        if (!HasRecordHelperShell(reader, typeDef))
+            return false;
+
+        if (methodName == "GetHashCode"
+            && signature.ReturnType == "int"
+            && signature.ParameterTypes.Length == 0)
+        {
+            return true;
+        }
+
+        return methodName == "Equals"
+            && signature.ReturnType == "bool"
+            && signature.ParameterTypes is [var parameterType]
+            && parameterType == SelfTypeSignature(reader, typeDef, typeIdentity);
+    }
+
+    static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef)
+    {
+        bool hasEqualityContract = false;
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (reader.GetString(property.Name) == "EqualityContract")
+            {
+                hasEqualityContract = true;
+                break;
+            }
+        }
+
+        if (!hasEqualityContract)
+            return false;
+
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) == "PrintMembers")
+                return true;
+        }
+
+        return false;
+    }
+
     static CompileBackMemberRequirement? TypedEqualsSibling(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -1840,6 +1891,65 @@ public static class CompileBackSourceComposer
         return null;
     }
 
+    static IReadOnlyList<CompileBackMemberRequirement> TargetBackingFieldReadMembers(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity targetIdentity,
+        IrFunction function)
+    {
+        var members = new List<CompileBackMemberRequirement>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var fieldRef in TargetBackingFieldRefs(function))
+        {
+            if (fieldRef.BackingPropertyName is not { Length: > 0 } propertyName)
+                continue;
+            if (AutoPropertyNameForBackingField(reader, typeDef, fieldRef.Name) != propertyName)
+                continue;
+            if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
+                continue;
+
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, field.GetCustomAttributes()))
+                continue;
+
+            string memberName = Identifier(propertyName);
+            if (!seen.Add(memberName))
+                continue;
+
+            string fieldType;
+            try
+            {
+                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                continue;
+            }
+
+            members.Add(new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(targetIdentity.FullName, memberName, 0, $"field {fieldType}"),
+                CompileBackMemberKind.Field,
+                field.Attributes.HasFlag(FieldAttributes.Static),
+                Parameters: [],
+                CompileBackTypeSignature.Display(fieldType),
+                TypeParameters: [],
+                CompileBackStubBodyKind.None,
+                TargetBody: null,
+                [new CompileBackFact("metadata", "target-backing-field-read", fieldRef.Name)]));
+        }
+
+        return members;
+    }
+
+    static IEnumerable<FieldRef> TargetBackingFieldRefs(IrFunction function)
+    {
+        foreach (var load in function.Descendants.OfType<LoadField>())
+            yield return load.Field;
+        foreach (var address in function.Descendants.OfType<LoadFieldAddress>())
+            yield return address.Field;
+    }
+
     static string? AutoPropertyNameForBackingField(MetadataReader reader, TypeDefinition typeDef, string fieldName)
     {
         if (!fieldName.StartsWith("<", StringComparison.Ordinal) || !fieldName.EndsWith(">k__BackingField", StringComparison.Ordinal))
@@ -2275,7 +2385,7 @@ public static class CompileBackSourceComposer
                     continue;
                 }
                 if (members.Any(member =>
-                        member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                        (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet or CompileBackMemberKind.Field)
                         && member.Name == Identifier(propertyName)))
                     continue;
 

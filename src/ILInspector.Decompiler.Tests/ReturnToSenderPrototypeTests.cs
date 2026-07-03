@@ -1742,6 +1742,49 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 1),
+                ]);
+
+            Assert.Collection(
+                results,
+                getHashCode =>
+                {
+                    Assert.True(
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
+                    Assert.Contains("public string Name;", getHashCode.Source);
+                    Assert.Contains("public string Value;", getHashCode.Source);
+                    Assert.DoesNotContain("public string Name { get; }", getHashCode.Source);
+                },
+                typedEquals =>
+                {
+                    Assert.True(
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
+                    Assert.Contains("public virtual bool Equals(Row other)", typedEquals.Source);
+                    Assert.Contains("public string Name;", typedEquals.Source);
+                    Assert.Contains("public string Value;", typedEquals.Source);
+                    Assert.DoesNotContain("public string Name { get; }", typedEquals.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesGenericRecordTypedEqualsShell()
     {
         var assemblyPath = CompileFixture("""
