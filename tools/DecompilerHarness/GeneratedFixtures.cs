@@ -20,6 +20,35 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 internal static class GeneratedFixtureCatalog
 {
+    public static readonly GeneratedFixtureDefinition SharedReturnHasRows = new(
+        "shared.return.hasrows",
+        """
+        using System.Collections.Generic;
+
+        namespace GeneratedFixtures.SharedReturnHasRows;
+
+        public class Class1
+        {
+            public List<string>? Rows { get; }
+            public List<string>? RowsWithDocs { get; }
+            public List<string>? SelectRows { get; }
+            public List<string>? SelectRowsWithDocs { get; }
+            public List<string>? SummaryRows { get; }
+
+            public bool HasRows =>
+                Rows is { Count: > 0 }
+                || RowsWithDocs is { Count: > 0 }
+                || SelectRows is { Count: > 0 }
+                || SelectRowsWithDocs is { Count: > 0 }
+                || SummaryRows is { Count: > 0 };
+        }
+        """,
+        [
+            new("GeneratedFixtures.SharedReturnHasRows.Class1", "get_HasRows",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["shared-return", "hasrows", "or-chain", "property-pattern"]);
+
     public static readonly GeneratedFixtureDefinition MinimalPropertyLiteral = new(
         "minimal.property.literal",
         """
@@ -1411,6 +1440,7 @@ internal static class GeneratedFixtureCatalog
 
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
+        SharedReturnHasRows,
         MinimalPropertyLiteral,
         MinimalPrimaryCtorFieldInit,
         MinimalCtorFieldGetter,

@@ -54,6 +54,9 @@ public sealed class ReturnDispatchPass : IIrPass
                 return true;
             }
 
+            if (HasMixedSharedReturnTarget(plan))
+                return false;
+
             var block = new Block(blocks[0].StartOffset);
             foreach (var arm in plan.Arms)
             {
@@ -82,6 +85,20 @@ public sealed class ReturnDispatchPass : IIrPass
         }
 
         return false;
+    }
+
+    static bool HasMixedSharedReturnTarget(Plan plan)
+    {
+        // Rewriting a repeated target into ordered guard returns duplicates that
+        // shared arm. That is fine when every guard shares one target and the
+        // positive-fallthrough fold above succeeds; mixed targets are the
+        // temp-backed short-circuit shape where duplication changes Roslyn's
+        // branch layout and breaks compile-back opcode fidelity.
+        var targets = plan.Arms
+            .GroupBy(arm => arm.TargetIndex)
+            .Select(group => group.Count())
+            .ToArray();
+        return targets.Length > 1 && targets.Any(count => count > 1);
     }
 
     static void ReplaceContainer(BlockContainer container, Block block)
