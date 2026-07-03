@@ -85,6 +85,34 @@ work inside it without re-buying the lessons.
   Until then, wrap only where the consuming path is provably the one renderer
   with the same target.
 
+## The assertion dump: development aid vs signoff
+
+The assertion dump (`DecompilerHarness --dump --assertions`) is a
+**single-method, qualitative** tool — a strong development aid and a
+legitimate *localized* signoff, never a population gate.
+
+- **Reach for it while developing:** authoring an annotation batch (does a
+  node's `Forward`/`Oracle`/precondition read coherently over real decompiled
+  IR, not just in the attribute string?); debugging one bad raise (the
+  first-unsound-rewrite marker localizes the illegal intermediate step — its
+  highest-value everyday use); deciding checkable-inverse vs `[NotInverted]`.
+- **Attach it as signoff only when** the change touches
+  structuring/typing/printer semantics on nodes that carry a **runnable
+  `assumes:` predicate**, shown as a before/after on the targeted method(s)
+  (the improved example plus a still-flat near miss) — and always as a
+  complement to the corpus evidence, never a replacement. A burndown /
+  invalid-`Full` fix showing the violation gone at that node is the natural
+  "defect is dead" artifact.
+- **Never as signoff when** the claim is population-scale (that is the card
+  and render A/B's job); when the changed nodes carry no `assumes:` predicate
+  (the dump is then purely descriptive — do not dress it up as a gate); or on
+  a metadata-only annotation batch (the drift/coverage tests are the gate; a
+  dump is optional color).
+
+Rule of thumb: **its signoff weight equals how many of the changed nodes
+carry runnable predicates.** No predicate → dev aid only; predicate present →
+localized proof, on top of the card.
+
 ## Annotations (the inverse ledger)
 
 - **`assumes` names an executable, or it moves to prose.** An attribute

@@ -1319,6 +1319,8 @@ static class Program
           --assertions          with --dump: annotates the staged IR with the
                                 inverse-architecture assumptions and flags the
                                 first unsound rewrite if a predicate fails.
+                                Usage rules (dev aid vs PR signoff):
+                                docs/decompiler-raise-discipline.md.
           --cfg                 with --dump: print the control-flow graph (per-block
                                 predecessor/successor edges) of each block container
                                 in the raised IR.
