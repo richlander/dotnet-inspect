@@ -152,7 +152,8 @@ public sealed record CompileBackMemberDeclaration(
     IReadOnlyList<CompileBackTypeParameter> TypeParameters,
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
-    IReadOnlyList<CompileBackFact> SourceFacts)
+    IReadOnlyList<CompileBackFact> SourceFacts,
+    IReadOnlyList<string>? ReturnAttributes = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -258,7 +259,8 @@ public sealed record CompileBackMemberRequirement(
     IReadOnlyList<CompileBackTypeParameter> TypeParameters,
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
-    IReadOnlyList<CompileBackFact> SourceFacts);
+    IReadOnlyList<CompileBackFact> SourceFacts,
+    IReadOnlyList<string>? ReturnAttributes = null);
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
@@ -525,7 +527,8 @@ public static class CompileBackSourceComposer
                         MethodTypeParameters(reader, method),
                         CompileBackStubBodyKind.TargetBody,
                         targetBody,
-                        [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))])
+                        [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
+                        isConstructor ? null : MethodReturnAttributes(reader, method))
                 ],
                 primaryConstructor,
                 targetFacts)
@@ -895,6 +898,7 @@ public static class CompileBackSourceComposer
             apiMember.SignatureModel = new ApiSignature
             {
                 ReturnType = returnType,
+                ReturnAttributes = member.ReturnAttributes?.ToList() ?? [],
                 MemberName = member.TypeParameters.Count == 0
                     ? member.Name
                     : $"{member.Name}<{string.Join(", ", member.TypeParameters.Select(parameter => parameter.Name))}>",
@@ -1071,6 +1075,17 @@ public static class CompileBackSourceComposer
                     hasDefault ? defaultValue : null);
             })
             .ToArray();
+    }
+
+    static IReadOnlyList<string> MethodReturnAttributes(MetadataReader reader, MethodDefinition method)
+    {
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            if (reader.GetParameter(parameterHandle).SequenceNumber == 0)
+                return AttributeReader.RenderParameterAttributes(reader, parameterHandle);
+        }
+
+        return [];
     }
 
     static bool TryFormatAttributedParameterDefault(
@@ -1839,7 +1854,8 @@ public static class CompileBackSourceComposer
                         member.TypeParameters,
                         member.StubBody,
                         member.TargetBody,
-                        member.SourceFacts));
+                        member.SourceFacts,
+                        member.ReturnAttributes));
                 }
 
                 if (requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"))

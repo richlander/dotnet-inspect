@@ -173,6 +173,7 @@ public class TypeParameter
 public class ApiSignature
 {
     public string? ReturnType { get; set; }
+    public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
     public List<TypeParameter> TypeParameters { get; set; } = [];

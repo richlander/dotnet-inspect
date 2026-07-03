@@ -267,6 +267,50 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RendersReturnParameterAttributes()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithReturnAttributes");
+        Assert.NotNull(method);
+        Assert.NotNull(method.SignatureModel);
+        Assert.DoesNotContain("[return:", method.Signature);
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, method);
+        Assert.StartsWith(
+            "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] public int MethodWithReturnAttributes()",
+            declaration,
+            StringComparison.Ordinal);
+
+        var notNullMethod = testType.Members.FirstOrDefault(m => m.Name == "MethodWithReturnNotNull");
+        Assert.NotNull(notNullMethod);
+        var notNullDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, notNullMethod);
+        Assert.StartsWith(
+            "[return: System.Diagnostics.CodeAnalysis.NotNull] public string MethodWithReturnNotNull()",
+            notNullDeclaration,
+            StringComparison.Ordinal);
+
+        var fallbackMethod = testType.Members.FirstOrDefault(m => m.Name == "MethodWithReturnAttributesAndFallbackSignature");
+        Assert.NotNull(fallbackMethod);
+        Assert.DoesNotContain("[return:", fallbackMethod.Signature);
+        var fallbackDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, fallbackMethod);
+        Assert.StartsWith(
+            "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] public int MethodWithReturnAttributesAndFallbackSignature(",
+            fallbackDeclaration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when",
+            fallbackDeclaration);
+        Assert.DoesNotContain("public [return:", fallbackDeclaration);
+    }
+
+    [Fact]
     public void Extract_RendersEnumParameterDefaultsAsEnumLiterals()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -767,6 +811,13 @@ public class SampleClassForTesting
         [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)] int[] fixedPlainValues,
         [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)] int[] zeroSizedValues,
         int count) { }
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+    public int MethodWithReturnAttributes() => 42;
+    [return: System.Diagnostics.CodeAnalysis.NotNull]
+    public string MethodWithReturnNotNull() => "hello";
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+    public int MethodWithReturnAttributesAndFallbackSignature(
+        [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) => when.Year;
 }
 
 public class SampleKeywordParameterHost
