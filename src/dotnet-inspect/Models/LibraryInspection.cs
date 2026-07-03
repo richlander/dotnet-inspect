@@ -599,6 +599,9 @@ public class ILOffsetAllocationContext
     [JsonPropertyName("multiplicity")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Multiplicity { get; init; }
+    [JsonPropertyName("churned_type")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChurnedType { get; init; }
 }
 
 public class ILOffsetSafetyContext

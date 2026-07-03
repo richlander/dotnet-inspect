@@ -1388,6 +1388,23 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesListOfInt), "System.Int32[]")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesQueueOfByte), "System.Byte[]")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesStackOfLong), "System.Int64[]")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesStringBuilder), "System.Char[]")]
+    // Fail-honest: no single known backing store.
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesDictionary), null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), null)]
+    public void AllocationOccurrences_ReportChurnedBackingType(string methodName, string? expectedChurnedType)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Object);
+
+        Assert.Equal(expectedChurnedType, occurrence.ChurnedType);
+    }
+
+    [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray10), 64)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5), 48)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5AfterUnrelatedBranch), 48)]
@@ -3481,6 +3498,14 @@ public class OptimizationOpportunityFixtures
     }
 
     public static object ReturnsPlainObject() => new PlainObject(1);
+
+    // Growable collections whose churned backing store the analysis reports.
+    public static object AllocatesListOfInt() => new System.Collections.Generic.List<int>();
+    public static object AllocatesQueueOfByte() => new System.Collections.Generic.Queue<byte>();
+    public static object AllocatesStackOfLong() => new System.Collections.Generic.Stack<long>();
+    public static object AllocatesStringBuilder() => new System.Text.StringBuilder();
+    // Multi-array backing (buckets + entries) -> fail-honest, no single churned type.
+    public static object AllocatesDictionary() => new System.Collections.Generic.Dictionary<int, string>();
 
     public void StoresPlainObjectToField() => _objectField = new PlainObject(1);
 
