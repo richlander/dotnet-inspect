@@ -1371,6 +1371,22 @@ internal static class GeneratedFixtureCatalog
         ],
         ["record", "generic", "equals", "return-to-sender"]);
 
+    public static readonly GeneratedFixtureDefinition RecordNestedGenericTypedEquals = new(
+        "record.nested-generic-typed-equals",
+        """
+        public class RecordNestedGenericTypedEqualsContainer<T>
+        {
+            public record Row<U>(T Outer, U Value);
+        }
+        """,
+        [
+            new(
+                "RecordNestedGenericTypedEqualsContainer`1.Row`1",
+                "Equals",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["record", "nested", "generic", "equals", "return-to-sender"]);
+
     public static readonly GeneratedFixtureDefinition AssertionNodeCoverage = new(
         "assertion.inverse-node-coverage",
         """
@@ -1670,6 +1686,7 @@ internal static class GeneratedFixtureCatalog
         RecordFieldReadHelpers,
         RecordStructFieldReadHelpers,
         RecordGenericTypedEquals,
+        RecordNestedGenericTypedEquals,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> AssertionCoverage { get; } =
