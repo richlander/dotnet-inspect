@@ -88,11 +88,11 @@ public class InverseArchitectureTests
 
                 Assert.True(predicate is not null,
                     $"{nodeType.Name}: assumes '{assumes}' has no InverseAssumptions.{assumes}(IrFunction).");
-                Assert.True(typeof(IReadOnlyList<string>).IsAssignableFrom(predicate!.ReturnType),
-                    $"{nodeType.Name}: assumes '{assumes}' must return IReadOnlyList<string>.");
+                Assert.True(typeof(IReadOnlyList<AssumptionViolation>).IsAssignableFrom(predicate!.ReturnType),
+                    $"{nodeType.Name}: assumes '{assumes}' must return IReadOnlyList<AssumptionViolation>.");
 
                 foreach (var probe in probes)
-                    Assert.IsAssignableFrom<IReadOnlyList<string>>(predicate.Invoke(null, [probe]));
+                    Assert.IsAssignableFrom<IReadOnlyList<AssumptionViolation>>(predicate.Invoke(null, [probe]));
 
                 validated++;
             }

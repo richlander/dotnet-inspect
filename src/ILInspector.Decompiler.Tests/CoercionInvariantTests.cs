@@ -48,7 +48,7 @@ public class CoercionInvariantTests
 
         var before = CoercionInvariant.Check(function);
         Assert.Single(before);
-        Assert.Contains("E32", before[0]);
+        Assert.Contains("E32", before[0].Message);
 
         new CoercionInsertionPass().Run(function, PassContext.None);
 
@@ -217,7 +217,7 @@ public class CoercionInvariantTests
             IrPasses.Run(function!);
             var violations = CoercionInvariant.Check(function!);
             Assert.True(violations.Count == 0,
-                $"{method}: " + string.Join("; ", violations));
+                $"{method}: " + string.Join("; ", violations.Select(v => v.Message)));
         }
     }
 }

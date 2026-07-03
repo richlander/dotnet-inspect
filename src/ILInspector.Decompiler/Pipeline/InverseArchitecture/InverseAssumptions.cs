@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+
 
 namespace ILInspector.Decompiler.Pipeline.InverseArchitecture;
 
@@ -27,16 +29,8 @@ public static class InverseAssumptions
     /// </summary>
     public static IReadOnlyList<AssumptionViolation> SinkDistinguishableFromStack(IrFunction function)
     {
-        var shapes = function.TypeShapes;
-        var violations = new List<AssumptionViolation>();
-        foreach (var sink in CoercionSinks.Enumerate(function))
-        {
-            if (CoercionSinks.RequiresCoercion(sink, shapes))
-            {
-                violations.Add(new(sink.Value, 
-                    $"{function.Name}: {sink.Value.Describe()} occupies a {sink.Target.ToDisplayString()} sink without a Coerce"));
-            }
-        }
-        return violations;
+        var violations = CoercionInvariant.Check(function);
+        if (violations.Count == 0) return System.Array.Empty<AssumptionViolation>();
+        return violations.Select(v => new AssumptionViolation(v.Node, v.Message)).ToList();
     }
 }
