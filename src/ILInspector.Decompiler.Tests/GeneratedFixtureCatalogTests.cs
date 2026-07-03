@@ -905,6 +905,17 @@ public class GeneratedFixtureCatalogTests
 
         Assert.Equal(
             [
+                "record.equality-operators",
+                "record.field-read-helpers",
+                "record.generic-typed-equals",
+                "record.property-getter",
+                "record.struct-field-read-helpers",
+                "record.virtual-helpers",
+            ],
+            GeneratedFixtureCatalog.Select("record").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
+
+        Assert.Equal(
+            [
                 "minimal.array-index",
                 "minimal.array-length",
                 "minimal.auto-property.getter",
@@ -1004,6 +1015,12 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.do-while");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-int");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-two-case-lowers-if");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.property-getter");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.equality-operators");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.virtual-helpers");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.field-read-helpers");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.struct-field-read-helpers");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.generic-typed-equals");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
@@ -1066,6 +1083,39 @@ public class GeneratedFixtureCatalogTests
             result => result.GetProperty("Status").GetString() == "Pass");
         Assert.DoesNotContain(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Reason").GetString() == "constructor-target");
+    }
+
+    [Fact]
+    public void ReturnToSenderRecordCatalog_CoversGeneratedRecordHelpers()
+    {
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+            GeneratedFixtureCatalog.Select("record"));
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+
+        Assert.True(run.Passed, report);
+        Assert.Equal(11, run.Results.Count);
+        Assert.All(run.Results, result =>
+        {
+            Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.ActualStatus);
+        });
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.equality-operators" &&
+            result.Method == "op_Equality");
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.field-read-helpers" &&
+            result.Method == "Equals" &&
+            result.Overload == 1);
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.struct-field-read-helpers" &&
+            result.Method == "Equals" &&
+            result.Overload == 1);
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.generic-typed-equals" &&
+            result.Type == "RecordGenericTypedEqualsRow`1");
+        Assert.Contains("record.generic-typed-equals", report);
+        Assert.DoesNotContain("Skipped target reasons", report);
+        Assert.DoesNotContain("Failed target buckets", report);
     }
 
     [Fact]
