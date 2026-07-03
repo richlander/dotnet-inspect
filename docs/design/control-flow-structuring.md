@@ -90,9 +90,13 @@ after every step of this plan.
   is-pattern / type-test dispatch). Unlike `--structuring-stops` this counts
   **per method in the bucket**, so it scopes which slice clears the most methods.
 
-Two shapes that are **already handled** and are out of scope: short-circuit
-`&&`/`||` guard chains (they nest cleanly today — the `TripleAnd`/`IfAnd`/
-`OrChainGuardPass` fixtures round-trip), and the comparison tree (#640).
+Two shapes that are **already handled** and are out of scope: ordinary
+short-circuit `&&`/`||` guard chains (they nest cleanly today — the
+`TripleAnd`/`IfAnd`/`OrChainGuardPass` fixtures round-trip), and the comparison
+tree (#640). Temp-backed shared-return chains are the caveat: when multiple
+guards branch to one shared return while another guard/default return remains
+distinct, duplicating the shared arm can break compile-back opcode fidelity, so
+return-dispatch must decline that mixed shared-target shape.
 
 ## The blocker is the region model, not a missing case
 
