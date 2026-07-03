@@ -21,6 +21,11 @@ For decompiler raise, scorecard, ledger, adversarial fixture, or predicate work:
 - Start with `docs/decompiler-quality.md` and
   `docs/decompiler-correctness-pipeline.md`; use the latter to name the
   highest relevant proof "boss" and evidence.
+- Follow `docs/decompiler-raise-discipline.md` for raise/typing/emission
+  changes — evidence, typing, scoping, and annotation rules distilled from
+  the value-typed-emission adversarial rounds. Non-negotiable there:
+  render-text A/B against an explicit merge-base ref; no claimed win before
+  the A/B lands; sibling-rule grep after every rule fix.
 - Read `docs/design/decompiler-substrate.md` before adding or changing shared
   rewrite-gate predicates. Use **decompiler substrate** for shared pass-evidence
   layers and **identity predicates** for exact gates; avoid **fact substrate**.
@@ -98,6 +103,19 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --corpus-fidelity-cap 3 \
   --max-examples 3
 ```
+
+For raise/printer-affecting changes, add the render-text A/B (pass
+`--workers N` — parallelism is not the default):
+
+```bash
+git worktree add /tmp/ab-base --detach "$(git merge-base origin/main HEAD)"
+dotnet run --project /tmp/ab-base/tools/DecompilerHarness -c Release -- \
+  "${assemblies[@]}" --workers 20 --emit-render-ab /tmp/base.renderab
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  "${assemblies[@]}" --workers 20 --render-ab /tmp/base.renderab
+```
+
+Classify every changed method; see `docs/decompiler-raise-discipline.md`.
 
 For decompiler-affecting PRs, follow this evidence and review contract:
 
