@@ -155,6 +155,21 @@ public class AssertionScanTests
         Assert.Contains("#1", method.Violations[1].Identity);
     }
 
+    [Fact]
+    public void Snapshot_DiffIdentityIgnoresFirstFailingPass()
+    {
+        var importViolation = new AssertionScan.AssertionViolationRecord(
+            Pass: IrPasses.ImportStageName,
+            Predicate: "SinkDistinguishableFromStack",
+            Node: nameof(LoadArgument),
+            SinkType: "bool",
+            Message: "M: LoadArgument raw occupies a bool sink without a Coerce",
+            Ordinal: 0);
+        var laterViolation = importViolation with { Pass = "some-later-pass" };
+
+        Assert.Equal(importViolation.Identity, laterViolation.Identity);
+    }
+
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
         => new(
             "M",

@@ -167,6 +167,7 @@ internal static class AssertionScan
         var violations = new List<ViolationSite>();
         var seenViolations = new HashSet<string>(StringComparer.Ordinal);
         var covered = new SortedSet<string>(StringComparer.Ordinal);
+        var occurrenceOrdinals = new Dictionary<string, Dictionary<IrNode, int>>(StringComparer.Ordinal);
         var importCrashes = function.Diagnostics
             .Where(diagnostic => diagnostic.Id == DiagnosticIds.InternalError)
             .ToArray();
@@ -191,14 +192,12 @@ internal static class AssertionScan
             var stageViolations = new List<(string Identity, ViolationSite Site)>();
             foreach (var predicate in AssertionEvaluator.EvaluateAssumptions(function))
             {
-                var perIdentityOrdinal = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (var violation in predicate.Violations)
                 {
                     string node = violation.Node.GetType().Name;
                     string sinkType = SinkType(violation.Message);
                     string identity = $"{predicate.Name}|{node}|{sinkType}|{violation.Message}";
-                    int ordinal = perIdentityOrdinal.GetValueOrDefault(identity);
-                    perIdentityOrdinal[identity] = ordinal + 1;
+                    int ordinal = OccurrenceOrdinal(occurrenceOrdinals, identity, violation.Node);
                     string stableIdentity = $"{identity}#{ordinal}";
                     stageViolations.Add((
                         stableIdentity,
@@ -239,6 +238,17 @@ internal static class AssertionScan
         }
 
         return new MethodResult(assembly, assemblyPath, type, method, overload, signature, key, violations, covered, PassBug: null);
+    }
+
+    static int OccurrenceOrdinal(Dictionary<string, Dictionary<IrNode, int>> ordinals, string identity, IrNode node)
+    {
+        if (!ordinals.TryGetValue(identity, out var byNode))
+            ordinals[identity] = byNode = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
+        if (byNode.TryGetValue(node, out int ordinal))
+            return ordinal;
+        ordinal = byNode.Count;
+        byNode.Add(node, ordinal);
+        return ordinal;
     }
 
     static void AddCoveredNodes(IrFunction function, ISet<string> covered)
@@ -445,6 +455,6 @@ internal static class AssertionScan
         string Message,
         int Ordinal)
     {
-        public string Identity => $"{Pass}|{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
+        public string Identity => $"{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
     }
 }
