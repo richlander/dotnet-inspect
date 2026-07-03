@@ -1129,9 +1129,8 @@ public static class ApiOutputFormatter
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var rows = index.DirectCalls
-                .Where(call => call.Caller.MetadataToken == token)
+            var rows = MethodBodyInspectionSession.Open(dllPath, assemblyResolver)
+                .DirectCalls(token)
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
@@ -1175,57 +1174,33 @@ public static class ApiOutputFormatter
         if (request.Callers && methods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var ownSource = Path.GetFileNameWithoutExtension(dllPath);
+            var callerSession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
             var rows = new List<CallerSiteRow>();
+
+            // Open each caller-scope assembly once as its own session (skipping any that fail to
+            // load); the edge facet attributes cross-assembly hits to each scope's SourceName.
+            var scopeSessions = new List<MethodBodyInspectionSession>();
+            if (callerScopeAssemblies is { Count: > 0 })
+            {
+                foreach (var scopePath in callerScopeAssemblies)
+                {
+                    try
+                    {
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                    }
+                    catch
+                    {
+                        // Unreadable scope assembly: skip, matching the prior per-method open behavior.
+                    }
+                }
+            }
 
             // Collect callers for each method (all overloads if multiple methods selected)
             foreach (var method in methods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
-
-                // Match call edges whose callee resolves to the selected member. The
-                // operand-token equality catches direct same-assembly references
-                // (including abstract/interface members that have no body and so are
-                // absent from index.Methods); the structural pattern (built from the
-                // selected member's own identity) adds MemberRef-form references.
-                var selected = index.Methods.FirstOrDefault(m => m.MetadataToken == targetToken);
-                var pattern = selected is { } identity
-                    ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
-                    : null;
-
-                // Same-assembly callers
-                rows.AddRange(index.DirectCalls
-                    .Where(call => call.CalleeDefinitionToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
-                    .Select(call => CreateCallerRow(ownSource, call)));
-
-                // Cross-assembly scope: scan each additional assembly for inbound callers using the
-                // structural pattern only (operand tokens are assembly-local), attributing each hit
-                // to its source assembly. Results stay in a single Callers table with a Source column.
-                if (pattern is not null && callerScopeAssemblies is { Count: > 0 })
-                {
-                    foreach (var scopePath in callerScopeAssemblies)
-                    {
-                        Analysis.LibraryBodyIndex scopeIndex;
-                        try
-                        {
-                            scopeIndex = Analysis.LibraryBodyIndex.Open(scopePath, AnalysisReferenceResolver(scopePath, options));
-                        }
-                        catch
-                        {
-                            continue;
-                        }
-
-                        // Cross-assembly matching must normalize generic member identity: a
-                        // constructed call site (List<int>.Add / Id<int>) matches the open
-                        // target definition (List<T>.Add / Id<T>) it could never match exactly
-                        // (#1339). Same-assembly matching above stays exact, token-driven.
-                        var scopeSource = Path.GetFileNameWithoutExtension(scopePath);
-                        rows.AddRange(scopeIndex.DirectCalls
-                            .Where(call => pattern.MatchesCrossAssembly(call.Callee))
-                            .Select(call => CreateCallerRow(scopeSource, call)));
-                    }
-                }
+                rows.AddRange(callerSession.CallerEdges(targetToken, scopeSessions)
+                    .Select(edge => CreateCallerRow(edge.Source, edge.Call)));
             }
 
             // Deduplicate and sort
@@ -1296,9 +1271,8 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var evidence = index.UnsafeEvidence
-                .Where(evidence => evidence.Member.MetadataToken == unsafeToken)
+            var evidence = MethodBodyInspectionSession.Open(dllPath, assemblyResolver)
+                .UnsafeEvidence(unsafeToken)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
                 .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
                 .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
@@ -1713,8 +1687,8 @@ public static class ApiOutputFormatter
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
-        var rows = index.UnsafeEvidence
+        var rows = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath))
+            .UnsafeEvidence()
             .Where(evidence => SameType(evidence.Member.DeclaringType, type))
             .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
             .ThenBy(evidence => evidence.ILOffset ?? -1)
@@ -1761,8 +1735,8 @@ public static class ApiOutputFormatter
         string dllPath,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
-        var rows = index.CalledTypes(method => SameType(method.DeclaringType, type))
+        var rows = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath))
+            .CalledTypes(method => SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
                 string.IsNullOrEmpty(summary.Assembly) ? null : summary.Assembly,
@@ -1782,7 +1756,7 @@ public static class ApiOutputFormatter
         IReadOnlySet<string>? requestedSections,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
+        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var methodTokens = type.Members
             .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
             .Select(member => member.MetadataToken!.Value)
@@ -1790,9 +1764,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.AllocationFacts) == true)
         {
-            var allocations = index.GetAllocationOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.AllocationFacts(allocations, token))
+                .SelectMany(token => session.AllocationFacts(token))
                 .Select(fact => ToAllocationFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.AllocationFacts))
@@ -1801,10 +1774,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
         {
-            var unsafeEvidence = index.GetUnsafeEvidenceByMember();
-            var unsafety = index.GetUnsafetyOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.SafetyFacts(unsafeEvidence, unsafety, token))
+                .SelectMany(token => session.SafetyFacts(token))
                 .Select(fact => ToSafetyFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.SafetyFacts))
@@ -1813,9 +1784,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var directCalls = index.GetDirectCallsByCaller();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCalls, token))
+                .SelectMany(token => session.CostFacts(token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CostFacts))
@@ -1831,14 +1801,14 @@ public static class ApiOutputFormatter
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
+        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         HashSet<int>? memberTokens = restrictToModelMembers
             ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
             : null;
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
-                index.OptimizationOpportunities
+                session.OptimizationOpportunities
                     .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
-                    .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, index.GeneratedFrameworkTypeNames))
+                    .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, session.GeneratedFrameworkTypeNames))
                     .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken)),
                 options)
             .Select(opportunity => new OptimizationOpportunityRow(
@@ -1853,7 +1823,8 @@ public static class ApiOutputFormatter
                 opportunity.PathContext,
                 opportunity.PathConfidence,
                 opportunity.PostDominance,
-                opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null))
+                opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
+                opportunity.Weight))
             .ToList();
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.PerformanceTriage))
@@ -1923,7 +1894,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
+        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var drillByToken = BuildMemberDrillMap(type);
 
         // Rank every method declared on this type; fanin is still measured across all
@@ -1931,12 +1902,12 @@ public static class ApiOutputFormatter
         // limiter (`-n`/`--rows`) trims the rendered table. In member-detail/overload
         // contexts `type.Members` is narrowed to the selected member(s), so restrict the
         // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
-        var rows = index.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
+        var rows = session.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
             .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypeNames);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, session.GeneratedFrameworkTypeNames);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),

@@ -1439,6 +1439,85 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsMemberAttributes()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+                public Class1()
+                {
+                }
+
+                [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+                public int Method1()
+                    => 42;
+
+                [System.Obsolete("use Method1")]
+                public int ObsoleteMethod()
+                    => 43;
+
+                [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+                public string Text
+                {
+                    get => "hello";
+                }
+
+                [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+                public int Value
+                {
+                    get;
+                    set;
+                }
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", ".ctor", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Method1", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "ObsoleteMethod", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "get_Text", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "set_Value", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.DoesNotContain("ExcludeFromCodeCoverage", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int Method1()", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[System.Obsolete(\"use Method1\")] public int ObsoleteMethod()", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string Text", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.DoesNotContain("ExcludeFromCodeCoverage", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""

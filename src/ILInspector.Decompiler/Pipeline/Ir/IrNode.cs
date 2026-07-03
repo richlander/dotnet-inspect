@@ -118,11 +118,25 @@ public abstract class IrNode
     {
         get
         {
-            foreach (var child in _children)
+            // Iterative pre-order DFS. A recursive `yield return` over children
+            // allocates one nested enumerator per node (O(N) state machines per
+            // traversal) and re-yields every value up through its ancestors
+            // (O(N*depth) time); an explicit stack does the same walk with a
+            // single enumerator plus one stack, and cannot deep-recurse.
+            // Children are pushed in reverse so they pop in source order,
+            // reproducing the recursive pre-order exactly.
+            if (_children.Count == 0)
+                yield break;
+            var stack = new Stack<IrNode>();
+            for (int i = _children.Count - 1; i >= 0; i--)
+                stack.Push(_children[i]);
+            while (stack.Count > 0)
             {
-                yield return child;
-                foreach (var descendant in child.Descendants)
-                    yield return descendant;
+                var node = stack.Pop();
+                yield return node;
+                var children = node._children;
+                for (int i = children.Count - 1; i >= 0; i--)
+                    stack.Push(children[i]);
             }
         }
     }

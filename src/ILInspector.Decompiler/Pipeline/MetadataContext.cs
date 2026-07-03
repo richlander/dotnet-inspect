@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
+using System.Collections.Concurrent;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -30,8 +31,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </remarks>
 public sealed class MetadataContext : IDisposable
 {
-    readonly Dictionary<string, OpenedAssembly?> _opened = new(StringComparer.OrdinalIgnoreCase);
-    readonly Dictionary<string, OpenedAssembly?> _openedLocations = new(StringComparer.Ordinal);
+    readonly ConcurrentDictionary<string, OpenedAssembly?> _opened = new(StringComparer.OrdinalIgnoreCase);
+    readonly ConcurrentDictionary<string, OpenedAssembly?> _openedLocations = new(StringComparer.Ordinal);
 
     public MetadataContext(AssemblyLocator locator)
         : this(locator.ToAssemblyReferenceResolver())
@@ -57,11 +58,7 @@ public sealed class MetadataContext : IDisposable
     /// </summary>
     internal OpenedAssembly? Open(string path)
     {
-        if (_opened.TryGetValue(path, out var cached))
-            return cached;
-        var opened = OpenedAssembly.TryOpen(path);
-        _opened[path] = opened;
-        return opened;
+        return _opened.GetOrAdd(path, p => OpenedAssembly.TryOpen(p));
     }
 
     internal OpenedAssembly? Open(TypeLocation location)
@@ -69,11 +66,7 @@ public sealed class MetadataContext : IDisposable
         if (location.AssemblyPath is { Length: > 0 } path)
             return Open(path);
 
-        if (_openedLocations.TryGetValue(location.AssemblyKey, out var cached))
-            return cached;
-        var opened = OpenedAssembly.TryOpen(location.OpenRead);
-        _openedLocations[location.AssemblyKey] = opened;
-        return opened;
+        return _openedLocations.GetOrAdd(location.AssemblyKey, _ => OpenedAssembly.TryOpen(location.OpenRead));
     }
 
     internal ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
@@ -100,7 +93,8 @@ internal sealed class OpenedAssembly : IDisposable
 {
     readonly Stream _stream;
     readonly PEReader _pe;
-    Dictionary<string, TypeDefinitionHandle>? _byFullName;
+    volatile Dictionary<string, TypeDefinitionHandle>? _byFullName;
+    readonly object _indexLock = new();
 
     OpenedAssembly(Stream stream, PEReader pe, MetadataReader reader)
     {
@@ -149,7 +143,13 @@ internal sealed class OpenedAssembly : IDisposable
     /// </summary>
     public bool TryGetType(string fullName, out TypeDefinitionHandle handle)
     {
-        _byFullName ??= BuildIndex();
+        if (_byFullName is null)
+        {
+            lock (_indexLock)
+            {
+                _byFullName ??= BuildIndex();
+            }
+        }
         return _byFullName.TryGetValue(fullName, out handle);
     }
 

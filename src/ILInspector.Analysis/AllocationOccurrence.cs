@@ -80,6 +80,22 @@ public enum AllocationSizeTier
 }
 
 /// <summary>
+/// Objective per-invocation multiplicity tier: how many times a call to the
+/// declaring method executes this allocation. A consolidation of the existing
+/// path axes (loop membership, dominates-return, branch context) into one
+/// "how often per call" signal. Fail-honest <see cref="Unknown"/> when it cannot
+/// be proven. <see cref="Loop"/> is unbounded (the trip count N is not statically
+/// resolved). Feeds the static pre-profile prioritization / dynamic validation.
+/// </summary>
+public enum AllocationMultiplicity
+{
+    Unknown,
+    Once,
+    Conditional,
+    Loop,
+}
+
+/// <summary>
 /// One static heap-allocation occurrence, keyed by IL offset. Presentation layers
 /// project this into hidden-fact annotations, method signals, and triage rows.
 /// </summary>
@@ -104,6 +120,8 @@ public sealed record AllocationOccurrence(
     public AllocationPostDominance PostDominance { get; init; }
 
     public AllocationEscapeKind EscapeKind { get; init; }
+
+    public AllocationMultiplicity Multiplicity { get; init; }
 
     public string AnnotationId => Kind switch
     {

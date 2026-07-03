@@ -148,12 +148,35 @@ public sealed class LibraryBodyIndex
         var pathContext = opportunity.PathContext ?? FallbackPathContext(opportunity);
         var pathConfidence = opportunity.PathConfidence;
         var postDominance = opportunity.PostDominance;
+        var weight = opportunity.Weight ?? ComputeOpportunityWeight(opportunity, runtimeAllocation);
         return runtimeAllocation != opportunity.RuntimeAllocationType
             || pathContext != opportunity.PathContext
             || pathConfidence != opportunity.PathConfidence
             || postDominance != opportunity.PostDominance
-            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext, PathConfidence = pathConfidence, PostDominance = postDominance }
+            || weight != opportunity.Weight
+            ? opportunity with { RuntimeAllocationType = runtimeAllocation, PathContext = pathContext, PathConfidence = pathConfidence, PostDominance = postDominance, Weight = weight }
             : opportunity;
+    }
+
+    // Coarse, curated priority for allocation opportunities: a first-cut composite of
+    // size x multiplicity x reach over the objective inputs. Fail-honest: null for
+    // non-allocation shapes. Additive — it is a display hint and does not reorder rows.
+    internal const int WeightNotableSizeBytes = 1024;
+
+    static string? ComputeOpportunityWeight(OptimizationOpportunity opportunity, string? runtimeAllocation)
+    {
+        if (runtimeAllocation is null)
+            return null;
+
+        bool loop = opportunity.Multiplicity == "loop" || opportunity.InLoop;
+        bool hotReach = opportunity.RootReach >= DelegateHotRootReach;
+        bool notableSize = opportunity.EstimatedSizeBytes is { } size && size >= WeightNotableSizeBytes;
+
+        if (loop && (hotReach || notableSize))
+            return "high";
+        if (loop || (hotReach && notableSize))
+            return "medium";
+        return "low";
     }
 
     static string? FallbackRuntimeAllocationType(OptimizationOpportunity opportunity)
@@ -202,6 +225,15 @@ public sealed class LibraryBodyIndex
         => postDominance switch
         {
             AllocationPostDominance.ReturnPostDominates => "return-post-dominates",
+            _ => null,
+        };
+
+    internal static string? FormatMultiplicity(AllocationMultiplicity multiplicity)
+        => multiplicity switch
+        {
+            AllocationMultiplicity.Once => "once",
+            AllocationMultiplicity.Conditional => "conditional",
+            AllocationMultiplicity.Loop => "loop",
             _ => null,
         };
 
@@ -2571,6 +2603,7 @@ public sealed class LibraryBodyIndex
                     sizeTier)
                 {
                     PostDominance = AllocationPostDominanceFor(decodedBody, offset, escape),
+                    Multiplicity = AllocationMultiplicityFor(decodedBody, offset, loopRegions, escape),
                 };
 
             bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
@@ -3435,6 +3468,9 @@ public sealed class LibraryBodyIndex
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                         PostDominance = opportunity.PostDominance ?? FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
+                        Multiplicity = opportunity.Multiplicity ?? FormatMultiplicity(allocation?.Multiplicity
+                            ?? AllocationMultiplicityFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
+                        EstimatedSizeBytes = opportunity.EstimatedSizeBytes ?? allocation?.EstimatedSizeBytes,
                     };
                 }
                 return AddFallbackOpportunityMetadata(annotated);
@@ -3961,6 +3997,41 @@ public sealed class LibraryBodyIndex
             return decodedBody.PostDominances.PostDominanceFor(blockIndex);
         }
 
+        // Per-invocation multiplicity, consolidated from the existing path axes.
+        // A thrown allocation exits the frame, so it runs at most once even inside a
+        // loop -> Conditional takes precedence over loop membership. Otherwise loop
+        // membership wins (a catch-block or normal allocation whose loop continues runs
+        // 0..N per call), then:
+        //   error path       -> Conditional (runs only when the exception fires)
+        //   dominates-return -> Once (runs on every returning path, exactly once)
+        //   behind a branch  -> Conditional (0 or 1 per call)
+        //   otherwise        -> Unknown (straight-line but not proven to dominate return)
+        static AllocationMultiplicity AllocationMultiplicityFor(
+            DecodedBody decodedBody,
+            int offset,
+            IReadOnlyList<(int Start, int End)> loopRegions,
+            AllocationEscape escape)
+        {
+            if (escape == AllocationEscape.ThrowPath)
+                return AllocationMultiplicity.Conditional;
+            if (IsInLoopRegion(offset, loopRegions))
+                return AllocationMultiplicity.Loop;
+
+            int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
+            var context = decodedBody.PathContexts.ContextFor(blockIndex);
+            if (context == AllocationPathContext.ErrorPath)
+                return AllocationMultiplicity.Conditional;
+
+            var confidence = decodedBody.PathConfidences.ConfidenceFor(blockIndex);
+            if (confidence == AllocationPathConfidence.DominatesReturn)
+                return AllocationMultiplicity.Once;
+            if (confidence == AllocationPathConfidence.BehindBranch
+                || context is AllocationPathContext.Branch or AllocationPathContext.SwitchArm)
+                return AllocationMultiplicity.Conditional;
+
+            return AllocationMultiplicity.Unknown;
+        }
+
         // Conservative, sound local-escape check for a freshly created array. Returns true
         // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
         // load is an in-place element access / length read — never returned, stored to a
@@ -4053,6 +4124,9 @@ public sealed class LibraryBodyIndex
                         PathContext = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
                         PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
                         PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
+                        Multiplicity = escape.Escape == AllocationEscape.ThrowPath
+                            ? AllocationMultiplicity.Conditional
+                            : occurrence.Multiplicity,
                     });
             }
             return builder.MoveToImmutable();

@@ -19,6 +19,7 @@ public static class InverseLedger
     public sealed record Row(
         string Node,
         string ForwardName,
+        Oracle Oracle,
         NameProvenance Naming,
         string Precondition,
         string Witness);
@@ -37,6 +38,7 @@ public static class InverseLedger
             .Select(x => new Row(
                 x.Node.Name,
                 x.Inverse!.ForwardName ?? x.Inverse.Forward.ToString(),
+                x.Inverse.Oracle,
                 x.Inverse.Naming,
                 x.Inverse.Precondition ?? "—",
                 x.Inverse.Witness ?? "—"))];
@@ -67,15 +69,15 @@ public static class InverseLedger
         sb.Append("`ILInspector.Decompiler` by the test reflector; drift-gated by a test. Do not\n");
         sb.Append("edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the framing.\n\n");
         sb.Append("## Type assertions\n\n");
-        sb.Append("| Node | Forward construct | Naming | Precondition | Witness |\n");
-        sb.Append("| --- | --- | --- | --- | --- |\n");
+        sb.Append("| Node | Forward construct (Roslyn) | Oracle (RyuJIT) | Naming | Precondition | Witness |\n");
+        sb.Append("| --- | --- | --- | --- | --- | --- |\n");
 
         var rows = Rows(assembly);
         if (rows.Count == 0)
-            sb.Append("| _(none yet)_ | — | — | — | — |\n");
+            sb.Append("| _(none yet)_ | — | — | — | — | — |\n");
         else
             foreach (var row in rows)
-                sb.Append($"| `{row.Node}` | {row.ForwardName} | {row.Naming} | {row.Precondition} | {row.Witness} |\n");
+                sb.Append($"| `{row.Node}` | {row.ForwardName} | {row.Oracle} | {row.Naming} | {row.Precondition} | {row.Witness} |\n");
 
         sb.Append("\n## Declared non-inverse boundaries\n\n");
         sb.Append("| Node | Reason |\n");

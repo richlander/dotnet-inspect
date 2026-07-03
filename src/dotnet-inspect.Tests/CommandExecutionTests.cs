@@ -2733,7 +2733,7 @@ public class CommandExecutionTests
         Assert.Contains("| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality |", output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
-        Assert.Contains("| offset | Allocation | alloc.box | `int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return` | Always |", output);
+        Assert.Contains("| offset | Allocation | alloc.box | `int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` | Always |", output);
     }
 
     [Fact]
@@ -2746,7 +2746,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("FactsTableFixture::BoxInt\tIL_", output);
-        Assert.Contains("\toffset\tAllocation\talloc.box\tint; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return\tAlways", output);
+        Assert.Contains("\toffset\tAllocation\talloc.box\tint; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once\tAlways", output);
     }
 
     [Fact]
@@ -3377,6 +3377,16 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("Empty\tpublic static readonly string Empty", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "System.Math", "--platform", "System.Runtime",
+            "-m", "DivRem", "-S", "Methods",
+            "--columns", "Name;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("DivRem\tpublic static", output);
+        Assert.DoesNotContain("System.Runtime.Versioning.NonVersionable", output);
 
         (exit, output, error) = await RunAppAsync(
             "member", "System.AppDomain", "--platform", "System.Runtime",

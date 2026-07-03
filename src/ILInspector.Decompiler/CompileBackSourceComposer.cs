@@ -153,6 +153,7 @@ public sealed record CompileBackMemberDeclaration(
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts,
+    IReadOnlyList<string>? Attributes = null,
     IReadOnlyList<string>? ReturnAttributes = null)
 {
     public string Name => Identity.Method;
@@ -260,6 +261,7 @@ public sealed record CompileBackMemberRequirement(
     CompileBackStubBodyKind StubBody,
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts,
+    IReadOnlyList<string>? Attributes = null,
     IReadOnlyList<string>? ReturnAttributes = null);
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
@@ -326,6 +328,7 @@ public static class CompileBackSourceComposer
                                 new CompileBackFact("metadata", "auto-property", propertyName)
                             ]
                             : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
+                        MemberAttributes(reader, property.GetCustomAttributes()),
                         MethodReturnAttributes(reader, getter))
                 ],
                 PrimaryConstructor: null,
@@ -529,6 +532,7 @@ public static class CompileBackSourceComposer
                         CompileBackStubBodyKind.TargetBody,
                         targetBody,
                         [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
+                        isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
                         isConstructor ? null : MethodReturnAttributes(reader, method))
                 ],
                 primaryConstructor,
@@ -893,6 +897,7 @@ public static class CompileBackSourceComposer
             },
             IsStatic = member.IsStatic,
             Accessibility = null,
+            Attributes = member.Attributes?.ToList() ?? [],
         };
         if (member.Kind == CompileBackMemberKind.Method)
         {
@@ -1092,6 +1097,12 @@ public static class CompileBackSourceComposer
 
         return [];
     }
+
+    static IReadOnlyList<string> MemberAttributes(MetadataReader reader, CustomAttributeHandleCollection attributes)
+        => AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            qualifyNames: true);
 
     static bool TryFormatAttributedParameterDefault(
         MetadataReader reader,
@@ -1860,6 +1871,7 @@ public static class CompileBackSourceComposer
                         member.StubBody,
                         member.TargetBody,
                         member.SourceFacts,
+                        member.Attributes,
                         member.ReturnAttributes));
                 }
 

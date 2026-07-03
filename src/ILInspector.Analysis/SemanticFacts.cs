@@ -17,7 +17,8 @@ public sealed record AllocationFact(
     string Path,
     string? PathConfidence,
     string? PostDominance,
-    string Evidence);
+    string Evidence,
+    string? Multiplicity);
 
 public sealed record SafetyFact(
     MethodIdentity Method,
@@ -77,7 +78,8 @@ public static class SemanticFactProjection
                 LibraryBodyIndex.FormatPathContext(occurrence.PathContext),
                 LibraryBodyIndex.FormatPathConfidence(occurrence.PathConfidence),
                 LibraryBodyIndex.FormatPostDominance(occurrence.PostDominance),
-                occurrence.Detail ?? FormatSource(occurrence.Source)))];
+                occurrence.Detail ?? FormatSource(occurrence.Source),
+                LibraryBodyIndex.FormatMultiplicity(occurrence.Multiplicity)))];
 
     public static ImmutableArray<SafetyFact> SafetyFacts(
         IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> unsafeEvidence,

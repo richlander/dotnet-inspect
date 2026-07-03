@@ -82,4 +82,137 @@ public class MethodBodyInspectionSessionTests
 
         Assert.NotNull(MethodBodyInspectionSession.Open(SelfPath).CallerTree(token));
     }
+
+    [Fact]
+    public void DirectCalls_MatchesCallerFilter_ForCallingMethod()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var token = CallingToken(index);
+
+        var expected = index.DirectCalls.Where(call => call.Caller.MetadataToken == token).ToList();
+        var actual = MethodBodyInspectionSession.Open(SelfPath).DirectCalls(token);
+
+        Assert.NotEmpty(actual);
+        Assert.Equal(expected.Count, actual.Length);
+        Assert.Equal(
+            expected.Select(call => (call.Caller.MetadataToken, call.ILOffset)).OrderBy(x => x.ILOffset),
+            actual.Select(call => (call.Caller.MetadataToken, call.ILOffset)).OrderBy(x => x.ILOffset));
+    }
+
+    [Fact]
+    public void DirectCalls_UnknownToken_ReturnsEmpty()
+        => Assert.Empty(MethodBodyInspectionSession.Open(SelfPath).DirectCalls(methodToken: 0));
+
+    [Fact]
+    public void UnsafeEvidence_MatchesMemberFilter()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var grouped = index.GetUnsafeEvidenceByMember();
+        if (grouped.Count == 0)
+            return; // no unsafe evidence in this assembly; nothing to assert
+
+        var token = grouped.First(kv => kv.Value.Length > 0).Key;
+        var expected = index.UnsafeEvidence.Where(e => e.Member.MetadataToken == token).ToList();
+        var actual = MethodBodyInspectionSession.Open(SelfPath).UnsafeEvidence(token);
+
+        Assert.NotEmpty(actual);
+        Assert.Equal(expected.Count, actual.Length);
+    }
+
+    [Fact]
+    public void UnsafeEvidence_UnknownToken_ReturnsEmpty()
+        => Assert.Empty(MethodBodyInspectionSession.Open(SelfPath).UnsafeEvidence(methodToken: 0));
+
+    static int CalledToken(Analysis.LibraryBodyIndex index)
+    {
+        var methodTokens = index.Methods.Select(m => m.MetadataToken).ToHashSet();
+        return index.DirectCalls
+            .Select(call => call.CalleeDefinitionToken)
+            .First(token => methodTokens.Contains(token));
+    }
+
+    [Fact]
+    public void SourceName_MatchesAssemblyFileName()
+    {
+        var expected = System.IO.Path.GetFileNameWithoutExtension(SelfPath);
+        Assert.Equal(expected, MethodBodyInspectionSession.Open(SelfPath).SourceName);
+    }
+
+    [Fact]
+    public void CallerEdges_MatchSameAssemblyFilter_ForCalledMethod()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var targetToken = CalledToken(index);
+
+        // Reproduce the prior inline same-assembly matching to assert equivalence.
+        var identity = index.Methods.First(m => m.MetadataToken == targetToken);
+        var pattern = Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes);
+        var expected = index.DirectCalls
+            .Where(call => call.CalleeDefinitionToken == targetToken || pattern.Matches(call.Callee))
+            .ToList();
+
+        var session = MethodBodyInspectionSession.Open(SelfPath);
+        var actual = session.CallerEdges(targetToken);
+
+        Assert.NotEmpty(actual);
+        Assert.Equal(expected.Count, actual.Length);
+        Assert.All(actual, edge => Assert.Equal(session.SourceName, edge.Source));
+        Assert.Equal(
+            expected.Select(c => (c.Caller.MetadataToken, c.ILOffset)).OrderBy(x => x),
+            actual.Select(e => (e.Call.Caller.MetadataToken, e.Call.ILOffset)).OrderBy(x => x));
+    }
+
+    [Fact]
+    public void CallerEdges_UnknownToken_ReturnsEmpty()
+        => Assert.Empty(MethodBodyInspectionSession.Open(SelfPath).CallerEdges(targetToken: 0));
+
+    [Fact]
+    public void UnsafeEvidence_All_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).UnsafeEvidence();
+        Assert.Equal(index.UnsafeEvidence.Length, actual.Length);
+    }
+
+    [Fact]
+    public void CalledTypes_MatchesIndex_ForDeclaringTypeScope()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var declaringType = index.Methods.First().DeclaringType;
+        bool Scope(Analysis.MethodIdentity m) => m.DeclaringType.Equals(declaringType);
+
+        var expected = index.CalledTypes(Scope);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).CalledTypes(Scope);
+        Assert.Equal(expected.Length, actual.Length);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).OptimizationOpportunities;
+        Assert.Equal(index.OptimizationOpportunities.Length, actual.Length);
+    }
+
+    [Fact]
+    public void GeneratedFrameworkTypeNames_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).GeneratedFrameworkTypeNames;
+        Assert.Equal(index.GeneratedFrameworkTypeNames.Count, actual.Count);
+    }
+
+    [Fact]
+    public void TopLeverage_MatchesIndex_ForScope()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var declaringType = index.Methods.First().DeclaringType;
+        bool Scope(Analysis.MethodIdentity m) => m.DeclaringType.Equals(declaringType);
+
+        var expected = index.TopLeverage(count: int.MaxValue, scope: Scope);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).TopLeverage(int.MaxValue, Scope);
+        Assert.Equal(
+            expected.Select(e => e.Method.MetadataToken),
+            actual.Select(e => e.Method.MetadataToken));
+    }
 }

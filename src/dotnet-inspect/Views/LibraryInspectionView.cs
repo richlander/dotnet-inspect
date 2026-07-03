@@ -584,6 +584,7 @@ public class LibraryInspectionView
 
     [MarkoutSection(Name = SectionNames.AllocationContext, ShowWhenProperty = nameof(HasILOffsetAllocationContext))]
     [MarkoutIgnoreColumnWhen(nameof(AllocationContextEscapeKindIsEmpty), nameof(ILOffsetAllocationContextRow.EscapeKind))]
+    [MarkoutIgnoreColumnWhen(nameof(AllocationContextMultiplicityIsEmpty), nameof(ILOffsetAllocationContextRow.Multiplicity))]
     public List<ILOffsetAllocationContextRow>? ILOffsetAllocationContextSection =>
         _data.ILOffset?.AllocationContext?
             .Select(context => new ILOffsetAllocationContextRow(
@@ -600,7 +601,8 @@ public class LibraryInspectionView
                 context.Path,
                 context.PathConfidence,
                 context.PostDominance,
-                context.Evidence))
+                context.Evidence,
+                context.Multiplicity))
             .ToList();
 
     [MarkoutIgnore]
@@ -758,7 +760,8 @@ public class LibraryInspectionView
                 o.Path,
                 o.PathConfidence,
                 o.PostDominance,
-                o.IL is null ? null : MarkoutInline.Code(o.IL)))
+                o.IL is null ? null : MarkoutInline.Code(o.IL),
+                o.Weight))
             .ToList();
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
@@ -847,6 +850,12 @@ public class LibraryInspectionView
     // carries one — matching how the fact tables hide uniformly-empty columns.
     public static bool AllocationContextEscapeKindIsEmpty(List<ILOffsetAllocationContextRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.EscapeKind));
+
+    // The per-invocation multiplicity is Unknown (null) for allocations whose count
+    // can't be proven, so drop the column when no row carries one — matching how the
+    // other optional coordinate columns hide when uniformly empty.
+    public static bool AllocationContextMultiplicityIsEmpty(List<ILOffsetAllocationContextRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.Multiplicity));
 
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
@@ -1032,7 +1041,8 @@ public record ILOffsetAllocationContextRow(
     string? Path,
     [property: MarkoutPropertyName("Path Confidence")] string? PathConfidence,
     [property: MarkoutPropertyName("Post Dominance")] string? PostDominance,
-    string? Evidence);
+    string? Evidence,
+    [property: MarkoutSkipNull] string? Multiplicity);
 
 [MarkoutSerializable]
 public record ILOffsetSafetyContextRow(

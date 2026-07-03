@@ -240,6 +240,8 @@ public static class CSharpDeclarationWriter
             signature = EscapeParameterLists(signature);
 
         List<string> parts = [];
+        foreach (var attribute in member.Attributes)
+            parts.Add($"[{attribute}]");
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
         if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)

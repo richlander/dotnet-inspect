@@ -19,10 +19,10 @@ public class InverseArchitectureTests
 
     public InverseArchitectureTests(ITestOutputHelper output) => _output = output;
 
-    // In-domain product nodes that MUST carry [InverseOf] or [NotInverted]. Empty
-    // for now: this machinery-only change adds no product annotations (no
-    // IrNodes.cs churn). The set grows as the ledger's declared domain grows.
-    static readonly string[] EnforcedProductNodes = [];
+    // In-domain product nodes that MUST carry [InverseOf] or [NotInverted]. The
+    // conversion family is the first annotated slice (docs/design/inverse-architecture.md);
+    // the set grows as the ledger's declared domain grows.
+    static readonly string[] EnforcedProductNodes = ["Convert", "Coerce", "Box"];
 
     static Assembly ProductAssembly => typeof(IrFunction).Assembly;
     Assembly TestAssembly => GetType().Assembly;
@@ -35,10 +35,11 @@ public class InverseArchitectureTests
             row => row.Node == nameof(SampleInverseNode));
 
         Assert.Equal("BoundConversion (sample)", sample.ForwardName);
+        Assert.Equal(Oracle.RyuJitStackNormalization, sample.Oracle);
         Assert.Equal(NameProvenance.Native, sample.Naming);
 
         var markdown = InverseLedger.RenderMarkdown(TestAssembly);
-        Assert.Contains("| `SampleInverseNode` | BoundConversion (sample) | Native |", markdown);
+        Assert.Contains("| `SampleInverseNode` | BoundConversion (sample) | RyuJitStackNormalization | Native |", markdown);
     }
 
     [Fact]
@@ -63,9 +64,12 @@ public class InverseArchitectureTests
         Assert.Contains("| `SampleBoundaryNode` | sample: outside the checkable domain |", markdown);
     }
 
-    // Rule #4: every [InverseOf(assumes: ...)] must name a runnable, release-capable
-    // predicate on InverseAssumptions, and the coverage test invokes it over a
-    // fixture corpus. This binds the attribute's claim to an executable check.
+    // Rule #4 (structural): every [InverseOf(assumes: ...)] must name a runnable,
+    // release-capable predicate on InverseAssumptions with the Check(IrFunction)
+    // shape — this gate resolves each and confirms it is invocable. It proves
+    // resolve-and-invoke, not non-vacuity: per-predicate *behavior* is covered by
+    // each predicate's own tests (e.g. CoercionInvariantTests for
+    // SinkDistinguishableFromStack), not re-proven here.
     [Fact]
     public void EveryAssumes_ResolvesToARunnablePredicate()
     {
@@ -122,6 +126,10 @@ public class InverseArchitectureTests
             _output.WriteLine($"  - {node}");
     }
 
+    // The committed generated ledger must match the reflector output. The match is
+    // content-normalized (line-ending- and trailing-whitespace-insensitive via
+    // Normalize), not raw byte-exact — so the gate is portable across checkouts and
+    // editors while still catching any content drift in the ledger.
     [Fact]
     public void GeneratedProductLedger_MatchesCommittedFile()
     {

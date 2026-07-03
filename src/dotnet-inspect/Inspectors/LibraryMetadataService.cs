@@ -741,6 +741,7 @@ internal static class LibraryMetadataService
                     PathConfidence = opportunity.PathConfidence,
                     PostDominance = opportunity.PostDominance,
                     IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
+                    Weight = opportunity.Weight,
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;
@@ -776,6 +777,9 @@ internal static class LibraryMetadataService
             return 1;
         return 0;
     }
+
+    // Null (non-allocation, no weight) sorts distinctly below "low" rather than tying it.
+    static int WeightSortRank(string? weight) => weight is null ? -1 : ConfidenceRank(weight);
 
     internal static IEnumerable<Analysis.OptimizationOpportunity> FilterAndOrderTriageOpportunities(
         IEnumerable<Analysis.OptimizationOpportunity> opportunities,
@@ -856,6 +860,19 @@ internal static class LibraryMetadataService
             return MatchCompare(compare, predicate.Operator);
         }
 
+        if (predicate.Field == "Weight")
+        {
+            // Non-allocation opportunities have no weight; a weight predicate never
+            // matches them (rather than treating null as the "low" rank).
+            if (opportunity.Weight is null)
+                return false;
+            int expected = ConfidenceRank(predicate.Value);
+            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
+                return false;
+            int compare = ConfidenceRank(opportunity.Weight).CompareTo(expected);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
         if (predicate.Field == "Member")
         {
             var full = FormatMethod(opportunity.Method);
@@ -896,6 +913,8 @@ internal static class LibraryMetadataService
             return left.RootReach.CompareTo(right.RootReach);
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
+        if (field == "Weight")
+            return WeightSortRank(left.Weight).CompareTo(WeightSortRank(right.Weight));
         if (field == "Loop")
             return left.InLoop.CompareTo(right.InLoop);
         if (field == "IL")
@@ -919,6 +938,7 @@ internal static class LibraryMetadataService
             "Path" => opportunity.PathContext,
             "PathConfidence" => opportunity.PathConfidence,
             "PostDominance" => opportunity.PostDominance,
+            "Weight" => opportunity.Weight,
             "IL" => opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
             "RootReach" => opportunity.RootReach.ToString(CultureInfo.InvariantCulture),
             _ => null,
