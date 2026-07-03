@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1698,6 +1699,118 @@ public class ReturnToSenderPrototypeTests
                     Assert.Contains("operator ==(", result.Source);
                     Assert.Contains("operator !=(", result.Source);
                 });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "ToString", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                toString =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, toString.Status);
+                    Assert.Contains("protected virtual bool PrintMembers", toString.Source);
+                    Assert.Contains("protected virtual System.Type EqualityContract", toString.Source);
+                },
+                equalsObject =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, equalsObject.Status);
+                    Assert.Contains("public virtual bool Equals(Row other)", equalsObject.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesGenericRecordTypedEqualsShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row<T>(T Value);
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row`1", "Equals", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public virtual bool Equals(Row<T> other)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RendersAbstractClosurePropertiesWithoutBodies()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Row
+            {
+                public abstract string Name { get; set; }
+                public void SetName(string value) => Name = value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "SetName", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public abstract string Name { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSelfTypeSignature_IncludesDeclaringGenericParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Container<T>
+            {
+                public record Row<U>(T Outer, U Value);
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeHandle = reader.TypeDefinitions
+                .Single(handle => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)) == "Container`1.Row`1");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            var helper = typeof(CompileBackSourceComposer).GetMethod(
+                "SelfTypeSignature",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            var selfType = Assert.IsType<string>(helper!.Invoke(null, [reader, typeDef, identity]));
+
+            Assert.Equal("Container<T>.Row<U>", selfType);
         }
         finally
         {
