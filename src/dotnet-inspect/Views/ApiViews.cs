@@ -890,8 +890,8 @@ public record OptimizationOpportunityRow(
     [property: MarkoutSkipNull] string? PathConfidence,
     [property: MarkoutPropertyName("Post Dominance")]
     [property: MarkoutSkipNull] string? PostDominance,
-    [property: MarkoutSkipNull] string? Weight,
-    [property: MarkoutSkipNull] string? IL);
+    [property: MarkoutSkipNull] string? IL,
+    [property: MarkoutSkipNull] string? Weight);
 
 [MarkoutSerializable]
 public record TopLeverageRow(

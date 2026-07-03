@@ -31,8 +31,8 @@ public sealed record PerformanceTriageOptions
         "Path",
         "PathConfidence",
         "PostDominance",
-        "Weight",
         "IL",
+        "Weight",
     ];
 
     public static readonly string[] SortableFields =

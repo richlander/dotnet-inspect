@@ -3997,9 +3997,11 @@ public sealed class LibraryBodyIndex
             return decodedBody.PostDominances.PostDominanceFor(blockIndex);
         }
 
-        // Per-invocation multiplicity, consolidated from the existing path axes:
-        //   error/throw path -> Conditional (runs only when the exception fires)
-        //   loop body        -> Loop (0..N per call; N is not statically resolved)
+        // Per-invocation multiplicity, consolidated from the existing path axes.
+        // Loop membership takes precedence: an allocation inside a loop runs 0..N times
+        // per call regardless of any branch/error sub-path, so it is the hot signal we
+        // must not hide. Otherwise:
+        //   throw/error path -> Conditional (runs only when the exception fires)
         //   dominates-return -> Once (runs on every returning path, exactly once)
         //   behind a branch  -> Conditional (0 or 1 per call)
         //   otherwise        -> Unknown (straight-line but not proven to dominate return)
@@ -4009,6 +4011,8 @@ public sealed class LibraryBodyIndex
             IReadOnlyList<(int Start, int End)> loopRegions,
             AllocationEscape escape)
         {
+            if (IsInLoopRegion(offset, loopRegions))
+                return AllocationMultiplicity.Loop;
             if (escape == AllocationEscape.ThrowPath)
                 return AllocationMultiplicity.Conditional;
 
@@ -4016,8 +4020,6 @@ public sealed class LibraryBodyIndex
             var context = decodedBody.PathContexts.ContextFor(blockIndex);
             if (context == AllocationPathContext.ErrorPath)
                 return AllocationMultiplicity.Conditional;
-            if (IsInLoopRegion(offset, loopRegions))
-                return AllocationMultiplicity.Loop;
 
             var confidence = decodedBody.PathConfidences.ConfidenceFor(blockIndex);
             if (confidence == AllocationPathConfidence.DominatesReturn)
@@ -4121,7 +4123,9 @@ public sealed class LibraryBodyIndex
                         PathContext = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
                         PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
                         PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
-                        Multiplicity = escape.Escape == AllocationEscape.ThrowPath ? AllocationMultiplicity.Conditional : occurrence.Multiplicity,
+                        Multiplicity = escape.Escape == AllocationEscape.ThrowPath && occurrence.Multiplicity != AllocationMultiplicity.Loop
+                            ? AllocationMultiplicity.Conditional
+                            : occurrence.Multiplicity,
                     });
             }
             return builder.MoveToImmutable();

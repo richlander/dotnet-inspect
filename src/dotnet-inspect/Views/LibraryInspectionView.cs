@@ -601,8 +601,8 @@ public class LibraryInspectionView
                 context.Path,
                 context.PathConfidence,
                 context.PostDominance,
-                context.Multiplicity,
-                context.Evidence))
+                context.Evidence,
+                context.Multiplicity))
             .ToList();
 
     [MarkoutIgnore]
@@ -760,8 +760,8 @@ public class LibraryInspectionView
                 o.Path,
                 o.PathConfidence,
                 o.PostDominance,
-                o.Weight,
-                o.IL is null ? null : MarkoutInline.Code(o.IL)))
+                o.IL is null ? null : MarkoutInline.Code(o.IL),
+                o.Weight))
             .ToList();
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
@@ -1041,8 +1041,8 @@ public record ILOffsetAllocationContextRow(
     string? Path,
     [property: MarkoutPropertyName("Path Confidence")] string? PathConfidence,
     [property: MarkoutPropertyName("Post Dominance")] string? PostDominance,
-    [property: MarkoutSkipNull] string? Multiplicity,
-    string? Evidence);
+    string? Evidence,
+    [property: MarkoutSkipNull] string? Multiplicity);
 
 [MarkoutSerializable]
 public record ILOffsetSafetyContextRow(
