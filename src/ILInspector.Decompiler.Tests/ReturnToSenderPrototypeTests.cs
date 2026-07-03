@@ -1741,6 +1741,52 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesGenericRecordTypedEqualsShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row<T>(T Value);
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row`1", "Equals", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public virtual bool Equals(Row<T> other)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RendersAbstractClosurePropertiesWithoutBodies()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Row
+            {
+                public abstract string Name { get; }
+                public string Describe() => Name;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "Describe", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public abstract string Name { get; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
     {
         var assemblyPath = CompileFixture("""
