@@ -684,16 +684,15 @@ internal static class LibraryMetadataService
         var map = new Dictionary<int, (string? Stable, string Visibility, string Selector)>();
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            using var session = AssemblyInspectionSession.Open(path);
+            if (!session.HasMetadata)
                 return map;
 
             // All-members first (covers non-public, numbered as `--all` drilling resolves them).
-            AddSurface(ILInspector.Metadata.ApiSurfaceExtractor.Extract(peReader, includeAll: true), map);
+            AddSurface(session.ApiSurface(includeAll: true), map);
             // Default surface overwrites public members with their public-only Name:N, which is
             // what `member Name:N` resolves without `--all`.
-            AddSurface(ILInspector.Metadata.ApiSurfaceExtractor.Extract(peReader, includeAll: false), map);
+            AddSurface(session.ApiSurface(includeAll: false), map);
         }
         catch (Exception ex)
         {
@@ -975,9 +974,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            return ScanOpenTelemetry(peReader, path, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            return ScanOpenTelemetry(session, path, logger);
         }
         catch (Exception ex)
         {
@@ -990,9 +988,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            ScanIntegrations(peReader, path, inspection, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            ScanIntegrations(session, path, inspection, logger);
         }
         catch (Exception ex)
         {
@@ -1000,10 +997,10 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ScanIntegrations(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    internal static void ScanIntegrations(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
-        LibraryIntegrationCatalog.OpenTelemetry.SetSignals(inspection, ScanOpenTelemetry(peReader, path, logger));
-        var signals = EcosystemIntegrationScanner.Scan(peReader);
+        LibraryIntegrationCatalog.OpenTelemetry.SetSignals(inspection, ScanOpenTelemetry(session, path, logger));
+        var signals = session.EcosystemIntegrations();
         foreach (var descriptor in LibraryIntegrationCatalog.EcosystemScanned)
             descriptor.SetSignals(inspection, SelectIntegrationSignals(signals, descriptor.Name));
         inspection.Integrations = BuildIntegrations(inspection);
@@ -1013,9 +1010,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            ScanIntegrationOpportunities(peReader, path, inspection, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            ScanIntegrationOpportunities(session, path, inspection, logger);
         }
         catch (Exception ex)
         {
@@ -1023,23 +1019,23 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ScanIntegrationOpportunities(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    internal static void ScanIntegrationOpportunities(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
         if (inspection.Integrations == null)
-            ScanIntegrations(peReader, path, inspection, logger);
+            ScanIntegrations(session, path, inspection, logger);
 
         var existing = new HashSet<string>(
             inspection.Integrations?.Select(integration => integration.Integration) ?? [],
             StringComparer.Ordinal);
-        var gaps = IntegrationOpportunityScanner.Scan(peReader, existing);
+        var gaps = session.IntegrationOpportunities(existing);
         inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
     }
 
-    internal static List<IntegrationSignal>? ScanOpenTelemetry(PEReader peReader, string path, VerboseLogger logger)
+    internal static List<IntegrationSignal>? ScanOpenTelemetry(AssemblyInspectionSession session, string path, VerboseLogger logger)
     {
         try
         {
-            var signals = OpenTelemetryScanner.Scan(peReader)
+            var signals = session.OpenTelemetrySignals()
                 .Select(s => new IntegrationSignal(s.Kind, s.Name, s.Shape))
                 .ToList();
 
@@ -1145,9 +1141,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            return ScanSwitches(peReader, path, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            return ScanSwitches(session, path, logger);
         }
         catch (Exception ex)
         {
@@ -1156,11 +1151,11 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<SwitchInfo>? ScanSwitches(PEReader peReader, string path, VerboseLogger logger)
+    internal static List<SwitchInfo>? ScanSwitches(AssemblyInspectionSession session, string path, VerboseLogger logger)
     {
         try
         {
-            var switches = SwitchScanner.Scan(peReader);
+            var switches = session.Switches();
             return switches.Count > 0 ? switches : null;
         }
         catch (Exception ex)
