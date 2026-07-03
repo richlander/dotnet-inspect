@@ -46,6 +46,12 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundArrayAccess</c> (an array element reference).</summary>
     RoslynBoundArrayAccess,
+
+    /// <summary>Roslyn's <c>BoundFunctionPointerLoad</c> (the <c>&amp;method</c> function-pointer load).</summary>
+    RoslynBoundFunctionPointerLoad,
+
+    /// <summary>Roslyn's <c>BoundFunctionPointerInvocation</c> (a <c>delegate*</c> invocation).</summary>
+    RoslynBoundFunctionPointerInvocation,
 }
 
 /// <summary>
