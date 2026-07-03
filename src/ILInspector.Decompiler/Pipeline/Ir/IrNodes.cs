@@ -3247,7 +3247,7 @@ public sealed class InitObject : IrNode
     naming: Inverse.NameProvenance.Inherited,
     oracle: Inverse.Oracle.RyuJitImporter,
     forwardName: "BoundArrayAccess / ldelem",
-    precondition: "result is the `ldelem` element-type token; `ldelem.ref` encodes no type and takes the array operand's element type",
+    precondition: "result is the element type: the `ldelem` type token, the fixed type of a typed `ldelem.*` opcode (`ldelem.i4` → `int`, `ldelem.r8` → `double`, …), or — for `ldelem.ref`, which encodes no type — the array operand's element type",
     witness: "array fixtures; corpus compile-back")]
 public sealed class LoadElement : IrExpression
 {
