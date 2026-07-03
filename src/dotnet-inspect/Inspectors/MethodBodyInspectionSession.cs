@@ -34,9 +34,20 @@ public sealed class MethodBodyInspectionSession
     /// </summary>
     public string SourceName { get; }
 
+    /// <summary>
+    /// Test-only counter of index builds (one per <see cref="Open"/>). The "build the index once
+    /// per command" invariant (#2139 perf: PRs #2187/#2199/#2210) is guarded by asserting this
+    /// stays at 1 across a multi-section render; a new section that opens its own session would
+    /// silently reintroduce a per-section rebuild.
+    /// </summary>
+    internal static int OpenCountForTests;
+
     /// <summary>Opens a session over an assembly's analysis body index.</summary>
     public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null)
-        => new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver), Path.GetFileNameWithoutExtension(assemblyPath));
+    {
+        System.Threading.Interlocked.Increment(ref OpenCountForTests);
+        return new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver), Path.GetFileNameWithoutExtension(assemblyPath));
+    }
 
     /// <summary>
     /// Allocation facts for one method (<paramref name="methodToken"/>), optionally narrowed to a
