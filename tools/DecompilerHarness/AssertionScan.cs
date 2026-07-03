@@ -266,7 +266,7 @@ internal static class AssertionScan
             coverage.AddOrUpdate(node, 1, (_, count) => count + 1);
     }
 
-    static string SinkType(string message)
+    internal static string SinkType(string message)
     {
         var match = Regex.Match(message, @" occupies a (?<sink>.+?) sink without a Coerce$", RegexOptions.CultureInvariant);
         return match.Success ? match.Groups["sink"].Value : "(unknown)";
