@@ -22,12 +22,6 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundConversion</c> (the bound-tree conversion node).</summary>
     RoslynBoundConversion,
-
-    /// <summary>RyuJIT's <c>GT_CAST</c>.</summary>
-    RyuJitCast,
-
-    /// <summary>RyuJIT's <c>GT_BOX</c>.</summary>
-    RyuJitBox,
 }
 
 /// <summary>

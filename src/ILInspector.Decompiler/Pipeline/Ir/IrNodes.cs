@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-using ILInspector.Decompiler.Pipeline.InverseArchitecture;
+using Inverse = ILInspector.Decompiler.Pipeline.InverseArchitecture;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -1231,13 +1231,13 @@ public sealed class IncrementDecrement : IrExpression
 /// CoerceText rule; asserted by CoercionInvariant. Roslyn's BoundConversion,
 /// in reverse.
 /// </summary>
-[InverseOf(
-    Forward.RoslynBoundConversion,
-    naming: NameProvenance.Native,
-    oracle: Oracle.RyuJitStackNormalization,
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Native,
+    oracle: Inverse.Oracle.RyuJitStackNormalization,
     forwardName: "BoundConversion (implicit, target-driven)",
     precondition: "sink type recoverable and distinguishable from the stack type",
-    assumes: nameof(InverseAssumptions.SinkDistinguishableFromStack),
+    assumes: nameof(Inverse.InverseAssumptions.SinkDistinguishableFromStack),
     witness: "CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B")]
 public sealed class Coerce : IrExpression
 {
@@ -1256,11 +1256,11 @@ public sealed class Coerce : IrExpression
 }
 
 /// <summary>A numeric conversion (the conv.* family).</summary>
-[InverseOf(
-    Forward.RoslynBoundConversion,
-    naming: NameProvenance.Inherited,
-    oracle: Oracle.RyuJitStackNormalization,
-    forwardName: "BoundConversion (numeric) / GT_CAST",
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitStackNormalization,
+    forwardName: "BoundConversion (numeric)",
     precondition: "none — models the conv.* that ran",
     witness: "round-trips by construction; corpus compile-back")]
 public sealed class Convert : IrExpression
@@ -2364,10 +2364,11 @@ public sealed class IndexFromEnd : IrExpression
 }
 
 /// <summary>The boxing conversion (the <c>box</c> opcode): a value type materialized as a reference.</summary>
-[InverseOf(
-    Forward.RoslynBoundConversion,
-    naming: NameProvenance.Inherited,
-    forwardName: "BoundConversion (boxing) / GT_BOX",
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (boxing)",
     precondition: "target is the boxed value type",
     witness: "box/unbox fixtures")]
 public sealed class Box : IrExpression
