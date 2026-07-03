@@ -15,8 +15,7 @@ public class ClassicAsyncTests
         if (!File.Exists(fixturePath))
             fixturePath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "bin", "ILInspector.Decompiler.Fixtures.ClassicAsync", "release", "ILInspector.Decompiler.Fixtures.ClassicAsync.dll");
             
-        if (!File.Exists(fixturePath))
-            return;
+        Assert.True(File.Exists(fixturePath), "ClassicAsync fixture DLL not found");
 
         var source = MetadataSource.OpenWithoutSymbols(fixturePath);
         var dump = StageDump.DumpMethod(source, "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures", "AwaitValue");
