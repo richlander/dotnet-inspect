@@ -30,6 +30,7 @@ public sealed class MetadataSource : IDisposable
     MetadataContext? _crossContext;
     bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
+    readonly object _crossLock = new();
 
     MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator, IAssemblyReferenceResolver resolver, MetadataContext? context)
     {
@@ -198,7 +199,19 @@ public sealed class MetadataSource : IDisposable
     /// cannot state on its own (value-type-ness of a bare cross-assembly token).
     /// </summary>
     internal CrossAssemblyTypeResolver CrossAssembly
-        => _crossAssembly ??= new CrossAssemblyTypeResolver(AssemblyName, Reader, CrossContext);
+    {
+        get
+        {
+            if (_crossAssembly is null)
+            {
+                lock (_crossLock)
+                {
+                    _crossAssembly ??= new CrossAssemblyTypeResolver(AssemblyName, Reader, CrossContext);
+                }
+            }
+            return _crossAssembly;
+        }
+    }
 
     /// <summary>
     /// The shared assembly-reading environment cross-assembly resolution reads
@@ -210,10 +223,19 @@ public sealed class MetadataSource : IDisposable
     {
         get
         {
+            if (_suppliedContext is not null)
+                return _suppliedContext;
+                
             if (_crossContext is null)
             {
-                _crossContext = _suppliedContext ?? new MetadataContext(_resolver);
-                _ownsCrossContext = _suppliedContext is null;
+                lock (_crossLock)
+                {
+                    if (_crossContext is null)
+                    {
+                        _crossContext = new MetadataContext(_resolver);
+                        _ownsCrossContext = true;
+                    }
+                }
             }
             return _crossContext;
         }
