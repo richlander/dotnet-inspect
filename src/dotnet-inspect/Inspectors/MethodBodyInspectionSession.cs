@@ -53,10 +53,11 @@ public sealed class MethodBodyInspectionSession
     /// Operations / Allocation-Safety-Cost facts) — reverse/aggregate sections require a full build.
     /// </summary>
     public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null,
-        bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null)
+        bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
-        return new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver, includeAllocations, includeOpportunities, bodyScope), Path.GetFileNameWithoutExtension(assemblyPath));
+        return new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver, includeAllocations, includeOpportunities, bodyScope, bodyTypeScope), Path.GetFileNameWithoutExtension(assemblyPath));
     }
 
     /// <summary>
