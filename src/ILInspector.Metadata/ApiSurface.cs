@@ -187,7 +187,8 @@ public class ApiSignature
 
     public string ParameterDeclarationsSummary => Parameters.Count == 0
         ? "()"
-        : $"({string.Join(", ", Parameters.Select(parameter => parameter.Declaration))})";
+        : CSharpDeclarationWriter.EscapeQualifiedKeywordSegments(
+            $"({string.Join(", ", Parameters.Select(parameter => parameter.Declaration))})");
 
     public List<(string name, string type, bool hasDefault)> ParameterInfoSummary => Parameters
         .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))

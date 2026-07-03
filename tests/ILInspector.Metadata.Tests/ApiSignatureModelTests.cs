@@ -78,6 +78,24 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void ParameterDeclarationsSummary_EscapesKeywordNamesAndQualifiedTypeSegments()
+    {
+        var signature = new ApiSignature
+        {
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Type = "System.event.MyClass",
+                    Name = "event"
+                }
+            ]
+        };
+
+        Assert.Equal("(System.@event.MyClass @event)", signature.ParameterDeclarationsSummary);
+    }
+
+    [Fact]
     public void CanonicalSignature_UsesStructuredSignatureModel()
     {
         var type = GetType(nameof(ApiSignatureFixtures));

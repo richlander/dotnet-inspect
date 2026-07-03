@@ -715,7 +715,7 @@ public static class CSharpDeclarationWriter
             : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
     }
 
-    static string EscapeQualifiedKeywordSegments(string signature)
+    internal static string EscapeQualifiedKeywordSegments(string signature)
     {
         var sb = new StringBuilder(signature.Length);
         bool inString = false;
