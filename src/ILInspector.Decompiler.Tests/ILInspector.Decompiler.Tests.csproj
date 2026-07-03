@@ -69,6 +69,8 @@
              Link="ValidityCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AssertionEvaluator.cs"
              Link="AssertionEvaluator.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AssertionPrinter.cs"
+             Link="AssertionPrinter.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AssertionScan.cs"
              Link="AssertionScan.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
