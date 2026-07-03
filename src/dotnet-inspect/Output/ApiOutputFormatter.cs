@@ -43,12 +43,22 @@ public static class ApiOutputFormatter
     /// <summary>
     /// Opens a type-scope analysis session for the type/library sections. Callers memoize this per
     /// type so the five type-analysis populators share one index build instead of opening five. The
-    /// build is narrowed to the phases <paramref name="requestedSections"/> consumes.
+    /// build is narrowed to the phases <paramref name="requestedSections"/> consumes, and — when
+    /// <paramref name="type"/> is supplied and no requested section needs the whole-assembly reverse
+    /// graph (Top Leverage / Performance Triage) — to only that type's method bodies.
     /// </summary>
-    internal static MethodBodyInspectionSession OpenTypeAnalysisSession(string dllPath, IReadOnlyCollection<string>? requestedSections = null)
+    internal static MethodBodyInspectionSession OpenTypeAnalysisSession(string dllPath, IReadOnlyCollection<string>? requestedSections = null, ApiType? type = null)
     {
         var (allocations, opportunities) = AnalysisScopeFor(requestedSections);
-        return MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath), allocations, opportunities);
+        // Unsafe Members, Called Types, and the Allocation/Safety/Cost facts read only the type's
+        // own method bodies; Top Leverage (whole-assembly fanin) and Performance Triage (leverage
+        // join) need every method, so their presence forces a full build.
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null;
+        if (type is not null && requestedSections is not null
+            && !requestedSections.Contains(SectionNames.TopLeverage)
+            && !requestedSections.Contains(SectionNames.PerformanceTriage))
+            bodyTypeScope = typeRef => SameType(typeRef, type);
+        return MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath), allocations, opportunities, bodyScope: null, bodyTypeScope: bodyTypeScope);
     }
 
     // ===== Full API View Model Factory =====
