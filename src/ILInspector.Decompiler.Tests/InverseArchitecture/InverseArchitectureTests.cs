@@ -161,11 +161,15 @@ public class InverseArchitectureTests
             "Repo source tree is not co-located with the test binary; the drift gate is a source-tree check.");
 
         var path = Path.Combine(root!, "docs", "design", "inverse-ledger.generated.md");
+        string regenHint = $"Regenerate it from the repository root via `./eng/regen-inverse-ledger.sh`.";
         Assert.True(File.Exists(path),
-            $"Missing {path}. Regenerate it via `dotnet run --project tools/DecompilerHarness -c Release -- --emit-inverse-ledger <path>`.");
-        Assert.Equal(
-            Normalize(InverseLedger.RenderMarkdown(ProductAssembly)),
-            Normalize(File.ReadAllText(path)));
+            $"Missing {path}. {regenHint}");
+
+        string expected = Normalize(InverseLedger.RenderMarkdown(ProductAssembly));
+        string actual = Normalize(File.ReadAllText(path));
+        Assert.True(
+            string.Equals(expected, actual, StringComparison.Ordinal),
+            $"Generated inverse ledger drifted: {path}. {regenHint}");
     }
 
     static IrFunction EmptyProbeFunction()
