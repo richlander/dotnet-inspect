@@ -546,8 +546,8 @@ public static class CompileBackSourceComposer
                         isConstructor ? null : MethodReturnAttributes(reader, method),
                         IsAbstract: !isConstructor && IsAbstractMethod(method),
                         IsVirtual: !isConstructor && IsVirtualMethod(method),
-                        IsOverride: !isConstructor && IsOverrideMethod(method),
-                        IsSealed: !isConstructor && IsSealedMethod(method))
+                        IsOverride: false,
+                        IsSealed: false)
                 ],
                 primaryConstructor,
                 targetFacts)
@@ -1128,15 +1128,6 @@ public static class CompileBackSourceComposer
             && (method.Attributes & MethodAttributes.Abstract) == 0
             && (method.Attributes & MethodAttributes.Final) == 0
             && (method.Attributes & MethodAttributes.NewSlot) != 0;
-
-    static bool IsOverrideMethod(MethodDefinition method)
-        => IsPublicMethod(method)
-            && (method.Attributes & MethodAttributes.Virtual) != 0
-            && (method.Attributes & MethodAttributes.NewSlot) == 0;
-
-    static bool IsSealedMethod(MethodDefinition method)
-        => IsOverrideMethod(method)
-            && (method.Attributes & MethodAttributes.Final) != 0;
 
     static bool IsPublicMethod(MethodDefinition method)
         => (method.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
@@ -2207,8 +2198,8 @@ public static class CompileBackSourceComposer
                     [new CompileBackFact("metadata", isConstructor ? "closure-constructor" : "closure-method", name)],
                     IsAbstract: !isConstructor && IsAbstractMethod(method),
                     IsVirtual: !isConstructor && IsVirtualMethod(method),
-                    IsOverride: !isConstructor && IsOverrideMethod(method),
-                    IsSealed: !isConstructor && IsSealedMethod(method)));
+                    IsOverride: false,
+                    IsSealed: false));
             }
 
             if (requirement.RequiredKind == CompileBackTypeKind.Class

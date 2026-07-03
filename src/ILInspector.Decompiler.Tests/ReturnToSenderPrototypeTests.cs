@@ -1640,6 +1640,36 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DoesNotMarkUserBaseOverrideWithoutBaseShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class BaseNode
+            {
+                public abstract string Describe();
+            }
+
+            public class DerivedNode : BaseNode
+            {
+                public override string Describe() => "derived";
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("DerivedNode", "Describe", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public string Describe()", result.Source);
+            Assert.DoesNotContain("override string Describe", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""
