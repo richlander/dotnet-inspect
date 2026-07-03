@@ -2160,9 +2160,17 @@ public sealed class LibraryBodyIndex
                 var decodedBody = DecodeBody(il, body.ExceptionRegions);
                 bool hasUnsafeLocals = ScanLocals(body, caller, scope, evidence);
                 var loopRegions = decodedBody.LoopRegions;
-                result.Allocations = includeAllocations
-                    ? CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: true)
+                // Scan allocation occurrences once (raw, escape = Unknown). The main allocation output
+                // needs escape classification, while Performance Triage's optimization-opportunity pass
+                // reuses the same raw occurrences (it keys them by IL offset and does not read escape
+                // state). Classifying once and sharing the raw scan avoids a second full instruction/
+                // token scan per method whenever opportunities are computed.
+                var rawAllocations = includeAllocations
+                    ? CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: false)
                     : ImmutableArray<AllocationOccurrence>.Empty;
+                result.Allocations = includeAllocations && !rawAllocations.IsDefaultOrEmpty
+                    ? ClassifyAllocationEscapes(rawAllocations, il, decodedBody, body.ExceptionRegions, caller, scope)
+                    : rawAllocations;
                 result.Unsafety = CollectUnsafetyOccurrences(decodedBody.Instructions, body, caller, scope);
                 var methodAttributes = methodDef.GetCustomAttributes();
                 if (includeOpportunities)
@@ -2171,7 +2179,7 @@ public sealed class LibraryBodyIndex
                         && !HasGeneratedCodeAttribute(methodAttributes)
                         && !HasCompilerGeneratedAttribute(methodAttributes)
                         && !IsBlazorRenderMethod(caller))
-                        result.Opportunities = CollectOptimizationOpportunities(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions);
+                        result.Opportunities = CollectOptimizationOpportunities(rawAllocations, il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions);
                     else
                         result.Suppressed = true;
                 }
@@ -3183,11 +3191,12 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, DecodedBody decodedBody, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
+        ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(ImmutableArray<AllocationOccurrence> rawAllocations, byte[] il, DecodedBody decodedBody, IReadOnlyCollection<ExceptionRegion> exceptionRegions, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-            var allocationByOffset = CollectAllocationOccurrences(il, decodedBody, exceptionRegions, caller, callerScope, loopRegions, classifyEscapes: false)
-                .ToDictionary(occurrence => occurrence.ILOffset);
+            // Raw (unclassified) allocation occurrences for this method, scanned once by the caller
+            // and shared here to avoid a redundant second allocation scan. Escape state is not read.
+            var allocationByOffset = rawAllocations.ToDictionary(occurrence => occurrence.ILOffset);
             ReachingDefinitionsResult? reachingDefinitions = null;
             ReachingDefinitionsResult GetReachingDefinitions()
                 => reachingDefinitions ??= ReachingDefinitions.Analyze(il, ArgumentSlotCount(caller), exceptionRegions);
