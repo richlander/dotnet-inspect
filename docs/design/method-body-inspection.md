@@ -126,7 +126,7 @@ public sealed class MethodBodyInspectionSession
 public sealed record MethodBodyInspection(
     MethodBodyIdentity Method,
     InstructionFact? Instruction,
-    SourceLocationFact? Source,
+    SourceCoordinateFact? Source,
     IReadOnlyList<ExceptionRegionFact> ExceptionRegions,
     IReadOnlyList<CallSiteFact> Calls,
     IReadOnlyList<CallerSiteFact> Callers,
