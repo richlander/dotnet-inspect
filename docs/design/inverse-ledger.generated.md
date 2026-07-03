@@ -10,11 +10,13 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 | --- | --- | --- | --- | --- | --- |
 | `AddressOfMethod` | &method (BoundFunctionPointerLoad) / ldftn | None | Native | result is the contextual function-pointer type only when the address is stored to a local or field or returned (`MethodAddressPass` recovers the `delegate*` target's type for those parents); otherwise the managed function-pointer type built from the method's own signature | function-pointer fixtures; corpus compile-back |
 | `ArrayLength` | BoundArrayLength / ldlen | None | Inherited | result is `System.Int32` — the array's `.Length` (`ldlen` pushes a native int; the `.Length` property is `int`) | array fixtures; corpus compile-back |
+| `AwaitExpression` | await x (BoundAwaitExpression) / runtime-async AsyncHelpers.Await call | None | Inherited | result is the awaited result type (the `AsyncHelpers.Await` helper call's return type, given at construction; `void` for the non-generic form); raised from the runtime-async (async v2) call-site, not a MoveNext state machine | async fixtures; corpus compile-back |
 | `Binary` | BoundBinaryOperator (arithmetic/bitwise/shift) | RyuJitImporter | Inherited | result type is the ECMA binary-numeric result of the operand stack types | corpus compile-back |
 | `Box` | BoundConversion (boxing) | RyuJitImporter | Inherited | target is the boxed value type | box/unbox fixtures |
 | `Call` | BoundCall / call·callvirt | None | Inherited | result is the callee's return type (method signature); `IsVirtual` selects `callvirt`, `ConstrainedTo` carries a `constrained.` prefix | corpus compile-back |
 | `CallIndirect` | BoundFunctionPointerInvocation / calli | None | Inherited | result is the `calli` standalone signature's return type; parameter types and calling convention come from that signature, not a resolved method (`IsInstance` marks a receiver absent from the parameter list) | function-pointer fixtures; corpus compile-back |
 | `CastClass` | BoundConversion (reference cast) | RyuJitImporter | Inherited | target is the reference type the cast checks | cast fixtures; corpus compile-back |
+| `CaughtException` | the caught exception in a catch clause / handler-entry stack value | None | Native | result is the catch region's declared exception type (`Type`), or `System.Object` in filters/untyped contexts — the exception value at handler entry | exception-handling fixtures; corpus compile-back |
 | `Coerce` | BoundConversion (implicit, target-driven) | RyuJitStackNormalization | Native | sink type recoverable and distinguishable from the stack type | CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B |
 | `Comparison` | BoundBinaryOperator (comparison) / ceq·clt·cgt | RyuJitImporter | Native | result is bool (the ceq/clt/cgt integer 0/1 result) | corpus compile-back |
 | `Convert` | BoundConversion (numeric) | RyuJitStackNormalization | Inherited | none — models the conv.* that ran | round-trips by construction; corpus compile-back |
@@ -57,4 +59,4 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 
 | Node | Reason |
 | --- | --- |
-| _(none yet)_ | — |
+| `UnsupportedNode` | unrepresented IL kept explicit and rendered honestly — outside the inverse's checkable domain by construction; any occurrence caps fidelity at Partial |

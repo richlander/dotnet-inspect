@@ -1216,6 +1216,12 @@ public sealed class Unary : IrExpression
 /// Runtime async lowers <c>await x</c> directly to this call rather than to a
 /// state machine, so recovery is a call-site rewrite with no MoveNext to unwind.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundAwaitExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "await x (BoundAwaitExpression) / runtime-async AsyncHelpers.Await call",
+    precondition: "result is the awaited result type (the `AsyncHelpers.Await` helper call's return type, given at construction; `void` for the non-generic form); raised from the runtime-async (async v2) call-site, not a MoveNext state machine",
+    witness: "async fixtures; corpus compile-back")]
 public sealed class AwaitExpression : IrExpression
 {
     public AwaitExpression(IrExpression operand, TypeRef? resultType)
@@ -3095,6 +3101,12 @@ public sealed class EventSubscription : IrNode
 }
 
 /// <summary>The exception value the CLR pushes on entry to a catch or filter handler.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "the caught exception in a catch clause / handler-entry stack value",
+    precondition: "result is the catch region's declared exception type (`Type`), or `System.Object` in filters/untyped contexts — the exception value at handler entry",
+    witness: "exception-handling fixtures; corpus compile-back")]
 public sealed class CaughtException : IrExpression
 {
     public CaughtException(TypeRef? type) => Type = type;
@@ -3445,6 +3457,7 @@ public sealed class UnboxAny : IrExpression
 /// rendered honestly, never forced into plausible output. Any occurrence
 /// caps the function's fidelity at <see cref="DecompilationFidelity.Partial"/>.
 /// </summary>
+[Inverse.NotInverted("unrepresented IL kept explicit and rendered honestly — outside the inverse's checkable domain by construction; any occurrence caps fidelity at Partial")]
 public sealed class UnsupportedNode : IrExpression
 {
     public UnsupportedNode(int ilOffset, string opcode, string reason)
