@@ -581,6 +581,9 @@ public class ILOffsetAllocationContext
     public string? CountedAsHeap { get; init; }
     public string? Frequency { get; init; }
     public string? Escape { get; init; }
+    [JsonPropertyName("escape_kind")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EscapeKind { get; init; }
     [JsonPropertyName("est_size")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? EstimatedSizeBytes { get; init; }
