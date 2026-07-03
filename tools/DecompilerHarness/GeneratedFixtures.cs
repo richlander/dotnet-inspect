@@ -699,6 +699,10 @@ internal static class GeneratedFixtureCatalog
             public int Method1()
                 => 42;
 
+            [System.Obsolete("use Method1")]
+            public int ObsoleteMethod()
+                => 43;
+
             [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
             public string Text
             {
@@ -714,6 +718,12 @@ internal static class GeneratedFixtureCatalog
                 ExpectedSourceFragments:
                 [
                     "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int Method1()",
+                ]),
+            new("GeneratedFixtures.MinimalMemberAttributes.Class1", "ObsoleteMethod",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[System.Obsolete(\"use Method1\")] public int ObsoleteMethod()",
                 ]),
             new("GeneratedFixtures.MinimalMemberAttributes.Class1", "get_Text",
                 FidelityCheck.CompileBackStatus.Exact,

@@ -567,6 +567,13 @@ public class GeneratedFixtureCatalogTests
             run,
             "minimal.member-attributes",
             "GeneratedFixtures.MinimalMemberAttributes.Class1",
+            "ObsoleteMethod",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.member-attributes",
+            "GeneratedFixtures.MinimalMemberAttributes.Class1",
             "get_Text",
             FidelityCheck.CompileBackStatus.Exact,
             frontier: false);

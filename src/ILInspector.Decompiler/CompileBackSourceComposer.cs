@@ -435,8 +435,7 @@ public static class CompileBackSourceComposer
                                 new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name)),
                                 new CompileBackFact("metadata", "auto-property", propertyName)
                             ]
-                            : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))],
-                        MemberAttributes(reader, property.GetCustomAttributes()))
+                            : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))])
                 ],
                 PrimaryConstructor: null,
                 targetFacts)
@@ -533,7 +532,7 @@ public static class CompileBackSourceComposer
                         CompileBackStubBodyKind.TargetBody,
                         targetBody,
                         [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
-                        MemberAttributes(reader, method.GetCustomAttributes()),
+                        isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
                         isConstructor ? null : MethodReturnAttributes(reader, method))
                 ],
                 primaryConstructor,
@@ -1103,7 +1102,6 @@ public static class CompileBackSourceComposer
         => AttributeReader.RenderAttributes(
             reader,
             attributes,
-            skipAttribute: static name => name == "System.ObsoleteAttribute",
             qualifyNames: true);
 
     static bool TryFormatAttributedParameterDefault(
