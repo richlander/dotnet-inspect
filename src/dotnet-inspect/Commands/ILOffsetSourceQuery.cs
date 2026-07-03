@@ -398,7 +398,8 @@ internal static class ILOffsetSourceQuery
             Path = fact.Path,
             PathConfidence = fact.PathConfidence,
             PostDominance = fact.PostDominance,
-            Evidence = fact.Evidence
+            Evidence = fact.Evidence,
+            Multiplicity = fact.Multiplicity
         };
 
     private static ILOffsetSafetyContext ToILOffsetSafetyContext(Analysis.SafetyFact fact)

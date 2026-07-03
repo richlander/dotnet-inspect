@@ -1851,7 +1851,8 @@ public static class ApiOutputFormatter
                 opportunity.PathContext,
                 opportunity.PathConfidence,
                 opportunity.PostDominance,
-                opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null))
+                opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
+                opportunity.Weight))
             .ToList();
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.PerformanceTriage))

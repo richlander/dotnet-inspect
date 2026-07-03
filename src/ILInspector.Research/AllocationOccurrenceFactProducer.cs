@@ -65,6 +65,8 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             parts.Add($"escape={FormatEscape(occurrence.Escape)}");
         if (FormatEscapeKind(occurrence.EscapeKind) is { } escapeKind)
             parts.Add($"escape-kind={escapeKind}");
+        if (FormatMultiplicity(occurrence.Multiplicity) is { } multiplicity)
+            parts.Add($"multiplicity={multiplicity}");
         return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 
@@ -110,6 +112,15 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             AllocationEscapeKind.Static => "escapes-static",
             AllocationEscapeKind.Collection => "escapes-collection",
             AllocationEscapeKind.Capture => "escapes-capture",
+            _ => null,
+        };
+
+    static string? FormatMultiplicity(AllocationMultiplicity multiplicity)
+        => multiplicity switch
+        {
+            AllocationMultiplicity.Once => "once",
+            AllocationMultiplicity.Conditional => "conditional",
+            AllocationMultiplicity.Loop => "loop",
             _ => null,
         };
 
