@@ -365,6 +365,12 @@ public class ApiSurfaceExtractorTests
             "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string PropertyWithMemberAttribute",
             propertyDeclaration,
             StringComparison.Ordinal);
+
+        var decimalField = testType.Members.FirstOrDefault(m => m.Name == "DecimalField");
+        Assert.NotNull(decimalField);
+        var decimalFieldDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, decimalField);
+        Assert.DoesNotContain("DecimalConstant", decimalFieldDeclaration);
+        Assert.Contains("DecimalField", decimalFieldDeclaration);
     }
 
     [Fact]
@@ -901,6 +907,8 @@ public class SampleClassForTesting
     {
         get => "hello";
     }
+
+    public const decimal DecimalField = 1.5m;
 }
 
 public class SampleKeywordParameterHost
