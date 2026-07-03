@@ -175,6 +175,20 @@ public sealed partial class CSharpPrinter
     /// the IL already carries as the enum, so it is faithful. A negative literal
     /// is parenthesized (CS0075), mirroring <see cref="CoerceText"/>'s enum path.
     /// </summary>
+    /// <summary>
+    /// The stack family of an enum-typed value's underlying: the resolved
+    /// underlying's family, or I4 for a missing-<c>value__</c> shape (the
+    /// MayOverflowEnumBackingType assumption). Null for non-enums.
+    /// </summary>
+    StackFamily? EnumSemanticFamily(TypeRef? type)
+    {
+        if (type is null || TypeFamilies.Of(type) is not null)
+            return null;
+        if (EnumUnderlyingType(type) is { } underlying)
+            return TypeFamilies.Of(underlying);
+        return _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum ? StackFamily.I4 : null;
+    }
+
     string EnumIntegerCast(IrExpression value, TypeRef enumType)
     {
         // A negative literal needs parentheses after the cast (CS0075); whether it
@@ -1080,13 +1094,24 @@ public sealed partial class CSharpPrinter
         // cast; a real narrowing in the IL arrives as a Convert node instead.
         if (target is { } primitiveTarget
             && TypeFamilies.IsIntegerLike(primitiveTarget)
-            && EnumUnderlyingType(EffectiveType(value)) is { } underlying
-            && TypeFamilies.Of(underlying) is { } underlyingFamily
+            && EnumSemanticFamily(EffectiveType(value)) is { } underlyingFamily
             && TypeFamilies.Of(primitiveTarget) is { } targetFamily
             && (underlyingFamily == targetFamily
                 || (underlyingFamily == StackFamily.I4 && targetFamily == StackFamily.I8)))
         {
             return $"({TypeText(primitiveTarget)}){Operand(value)}";
+        }
+        // Enum → enum: C# permits the explicit conversion between any two enum
+        // types directly. Reached when a slot join carries one enum and a
+        // sibling range's testimony carries another of the same family
+        // (slice-5b round 4: without the spelling, the range severed into an
+        // unassigned read).
+        if (target is { } enumToEnumTarget
+            && EnumSemanticFamily(enumToEnumTarget) is not null
+            && EnumSemanticFamily(EffectiveType(value)) is not null
+            && EffectiveType(value)?.Equals(enumToEnumTarget) != true)
+        {
+            return CheckedSafeCast($"({TypeText(enumToEnumTarget)}){Operand(value)}");
         }
         // The same cast, for a cross-assembly enum. ClassifyShape only sees types
         // defined in the inspected assembly, so a framework enum like
@@ -1118,7 +1143,15 @@ public sealed partial class CSharpPrinter
         // too (its arms are bool, the wrap is legal).
         if (target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(value) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
-            return $"{Condition(value)} ? 1 : 0";
+        {
+            // The composition's natural int converts implicitly only to int
+            // and wider signed targets; narrow and unsigned targets need the
+            // explicit cast — `(byte)(b ? 1 : 0)` (slice-5b round 4: denying
+            // these severed single live ranges into unassigned reads).
+            return intTarget is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
+                ? $"{Condition(value)} ? 1 : 0"
+                : CheckedSafeCast($"({TypeText(intTarget)})({Condition(value)} ? 1 : 0)");
+        }
         if (value is Conditional conditional
             && target is { } conditionalTarget
             && TryConditionalTextForTarget(conditional, conditionalTarget) is { } targetedConditional)

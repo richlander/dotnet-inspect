@@ -141,53 +141,35 @@ public static class CoercionSinks
     /// </summary>
     static bool RenderableSlotCoercion(TypeRef? valueType, TypeRef target, IrFunction function)
     {
+        // Round 4 inverted the strategy: for a single testified live range,
+        // DENYING the wrap severs the range into an unassigned read (CS0165),
+        // which is strictly worse than any cast. CoerceText is now total over
+        // same-semantic-family pairs — bool composes with a target cast where
+        // int doesn't convert implicitly, enum→enum casts directly, and
+        // missing-`value__` uses the assumed-int rule on both directions — so
+        // the gate is semantic-family equality with one directional exception:
+        // nothing spells integer→bool. Cross-family denials remain, and they
+        // are exactly the true disjoint ranges (cross-family single ranges
+        // cannot verify), where split naming is CORRECT. #2242 tracks
+        // extracting this contract so gate and renderer share one predicate.
         if (valueType is null)
             return false;
-        // bool → int/long only: the `? 1 : 0` composition's natural type is
-        // int, which converts implicitly to int and wider signed targets —
-        // not to byte/char/short/unsigned (round-3 finding 2).
-        if (TypeFamilies.IsBoolean(valueType))
-        {
-            return target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int32" or "Int64" };
-        }
-        var valueUnderlying = function.EnumUnderlyingTypes.GetValueOrDefault(valueType);
-        var targetUnderlying = function.EnumUnderlyingTypes.GetValueOrDefault(target);
-        // Cross-enum: CoerceText has no enum→enum spelling (round-3 finding 1).
-        if (valueUnderlying is not null && targetUnderlying is not null)
+        if (TypeFamilies.IsBoolean(target) && !TypeFamilies.IsBoolean(valueType))
             return false;
-        // enum → primitive: the printer's family-safe widening branch, which
-        // requires the underlying to actually RESOLVE — no assumed-int backing
-        // here, because the renderer makes no such assumption on this branch
-        // (round-3 finding 3).
-        if (valueUnderlying is not null)
-        {
-            return TypeFamilies.IsIntegerLike(target)
-                && !TypeFamilies.IsBoolean(target)
-                && TypeFamilies.Of(valueUnderlying) is { } uf
-                && TypeFamilies.Of(target) is { } tf
-                && (uf == tf || (uf == StackFamily.I4 && tf == StackFamily.I8));
-        }
-        // integer-like → enum: EnumIntegerCast's branch, which — unlike the
-        // enum→primitive direction — does handle a missing-`value__` shape
-        // (MayOverflowEnumBackingType assumes int backing there). The
-        // directional asymmetry mirrors the renderer's actual branches.
-        if (targetUnderlying is not null
-            || function.TypeShapes.GetValueOrDefault(target) == TypeShape.Enum)
-        {
-            var targetFamily = targetUnderlying is not null
-                ? TypeFamilies.Of(targetUnderlying)
-                : StackFamily.I4;
-            return valueType is { } vt
-                && TypeFamilies.IsIntegerLike(vt)
-                && TypeFamilies.Of(vt) == targetFamily;
-        }
-        // primitive ↔ primitive: NeedsNumericCast's same-family contract,
-        // boolean targets excluded (no integer→bool spelling).
-        return !TypeFamilies.IsBoolean(target)
-            && TypeFamilies.Of(valueType) is { } vf
-            && TypeFamilies.Of(target) is { } tf2
-            && vf == tf2;
+        var valueFamily = SemanticFamily(valueType, function);
+        var targetFamily = SemanticFamily(target, function);
+        return valueFamily is not null && targetFamily is not null
+            && (valueFamily == targetFamily
+                || (valueFamily == StackFamily.I4 && targetFamily == StackFamily.I8
+                    && function.EnumUnderlyingTypes.ContainsKey(valueType)));
     }
+
+    /// <summary>A type's semantic stack family: its own, or its resolved enum underlying's, or I4 for a missing-<c>value__</c> enum shape (the MayOverflowEnumBackingType assumption, now shared by the renderer's branches).</summary>
+    static StackFamily? SemanticFamily(TypeRef? type, IrFunction function)
+        => TypeFamilies.Of(type)
+            ?? (type is not null && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum
+                ? TypeFamilies.Of(function.EnumUnderlyingTypes.GetValueOrDefault(type)) ?? StackFamily.I4
+                : null);
 
     /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
     static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType)

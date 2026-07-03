@@ -226,11 +226,12 @@ public class CoercionInvariantTests
     }
 
     [Fact]
-    public void CrossEnumSlotStore_IsNotWrapped()
+    public void CrossEnumSlotStore_WrapsWithDirectEnumCast()
     {
-        // Round 3 (Gemini): CoerceText has no enum→enum spelling, so a
-        // same-underlying cross-enum pair is not wrappable — split naming
-        // keeps the ranges as separate correctly-typed variables.
+        // Round 4 (Gemini): denying this wrap severed the single live range
+        // into an unassigned read (CS0165). C# permits explicit enum→enum
+        // conversion directly, so the renderer now spells it and the range
+        // stays unified.
         var otherEnum = TypeRef.Definition("synthetic", "", "OtherE32");
         var container = new BlockContainer();
         var block = new Block(0);
@@ -251,17 +252,19 @@ public class CoercionInvariantTests
 
         new CoercionInsertionPass().Run(function, PassContext.None);
 
-        Assert.Empty(function.Descendants.OfType<Coerce>());
+        Assert.Single(function.Descendants.OfType<Coerce>());
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.DoesNotContain("OtherE32 S_0 = e;", output);
+        Assert.Contains("(OtherE32)e", output);
+        Assert.DoesNotContain("S_0_1", output);
     }
 
     [Fact]
-    public void BoolStore_AtNarrowIntegerTestifiedSlot_IsNotWrapped()
+    public void BoolStore_AtNarrowIntegerTestifiedSlot_WrapsWithTargetCast()
     {
-        // Round 3 (Gemini): `? 1 : 0` is int-typed and does not implicitly
-        // convert to byte/char/short/unsigned — bool composes only to
-        // int/long testified slots.
+        // Round 4 (MAI + Gemini): denying the wrap severed the range
+        // (`byte S_0_1;` read unassigned). The composition now carries the
+        // target cast where int does not convert implicitly:
+        // (byte)(boolValue ? 1 : 0).
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var byteType = TypeRef.CoreLib("System", "Byte");
         var container = new BlockContainer();
@@ -273,18 +276,20 @@ public class CoercionInvariantTests
 
         new CoercionInsertionPass().Run(function, PassContext.None);
 
-        Assert.Empty(function.Descendants.OfType<Coerce>());
+        Assert.Single(function.Descendants.OfType<Coerce>());
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.DoesNotContain("byte S_0 = boolValue ? 1 : 0;", output);
+        Assert.Contains("(byte)(boolValue ? 1 : 0)", output);
+        Assert.DoesNotContain("S_0_1", output);
     }
 
     [Fact]
-    public void EnumStore_WithoutUnderlyingMetadata_IsNotWrapped()
+    public void EnumStore_WithoutUnderlyingMetadata_WrapsWithAssumedIntCast()
     {
-        // Round 3 (MAI): the printer's enum→primitive branch requires the
-        // underlying to actually resolve; the gate must share that
-        // prerequisite rather than assume int backing. Without metadata the
-        // store stays PrinterOwned and split naming keeps typed ranges.
+        // Round 4 (Gemini): denying severed the range. The renderer's
+        // enum→primitive branch now shares the assumed-int rule for a
+        // missing-value__ shape ((int)e is legal C# for any enum), so the
+        // range stays unified — and the slot testimony itself proves the I4
+        // family, making the assumption safe here.
         var container = new BlockContainer();
         var block = new Block(0);
         block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
@@ -294,9 +299,10 @@ public class CoercionInvariantTests
 
         new CoercionInsertionPass().Run(function, PassContext.None);
 
-        Assert.Empty(function.Descendants.OfType<Coerce>());
+        Assert.Single(function.Descendants.OfType<Coerce>());
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.DoesNotContain("int S_0 = e;", output);
+        Assert.Contains("(int)e", output);
+        Assert.DoesNotContain("S_0_1", output);
     }
 
     [Fact]
