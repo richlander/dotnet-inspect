@@ -64,6 +64,22 @@ public class InverseArchitectureTests
         Assert.Contains("| `SampleBoundaryNode` | sample: outside the checkable domain |", markdown);
     }
 
+    [Fact]
+    public void Reflector_EscapesPipesInCells()
+    {
+        var markdown = InverseLedger.RenderMarkdown(TestAssembly);
+
+        // The row renders with every literal `|` escaped as `\|`, so the six
+        // data columns stay intact (a raw `|` would open phantom columns).
+        Assert.Contains(
+            "| `SamplePipeNode` | BoundBinaryOperator (a \\| b) | RyuJitImporter | Inherited | operands share a type; the `\\|` operator maps to `or` | InverseArchitectureTests |",
+            markdown);
+
+        // No unescaped pipe from the annotation leaks into the table body.
+        Assert.DoesNotContain("(a | b)", markdown);
+        Assert.DoesNotContain("the `|` operator", markdown);
+    }
+
     // Rule #4 (structural): every [InverseOf(assumes: ...)] must name a runnable,
     // release-capable predicate on InverseAssumptions with the Check(IrFunction)
     // shape — this gate resolves each and confirms it is invocable. It proves
@@ -201,4 +217,20 @@ sealed class SampleUnannotatedNode : IrExpression
 {
     public override TypeRef? ResultType => null;
     public override string Describe() => nameof(SampleUnannotatedNode);
+}
+
+// A stand-in node whose annotation strings carry literal `|` characters: proves
+// the reflector escapes them so a bitwise-`|` operator or IL sequence cannot
+// split the ledger row into phantom Markdown columns (#2197).
+[InverseOf(
+    Forward.RoslynBoundBinaryOperator,
+    naming: NameProvenance.Inherited,
+    oracle: Oracle.RyuJitImporter,
+    forwardName: "BoundBinaryOperator (a | b)",
+    precondition: "operands share a type; the `|` operator maps to `or`",
+    witness: "InverseArchitectureTests")]
+sealed class SamplePipeNode : IrExpression
+{
+    public override TypeRef? ResultType => null;
+    public override string Describe() => nameof(SamplePipeNode);
 }

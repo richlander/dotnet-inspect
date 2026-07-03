@@ -79,7 +79,7 @@ public static class InverseLedger
             sb.Append("| _(none yet)_ | — | — | — | — | — |\n");
         else
             foreach (var row in rows)
-                sb.Append($"| `{row.Node}` | {row.ForwardName} | {row.Oracle} | {row.Naming} | {row.Precondition} | {row.Witness} |\n");
+                sb.Append($"| `{row.Node}` | {Cell(row.ForwardName)} | {row.Oracle} | {row.Naming} | {Cell(row.Precondition)} | {Cell(row.Witness)} |\n");
 
         sb.Append("\n## Declared non-inverse boundaries\n\n");
         sb.Append("| Node | Reason |\n");
@@ -90,8 +90,16 @@ public static class InverseLedger
             sb.Append("| _(none yet)_ | — |\n");
         else
             foreach (var boundary in boundaries)
-                sb.Append($"| `{boundary.Node}` | {boundary.Reason} |\n");
+                sb.Append($"| `{boundary.Node}` | {Cell(boundary.Reason)} |\n");
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Escapes a user-authored annotation string for a Markdown table cell. A
+    /// literal <c>|</c> in a precondition/forward/witness/reason (e.g. a bitwise
+    /// <c>|</c> operator or an IL sequence) would otherwise split the row into
+    /// phantom columns; <c>\|</c> is the Markdown table-cell escape.
+    /// </summary>
+    static string Cell(string value) => value.Replace("|", "\\|");
 }
