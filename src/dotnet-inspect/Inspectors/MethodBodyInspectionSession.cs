@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.IO;
+using System.Linq;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -20,11 +22,21 @@ public sealed class MethodBodyInspectionSession
 {
     readonly Analysis.LibraryBodyIndex _index;
 
-    MethodBodyInspectionSession(Analysis.LibraryBodyIndex index) => _index = index;
+    MethodBodyInspectionSession(Analysis.LibraryBodyIndex index, string sourceName)
+    {
+        _index = index;
+        SourceName = sourceName;
+    }
+
+    /// <summary>
+    /// Short assembly name (file name without extension) this session was opened from. Used to
+    /// attribute inbound caller edges to their originating assembly.
+    /// </summary>
+    public string SourceName { get; }
 
     /// <summary>Opens a session over an assembly's analysis body index.</summary>
     public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null)
-        => new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver));
+        => new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver), Path.GetFileNameWithoutExtension(assemblyPath));
 
     /// <summary>
     /// Allocation facts for one method (<paramref name="methodToken"/>), optionally narrowed to a
@@ -74,4 +86,50 @@ public sealed class MethodBodyInspectionSession
         => scopeIndexes is { Count: > 0 }
             ? _index.BuildCallerTree(methodToken, scopeIndexes)
             : _index.BuildCallerTree(methodToken);
+
+    /// <summary>
+    /// Inbound call edges targeting one method (<paramref name="targetToken"/>), each tagged with the
+    /// <see cref="SourceName"/> of the assembly it originates in.
+    ///
+    /// Same-assembly edges match either the exact callee-definition token or a structural pattern
+    /// built from the target's identity (the pattern adds MemberRef-form references, including
+    /// abstract/interface members that have no body). When <paramref name="scopes"/> is non-empty and
+    /// a pattern is available, each scope session is scanned for cross-assembly callers using
+    /// generic-normalized matching (operand tokens are assembly-local, so only the pattern applies).
+    /// Results are unsorted and undeduplicated; the caller owns presentation ordering.
+    /// </summary>
+    public ImmutableArray<CallerEdge> CallerEdges(
+        int targetToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes = null)
+    {
+        var selected = _index.Methods.FirstOrDefault(m => m.MetadataToken == targetToken);
+        var pattern = selected is { } identity
+            ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
+            : null;
+
+        var edges = ImmutableArray.CreateBuilder<CallerEdge>();
+
+        foreach (var call in _index.DirectCalls)
+        {
+            if (call.CalleeDefinitionToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
+                edges.Add(new CallerEdge(SourceName, call));
+        }
+
+        if (pattern is not null && scopes is { Count: > 0 })
+        {
+            foreach (var scope in scopes)
+            {
+                foreach (var call in scope._index.DirectCalls)
+                {
+                    if (pattern.MatchesCrossAssembly(call.Callee))
+                        edges.Add(new CallerEdge(scope.SourceName, call));
+                }
+            }
+        }
+
+        return edges.ToImmutable();
+    }
 }
+
+/// <summary>An inbound call edge targeting a selected member, tagged with its originating assembly.</summary>
+public readonly record struct CallerEdge(string Source, Analysis.DirectCall Call);

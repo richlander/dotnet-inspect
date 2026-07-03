@@ -1174,57 +1174,33 @@ public static class ApiOutputFormatter
         if (request.Callers && methods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var ownSource = Path.GetFileNameWithoutExtension(dllPath);
+            var callerSession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
             var rows = new List<CallerSiteRow>();
+
+            // Open each caller-scope assembly once as its own session (skipping any that fail to
+            // load); the edge facet attributes cross-assembly hits to each scope's SourceName.
+            var scopeSessions = new List<MethodBodyInspectionSession>();
+            if (callerScopeAssemblies is { Count: > 0 })
+            {
+                foreach (var scopePath in callerScopeAssemblies)
+                {
+                    try
+                    {
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                    }
+                    catch
+                    {
+                        // Unreadable scope assembly: skip, matching the prior per-method open behavior.
+                    }
+                }
+            }
 
             // Collect callers for each method (all overloads if multiple methods selected)
             foreach (var method in methods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
-
-                // Match call edges whose callee resolves to the selected member. The
-                // operand-token equality catches direct same-assembly references
-                // (including abstract/interface members that have no body and so are
-                // absent from index.Methods); the structural pattern (built from the
-                // selected member's own identity) adds MemberRef-form references.
-                var selected = index.Methods.FirstOrDefault(m => m.MetadataToken == targetToken);
-                var pattern = selected is { } identity
-                    ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
-                    : null;
-
-                // Same-assembly callers
-                rows.AddRange(index.DirectCalls
-                    .Where(call => call.CalleeDefinitionToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
-                    .Select(call => CreateCallerRow(ownSource, call)));
-
-                // Cross-assembly scope: scan each additional assembly for inbound callers using the
-                // structural pattern only (operand tokens are assembly-local), attributing each hit
-                // to its source assembly. Results stay in a single Callers table with a Source column.
-                if (pattern is not null && callerScopeAssemblies is { Count: > 0 })
-                {
-                    foreach (var scopePath in callerScopeAssemblies)
-                    {
-                        Analysis.LibraryBodyIndex scopeIndex;
-                        try
-                        {
-                            scopeIndex = Analysis.LibraryBodyIndex.Open(scopePath, AnalysisReferenceResolver(scopePath, options));
-                        }
-                        catch
-                        {
-                            continue;
-                        }
-
-                        // Cross-assembly matching must normalize generic member identity: a
-                        // constructed call site (List<int>.Add / Id<int>) matches the open
-                        // target definition (List<T>.Add / Id<T>) it could never match exactly
-                        // (#1339). Same-assembly matching above stays exact, token-driven.
-                        var scopeSource = Path.GetFileNameWithoutExtension(scopePath);
-                        rows.AddRange(scopeIndex.DirectCalls
-                            .Where(call => pattern.MatchesCrossAssembly(call.Callee))
-                            .Select(call => CreateCallerRow(scopeSource, call)));
-                    }
-                }
+                rows.AddRange(callerSession.CallerEdges(targetToken, scopeSessions)
+                    .Select(edge => CreateCallerRow(edge.Source, edge.Call)));
             }
 
             // Deduplicate and sort

@@ -122,4 +122,47 @@ public class MethodBodyInspectionSessionTests
     [Fact]
     public void UnsafeEvidence_UnknownToken_ReturnsEmpty()
         => Assert.Empty(MethodBodyInspectionSession.Open(SelfPath).UnsafeEvidence(methodToken: 0));
+
+    static int CalledToken(Analysis.LibraryBodyIndex index)
+    {
+        var methodTokens = index.Methods.Select(m => m.MetadataToken).ToHashSet();
+        return index.DirectCalls
+            .Select(call => call.CalleeDefinitionToken)
+            .First(token => methodTokens.Contains(token));
+    }
+
+    [Fact]
+    public void SourceName_MatchesAssemblyFileName()
+    {
+        var expected = System.IO.Path.GetFileNameWithoutExtension(SelfPath);
+        Assert.Equal(expected, MethodBodyInspectionSession.Open(SelfPath).SourceName);
+    }
+
+    [Fact]
+    public void CallerEdges_MatchSameAssemblyFilter_ForCalledMethod()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var targetToken = CalledToken(index);
+
+        // Reproduce the prior inline same-assembly matching to assert equivalence.
+        var identity = index.Methods.First(m => m.MetadataToken == targetToken);
+        var pattern = Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes);
+        var expected = index.DirectCalls
+            .Where(call => call.CalleeDefinitionToken == targetToken || pattern.Matches(call.Callee))
+            .ToList();
+
+        var session = MethodBodyInspectionSession.Open(SelfPath);
+        var actual = session.CallerEdges(targetToken);
+
+        Assert.NotEmpty(actual);
+        Assert.Equal(expected.Count, actual.Length);
+        Assert.All(actual, edge => Assert.Equal(session.SourceName, edge.Source));
+        Assert.Equal(
+            expected.Select(c => (c.Caller.MetadataToken, c.ILOffset)).OrderBy(x => x),
+            actual.Select(e => (e.Call.Caller.MetadataToken, e.Call.ILOffset)).OrderBy(x => x));
+    }
+
+    [Fact]
+    public void CallerEdges_UnknownToken_ReturnsEmpty()
+        => Assert.Empty(MethodBodyInspectionSession.Open(SelfPath).CallerEdges(targetToken: 0));
 }
