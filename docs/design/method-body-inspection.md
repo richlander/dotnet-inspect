@@ -44,25 +44,24 @@ The shared abstraction is **method body inspection**:
 ResolvedAssemblyReference
   -> AssemblyInspectionSession
       -> MethodBodyInspectionSession
-          -> MemberQuery
-          -> ILCoordinateQuery
-          -> MethodBodyInspection
+          Inspect(MemberSelector | ILCoordinateSelector, facets)
+              -> MethodBodyInspection
 ```
 
-The command chooses a selector and requested facets. The service returns
-section-ready inspection facts. Renderers format those facts; they do not open
-indexes, classify opcodes, or assemble semantic rows.
+The command chooses a **selector** (member or IL coordinate) and the requested
+**facets**. The service returns section-ready inspection facts. Renderers format
+those facts; they do not open indexes, classify opcodes, or assemble semantic rows.
 
-## Query shapes
+## Selector shapes
 
 There are two entry points into the same method-body system.
 
-### `MemberQuery`
+### `MemberSelector`
 
 Identifies a method by API identity:
 
 ```csharp
-public sealed record MemberQuery(
+public sealed record MemberSelector(
     string TypeName,
     string MemberName,
     int OverloadIndex,
@@ -72,12 +71,12 @@ public sealed record MemberQuery(
 This is the `member` command shape. It is selected from `ApiType`/`ApiMember`
 and stable member selectors.
 
-### `ILCoordinateQuery`
+### `ILCoordinateSelector`
 
 Identifies a method-body selector by metadata coordinates:
 
 ```csharp
-public sealed record ILCoordinateQuery(
+public sealed record ILCoordinateSelector(
     int MethodToken,
     int ILOffset);
 ```
@@ -129,8 +128,8 @@ green-field mechanism.
 ```csharp
 public sealed class MethodBodyInspectionSession
 {
-    public MethodBodyInspection Inspect(MemberQuery query, MethodBodyFacetSet facets);
-    public MethodBodyInspection Inspect(ILCoordinateQuery query, MethodBodyFacetSet facets);
+    public MethodBodyInspection Inspect(MemberSelector selector, MethodBodyFacetSet facets);
+    public MethodBodyInspection Inspect(ILCoordinateSelector selector, MethodBodyFacetSet facets);
 }
 
 public sealed record MethodBodyInspection(
@@ -257,7 +256,7 @@ This depends on the sibling assembly acquisition design in
 two docs as one program of work under #2122: assembly inspection owns resolution
 and PE lifetime; method-body inspection owns member/coordinate facts inside the
 resolved assembly. In request terms, the CLI builds one `InspectionQuery` whose
-`Target.Selector` is a `MemberQuery` / `ILCoordinateQuery`; it hands that selector
+`Target.Selector` is a `MemberSelector` / `ILCoordinateSelector`; it hands that selector
 plus the requested facets to the method-body session.
 
 ## Migration
@@ -278,7 +277,7 @@ Move in reviewable slices.
 4. **Raise metadata coordinate facts.** Move member, instruction, exception,
    callsite, and return-address context behind the shared method-body service.
 5. **Delete `ILOffsetSourceQuery`.** Route `library --il-offset` through the
-   service with `ILCoordinateQuery`.
+   service with `ILCoordinateSelector`.
 6. **Raise member sections.** Move the fact construction currently in
    `ApiOutputFormatter.PopulateIndexSections` into the service. Leave the
    formatter as projection/rendering only.
