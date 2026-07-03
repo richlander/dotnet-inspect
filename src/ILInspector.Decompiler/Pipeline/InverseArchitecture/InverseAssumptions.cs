@@ -5,8 +5,9 @@ namespace ILInspector.Decompiler.Pipeline.InverseArchitecture;
 /// Each is a release-capable check over an <see cref="IrFunction"/> that returns
 /// violation messages (empty = the assumption holds on that function). The
 /// inverse-architecture rule: an <c>assumes:</c> must name one of these, and the
-/// coverage test invokes it over a fixture corpus
-/// (docs/design/inverse-architecture.md, "Two levels"). Binding the attribute's
+/// coverage test resolves and structurally invokes it
+/// (docs/design/inverse-architecture.md, "Two levels"); per-predicate behavior is
+/// covered by predicate-specific tests. Binding the attribute's
 /// claim to a runnable check is the residual-drift guard — an assumption that
 /// cannot be spelled as a predicate stays in prose behind a
 /// <see cref="NotInvertedAttribute"/> marker instead.

@@ -165,4 +165,54 @@ public class MethodBodyInspectionSessionTests
     [Fact]
     public void CallerEdges_UnknownToken_ReturnsEmpty()
         => Assert.Empty(MethodBodyInspectionSession.Open(SelfPath).CallerEdges(targetToken: 0));
+
+    [Fact]
+    public void UnsafeEvidence_All_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).UnsafeEvidence();
+        Assert.Equal(index.UnsafeEvidence.Length, actual.Length);
+    }
+
+    [Fact]
+    public void CalledTypes_MatchesIndex_ForDeclaringTypeScope()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var declaringType = index.Methods.First().DeclaringType;
+        bool Scope(Analysis.MethodIdentity m) => m.DeclaringType.Equals(declaringType);
+
+        var expected = index.CalledTypes(Scope);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).CalledTypes(Scope);
+        Assert.Equal(expected.Length, actual.Length);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).OptimizationOpportunities;
+        Assert.Equal(index.OptimizationOpportunities.Length, actual.Length);
+    }
+
+    [Fact]
+    public void GeneratedFrameworkTypeNames_MatchesIndex()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).GeneratedFrameworkTypeNames;
+        Assert.Equal(index.GeneratedFrameworkTypeNames.Count, actual.Count);
+    }
+
+    [Fact]
+    public void TopLeverage_MatchesIndex_ForScope()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var declaringType = index.Methods.First().DeclaringType;
+        bool Scope(Analysis.MethodIdentity m) => m.DeclaringType.Equals(declaringType);
+
+        var expected = index.TopLeverage(count: int.MaxValue, scope: Scope);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).TopLeverage(int.MaxValue, Scope);
+        Assert.Equal(
+            expected.Select(e => e.Method.MetadataToken),
+            actual.Select(e => e.Method.MetadataToken));
+    }
 }
