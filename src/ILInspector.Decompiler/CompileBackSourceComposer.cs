@@ -545,7 +545,7 @@ public static class CompileBackSourceComposer
                 IsOverride: false,
                 IsSealed: false)
         ];
-        if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature))
+        if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
         if (!isConstructor
             && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
@@ -1209,7 +1209,8 @@ public static class CompileBackSourceComposer
         TypeDefinition typeDef,
         CompileBackTypeIdentity typeIdentity,
         string methodName,
-        MethodSignature<string> signature)
+        MethodSignature<string> signature,
+        IrFunction function)
     {
         if (!HasRecordHelperShell(reader, typeDef, typeIdentity))
             return false;
@@ -1223,8 +1224,8 @@ public static class CompileBackSourceComposer
 
         return methodName == "Equals"
             && signature.ReturnType == "bool"
-            && signature.ParameterTypes is [var parameterType]
-            && parameterType == SelfTypeSignature(reader, typeDef, typeIdentity);
+            && function.Signature.Parameters is [{ Type: var parameterType }]
+            && IsSelfType(parameterType, typeIdentity);
     }
 
     static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
@@ -1279,8 +1280,8 @@ public static class CompileBackSourceComposer
             }
 
             if (signature.ReturnType == "bool"
-                && signature.ParameterTypes is [var parameterType]
-                && parameterType == SelfTypeSignature(reader, typeDef, typeIdentity))
+                && MethodParameterTypes(reader, typeDef, method) is [var parameterType]
+                && IsSelfType(parameterType, typeIdentity))
             {
                 return true;
             }
@@ -1310,10 +1311,9 @@ public static class CompileBackSourceComposer
                 continue;
 
             var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
-            string selfType = SelfTypeSignature(reader, typeDef, typeIdentity);
             if (signature.ReturnType != "bool"
-                || signature.ParameterTypes is not [var parameterType]
-                || parameterType != selfType)
+                || MethodParameterTypes(reader, typeDef, method) is not [var parameterType]
+                || !IsSelfType(parameterType, typeIdentity))
             {
                 continue;
             }
@@ -1337,6 +1337,23 @@ public static class CompileBackSourceComposer
         }
 
         return null;
+    }
+
+    static IReadOnlyList<TypeRef> MethodParameterTypes(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+        => method.DecodeSignature(TypeRefDecoder.Instance, IrImporter.CallerScope(reader, typeDef, method)).ParameterTypes;
+
+    static bool IsSelfType(TypeRef type, CompileBackTypeIdentity identity)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (definition.Kind != TypeRefKind.Definition)
+            return false;
+        if (definition.Namespace != identity.Namespace)
+            return false;
+
+        string typeRefMetadataFullName = definition.Namespace.Length == 0
+            ? definition.Name.Replace('+', '.')
+            : $"{definition.Namespace}.{definition.Name.Replace('+', '.')}";
+        return typeRefMetadataFullName == identity.MetadataFullName;
     }
 
     static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
@@ -1939,6 +1956,8 @@ public static class CompileBackSourceComposer
         foreach (var fieldRef in TargetBackingFieldRefs(function))
         {
             if (fieldRef.BackingPropertyName is not { Length: > 0 } propertyName)
+                continue;
+            if (!IsSelfType(fieldRef.DeclaringType, targetIdentity))
                 continue;
             if (AutoPropertyNameForBackingField(reader, typeDef, fieldRef.Name) != propertyName)
                 continue;

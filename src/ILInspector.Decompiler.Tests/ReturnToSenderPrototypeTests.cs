@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -1829,6 +1830,47 @@ public class ReturnToSenderPrototypeTests
                     Assert.Contains("public string Value;", typedEquals.Source);
                     Assert.DoesNotContain("public string Name { get; }", typedEquals.Source);
                 });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSelfType_DistinguishesNestedTypeFromNamespacePeer()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace N;
+
+            public class Container
+            {
+                public record Row(string Name);
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            using var source = MetadataSource.Open(assemblyPath);
+            var reader = pe.GetMetadataReader();
+            var nestedHandle = reader.TypeDefinitions
+                .Single(handle => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)) == "N.Container.Row");
+            var nestedType = reader.GetTypeDefinition(nestedHandle);
+            var nestedIdentity = CompileBackTypeIdentity.FromDefinition(reader, nestedType);
+            var namespacePeerIdentity = new CompileBackTypeIdentity(
+                "N.Container",
+                "Row",
+                "Row",
+                "N.Container.Row",
+                "N.Container.Row");
+            var function = IrImporter.Import(source, "N.Container.Row", "GetHashCode", publicOnly: false);
+            Assert.NotNull(function);
+            IrPasses.Run(function, IrPasses.Default, new PassContext(new Stepper(enabled: false)));
+            var load = Assert.Single(function.Descendants.OfType<LoadField>(), field => field.Field.BackingPropertyName == "Name");
+            var helper = typeof(CompileBackSourceComposer).GetMethod("IsSelfType", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+            Assert.True((bool)helper.Invoke(null, [load.Field.DeclaringType, nestedIdentity])!);
+            Assert.False((bool)helper.Invoke(null, [load.Field.DeclaringType, namespacePeerIdentity])!);
         }
         finally
         {
