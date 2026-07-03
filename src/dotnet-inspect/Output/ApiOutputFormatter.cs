@@ -1247,8 +1247,9 @@ public static class ApiOutputFormatter
         if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken } graphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var root = ToCallGraphNode(index.BuildCallTree(graphToken), GetRequestedCallGraphFields(options));
+            var root = ToCallGraphNode(
+                MethodBodyInspectionSession.Open(dllPath, assemblyResolver).CallTree(graphToken),
+                GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 })
             {
                 memberCode.CallGraphNodes = [root];
@@ -1265,7 +1266,7 @@ public static class ApiOutputFormatter
         if (requestedSections.Contains(SectionNames.CallerGraph) && singleMethodList is [{ MetadataToken: { } callerGraphToken } callerGraphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
+            var callerSession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
             // Extend the reverse graph across the caller scope (--bin/--project/--caller-package)
             // so a dependency member surfaces the product entry points and callers that reach it.
             var scopeIndexes = new List<Analysis.LibraryBodyIndex>();
@@ -1283,9 +1284,7 @@ public static class ApiOutputFormatter
                     }
                 }
             }
-            var callerTree = scopeIndexes.Count > 0
-                ? index.BuildCallerTree(callerGraphToken, scopeIndexes)
-                : index.BuildCallerTree(callerGraphToken);
+            var callerTree = callerSession.CallerTree(callerGraphToken, scopeIndexes);
             var root = ToCallGraphNode(callerTree, GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
             {
