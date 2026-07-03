@@ -93,7 +93,7 @@ internal sealed class OpenedAssembly : IDisposable
 {
     readonly Stream _stream;
     readonly PEReader _pe;
-    Dictionary<string, TypeDefinitionHandle>? _byFullName;
+    volatile Dictionary<string, TypeDefinitionHandle>? _byFullName;
     readonly object _indexLock = new();
 
     OpenedAssembly(Stream stream, PEReader pe, MetadataReader reader)
