@@ -1687,8 +1687,8 @@ public static class ApiOutputFormatter
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
-        var rows = index.UnsafeEvidence
+        var rows = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath))
+            .UnsafeEvidence()
             .Where(evidence => SameType(evidence.Member.DeclaringType, type))
             .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
             .ThenBy(evidence => evidence.ILOffset ?? -1)
@@ -1735,8 +1735,8 @@ public static class ApiOutputFormatter
         string dllPath,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
-        var rows = index.CalledTypes(method => SameType(method.DeclaringType, type))
+        var rows = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath))
+            .CalledTypes(method => SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
                 string.IsNullOrEmpty(summary.Assembly) ? null : summary.Assembly,
@@ -1756,7 +1756,7 @@ public static class ApiOutputFormatter
         IReadOnlySet<string>? requestedSections,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
+        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var methodTokens = type.Members
             .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
             .Select(member => member.MetadataToken!.Value)
@@ -1764,9 +1764,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.AllocationFacts) == true)
         {
-            var allocations = index.GetAllocationOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.AllocationFacts(allocations, token))
+                .SelectMany(token => session.AllocationFacts(token))
                 .Select(fact => ToAllocationFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.AllocationFacts))
@@ -1775,10 +1774,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
         {
-            var unsafeEvidence = index.GetUnsafeEvidenceByMember();
-            var unsafety = index.GetUnsafetyOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.SafetyFacts(unsafeEvidence, unsafety, token))
+                .SelectMany(token => session.SafetyFacts(token))
                 .Select(fact => ToSafetyFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.SafetyFacts))
@@ -1787,9 +1784,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var directCalls = index.GetDirectCallsByCaller();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCalls, token))
+                .SelectMany(token => session.CostFacts(token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CostFacts))
@@ -1805,14 +1801,14 @@ public static class ApiOutputFormatter
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
+        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         HashSet<int>? memberTokens = restrictToModelMembers
             ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
             : null;
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
-                index.OptimizationOpportunities
+                session.OptimizationOpportunities
                     .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
-                    .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, index.GeneratedFrameworkTypeNames))
+                    .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, session.GeneratedFrameworkTypeNames))
                     .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken)),
                 options)
             .Select(opportunity => new OptimizationOpportunityRow(
@@ -1898,7 +1894,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)
     {
-        var index = Analysis.LibraryBodyIndex.Open(dllPath, AnalysisReferenceResolver(dllPath));
+        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var drillByToken = BuildMemberDrillMap(type);
 
         // Rank every method declared on this type; fanin is still measured across all
@@ -1906,12 +1902,12 @@ public static class ApiOutputFormatter
         // limiter (`-n`/`--rows`) trims the rendered table. In member-detail/overload
         // contexts `type.Members` is narrowed to the selected member(s), so restrict the
         // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
-        var rows = index.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
+        var rows = session.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
             .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypeNames);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, session.GeneratedFrameworkTypeNames);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),

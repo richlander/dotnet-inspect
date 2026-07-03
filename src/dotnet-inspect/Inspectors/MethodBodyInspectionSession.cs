@@ -129,6 +129,31 @@ public sealed class MethodBodyInspectionSession
 
         return edges.ToImmutable();
     }
+
+    // --- Type/collection-scoped producer surface (the type/library analysis sections) ---
+
+    /// <summary>All unsafe-operation evidence in the assembly (unfiltered); the caller narrows by type.</summary>
+    public ImmutableArray<Analysis.UnsafeEvidence> UnsafeEvidence()
+        => _index.UnsafeEvidence;
+
+    /// <summary>
+    /// Called-type summaries aggregated over calls originating in methods matching
+    /// <paramref name="callerScope"/>.
+    /// </summary>
+    public ImmutableArray<Analysis.CalledTypeSummary> CalledTypes(Func<Analysis.MethodIdentity, bool> callerScope)
+        => _index.CalledTypes(callerScope);
+
+    /// <summary>All performance-triage optimization opportunities in the assembly (unfiltered).</summary>
+    public ImmutableArray<Analysis.OptimizationOpportunity> OptimizationOpportunities
+        => _index.OptimizationOpportunities;
+
+    /// <summary>Qualified names of types recognized as generated framework/protobuf/gRPC implementation detail.</summary>
+    public IReadOnlySet<string> GeneratedFrameworkTypeNames
+        => _index.GeneratedFrameworkTypeNames;
+
+    /// <summary>Leverage ranking (highest first) of up to <paramref name="count"/> methods matching <paramref name="scope"/>.</summary>
+    public ImmutableArray<Analysis.MethodLeverage> TopLeverage(int count, Func<Analysis.MethodIdentity, bool> scope)
+        => _index.TopLeverage(count, scope);
 }
 
 /// <summary>An inbound call edge targeting a selected member, tagged with its originating assembly.</summary>
