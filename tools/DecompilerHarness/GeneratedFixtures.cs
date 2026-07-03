@@ -1460,7 +1460,7 @@ internal static class GeneratedFixtureCatalog
 
             public static int SpanLiteral()
             {
-                System.ReadOnlySpan<int> values = [1, 2, 3];
+                System.ReadOnlySpan<int> values = new int[] { 1, 2, 3 };
                 return values[0];
             }
 
@@ -1482,6 +1482,22 @@ internal static class GeneratedFixtureCatalog
             {
                 InlineBuffer buffer = default;
                 System.Span<int> values = buffer;
+                values[0] = 7;
+                return values[0];
+            }
+        }
+
+        // Field-backed inline-array place — the canonical InlineArrayAsSpan
+        // (ldflda) shape. Exercises the LoadFieldAddress branch of the
+        // place-conversion raise and keeps InlineArraySpanConversion covered
+        // even if the local-buffer lowering above shifts.
+        public sealed class InlineArrayFieldHolder
+        {
+            private InlineBuffer _values;
+
+            public int InlineArraySpanConversion()
+            {
+                System.Span<int> values = _values;
                 values[0] = 7;
                 return values[0];
             }
