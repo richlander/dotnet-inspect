@@ -1557,6 +1557,49 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesAbstractClosureTypeAndMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Node
+            {
+                private readonly System.Collections.Generic.List<Node> _children = new();
+
+                public Node Parent { get; set; }
+
+                public int ChildIndex { get; set; }
+
+                public abstract string Describe();
+
+                public void CheckInvariant()
+                {
+                    for (int i = 0; i < _children.Count; i++)
+                    {
+                        var child = _children[i];
+                        if (child.Parent != this)
+                            throw new System.InvalidOperationException($"child {child.Describe()} of {Describe()}");
+                        if (child.ChildIndex != i)
+                            throw new System.InvalidOperationException($"child {child.Describe()} slot {child.ChildIndex} expected {i}");
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Node", "CheckInvariant", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public abstract class Node", result.Source);
+            Assert.Contains("public abstract string Describe();", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""
