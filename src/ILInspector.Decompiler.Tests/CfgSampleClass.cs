@@ -4076,6 +4076,7 @@ public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 // signed int -2147483648, the case the member-map key must agree on.
 [System.Flags]
 public enum CfgFlags : uint { None = 0, Top = 0x80000000u }
+public enum CfgTiny : byte { A = 1, B = 2 }
 
 // A flags enum with a named member at a non-low bit (Gamma = 16): a `ref CfgStyles`
 // bitwise test reads the enum via `ldind.i4`, so the importer must register the
@@ -4370,6 +4371,44 @@ public static class EnumCastSamples
     public static CfgFlags UnsignedEnumConstantBitwise(CfgFlags f) => f & (CfgFlags)uint.MaxValue;
 
     public static CfgFlags UnsignedEnumConstantCoalesce(CfgFlags? f) => f ?? (CfgFlags)uint.MaxValue;
+
+    // Slice-4 adversarial review (GPT-5.5): a byte-backed enum joined with a
+    // full int. The join's semantic type is int (the enum was widened into
+    // it); typing it as the enum re-narrows the int path — `(CfgTiny)x` turns
+    // 300 into 44 and flips the boxed type from int to CfgTiny.
+    public static object ByteEnumOrIntBox(bool c, CfgTiny e, int x)
+    {
+        int y = c ? (int)e : x;
+        return y;
+    }
+
+    // The sound half of the join rule: an int-backed enum meeting an int of
+    // exactly its underlying type is a pure reinterpretation, and the
+    // enum-typed slot must render legally at every int sink it reaches.
+    public static int IntEnumJoinThroughSlot(bool c, CfgPriority e)
+    {
+        int x = c ? (int)e : 1;
+        System.Console.WriteLine(x);
+        return x;
+    }
+
+    // Slice-4 cross-check review (Opus 4.8, verified against real IL): a
+    // byte-backed enum arm in an int-typed switch dispatch. The raised switch
+    // expression must cast the enum arm (`0 => (int)e`) and the statement
+    // form's int store must cast at the sink — bare renders are
+    // CS0029/CS0266 while graded Full.
+    public static int SwitchEnumOrInt(int k, CfgTiny e, int x)
+    {
+        int r;
+        switch (k)
+        {
+            case 0: r = (int)e; break;
+            case 1: r = x; break;
+            case 2: r = 300; break;
+            default: r = 9; break;
+        }
+        return r;
+    }
 
     // #2076 (review): long-backed enum constants in array-element and box
     // positions. The `stelem.i8` element type and `box` drop the enum type, so a

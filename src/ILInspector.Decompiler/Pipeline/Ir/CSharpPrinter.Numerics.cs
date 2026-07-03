@@ -1072,10 +1072,19 @@ public sealed partial class CSharpPrinter
         {
             return EnumArithmeticValueText(enumArithmetic) ?? Expression(value);
         }
+        // An enum value at an integer-typed sink: cast to the target whenever
+        // the cast is value-preserving — same stack family (a byte-backed enum
+        // at an int sink widens losslessly; exact equality here left it BARE,
+        // CS0266 — slice-4 cross-check review) or an I4 underlying at an I8
+        // target. Narrowing (I8 underlying, I4 target) never gets a silent
+        // cast; a real narrowing in the IL arrives as a Convert node instead.
         if (target is { } primitiveTarget
             && TypeFamilies.IsIntegerLike(primitiveTarget)
             && EnumUnderlyingType(EffectiveType(value)) is { } underlying
-            && underlying.Equals(primitiveTarget))
+            && TypeFamilies.Of(underlying) is { } underlyingFamily
+            && TypeFamilies.Of(primitiveTarget) is { } targetFamily
+            && (underlyingFamily == targetFamily
+                || (underlyingFamily == StackFamily.I4 && targetFamily == StackFamily.I8)))
         {
             return $"({TypeText(primitiveTarget)}){Operand(value)}";
         }
@@ -1210,12 +1219,35 @@ public sealed partial class CSharpPrinter
             // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
             // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
             // and renders its member name via Operand.
-            : TryCoerceEnumOperand(arm, target) is { } coercedArm
+            : TryCoerceJoinArm(arm, target) is { } coercedArm
                 ? coercedArm
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
                 ? $"({Condition(arm)} ? 1 : 0)"
                 : Operand(arm);
+
+    /// <summary>
+    /// The one join-arm coercion, both directions: an integer-family arm at an
+    /// enum-typed join takes the enum cast/name (<see cref="TryCoerceEnumOperand"/>),
+    /// and an enum arm at an integer-typed join takes the underlying cast —
+    /// `c ? E.One : e` merged as int is CS0266 bare, in a conditional arm, a
+    /// switch-expression arm, or a coalesce right side alike (#2145; slice-4
+    /// second-family review found the rule present in only one of the three).
+    /// Null when the arm needs no join coercion.
+    /// </summary>
+    string? TryCoerceJoinArm(IrExpression arm, TypeRef? target)
+    {
+        if (TryCoerceEnumOperand(arm, target) is { } coerced)
+            return coerced;
+        // Same stack family only: `(int)longBackedEnum` would truncate. The
+        // importer's family merge should never build such a join, but the cast
+        // must not be the place that finds out (slice-4 review's verify item).
+        return target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
+            && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
+            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget)
+            ? $"({TypeText(integerTarget)}){Operand(arm)}"
+            : null;
+    }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
         => CanRenderConditionalForTarget(conditional, target)

@@ -330,6 +330,96 @@ public class EnumCastPrinterTests
             "public enum CfgLongPriority : long { Low = 0, High = 2 }");
     }
 
+    [Fact]
+    public void EnumArm_AtIntegerSwitchExpressionTarget_CastsToUnderlying()
+    {
+        // Slice-4 second-family review (GPT-5.5): the enum→integer mirror rule
+        // must cover switch-expression arms, not only conditional arms — an
+        // enum arm at an int-typed switch result is CS0266 bare. One join-arm
+        // rule (TryCoerceJoinArm) now serves all three arm renderers.
+        var enumType = TypeRef.Definition("test", "", "CfgPriority");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var switchExpression = new SwitchExpression(
+            new LoadArgument(0, "value", intType),
+            [
+                new SwitchExpressionArm(ImmutableArray.Create(0), isDefault: false, new LoadArgument(1, "e", enumType)),
+                new SwitchExpressionArm(ImmutableArray<int>.Empty, isDefault: true, new Constant(7, intType)),
+            ]);
+        var block = new Block(0);
+        block.Add(new Return(switchExpression));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("value", intType), new Parameter("e", enumType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("test", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = intType },
+        };
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("(int)e", body);
+        Assert.DoesNotContain("=> e,", body);
+        AssertCompiles(
+            "public static int M(int value, CfgPriority e)",
+            body,
+            "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
+    public void ByteEnumSwitchDispatch_CastsEnumArmAtIntSinks()
+    {
+        // Slice-4 cross-check review (Opus 4.8): a byte-backed enum flowing
+        // into an int-typed switch dispatch — the raised switch-expression arm
+        // (or the statement form's int store) must cast, never render `e`
+        // bare (CS0029/CS0266 while graded Full). The widening enum→int cast
+        // is value-preserving; the sink rule now accepts same-family widening
+        // rather than demanding the exact underlying type.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.SwitchEnumOrInt));
+
+        Assert.Contains("(int)e", body);
+        Assert.DoesNotContain("=> e,", body);
+        Assert.DoesNotContain("= e;", body);
+        AssertCompiles(
+            "public static int M(int k, CfgTiny e, int x)",
+            body,
+            "public enum CfgTiny : byte { A = 1, B = 2 }");
+    }
+
+    [Fact]
+    public void ByteEnumIntJoin_KeepsIntSemantics_NoNarrowing()
+    {
+        // Slice-4 adversarial review (GPT-5.5, blocking): the byte-enum/int
+        // join must NOT be typed as the enum — `(CfgTiny)x` would narrow 300
+        // to 44 and flip the boxed type. The join stays integer-typed and the
+        // int path renders uncast.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.ByteEnumOrIntBox));
+
+        Assert.DoesNotContain("(CfgTiny)x", body);
+        Assert.DoesNotContain("(CfgTiny)(x)", body);
+        AssertCompiles(
+            "public static object M(bool c, CfgTiny e, int x)",
+            body,
+            "public enum CfgTiny : byte { A = 1, B = 2 }");
+    }
+
+    [Fact]
+    public void IntEnumJoinThroughSlot_RendersLegalIntSinks()
+    {
+        // The sound half (exact underlying match): the enum-typed join is a
+        // pure reinterpretation, and the slot renders legally at int sinks —
+        // the Gemini finding's CS0266 shape, made valid by width discipline.
+        string body = RenderRaisedFixture(nameof(EnumCastSamples.IntEnumJoinThroughSlot));
+
+        AssertCompiles(
+            "public static int M(bool c, CfgPriority e)",
+            body,
+            "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     static string RenderFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(EnumCastSamples).Assembly.Location);

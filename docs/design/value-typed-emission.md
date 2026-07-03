@@ -289,17 +289,20 @@ output. Three structural properties fix what the assertion covers:
   cannot be *proven* an enum, so it stays render-time-handled and outside the
   checkable domain.
 
-The assertion's reach is bounded on purpose, and reading "0 violations" as
-"every sink renders faithfully" over-claims it. `CoercionInvariant.Check`
-shares the pass's `CoercionSinks.RequiresCoercion` decision, so the same
-enumerated residuals the pass skips — merge-node values (`Conditional`,
-`Coalesce`, switch expressions), slot loads, `Box` operands, `StoreIndirect`
-targets, `switch` labels, and lambda returns — are outside the checkable set by
-construction, not merely unviolated within it. What the checker guarantees is
-**routing agreement**: for an in-domain, non-residual sink, the pass and the
-checker cannot drift on whether a `Coerce` is required. Each residual stays
+The assertion's reach is bounded on purpose, and the bound is **measured, not
+silent** (#2145). `CoercionInvariant.Audit` returns two things: **violations**
+(in-domain, wrappable sinks without a `Coerce` — gates assert zero) and
+**counted residuals** — in-domain mismatches the scope deliberately leaves to
+later or targeted deciders, keyed by value kind. Merge-node arms at non-enum
+in-domain joins are enumerated as `PrinterOwned` sinks: the pass does not wrap
+them, but the checker sees and counts them, so "0 violations" can never be
+misread as covering them. The remaining residuals — slot loads (instance 2's
+lane), `Box` operands, `StoreIndirect` targets, `switch` labels, lambda
+returns — stay outside the enumeration with their reasons documented at
+`CoercionSinks`. What the checker guarantees is **routing agreement** for
+wrappable sinks plus a visible residual ledger for the rest; each residual is
 printer-owned — rendered by its own `CoerceText` branch — until it graduates
-into the enumeration.
+into the enumeration and its count goes to zero.
 
 This proves **routing, not rendering**: the invariant guarantees every sink *reaches*
 the one coercion function, collapsing the leak surface from ~12 sites to one — but it
@@ -447,12 +450,27 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    longer-term end state is Roslyn's: establish the invariant **at
    construction** (importer emits coerced trees) rather than by a
    pipeline-last mutating pass.
-4. **Complete join typing — the shared type-propagation spine** (worth its own
-   slice/issue). Where the importer drops to `Unknown` but a sound common type
-   exists, propagate types at joins (the RyuJIT typed-temp model), reducing
-   `Partial`-by-unknown-join. This is the prerequisite *both* instances lean on:
-   it feeds instance 1's constant/`Convert` typing and is what instance 2 needs to
-   materialize locals.
+4. **Complete join typing — the shared type-propagation spine.** Opened: the
+   importer's `MergeSlotTypes` types an enum-meets-integer join as the enum
+   **only when the integer side is exactly the enum's underlying type** —
+   nominal equality, so width and sign exact, same-assembly resolved enums
+   only, bool excluded. The merge is then a pure reinterpretation and every
+   downstream sink coercion is value-preserving. Two adversarial rounds set
+   that bar: a family-level match let a byte-backed enum absorb a full-int
+   path (`(BE)x` turned 300 into 44, marked Full — the
+   recompiles-to-a-different-program class), and the cross-assembly
+   pairing-proves-enum argument was dropped entirely because it proves the
+   family but never the width. The printer side gained `TryCoerceJoinArm` —
+   the one join-arm rule, both directions, serving conditional, switch-
+   expression, and coalesce arms alike, family-guarded so the underlying cast
+   can never truncate. Join-census over the 15-assembly corpus:
+   `Partial`-by-unknown-join methods 155 → 119; the enum/int bucket for
+   same-assembly int-backed enums is zero. Remaining, by census: cross-assembly
+   enum-likes (width unprovable — recoverable later only with sink-context
+   evidence), the reference-merge lane (cross-assembly base chains and
+   constructed-generic interfaces, SRM-boundary work), and the `void*`/`nuint`
+   native clique. The full RyuJIT typed-temp model (spill and re-import) stays
+   open here for instance 2.
 5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
    each slot's live ranges as typed local IR nodes and **delete
    `TryChooseUnifiedStackSlotType`** — the writer stops inventing and unifying
