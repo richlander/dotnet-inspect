@@ -2153,7 +2153,7 @@ public static class CompileBackSourceComposer
                     continue;
                 }
                 members.Add(new CompileBackMemberDeclaration(
-                    new CompileBackMethodIdentity(requirement.Type.FullName, identifierName, overload++, MethodSignatureText(name, signature)),
+                    new CompileBackMethodIdentity(requirement.Type.FullName, identifierName, overload++, MethodSignatureText(identifierName, signature)),
                     isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
                     MethodAccessibility(method),
                     method.Attributes.HasFlag(MethodAttributes.Static),

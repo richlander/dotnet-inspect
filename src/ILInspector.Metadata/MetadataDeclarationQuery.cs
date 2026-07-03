@@ -206,13 +206,14 @@ public static class MetadataDeclarationQuery
         var isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
         var isOverride = isVirtual && !isNewSlot;
         var typeParameters = MethodTypeParameters(reader, typeDef, method);
+        var csharpName = EscapeIdentifier(name);
         var methodName = typeParameters.Count == 0
-            ? name
-            : $"{name}<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
+            ? csharpName
+            : $"{csharpName}<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
 
         return new MetadataMethodDeclaration(
             name,
-            EscapeIdentifier(name),
+            csharpName,
             AccessibilityKeyword(access),
             isPublicOrProtected,
             (attributes & MethodAttributes.Static) != 0,
@@ -596,6 +597,7 @@ public static class MetadataDeclarationQuery
 
     static string? NonPublicAccessibility(MethodAttributes access) => access switch
     {
+        MethodAttributes.PrivateScope => "private",
         MethodAttributes.Private => "private",
         MethodAttributes.FamANDAssem => "private protected",
         MethodAttributes.Assembly => "internal",
@@ -606,6 +608,7 @@ public static class MetadataDeclarationQuery
 
     static string? NonPublicAccessibility(FieldAttributes access) => access switch
     {
+        FieldAttributes.PrivateScope => "private",
         FieldAttributes.Private => "private",
         FieldAttributes.FamANDAssem => "private protected",
         FieldAttributes.Assembly => "internal",

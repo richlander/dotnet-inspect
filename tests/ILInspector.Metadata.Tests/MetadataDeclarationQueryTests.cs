@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -86,6 +87,36 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
+    {
+        var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
+            "AccessibilityKeyword",
+            BindingFlags.Static | BindingFlags.NonPublic,
+            [typeof(MethodAttributes)]);
+        var fieldAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
+            "AccessibilityKeyword",
+            BindingFlags.Static | BindingFlags.NonPublic,
+            [typeof(FieldAttributes)]);
+
+        Assert.Equal("private", methodAccessibility!.Invoke(null, [MethodAttributes.PrivateScope]));
+        Assert.Equal("private", fieldAccessibility!.Invoke(null, [FieldAttributes.PrivateScope]));
+    }
+
+    [Fact]
+    public void MethodDeclaration_EscapesKeywordMemberNames()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+        var method = GetMethod(type, "class");
+
+        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+        var surface = MetadataDeclarationQuery.GetTypeSurface(Reader, GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
+
+        Assert.Equal("@class", declaration.CSharpName);
+        Assert.Equal("@class", declaration.Signature.MemberName);
+        Assert.Contains(surface.Members, member => member.Name == "class" && member.Signature!.Contains("@class", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SelfTypeSignature_IncludesDeclaringGenericParameters()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.Container<>.Row<>));
@@ -164,6 +195,8 @@ public class MetadataDeclarationQueryFixtures
     public decimal DecimalDefault(decimal amount = 5m) => amount;
 
     public int Count() => _count;
+
+    public int @class() => 0;
 
     public abstract class AbstractBase
     {
