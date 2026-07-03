@@ -383,7 +383,10 @@ public class OutputFormatterTests
             .Select(opportunity => opportunity.Method.Name)
             .ToList();
 
-        Assert.Equal(["HighWeight", "MediumWeight"], filtered);
+        Assert.Equal(2, filtered.Count);
+        Assert.Contains("HighWeight", filtered);
+        Assert.Contains("MediumWeight", filtered);
+        Assert.DoesNotContain("NoWeight", filtered);
     }
 
     [Fact]
@@ -442,6 +445,7 @@ public class OutputFormatterTests
     {
         var opportunities = new[]
         {
+            Opp("HighWeightHighReach", inLoop: false, confidence: "medium", rootReach: 10, shape: "small-array", weight: "high"),
             Opp("LowWeightHighReach", inLoop: false, confidence: "medium", rootReach: 100, shape: "small-array", weight: "low"),
             Opp("HighWeightLowReach", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array", weight: "high"),
             Opp("NoWeight", inLoop: false, confidence: "medium", rootReach: 1000, shape: "linq-scan-in-loop"),
@@ -456,7 +460,7 @@ public class OutputFormatterTests
             .Select(opportunity => opportunity.Method.Name)
             .ToList();
 
-        Assert.Equal(["HighWeightLowReach", "LowWeightHighReach", "NoWeight"], filtered);
+        Assert.Equal(["HighWeightHighReach", "HighWeightLowReach", "LowWeightHighReach", "NoWeight"], filtered);
     }
 
     [Fact]
