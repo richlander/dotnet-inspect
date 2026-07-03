@@ -339,6 +339,41 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RendersMemberAttributes()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithMemberAttribute");
+        Assert.NotNull(method);
+        var methodDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, method);
+        Assert.StartsWith(
+            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int MethodWithMemberAttribute()",
+            methodDeclaration,
+            StringComparison.Ordinal);
+
+        var property = testType.Members.FirstOrDefault(m => m.Name == "PropertyWithMemberAttribute");
+        Assert.NotNull(property);
+        var propertyDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, property);
+        Assert.StartsWith(
+            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string PropertyWithMemberAttribute",
+            propertyDeclaration,
+            StringComparison.Ordinal);
+
+        var decimalField = testType.Members.FirstOrDefault(m => m.Name == "DecimalField");
+        Assert.NotNull(decimalField);
+        var decimalFieldDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, decimalField);
+        Assert.DoesNotContain("DecimalConstant", decimalFieldDeclaration);
+        Assert.Contains("DecimalField", decimalFieldDeclaration);
+    }
+
+    [Fact]
     public void Extract_RendersEnumParameterDefaultsAsEnumLiterals()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -863,6 +898,17 @@ public class SampleClassForTesting
         [return: System.Diagnostics.CodeAnalysis.NotNull]
         get => "hello";
     }
+
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    public int MethodWithMemberAttribute() => 42;
+
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    public string PropertyWithMemberAttribute
+    {
+        get => "hello";
+    }
+
+    public const decimal DecimalField = 1.5m;
 }
 
 public class SampleKeywordParameterHost

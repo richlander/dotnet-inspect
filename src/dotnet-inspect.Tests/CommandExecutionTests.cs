@@ -3379,6 +3379,16 @@ public class CommandExecutionTests
         Assert.Contains("Empty\tpublic static readonly string Empty", output);
 
         (exit, output, error) = await RunAppAsync(
+            "member", "System.Math", "--platform", "System.Runtime",
+            "-m", "DivRem", "-S", "Methods",
+            "--columns", "Name;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("DivRem\tpublic static", output);
+        Assert.DoesNotContain("System.Runtime.Versioning.NonVersionable", output);
+
+        (exit, output, error) = await RunAppAsync(
             "member", "System.AppDomain", "--platform", "System.Runtime",
             "-m", "AssemblyLoad", "-S", "Events",
             "--columns", "Name;Signature", "--tsv");
