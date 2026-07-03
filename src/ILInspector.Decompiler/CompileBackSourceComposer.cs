@@ -545,7 +545,7 @@ public static class CompileBackSourceComposer
                 IsSealed: false)
         ];
         if (!isConstructor
-            && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName) is { } equalitySibling)
+            && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
         {
             targetMembers.Add(equalitySibling);
         }
@@ -1129,7 +1129,8 @@ public static class CompileBackSourceComposer
         MetadataReader reader,
         TypeDefinition typeDef,
         CompileBackTypeIdentity typeIdentity,
-        string methodName)
+        string methodName,
+        MethodSignature<string> targetSignature)
     {
         var siblingName = methodName switch
         {
@@ -1143,13 +1144,15 @@ public static class CompileBackSourceComposer
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != siblingName
-                || method.RelativeVirtualAddress == 0)
+            if (reader.GetString(method.Name) != siblingName)
             {
                 continue;
             }
 
             var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            if (!OperatorSignaturesMatch(targetSignature, signature))
+                continue;
+
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
                 CompileBackMemberKind.Method,
@@ -1170,6 +1173,10 @@ public static class CompileBackSourceComposer
 
         return null;
     }
+
+    static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
+        => left.ReturnType == right.ReturnType
+            && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
 
     static string MethodSignatureText(string name, MethodSignature<string> signature)
         => $"{signature.ReturnType} {name}({string.Join(", ", signature.ParameterTypes)})";
