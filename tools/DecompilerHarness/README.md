@@ -102,18 +102,21 @@ integer-addition, array-index, array-length, string-length, null-coalescing,
 try/finally, using/dispose, foreach-array, for-loop, while-loop, and do-while
 rungs extend that minimal exact set;
 `minimal.switch-int` adds the first switch statement rung.
+`minimal.conditional-expression-shape-frontier` records a source-shape frontier:
+the conditional-expression source is compile-back exact, but the accepted current
+output is return-statement shaped rather than `ConditionalExpression` shaped.
 `minimal.switch-two-case-lowers-if` records the current SDK's two-case
 source-switch lowering observation (lowered as if/else, not the dense switch
-shape) and is opt-in by ID. `minimal.conditional-expression-shape-frontier`
-records a source-shape frontier: the conditional-expression source is
-compile-back exact, but the accepted current output is return-statement shaped
-rather than `ConditionalExpression` shaped.
+shape) and is opt-in by ID because it is a non-exact compiler-lowering frontier.
 `assertion.inverse-node-coverage` is the deterministic inverse-ledger coverage
 fixture used by `--assertion-fixture-guarantee`; it is addressable by ID but is
-not part of the default stable generated-fixture ladder. With no selector,
-stable generated fixtures run; use `list` to list fixture IDs, `--json` for
-machine-readable list/results, and `--keep-generated-fixtures` to preserve the
-generated project for drill-down.
+not part of the default stable generated-fixture ladder. The `record.*` fixtures
+are addressable ReturnToSender catalog coverage for record property accessors,
+equality operators, virtual helpers, field-read helpers, record structs, and
+generic typed `Equals(T)`; run `--return-to-sender-catalog record` for that
+slice. With no selector, stable generated fixtures run; use `list` to list
+fixture IDs, `--json` for machine-readable list/results, and
+`--keep-generated-fixtures` to preserve the generated project for drill-down.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape
@@ -129,7 +132,7 @@ The generated fixture ladder is intentionally staged:
 | Projection | Decompile each target through the shipped raised product path and record the decompiler fidelity grade. |
 | Shape verdict | Parse the rendered body with Roslyn and compare the optional expected `SyntaxKind`. |
 | Compile-back verdict | Recompile the rendered body and compare canonical opcode streams with `FidelityCheck`. |
-| Frontier ledger | Keep expected non-exact or compiler-lowering observations explicit and opt-in. |
+| Frontier ledger | Keep non-exact compiler-lowering observations opt-in; keep source-shape frontiers explicit even when they are compile-back exact. |
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
 residual buckets from `--gaps` with the Roslyn-backed validity oracle from

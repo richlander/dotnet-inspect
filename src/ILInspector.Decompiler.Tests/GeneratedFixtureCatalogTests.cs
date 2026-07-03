@@ -875,8 +875,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.while-loop", report);
         Assert.Contains("minimal.do-while", report);
         Assert.Contains("minimal.switch-int", report);
+        Assert.Contains("minimal.conditional-expression-shape-frontier", report);
         Assert.DoesNotContain("minimal.switch-two-case-lowers-if", report);
-        Assert.DoesNotContain("minimal.conditional-expression-shape-frontier", report);
         Assert.Contains("decompiler=Full", report);
         Assert.Contains("compile-back=Exact", report);
         Assert.Contains("shape=ForStatement", report);
@@ -893,6 +893,7 @@ public class GeneratedFixtureCatalogTests
         AssertShape(run, "minimal.while-loop", "Method1", SyntaxKind.WhileStatement);
         AssertShape(run, "minimal.do-while", "Method1", SyntaxKind.DoStatement);
         AssertShape(run, "minimal.switch-int", "Method1", SyntaxKind.SwitchStatement);
+        AssertShape(run, "minimal.conditional-expression-shape-frontier", "Method1", SyntaxKind.ReturnStatement);
     }
 
     [Fact]
@@ -901,6 +902,17 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(
             ["minimal.property.literal"],
             GeneratedFixtureCatalog.Select("minimal.property.literal").Select(fixture => fixture.Id).ToArray());
+
+        Assert.Equal(
+            [
+                "record.equality-operators",
+                "record.field-read-helpers",
+                "record.generic-typed-equals",
+                "record.property-getter",
+                "record.struct-field-read-helpers",
+                "record.virtual-helpers",
+            ],
+            GeneratedFixtureCatalog.Select("record").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
         Assert.Equal(
             [
@@ -1003,6 +1015,12 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.do-while");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-int");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.switch-two-case-lowers-if");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.property-getter");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.equality-operators");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.virtual-helpers");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.field-read-helpers");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.struct-field-read-helpers");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.generic-typed-equals");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
@@ -1068,7 +1086,40 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void CompilerLoweringFrontiers_AreSelectableButNotInDefaultRun()
+    public void ReturnToSenderRecordCatalog_CoversGeneratedRecordHelpers()
+    {
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+            GeneratedFixtureCatalog.Select("record"));
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+
+        Assert.True(run.Passed, report);
+        Assert.Equal(11, run.Results.Count);
+        Assert.All(run.Results, result =>
+        {
+            Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.ActualStatus);
+        });
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.equality-operators" &&
+            result.Method == "op_Equality");
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.field-read-helpers" &&
+            result.Method == "Equals" &&
+            result.Overload == 1);
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.struct-field-read-helpers" &&
+            result.Method == "Equals" &&
+            result.Overload == 1);
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.generic-typed-equals" &&
+            result.Type == "RecordGenericTypedEqualsRow`1");
+        Assert.Contains("record.generic-typed-equals", report);
+        Assert.DoesNotContain("Skipped target reasons", report);
+        Assert.DoesNotContain("Failed target buckets", report);
+    }
+
+    [Fact]
+    public void CompilerLoweringFrontier_IsSelectableButNotInDefaultRun()
     {
         var switchRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));
         string switchReport = GeneratedFixtureRunner.FormatReport(switchRun);
@@ -1089,7 +1140,7 @@ public class GeneratedFixtureCatalogTests
             FidelityCheck.CompileBackStatus.OpcodeDiff,
             frontier: true);
 
-        var shapeRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.conditional-expression-shape-frontier"));
+        var shapeRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.MinimalCompileBackRungs);
         string shapeReport = GeneratedFixtureRunner.FormatReport(shapeRun);
 
         Assert.True(shapeRun.Passed, shapeReport);
@@ -1118,7 +1169,9 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(GeneratedFixtureCatalog.Frontiers, fixture =>
             fixture.Id == "minimal.switch-two-case-lowers-if" &&
             fixture.Tags.Contains("compiler-lowering"));
-        Assert.Contains(GeneratedFixtureCatalog.Frontiers, fixture =>
+        Assert.DoesNotContain(GeneratedFixtureCatalog.Frontiers, fixture =>
+            fixture.Id == "minimal.conditional-expression-shape-frontier");
+        Assert.Contains(GeneratedFixtureCatalog.MinimalCompileBackRungs, fixture =>
             fixture.Id == "minimal.conditional-expression-shape-frontier" &&
             fixture.Tags.Contains("shape"));
     }

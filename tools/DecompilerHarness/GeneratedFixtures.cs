@@ -1271,6 +1271,106 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "conditional-expression", "branch", "frontier", "shape"]);
 
+    public static readonly GeneratedFixtureDefinition RecordPropertyGetter = new(
+        "record.property-getter",
+        """
+        public sealed record RecordPropertyGetterSnapshot(string Assembly, int Count);
+        """,
+        [
+            new(
+                "RecordPropertyGetterSnapshot",
+                "get_Assembly",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["record", "property", "getter", "return-to-sender"]);
+
+    public static readonly GeneratedFixtureDefinition RecordEqualityOperators = new(
+        "record.equality-operators",
+        """
+        public record RecordEqualityOperatorsRow(string Name);
+        """,
+        [
+            new(
+                "RecordEqualityOperatorsRow",
+                "op_Equality",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "RecordEqualityOperatorsRow",
+                "op_Inequality",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["record", "operator", "equality", "return-to-sender"]);
+
+    public static readonly GeneratedFixtureDefinition RecordVirtualHelpers = new(
+        "record.virtual-helpers",
+        """
+        public record RecordVirtualHelpersRow(string Name, string Value);
+        """,
+        [
+            new(
+                "RecordVirtualHelpersRow",
+                "ToString",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "RecordVirtualHelpersRow",
+                "Equals",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["record", "virtual", "helper", "return-to-sender"]);
+
+    public static readonly GeneratedFixtureDefinition RecordFieldReadHelpers = new(
+        "record.field-read-helpers",
+        """
+        public record RecordFieldReadHelpersRow(string Name, string Value);
+        """,
+        [
+            new(
+                "RecordFieldReadHelpersRow",
+                "GetHashCode",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "RecordFieldReadHelpersRow",
+                "ToString",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "RecordFieldReadHelpersRow",
+                "Equals",
+                FidelityCheck.CompileBackStatus.Exact,
+                Overload: 1),
+        ],
+        ["record", "field", "helper", "return-to-sender"]);
+
+    public static readonly GeneratedFixtureDefinition RecordStructFieldReadHelpers = new(
+        "record.struct-field-read-helpers",
+        """
+        public record struct RecordStructFieldReadHelpersRow(string Name, string Value);
+        """,
+        [
+            new(
+                "RecordStructFieldReadHelpersRow",
+                "GetHashCode",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "RecordStructFieldReadHelpersRow",
+                "Equals",
+                FidelityCheck.CompileBackStatus.Exact,
+                Overload: 1),
+        ],
+        ["record", "struct", "field", "helper", "return-to-sender"]);
+
+    public static readonly GeneratedFixtureDefinition RecordGenericTypedEquals = new(
+        "record.generic-typed-equals",
+        """
+        public record RecordGenericTypedEqualsRow<T>(T Value);
+        """,
+        [
+            new(
+                "RecordGenericTypedEqualsRow`1",
+                "Equals",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["record", "generic", "equals", "return-to-sender"]);
+
     public static readonly GeneratedFixtureDefinition AssertionNodeCoverage = new(
         "assertion.inverse-node-coverage",
         """
@@ -1623,12 +1723,22 @@ internal static class GeneratedFixtureCatalog
         MinimalWhileLoop,
         MinimalDoWhileLoop,
         MinimalSwitchInt,
+        MinimalConditionalExpressionShapeFrontier,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Frontiers { get; } =
     [
         MinimalSwitchTwoCaseLowersIf,
-        MinimalConditionalExpressionShapeFrontier,
+    ];
+
+    public static IReadOnlyList<GeneratedFixtureDefinition> ReturnToSenderRecords { get; } =
+    [
+        RecordPropertyGetter,
+        RecordEqualityOperators,
+        RecordVirtualHelpers,
+        RecordFieldReadHelpers,
+        RecordStructFieldReadHelpers,
+        RecordGenericTypedEquals,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> AssertionCoverage { get; } =
@@ -1641,6 +1751,7 @@ internal static class GeneratedFixtureCatalog
     [
         .. All,
         .. Frontiers,
+        .. ReturnToSenderRecords,
         .. AssertionCoverage,
     ];
 
