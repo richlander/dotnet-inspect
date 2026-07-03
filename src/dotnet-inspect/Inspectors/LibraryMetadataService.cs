@@ -559,11 +559,10 @@ internal static class LibraryMetadataService
         inspection.AsyncMethods = async.Count > 0 ? async : null;
     }
 
-    internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(string path, VerboseLogger logger)
+    internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(MethodBodyInspectionSession session, string path, VerboseLogger logger)
     {
         try
         {
-            var session = MethodBodyInspectionSession.Open(path);
             var rows = session.UnsafeEvidence()
                 .Select(evidence => new UnsafeMemberSummary
                 {
@@ -631,11 +630,10 @@ internal static class LibraryMetadataService
     /// then outbound shape). Emits the full ranked set so the row limiter (<c>-n</c>/
     /// <c>--rows</c>) controls how many rows are shown, matching the type-scoped view.
     /// </summary>
-    internal static List<MethodLeverageSummary>? ScanTopLeverage(string path, VerboseLogger logger)
+    internal static List<MethodLeverageSummary>? ScanTopLeverage(MethodBodyInspectionSession session, string path, VerboseLogger logger)
     {
         try
         {
-            var session = MethodBodyInspectionSession.Open(path);
             var generatedFrameworkTypes = session.GeneratedFrameworkTypeNames;
             // Reuse the exact Member Index canonical-signature/digest path (via the
             // extracted API surface) so library-scope rows carry the same round-tripping
@@ -715,13 +713,13 @@ internal static class LibraryMetadataService
     /// filtered set in triage priority order so the highest-value pay-dirt surfaces first.
     /// </summary>
     internal static List<OptimizationOpportunitySummary>? ScanOptimizationOpportunities(
+        MethodBodyInspectionSession session,
         string path,
         VerboseLogger logger,
         PerformanceTriageOptions? options = null)
     {
         try
         {
-            var session = MethodBodyInspectionSession.Open(path);
             var generatedFrameworkTypes = session.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     session.OptimizationOpportunities
