@@ -389,9 +389,12 @@ public static class AttributeReader
         if (blob.RemainingBytes > 0)
         {
             var elementType = blob.ReadByte();
-            if (UnmanagedTypeName(elementType) is not { } elementUnmanagedType)
-                return null;
-            arguments.Add($"ArraySubType = System.Runtime.InteropServices.UnmanagedType.{elementUnmanagedType}");
+            if (elementType != 0x50)
+            {
+                if (UnmanagedTypeName(elementType) is not { } elementUnmanagedType)
+                    return null;
+                arguments.Add($"ArraySubType = System.Runtime.InteropServices.UnmanagedType.{elementUnmanagedType}");
+            }
         }
 
         if (blob.RemainingBytes > 0)
@@ -409,8 +412,7 @@ public static class AttributeReader
                     return null;
                 if (sizeParamSpecified)
                     arguments.Add($"SizeParamIndex = {sizeParamIndex}");
-                if (sizeConst != 0)
-                    arguments.Add($"SizeConst = {sizeConst}");
+                arguments.Add($"SizeConst = {sizeConst}");
             }
         }
 
@@ -641,6 +643,7 @@ public static class AttributeReader
     static bool IsParameterSyntaxAttribute(string name) => name switch
     {
         "System.ParamArrayAttribute" => true,
+        "System.Runtime.InteropServices.MarshalAsAttribute" => true,
         KnownAttributeNames.ParamCollectionAttribute => true,
         KnownAttributeNames.DecimalConstantAttribute => true,
         KnownAttributeNames.DateTimeConstantAttribute => true,

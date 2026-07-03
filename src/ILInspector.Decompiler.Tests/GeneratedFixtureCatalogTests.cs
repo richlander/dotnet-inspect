@@ -467,6 +467,27 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "PlainArray",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "FixedArray",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.parameter-marshalling",
+            "GeneratedFixtures.MinimalParameterMarshalling.Class1",
+            "ZeroSizedArray",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.if-else",
             "GeneratedFixtures.MinimalIfElse.Class1",
             ".ctor",

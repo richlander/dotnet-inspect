@@ -514,6 +514,18 @@ internal static class GeneratedFixtureCatalog
             public int FirstFour(
                 [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)] int[] values)
                 => values[0] + values[1] + values[2] + values[3];
+
+            public int PlainArray(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)] int[] values)
+                => values.Length;
+
+            public int FixedArray(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)] int[] values)
+                => values[0] + values[1] + values[2] + values[3];
+
+            public int ZeroSizedArray(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)] int[] values)
+                => values.Length;
         }
         """,
         [
@@ -548,6 +560,24 @@ internal static class GeneratedFixtureCatalog
                 ExpectedSourceFragments:
                 [
                     "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "PlainArray",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "FixedArray",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "ZeroSizedArray",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)",
                 ]),
         ],
         ["minimal", "parameters", "marshalling"]);

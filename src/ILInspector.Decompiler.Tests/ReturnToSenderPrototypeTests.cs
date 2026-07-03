@@ -1234,6 +1234,18 @@ public class ReturnToSenderPrototypeTests
                 public int FirstFour(
                     [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)] int[] values)
                     => values[0] + values[1] + values[2] + values[3];
+
+                public int PlainArray(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)] int[] values)
+                    => values.Length;
+
+                public int FixedArray(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)] int[] values)
+                    => values[0] + values[1] + values[2] + values[3];
+
+                public int ZeroSizedArray(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)] int[] values)
+                    => values.Length;
             }
             """);
         try
@@ -1246,6 +1258,9 @@ public class ReturnToSenderPrototypeTests
                     new ReturnToSender.RequestedTarget("Class1", "Bool", 0),
                     new ReturnToSender.RequestedTarget("Class1", "Sum", 0),
                     new ReturnToSender.RequestedTarget("Class1", "FirstFour", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "PlainArray", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "FixedArray", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "ZeroSizedArray", 0),
                 ]);
 
             Assert.Collection(
@@ -1274,6 +1289,21 @@ public class ReturnToSenderPrototypeTests
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
                     Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)", result.Source);
                 });
         }
         finally
