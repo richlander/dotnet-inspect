@@ -42,6 +42,26 @@ public sealed class MethodBodyInspectionSession
     public ImmutableArray<Analysis.CostFact> CostFacts(int methodToken, int? ilOffset = null)
         => Analysis.SemanticFactProjection.CostFacts(_index.GetDirectCallsByCaller(), methodToken, ilOffset);
 
+    /// <summary>
+    /// Direct call sites originating in one method (<paramref name="methodToken"/>). Empty when the
+    /// method has no recorded calls. Grouped by caller token, equivalent to filtering the flat
+    /// <c>DirectCalls</c> stream on <c>Caller.MetadataToken == methodToken</c>.
+    /// </summary>
+    public ImmutableArray<Analysis.DirectCall> DirectCalls(int methodToken)
+        => _index.GetDirectCallsByCaller().TryGetValue(methodToken, out var calls)
+            ? calls
+            : ImmutableArray<Analysis.DirectCall>.Empty;
+
+    /// <summary>
+    /// Unsafe-operation evidence recorded for one method (<paramref name="methodToken"/>). Empty when
+    /// the method has no evidence. Grouped by member token, equivalent to filtering the flat
+    /// <c>UnsafeEvidence</c> stream on <c>Member.MetadataToken == methodToken</c>.
+    /// </summary>
+    public ImmutableArray<Analysis.UnsafeEvidence> UnsafeEvidence(int methodToken)
+        => _index.GetUnsafeEvidenceByMember().TryGetValue(methodToken, out var evidence)
+            ? evidence
+            : ImmutableArray<Analysis.UnsafeEvidence>.Empty;
+
     /// <summary>Outbound call graph rooted at one method.</summary>
     public Analysis.CallTreeNode CallTree(int methodToken)
         => _index.BuildCallTree(methodToken);
