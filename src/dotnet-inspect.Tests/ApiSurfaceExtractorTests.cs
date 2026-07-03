@@ -311,6 +311,34 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RendersPropertyAccessorReturnAttributes()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+
+        var textProperty = testType.Members.FirstOrDefault(m => m.Name == "PropertyWithReturnNotNull");
+        Assert.NotNull(textProperty);
+        var textDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, textProperty);
+        Assert.Contains("string PropertyWithReturnNotNull { [return: System.Diagnostics.CodeAnalysis.NotNull] get; }", textDeclaration);
+
+        var numberProperty = testType.Members.FirstOrDefault(m => m.Name == "PropertyWithReturnMarshalAs");
+        Assert.NotNull(numberProperty);
+        var numberDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, numberProperty);
+        Assert.Contains("int PropertyWithReturnMarshalAs { [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] get; }", numberDeclaration);
+
+        var indexer = testType.Members.FirstOrDefault(m => m.Name == "Item");
+        Assert.NotNull(indexer);
+        var indexerDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, indexer);
+        Assert.Contains("this[int index] { [return: System.Diagnostics.CodeAnalysis.NotNull] get; }", indexerDeclaration);
+    }
+
+    [Fact]
     public void Extract_RendersEnumParameterDefaultsAsEnumLiterals()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -818,6 +846,23 @@ public class SampleClassForTesting
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
     public int MethodWithReturnAttributesAndFallbackSignature(
         [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) => when.Year;
+    public string PropertyWithReturnNotNull
+    {
+        [return: System.Diagnostics.CodeAnalysis.NotNull]
+        get => "hello";
+    }
+
+    public int PropertyWithReturnMarshalAs
+    {
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+        get => 42;
+    }
+
+    public string this[int index]
+    {
+        [return: System.Diagnostics.CodeAnalysis.NotNull]
+        get => "hello";
+    }
 }
 
 public class SampleKeywordParameterHost

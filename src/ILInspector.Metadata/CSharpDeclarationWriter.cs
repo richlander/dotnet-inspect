@@ -592,9 +592,14 @@ public static class CSharpDeclarationWriter
         return false;
 
         static string AccessorDeclaration(ApiAccessor accessor)
-            => string.IsNullOrWhiteSpace(accessor.Accessibility)
-                ? $"{accessor.Kind};"
-                : $"{accessor.Accessibility} {accessor.Kind};";
+        {
+            var attributePrefix = accessor.ReturnAttributes.Count == 0
+                ? ""
+                : $"[return: {string.Join(", ", accessor.ReturnAttributes)}] ";
+            return string.IsNullOrWhiteSpace(accessor.Accessibility)
+                ? $"{attributePrefix}{accessor.Kind};"
+                : $"{attributePrefix}{accessor.Accessibility} {accessor.Kind};";
+        }
 
         static bool IsOrdinaryPropertyName(string? name)
             => string.IsNullOrWhiteSpace(name)

@@ -236,6 +236,7 @@ public class ApiAccessor
 {
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
+    public List<string> ReturnAttributes { get; set; } = [];
 }
 
 public class ApiType

@@ -638,6 +638,56 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "parameters", "return", "marshalling", "attributes"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalPropertyReturnMetadata = new(
+        "minimal.property-return-metadata",
+        """
+        namespace GeneratedFixtures.MinimalPropertyReturnMetadata;
+
+        public class Class1
+        {
+            public string Text
+            {
+                [return: System.Diagnostics.CodeAnalysis.NotNull]
+                get => "hello";
+            }
+
+            public int Number
+            {
+                [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+                get => 42;
+            }
+
+            public string this[int index]
+            {
+                [return: System.Diagnostics.CodeAnalysis.NotNull]
+                get => "hello";
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalPropertyReturnMetadata.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalPropertyReturnMetadata.Class1", "get_Text",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Diagnostics.CodeAnalysis.NotNull] get",
+                ]),
+            new("GeneratedFixtures.MinimalPropertyReturnMetadata.Class1", "get_Number",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] get",
+                ]),
+            new("GeneratedFixtures.MinimalPropertyReturnMetadata.Class1", "get_Item",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Diagnostics.CodeAnalysis.NotNull] get",
+                ]),
+        ],
+        ["minimal", "property", "return", "marshalling", "attributes"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -1139,6 +1189,7 @@ internal static class GeneratedFixtureCatalog
         MinimalParameterAttributes,
         MinimalParameterMarshalling,
         MinimalReturnParameterMetadata,
+        MinimalPropertyReturnMetadata,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,

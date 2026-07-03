@@ -1290,7 +1290,12 @@ public static class ApiSurfaceExtractor
             var getStr = hasGetter ? FormatAccessor("get", getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
             var setStr = hasSetter ? FormatAccessor("set", setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
             if (hasGetter)
-                accessorModels.Add(new ApiAccessor { Kind = "get", Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters())
+                });
             if (hasSetter)
                 accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) });
             accessorStr = (getStr, setStr) switch
@@ -1306,19 +1311,19 @@ public static class ApiSurfaceExtractor
             if (hasPublicGetter && hasPublicSetter)
             {
                 accessorStr = "{ get; set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get" });
+                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
                 accessorModels.Add(new ApiAccessor { Kind = "set" });
             }
             else if (hasPublicGetter && hasSetter)
             {
                 accessorStr = "{ get; private set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get" });
+                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
                 accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = "private" });
             }
             else if (hasPublicGetter)
             {
                 accessorStr = "{ get; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get" });
+                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
             }
             else if (hasPublicSetter)
             {
