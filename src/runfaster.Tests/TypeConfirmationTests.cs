@@ -72,6 +72,75 @@ public class TypeConfirmationTests
         Assert.Equal("cold-for-this-workload", candidate.Status);
     }
 
+    [Fact]
+    public void CanonicalTypeSignature_DistinguishesArraysFromScalarsAndRanks()
+    {
+        var scalar = ProgramSupport.CanonicalTypeSignature("int");
+        var array = ProgramSupport.CanonicalTypeSignature("int[]");
+        var runtimeArray = ProgramSupport.CanonicalTypeSignature("System.Int32[]");
+        var jagged = ProgramSupport.CanonicalTypeSignature("int[][]");
+        var rank2 = ProgramSupport.CanonicalTypeSignature("int[,]");
+
+        Assert.Equal(array, runtimeArray);       // static alias array == runtime array
+        Assert.NotEqual(scalar, array);          // scalar != array
+        Assert.NotEqual(array, jagged);          // [] != [][]
+        Assert.NotEqual(array, rank2);           // [] != [,]
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_DistinguishesLeafNameNamespaceCollisions()
+    {
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("A.Foo"),
+            ProgramSupport.CanonicalTypeSignature("B.Foo"));
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_DoesNotConfirmColdSite_WhenTypeAlreadySiteObserved()
+    {
+        // A hot site-observed candidate explains the String volume; a cold same-type site must not
+        // steal that credit as a "unique" type-hot confirmation.
+        var observed = CandidateWithType(1, "Fixture.Hot.M()", "System.String");
+        observed.AllocationHits = 1;
+        observed.AllocationBytes = 900_000_000;
+        var cold = CandidateWithType(2, "Fixture.Cold.M()", "System.String");
+        var result = new CorrelationResult();
+        result.Candidates.Add(observed);
+        result.Candidates.Add(cold);
+        result.RecordTypeVolume("System.String", 900_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(cold.TypeConfirmed);
+        Assert.Equal("cold-for-this-workload", cold.Status);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_DoesNotConfirm_BelowVolumeFloor()
+    {
+        var candidate = CandidateWithType(1, "Fixture.A.M()", "System.Func<string, System.Lazy<int>>");
+        var result = new CorrelationResult();
+        result.Candidates.Add(candidate);
+        result.RecordTypeVolume("System.Func`2[System.String,System.Lazy`1[System.Int32]]", ProgramSupport.TypeConfirmMinBytes - 1);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(candidate.TypeConfirmed);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_DoesNotConfirm_WhenTooManySitesShareType()
+    {
+        var result = new CorrelationResult();
+        for (int i = 0; i < ProgramSupport.TypeConfirmMaxSites + 1; i++)
+            result.Candidates.Add(CandidateWithType(i + 1, $"Fixture.T{i}.M()", "System.String"));
+        result.RecordTypeVolume("System.String", 900_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.All(result.Candidates, c => Assert.False(c.TypeConfirmed));
+    }
+
     static AllocationCandidate CandidateWithType(int id, string method, string predictedType)
     {
         string methodKey = method[..method.IndexOf('(')];
