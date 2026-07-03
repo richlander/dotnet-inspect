@@ -1329,6 +1329,11 @@ public class ReturnToSenderPrototypeTests
                 [return: System.Diagnostics.CodeAnalysis.NotNull]
                 public string NotNullText()
                     => "hello";
+
+                [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+                public int FallbackSignature(
+                    [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                    => when.Year;
             }
             """);
         try
@@ -1339,6 +1344,7 @@ public class ReturnToSenderPrototypeTests
                     new ReturnToSender.RequestedTarget("Class1", "I4", 0),
                     new ReturnToSender.RequestedTarget("Class1", "Text", 0),
                     new ReturnToSender.RequestedTarget("Class1", "NotNullText", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "FallbackSignature", 0),
                 ]);
 
             Assert.Collection(
@@ -1357,6 +1363,13 @@ public class ReturnToSenderPrototypeTests
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
                     Assert.Contains("[return: System.Diagnostics.CodeAnalysis.NotNull]", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]", result.Source);
+                    Assert.Contains("[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when", result.Source);
+                    Assert.DoesNotContain("public [return:", result.Source);
                 });
         }
         finally

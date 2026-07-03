@@ -180,7 +180,6 @@ public static class CSharpDeclarationWriter
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
-        var usedSignatureModel = false;
         string signature;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
         {
@@ -189,7 +188,6 @@ public static class CSharpDeclarationWriter
         else if (TryRenderSignatureModel(type, member, methodParameters, out var modelSignature))
         {
             signature = modelSignature;
-            usedSignatureModel = true;
         }
         else
         {
@@ -244,7 +242,7 @@ public static class CSharpDeclarationWriter
         List<string> parts = [];
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
-        if (usedSignatureModel && member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
+        if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
             parts.Add($"[return: {string.Join(", ", returnAttributes)}]");
 
         List<string> modifiers = [];

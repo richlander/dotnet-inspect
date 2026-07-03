@@ -600,6 +600,11 @@ internal static class GeneratedFixtureCatalog
             [return: System.Diagnostics.CodeAnalysis.NotNull]
             public string NotNullText()
                 => "hello";
+
+            [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+            public int FallbackSignature(
+                [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                => when.Year;
         }
         """,
         [
@@ -622,6 +627,13 @@ internal static class GeneratedFixtureCatalog
                 ExpectedSourceFragments:
                 [
                     "[return: System.Diagnostics.CodeAnalysis.NotNull]",
+                ]),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "FallbackSignature",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
+                    "[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when",
                 ]),
         ],
         ["minimal", "parameters", "return", "marshalling", "attributes"]);

@@ -281,7 +281,7 @@ public class ApiSurfaceExtractorTests
         var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithReturnAttributes");
         Assert.NotNull(method);
         Assert.NotNull(method.SignatureModel);
-        Assert.Contains("[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]", method.Signature);
+        Assert.DoesNotContain("[return:", method.Signature);
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, method);
         Assert.StartsWith(
             "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] public int MethodWithReturnAttributes()",
@@ -295,6 +295,19 @@ public class ApiSurfaceExtractorTests
             "[return: System.Diagnostics.CodeAnalysis.NotNull] public string MethodWithReturnNotNull()",
             notNullDeclaration,
             StringComparison.Ordinal);
+
+        var fallbackMethod = testType.Members.FirstOrDefault(m => m.Name == "MethodWithReturnAttributesAndFallbackSignature");
+        Assert.NotNull(fallbackMethod);
+        Assert.DoesNotContain("[return:", fallbackMethod.Signature);
+        var fallbackDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, fallbackMethod);
+        Assert.StartsWith(
+            "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] public int MethodWithReturnAttributesAndFallbackSignature(",
+            fallbackDeclaration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when",
+            fallbackDeclaration);
+        Assert.DoesNotContain("public [return:", fallbackDeclaration);
     }
 
     [Fact]
@@ -802,6 +815,9 @@ public class SampleClassForTesting
     public int MethodWithReturnAttributes() => 42;
     [return: System.Diagnostics.CodeAnalysis.NotNull]
     public string MethodWithReturnNotNull() => "hello";
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+    public int MethodWithReturnAttributesAndFallbackSignature(
+        [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) => when.Year;
 }
 
 public class SampleKeywordParameterHost

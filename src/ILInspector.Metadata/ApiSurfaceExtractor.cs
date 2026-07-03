@@ -792,10 +792,7 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        var returnAttributePrefix = returnAttributes.Count == 0
-            ? ""
-            : $"[return: {string.Join(", ", returnAttributes)}] ";
-        return ($"{returnAttributePrefix}{returnType} {methodName}({paramStr2})", new ApiSignature
+        return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
         {
             ReturnType = returnType,
             ReturnAttributes = returnAttributes,

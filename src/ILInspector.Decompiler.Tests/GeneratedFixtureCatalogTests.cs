@@ -516,6 +516,13 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.return-parameter-metadata",
+            "GeneratedFixtures.MinimalReturnParameterMetadata.Class1",
+            "FallbackSignature",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.if-else",
             "GeneratedFixtures.MinimalIfElse.Class1",
             ".ctor",
