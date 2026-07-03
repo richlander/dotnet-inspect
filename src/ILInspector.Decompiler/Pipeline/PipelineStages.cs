@@ -227,11 +227,13 @@ public static class StageDump
                 }
             }
 
-            sb.Append(Format(IrPasses.RunWithStages(function)));
+            sb.Append(Format(IrPasses.RunWithStages(function, method => IrImporter.Import(source, method))));
 
             sb.AppendLine();
             // RunWithStages above ran the canonical Default pass list on
-            // `function`, so it is now fully raised. Printing it here is
+            // `function` with the cross-method import seam wired (so cross-method
+            // passes such as classic-async reconstruction run exactly as in the
+            // product path), so it is now fully raised. Printing it here is
             // byte-identical to CSharpPrinter.PrintRaised(import) — i.e. this is
             // the exact C# the shipped product emits, not an intermediate view.
             sb.AppendLine("==== C# (raised — the shipped product output) ====");
