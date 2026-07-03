@@ -1706,6 +1706,41 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "ToString", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                toString =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, toString.Status);
+                    Assert.Contains("protected virtual bool PrintMembers", toString.Source);
+                    Assert.Contains("protected virtual System.Type EqualityContract", toString.Source);
+                },
+                equalsObject =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, equalsObject.Status);
+                    Assert.Contains("public virtual bool Equals(Row other)", equalsObject.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
     {
         var assemblyPath = CompileFixture("""
