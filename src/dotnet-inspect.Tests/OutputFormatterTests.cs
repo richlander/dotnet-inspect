@@ -365,6 +365,31 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void FilterAndOrderTriageOpportunities_FiltersByWeight()
+    {
+        var opportunities = new[]
+        {
+            Opp("HighWeight", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array", weight: "high"),
+            Opp("MediumWeight", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array", weight: "medium"),
+            Opp("NoWeight", inLoop: false, confidence: "medium", rootReach: 1000, shape: "linq-scan-in-loop"),
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    Where = ["Weight>=medium"],
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(2, filtered.Count);
+        Assert.Contains("HighWeight", filtered);
+        Assert.Contains("MediumWeight", filtered);
+        Assert.DoesNotContain("NoWeight", filtered);
+    }
+
+    [Fact]
     public void FilterAndOrderTriageOpportunities_AllowsOperatorsInsidePredicateValues()
     {
         var opportunities = new[]
@@ -416,6 +441,29 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void FilterAndOrderTriageOpportunities_OrdersByWeight()
+    {
+        var opportunities = new[]
+        {
+            Opp("HighWeightHighReach", inLoop: false, confidence: "medium", rootReach: 10, shape: "small-array", weight: "high"),
+            Opp("LowWeightHighReach", inLoop: false, confidence: "medium", rootReach: 100, shape: "small-array", weight: "low"),
+            Opp("HighWeightLowReach", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array", weight: "high"),
+            Opp("NoWeight", inLoop: false, confidence: "medium", rootReach: 1000, shape: "linq-scan-in-loop"),
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    OrderBy = "Weight desc,RootReach desc",
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["HighWeightHighReach", "HighWeightLowReach", "LowWeightHighReach", "NoWeight"], filtered);
+    }
+
+    [Fact]
     public void FilterAndOrderTriageOpportunities_OrdersIlNumerically()
     {
         var opportunities = new[]
@@ -436,7 +484,7 @@ public class OutputFormatterTests
         Assert.Equal(["OffsetSmall", "OffsetLarge"], filtered);
     }
 
-    static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape, string? multiplicity = null)
+    static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape, string? multiplicity = null, string? weight = null)
     {
         var declaring = ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Type");
         var method = new ILInspector.Analysis.MethodIdentity(
@@ -452,6 +500,7 @@ public class OutputFormatterTests
             method, shape, "evidence", "fix", confidence, inLoop, ILOffset: null, Caveat: null, RootReach: rootReach)
         {
             Multiplicity = multiplicity,
+            Weight = weight,
         };
     }
 

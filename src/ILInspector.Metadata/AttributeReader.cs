@@ -512,7 +512,7 @@ public static class AttributeReader
             return fullName;
 
         var trimmed = fullName[..^9];
-        return trimmed.Length == 0 || trimmed.EndsWith('.', StringComparison.Ordinal)
+        return trimmed.Length == 0 || trimmed.EndsWith(".", StringComparison.Ordinal)
             ? fullName
             : trimmed;
     }

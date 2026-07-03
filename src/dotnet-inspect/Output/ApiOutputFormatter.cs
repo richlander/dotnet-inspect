@@ -24,11 +24,42 @@ public static class ApiOutputFormatter
         => ApiCommand.PlatformAssemblyResolver(dllPath, options?.ProjectAssetsPath, options?.Tfm);
 
     /// <summary>
-    /// Opens a type-scope analysis session for the type/library sections. Callers memoize this per
-    /// type so the five type-analysis populators share one index build instead of opening five.
+    /// Which expensive whole-assembly analysis phases the requested sections actually consume.
+    /// Escape-classified allocation occurrences feed Allocation Facts (and, transitively,
+    /// optimization opportunities); optimization opportunities feed Performance Triage. Every other
+    /// analysis section (Calls / Callers / Call Graph / Top Leverage / Cost / Safety / Unsafe /
+    /// Called Types) needs neither, so the index build can skip both. A null/unknown set is treated
+    /// as "needs everything" (safe default).
     /// </summary>
-    internal static MethodBodyInspectionSession OpenTypeAnalysisSession(string dllPath)
-        => MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
+    internal static (bool IncludeAllocations, bool IncludeOpportunities) AnalysisScopeFor(IReadOnlyCollection<string>? requestedSections)
+    {
+        if (requestedSections is null)
+            return (true, true);
+        bool opportunities = requestedSections.Contains(SectionNames.PerformanceTriage);
+        bool allocations = opportunities || requestedSections.Contains(SectionNames.AllocationFacts);
+        return (allocations, opportunities);
+    }
+
+    /// <summary>
+    /// Opens a type-scope analysis session for the type/library sections. Callers memoize this per
+    /// type so the five type-analysis populators share one index build instead of opening five. The
+    /// build is narrowed to the phases <paramref name="requestedSections"/> consumes, and — when
+    /// <paramref name="type"/> is supplied and no requested section needs the whole-assembly reverse
+    /// graph (Top Leverage / Performance Triage) — to only that type's method bodies.
+    /// </summary>
+    internal static MethodBodyInspectionSession OpenTypeAnalysisSession(string dllPath, IReadOnlyCollection<string>? requestedSections = null, ApiType? type = null)
+    {
+        var (allocations, opportunities) = AnalysisScopeFor(requestedSections);
+        // Unsafe Members, Called Types, and the Allocation/Safety/Cost facts read only the type's
+        // own method bodies; Top Leverage (whole-assembly fanin) and Performance Triage (leverage
+        // join) need every method, so their presence forces a full build.
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null;
+        if (type is not null && requestedSections is not null
+            && !requestedSections.Contains(SectionNames.TopLeverage)
+            && !requestedSections.Contains(SectionNames.PerformanceTriage))
+            bodyTypeScope = typeRef => SameType(typeRef, type);
+        return MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath), allocations, opportunities, bodyScope: null, bodyTypeScope: bodyTypeScope);
+    }
 
     // ===== Full API View Model Factory =====
 
@@ -1126,9 +1157,37 @@ public static class ApiOutputFormatter
         // index-backed section is actually requested (sections like decompiled source / IL
         // go through MemberCodeProvider and never touch it). Every index-backed block below
         // shares this one session instead of re-opening and re-analyzing every method body.
+        // The build is narrowed to the phases the requested sections actually consume.
+        var (indexInclAllocations, indexInclOpportunities) = AnalysisScopeFor(requestedSections);
+        // Call Graph / Caller Graph allocation and IL-evidence annotations (opt-in via
+        // --fields/--columns) read allocation-derived method signals, so the escape-classified
+        // allocation phase must run when those graphs are rendered with explicit fields.
+        if ((requestedSections.Contains(SectionNames.CallGraph) || requestedSections.Contains(SectionNames.CallerGraph))
+            && (options?.Fields is { Length: > 0 } || options?.Columns is { Length: > 0 }))
+            indexInclAllocations = true;
+
+        // Targeted (single-member) build: when no requested index-backed section needs the
+        // whole-assembly reverse graph (Callers / Call Graph / Caller Graph), the shared index only
+        // decodes the selected member(s) instead of every method body. The remaining index-backed
+        // member sections — Calls, Unsafe Operations, and the Allocation/Safety/Cost facts — read
+        // only the selected member's own body, so their output is identical to a full build (verified
+        // across the DirectCalls / UnsafeEvidence / UnsafetyOccurrences / AllocationOccurrences facts).
+        IReadOnlySet<int>? bodyScope = null;
+        bool needsWholeAssemblyBody = requestedSections.Contains(SectionNames.Callers)
+            || requestedSections.Contains(SectionNames.CallGraph)
+            || requestedSections.Contains(SectionNames.CallerGraph);
+        if (!needsWholeAssemblyBody)
+        {
+            var memberTokens = methods.Where(m => m.MetadataToken.HasValue).Select(m => m.MetadataToken!.Value).ToHashSet();
+            // Only target when every selected member carries a token (a missing token would mean a
+            // rendered member is absent from the scope); otherwise fall back to a full build.
+            if (memberTokens.Count > 0 && memberTokens.Count == methods.Count)
+                bodyScope = memberTokens;
+        }
+
         MethodBodyInspectionSession? indexSession = null;
         MethodBodyInspectionSession IndexSession() =>
-            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
+            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver, indexInclAllocations, indexInclOpportunities, bodyScope);
 
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
@@ -1201,7 +1260,7 @@ public static class ApiOutputFormatter
                 {
                     try
                     {
-                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: false, includeOpportunities: false));
                     }
                     catch
                     {
@@ -1266,7 +1325,11 @@ public static class ApiOutputFormatter
                 {
                     try
                     {
-                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                        // External caller nodes carry their scope assembly's method signals, so the
+                        // scope build needs allocations whenever this graph renders allocation/IL
+                        // fields (indexInclAllocations already captures that). Opportunities are never
+                        // read from the reverse graph.
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: indexInclAllocations, includeOpportunities: false));
                     }
                     catch
                     {

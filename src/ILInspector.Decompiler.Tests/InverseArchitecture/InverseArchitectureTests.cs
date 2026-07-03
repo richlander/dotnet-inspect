@@ -22,7 +22,7 @@ public class InverseArchitectureTests
     // In-domain product nodes that MUST carry [InverseOf] or [NotInverted]. The
     // conversion family is the first annotated slice (docs/design/inverse-architecture.md);
     // the set grows as the ledger's declared domain grows.
-    static readonly string[] EnforcedProductNodes = ["Binary", "Box", "CastClass", "Coerce", "Comparison", "Convert", "LoadArgument", "LoadField", "LoadLocal", "LoadProperty", "LogicalBinary", "LogicalNot", "NullConditional", "Unary", "Unbox", "UnboxAny"];
+    static readonly string[] EnforcedProductNodes = ["AddressOfMethod", "ArrayLength", "AwaitExpression", "Binary", "Box", "Call", "CallIndirect", "CastClass", "CaughtException", "Coerce", "Comparison", "Convert", "DelegateCreation", "IndexFromEnd", "InlineArraySpanConversion", "IsInstance", "Lambda", "LoadArgument", "LoadArgumentAddress", "LoadElement", "LoadElementAddress", "LoadField", "LoadFieldAddress", "LoadFunctionPointer", "LoadIndirect", "LoadLocal", "LoadLocalAddress", "LoadProperty", "LoadStackSlot", "LoadToken", "LocalFunctionInvocation", "LogicalBinary", "LogicalNot", "NewArray", "NewObject", "NullConditional", "RangeExpression", "SizeOf", "SliceExpression", "SpanLiteral", "StackAllocArray", "StackAllocate", "TypeOf", "Unary", "Unbox", "UnboxAny", "UnsupportedNode"];
 
     static Assembly ProductAssembly => typeof(IrFunction).Assembly;
     Assembly TestAssembly => GetType().Assembly;

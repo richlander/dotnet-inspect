@@ -34,9 +34,31 @@ public sealed class MethodBodyInspectionSession
     /// </summary>
     public string SourceName { get; }
 
-    /// <summary>Opens a session over an assembly's analysis body index.</summary>
-    public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null)
-        => new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver), Path.GetFileNameWithoutExtension(assemblyPath));
+    /// <summary>
+    /// Test-only counter of index builds (one per <see cref="Open"/>). The "build the index once
+    /// per command" invariant (#2139 perf: PRs #2187/#2199/#2210) is guarded by asserting this
+    /// stays at 1 across a multi-section render; a new section that opens its own session would
+    /// silently reintroduce a per-section rebuild.
+    /// </summary>
+    internal static int OpenCountForTests;
+
+    /// <summary>
+    /// Opens a session over an assembly's analysis body index. <paramref name="includeAllocations"/>
+    /// and <paramref name="includeOpportunities"/> gate the two expensive whole-assembly analysis
+    /// phases (escape-classified allocation occurrences and optimization opportunities); leave them
+    /// on unless the caller knows no requested section consumes them (see
+    /// <c>ApiOutputFormatter.AnalysisScopeFor</c>). <paramref name="bodyScope"/>, when non-null,
+    /// restricts body decoding to the given method tokens (a single-member "targeted" build); it is
+    /// only valid when every requested section's facts are local to those members (Calls / Unsafe
+    /// Operations / Allocation-Safety-Cost facts) — reverse/aggregate sections require a full build.
+    /// </summary>
+    public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null,
+        bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+    {
+        System.Threading.Interlocked.Increment(ref OpenCountForTests);
+        return new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver, includeAllocations, includeOpportunities, bodyScope, bodyTypeScope), Path.GetFileNameWithoutExtension(assemblyPath));
+    }
 
     /// <summary>
     /// Allocation facts for one method (<paramref name="methodToken"/>), optionally narrowed to a

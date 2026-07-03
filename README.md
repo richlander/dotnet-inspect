@@ -120,7 +120,9 @@ opportunities ahead of raw leverage — across actionable rewrite shapes (small
 non-escaping arrays, temporary or span-to-array copies, capturing and instance
 method-group delegates, async state-machine setup, loop-invariant
 materialization, and value-type boxing) plus `allocation-hotspot` rows
-for methods that allocate heavily without matching a specific shape. Use
+for methods that allocate heavily without matching a specific shape. Allocation
+rows also carry `Weight`, a coarse size x multiplicity x reach static prior that
+you can query or sort when choosing pre-profile instrumentation targets. Use
 `--top`, `--loop`, `--min-confidence`, and `--triage-shape` to ask the tool for
 the curated pay-dirt rows directly instead of post-processing. `--top` limits
 the ranked data before rendering; `-n N --rows` remains a renderer cap and is

@@ -29,7 +29,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
-        IReadOnlySet<int> nonHeapNewObjOperandTokens)
+        IReadOnlySet<int> nonHeapNewObjOperandTokens,
+        bool opportunitiesComputed)
     {
         Path = path;
         Methods = methods;
@@ -37,6 +38,7 @@ public sealed class LibraryBodyIndex
         UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
         _rawOpportunities = optimizationOpportunities;
+        _opportunitiesComputed = opportunitiesComputed;
         _unsafeLeverageMethods = unsafeLeverageMethods;
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
@@ -56,6 +58,7 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
+    readonly bool _opportunitiesComputed;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
@@ -71,6 +74,8 @@ public sealed class LibraryBodyIndex
     {
         get
         {
+            if (!_opportunitiesComputed)
+                return ImmutableArray<OptimizationOpportunity>.Empty;
             if (_opportunities.IsDefault)
             {
                 var reachByToken = new Dictionary<int, int>();
@@ -732,20 +737,31 @@ public sealed class LibraryBodyIndex
     public static LibraryBodyIndex Open(string path)
         => Open(path, resolver: null);
 
-    public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null)
+    public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
+        bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
     {
+        // Full (unscoped) builds decode every method body in parallel; prefetch the entire image
+        // so concurrent GetMethodBody reads are served from an immutable in-memory block rather
+        // than seeking a shared FileStream (which is not safe for concurrent reads). Scoped builds
+        // decode only a handful of bodies sequentially, so they keep the lazy default.
+        var streamOptions = bodyScope is null && bodyTypeScope is null
+            ? PEStreamOptions.PrefetchEntireImage
+            : PEStreamOptions.Default;
         using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
+        using var peReader = new PEReader(stream, streamOptions);
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
         using var builder = new IndexBuilder(path, reader, peReader, resolver);
-        var index = builder.Build();
+        // Optimization opportunities are synthesized from allocation occurrences (allocation
+        // hotspots), so requesting opportunities implies computing allocations.
+        var index = builder.Build(includeAllocations || includeOpportunities, includeOpportunities, bodyScope, bodyTypeScope);
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.AllocationOccurrences, index.UnsafetyOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
-            index.NonHeapNewObjOperandTokens);
+            index.NonHeapNewObjOperandTokens,
+            opportunitiesComputed: includeOpportunities);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -1321,12 +1337,20 @@ public sealed class LibraryBodyIndex
         ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceHandle handle)
         {
             var identity = AssemblyReferenceIdentity.From(_reader, handle);
-            if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
-                return cached;
+            // Guarded because parallel full builds resolve referenced assemblies concurrently
+            // from many method-analysis threads. Resolution is per unique referenced assembly
+            // (bounded and cached), so lock contention is negligible; the lock is reentrant on
+            // the same thread for any transitive resolution. Holding it across the open keeps
+            // single-resolve semantics (no duplicate opens leaking undisposed metadata).
+            lock (_referencedAssemblyCache)
+            {
+                if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
+                    return cached;
 
-            var resolved = OpenReferencedAssembly(identity, ScopeForReference(handle));
-            _referencedAssemblyCache[identity] = resolved;
-            return resolved;
+                var resolved = OpenReferencedAssembly(identity, ScopeForReference(handle));
+                _referencedAssemblyCache[identity] = resolved;
+                return resolved;
+            }
         }
 
         ReferencedAssemblyMetadata? OpenReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
@@ -1955,7 +1979,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames,         IReadOnlySet<int> NonHeapNewObjOperandTokens) Build(bool includeAllocations, bool includeOpportunities, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -1970,6 +1994,14 @@ public sealed class LibraryBodyIndex
             var exceptionTypeNames = ComputeExceptionTypeNames();
             int none = 0, impl = 0, expl = 0;
 
+            // Flatten types->methods into a work list (cheap, reader-bound), then analyze each
+            // method body. For a full (unscoped) build the analysis runs in parallel across cores;
+            // each method writes only to method-local builders, and results are merged back in
+            // metadata order below, so output is byte-identical to a sequential build. Metadata/PE
+            // reads are thread-safe on the immutable prefetched image (see Open); the two lazily
+            // populated caches touched during analysis are made concurrency-safe (AsyncStateMachineTypes
+            // is prewarmed here, _referencedAssemblyCache is lock-guarded).
+            var workItems = new List<(TypeDefinitionHandle TypeHandle, TypeDefinition TypeDef, bool TypeSourceGenerated, MethodDefinitionHandle MethodHandle)>();
             foreach (var typeHandle in _reader.TypeDefinitions)
             {
                 var typeDef = _reader.GetTypeDefinition(typeHandle);
@@ -1978,62 +2010,74 @@ public sealed class LibraryBodyIndex
                 // collection for them (they are still indexed for calls/leverage/signals).
                 bool typeSourceGenerated = HasGeneratedCodeAttribute(typeDef.GetCustomAttributes());
                 foreach (var methodHandle in typeDef.GetMethods())
-                {
-                    try
-                    {
-                        var methodDef = _reader.GetMethodDefinition(methodHandle);
-                        var scope = CreateScope(typeDef, methodDef);
-                        var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
-                        // Tally the unsafe mode for every method, including bodiless
-                        // extern/abstract members (P/Invokes are a major source).
-                        switch (caller.CallerUnsafeMode)
-                        {
-                            case CallerUnsafeMode.Explicit: expl++; break;
-                            case CallerUnsafeMode.Implicit: impl++; break;
-                            default: none++; break;
-                        }
-                        bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, unsafeEvidence);
-                        bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, unsafeEvidence);
-                        if (caller.CallerUnsafeMode != CallerUnsafeMode.None || hasUnsafeApiMember)
-                            unsafeLeverageMethods.Add(caller);
-                        if (methodDef.RelativeVirtualAddress == 0)
-                            continue;
+                    workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
+            }
 
-                        methods.Add(caller);
-                        var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-                        var il = body.GetILBytes() ?? [];
-                        var decodedBody = DecodeBody(il, body.ExceptionRegions);
-                        bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
-                        var loopRegions = decodedBody.LoopRegions;
-                        var allocations = CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: true);
-                        if (allocations.Length > 0)
-                            allocationOccurrences[caller.MetadataToken] = allocations;
-                        var unsafety = CollectUnsafetyOccurrences(decodedBody.Instructions, body, caller, scope);
-                        if (unsafety.Length > 0)
-                            unsafetyOccurrences[caller.MetadataToken] = unsafety;
-                        var methodAttributes = methodDef.GetCustomAttributes();
-                        if (!typeSourceGenerated
-                            && !HasGeneratedCodeAttribute(methodAttributes)
-                            && !HasCompilerGeneratedAttribute(methodAttributes)
-                            && !IsBlazorRenderMethod(caller))
-                            optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions));
-                        else
-                            suppressedOpportunityTokens.Add(caller.MetadataToken);
-                        var signals = CollectBodySignals(il, decodedBody, body, scope, loopRegions);
-                        if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
-                            bodySignals[caller.MetadataToken] = signals;
-                        ScanBody(decodedBody.Instructions, caller, scope, calls, unsafeEvidence,
-                            includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
-                            loopRegions);
-                    }
-                    catch (Exception ex) when (IsRecoverableMethodFailure(ex))
-                    {
-                        diagnostics.Add(new AnalysisDiagnostic(
-                            MetadataTokens.GetToken(methodHandle),
-                            MethodLabel(typeHandle, methodHandle),
-                            $"{ex.GetType().Name}: {ex.Message}"));
-                    }
+            var results = new MethodBuildResult[workItems.Count];
+            // Only full builds are worth parallelizing: scoped (member/type) builds decode a handful
+            // of bodies, where thread overhead would dominate. The threshold also keeps trivial
+            // assemblies sequential.
+            bool parallel = bodyScope is null && bodyTypeScope is null && workItems.Count >= ParallelBuildMethodThreshold;
+            if (parallel)
+            {
+                // Prewarm the async-state-machine set so it is fully computed before the parallel
+                // pass reads it read-only.
+                _ = AsyncStateMachineTypes();
+                Parallel.For(0, workItems.Count, i =>
+                {
+                    var w = workItems[i];
+                    results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
+                        includeAllocations, includeOpportunities, bodyScope, bodyTypeScope);
+                });
+            }
+            else
+            {
+                for (int i = 0; i < workItems.Count; i++)
+                {
+                    var w = workItems[i];
+                    results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
+                        includeAllocations, includeOpportunities, bodyScope, bodyTypeScope);
                 }
+            }
+
+            // Merge per-method results in metadata order, reproducing the exact sequence of appends
+            // the original sequential loop performed. A method that hit a recoverable failure carries
+            // its partial contributions (accumulated before the throw) alongside its diagnostic, so
+            // even the failure path is byte-identical to the sequential build.
+            foreach (var r in results)
+            {
+                if (!r.HasCaller)
+                {
+                    if (r.Diagnostic is not null)
+                        diagnostics.Add(r.Diagnostic);
+                    continue;
+                }
+                switch (r.Mode)
+                {
+                    case CallerUnsafeMode.Explicit: expl++; break;
+                    case CallerUnsafeMode.Implicit: impl++; break;
+                    default: none++; break;
+                }
+                if (!r.UnsafeEvidence.IsDefaultOrEmpty)
+                    unsafeEvidence.AddRange(r.UnsafeEvidence);
+                if (r.IsLeverage)
+                    unsafeLeverageMethods.Add(r.Caller!);
+                if (r.HasBody)
+                    methods.Add(r.Caller!);
+                if (!r.Calls.IsDefaultOrEmpty)
+                    calls.AddRange(r.Calls);
+                if (!r.Allocations.IsDefaultOrEmpty)
+                    allocationOccurrences[r.Token] = r.Allocations;
+                if (!r.Unsafety.IsDefaultOrEmpty)
+                    unsafetyOccurrences[r.Token] = r.Unsafety;
+                if (!r.Opportunities.IsDefaultOrEmpty)
+                    optimizationOpportunities.AddRange(r.Opportunities);
+                if (r.Suppressed)
+                    suppressedOpportunityTokens.Add(r.Token);
+                if (r.HasSignals)
+                    bodySignals[r.Token] = r.Signals;
+                if (r.Diagnostic is not null)
+                    diagnostics.Add(r.Diagnostic);
             }
 
             var directCalls = calls.ToImmutable();
@@ -2043,7 +2087,124 @@ public sealed class LibraryBodyIndex
                 BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
         }
 
-        // The metadata operand tokens of `newobj` instructions that construct a VALUE TYPE
+        // Assemblies with at least this many methods use the parallel per-method analysis path.
+        // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
+        const int ParallelBuildMethodThreshold = 200;
+
+        // Per-method analysis output, accumulated into method-local builders so the parallel build
+        // never mutates shared Build() state. Merged back in metadata order by Build(). Field-set
+        // points mirror the exact shared-state mutations of the original sequential loop (including
+        // the ordering across the RVA/scope early-returns), so the merged result is byte-identical —
+        // and a recoverable per-method failure carries whatever partial contributions preceded the
+        // throw (UnsafeEvidence/Calls captured after the catch) plus the Diagnostic.
+        sealed class MethodBuildResult
+        {
+            public bool HasCaller;
+            public MethodIdentity? Caller;
+            public int Token;
+            public CallerUnsafeMode Mode;
+            public bool IsLeverage;
+            public bool HasBody;
+            public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
+            public ImmutableArray<DirectCall> Calls;
+            public ImmutableArray<AllocationOccurrence> Allocations;
+            public ImmutableArray<UnsafetyOccurrence> Unsafety;
+            public ImmutableArray<OptimizationOpportunity> Opportunities;
+            public bool Suppressed;
+            public bool HasSignals;
+            public BodySignals Signals;
+            public AnalysisDiagnostic? Diagnostic;
+        }
+
+        // Analyze a single method into a MethodBuildResult. Mirrors the original per-method loop body
+        // statement-for-statement, writing to method-local builders instead of the shared Build()
+        // builders. Safe to run concurrently: metadata/PE reads are thread-safe on the prefetched
+        // image, and the only lazily-populated shared caches it can touch are AsyncStateMachineTypes
+        // (prewarmed) and _referencedAssemblyCache (lock-guarded).
+        MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
+            MethodDefinitionHandle methodHandle, bool includeAllocations, bool includeOpportunities,
+            IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
+        {
+            var result = new MethodBuildResult();
+            var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+            var calls = ImmutableArray.CreateBuilder<DirectCall>();
+            try
+            {
+                var methodDef = _reader.GetMethodDefinition(methodHandle);
+                var scope = CreateScope(typeDef, methodDef);
+                var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
+                result.HasCaller = true;
+                result.Caller = caller;
+                result.Token = caller.MetadataToken;
+                // Tally the unsafe mode for every method, including bodiless
+                // extern/abstract members (P/Invokes are a major source).
+                result.Mode = caller.CallerUnsafeMode;
+                bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, evidence);
+                bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, evidence);
+                if (caller.CallerUnsafeMode != CallerUnsafeMode.None || hasUnsafeApiMember)
+                    result.IsLeverage = true;
+                if (methodDef.RelativeVirtualAddress == 0)
+                    return result;
+
+                result.HasBody = true;
+                // Scoped builds decode only selected method bodies; every other method is still
+                // indexed as an identity (above) but its body is not decoded/scanned. bodyScope
+                // selects by method token (single-member queries); bodyTypeScope selects by declaring
+                // type (single-type queries). Reverse/aggregate sections pass null (full build).
+                if (bodyScope is not null && !bodyScope.Contains(caller.MetadataToken))
+                    return result;
+                if (bodyTypeScope is not null && !bodyTypeScope(caller.DeclaringType))
+                    return result;
+                var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
+                var il = body.GetILBytes() ?? [];
+                var decodedBody = DecodeBody(il, body.ExceptionRegions);
+                bool hasUnsafeLocals = ScanLocals(body, caller, scope, evidence);
+                var loopRegions = decodedBody.LoopRegions;
+                result.Allocations = includeAllocations
+                    ? CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: true)
+                    : ImmutableArray<AllocationOccurrence>.Empty;
+                result.Unsafety = CollectUnsafetyOccurrences(decodedBody.Instructions, body, caller, scope);
+                var methodAttributes = methodDef.GetCustomAttributes();
+                if (includeOpportunities)
+                {
+                    if (!typeSourceGenerated
+                        && !HasGeneratedCodeAttribute(methodAttributes)
+                        && !HasCompilerGeneratedAttribute(methodAttributes)
+                        && !IsBlazorRenderMethod(caller))
+                        result.Opportunities = CollectOptimizationOpportunities(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions);
+                    else
+                        result.Suppressed = true;
+                }
+                var signals = CollectBodySignals(il, decodedBody, body, scope, loopRegions);
+                if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
+                {
+                    result.Signals = signals;
+                    result.HasSignals = true;
+                }
+                ScanBody(decodedBody.Instructions, caller, scope, calls, evidence,
+                    includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
+                    loopRegions);
+            }
+            catch (Exception ex) when (IsRecoverableMethodFailure(ex))
+            {
+                result.Diagnostic = new AnalysisDiagnostic(
+                    MetadataTokens.GetToken(methodHandle),
+                    MethodLabel(typeHandle, methodHandle),
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                // Runs on every exit path (early returns at the RVA/scope gates, a recoverable
+                // failure, or normal completion) so the method-local evidence/calls accumulated so
+                // far always reach the result — including bodiless members whose only contribution
+                // is unsafe-API/signature evidence recorded before the RVA==0 early return.
+                result.UnsafeEvidence = evidence.ToImmutable();
+                result.Calls = calls.ToImmutable();
+            }
+            return result;
+        }
+
+
         // (struct/enum) and therefore do not allocate on the heap (#1804). Classified here,
         // during Build, where the metadata reader is available — the lazy signal and
         // allocation-density paths run after the reader is released, so they consult this set

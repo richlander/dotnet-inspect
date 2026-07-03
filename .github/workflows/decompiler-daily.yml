@@ -77,6 +77,23 @@ jobs:
             --corpus-fidelity-cap 3 \
             --max-examples 3
 
+      - name: Run assertion scan coverage report
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p artifacts/assertion-scan
+          bash eng/prepare-decompiler-assertion-corpus.sh artifacts/assertion-scan/assemblies.txt
+          mapfile -t assertion_assemblies < artifacts/assertion-scan/assemblies.txt
+          set +e
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assertion_assemblies[@]}" \
+            --assertion-scan \
+            --assertion-fixture-guarantee \
+            --max-examples 10 \
+            | tee artifacts/assertion-scan/assertion-scan.txt
+          status=${PIPESTATUS[0]}
+          echo "$status" > artifacts/assertion-scan/exit-code.txt
+          exit 0
+
       # Analysis corpus stability sensor (#1818, Layer 2): same pinned corpus, but it checks
       # analyzer robustness (every assembly opens, no analyzer-diagnostic jump) against a
       # committed baseline. Signal-count drift is reported, not failed; only a regression
@@ -104,4 +121,12 @@ jobs:
         with:
           name: decompiler-corpus-snapshot
           path: artifacts/decompiler-daily/corpus-snapshot.json
+          if-no-files-found: warn
+
+      - name: Upload assertion scan report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: assertion-scan-report
+          path: artifacts/assertion-scan/
           if-no-files-found: warn

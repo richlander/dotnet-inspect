@@ -1,5 +1,7 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1662,6 +1664,448 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains("public string Describe()", result.Source);
             Assert.DoesNotContain("override string Describe", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_EmitsEqualityOperatorPairSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "op_Equality", 0),
+                    new ReturnToSender.RequestedTarget("Row", "op_Inequality", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("operator ==(", result.Source);
+                    Assert.Contains("operator !=(", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("operator ==(", result.Source);
+                    Assert.Contains("operator !=(", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "ToString", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                toString =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, toString.Status);
+                    Assert.Contains("protected virtual bool PrintMembers", toString.Source);
+                    Assert.Contains("protected virtual System.Type EqualityContract", toString.Source);
+                },
+                equalsObject =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, equalsObject.Status);
+                    Assert.Contains("public virtual bool Equals(Row other)", equalsObject.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
+                    new ReturnToSender.RequestedTarget("Row", "ToString", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 1),
+                ]);
+
+            Assert.Collection(
+                results,
+                getHashCode =>
+                {
+                    Assert.True(
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
+                    Assert.Contains("public string Name;", getHashCode.Source);
+                    Assert.Contains("public string Value;", getHashCode.Source);
+                    Assert.DoesNotContain("public string Name { get; }", getHashCode.Source);
+                },
+                toString =>
+                {
+                    Assert.True(
+                        toString.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{toString.Status}: {toString.Detail}{Environment.NewLine}{toString.Source}");
+                    Assert.Contains("public string Name { get; set; }", toString.Source);
+                    Assert.DoesNotContain("public string Name;", toString.Source);
+                },
+                typedEquals =>
+                {
+                    Assert.True(
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
+                    Assert.Contains("public virtual bool Equals(Row other)", typedEquals.Source);
+                    Assert.Contains("public string Name;", typedEquals.Source);
+                    Assert.Contains("public string Value;", typedEquals.Source);
+                    Assert.DoesNotContain("public string Name { get; }", typedEquals.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesFieldShellForRecordStructGeneratedFieldReadHelpers()
+    {
+        var assemblyPath = CompileFixture("""
+            public record struct Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 1),
+                ]);
+
+            Assert.Collection(
+                results,
+                getHashCode =>
+                {
+                    Assert.True(
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
+                    Assert.Contains("public string Name;", getHashCode.Source);
+                    Assert.Contains("public string Value;", getHashCode.Source);
+                    Assert.DoesNotContain("public string Name { get; }", getHashCode.Source);
+                },
+                typedEquals =>
+                {
+                    Assert.True(
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
+                    Assert.Contains("public bool Equals(Row other)", typedEquals.Source);
+                    Assert.Contains("public string Name;", typedEquals.Source);
+                    Assert.Contains("public string Value;", typedEquals.Source);
+                    Assert.DoesNotContain("public string Name { get; }", typedEquals.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSelfType_DistinguishesNestedTypeFromNamespacePeer()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace N;
+
+            public class Container
+            {
+                public record Row(string Name);
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            using var source = MetadataSource.Open(assemblyPath);
+            var reader = pe.GetMetadataReader();
+            var nestedHandle = reader.TypeDefinitions
+                .Single(handle => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)) == "N.Container.Row");
+            var nestedType = reader.GetTypeDefinition(nestedHandle);
+            var nestedIdentity = CompileBackTypeIdentity.FromDefinition(reader, nestedType);
+            var namespacePeerIdentity = new CompileBackTypeIdentity(
+                "N.Container",
+                "Row",
+                "Row",
+                "N.Container.Row",
+                "N.Container.Row");
+            var function = IrImporter.Import(source, "N.Container.Row", "GetHashCode", publicOnly: false);
+            Assert.NotNull(function);
+            IrPasses.Run(function, IrPasses.Default, new PassContext(new Stepper(enabled: false)));
+            var load = Assert.Single(function.Descendants.OfType<LoadField>(), field => field.Field.BackingPropertyName == "Name");
+            var helper = typeof(CompileBackSourceComposer).GetMethod("IsSelfType", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+            Assert.True((bool)helper.Invoke(null, [load.Field.DeclaringType, nestedIdentity])!);
+            Assert.False((bool)helper.Invoke(null, [load.Field.DeclaringType, namespacePeerIdentity])!);
+
+            var globalNestedIdentity = new CompileBackTypeIdentity("", "B", "B", "A.B", "A.B");
+            var dottedTopLevelType = TypeRef.Definition("fixture", "", "A.B");
+            Assert.False((bool)helper.Invoke(null, [dottedTopLevelType, globalNestedIdentity])!);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesGenericRecordTypedEqualsShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row<T>(T Value);
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row`1", "Equals", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public virtual bool Equals(Row<T> other)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RendersAbstractClosurePropertiesWithoutBodies()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Row
+            {
+                public abstract string Name { get; set; }
+                public void SetName(string value) => Name = value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "SetName", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public abstract string Name { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSelfTypeSignature_IncludesDeclaringGenericParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Container<T>
+            {
+                public record Row<U>(T Outer, U Value);
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeHandle = reader.TypeDefinitions
+                .Single(handle => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)) == "Container`1.Row`1");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            var helper = typeof(CompileBackSourceComposer).GetMethod(
+                "SelfTypeSignature",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            var selfType = Assert.IsType<string>(helper!.Invoke(null, [reader, typeDef, identity]));
+
+            Assert.Equal("Container<T>.Row<U>", selfType);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public static bool operator ==(Row left, string right) => right == "x";
+                public static bool operator !=(Row left, string right) => !(left == right);
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 1)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("operator ==(Row left, string right)", result.Source);
+            Assert.Contains("operator !=(Row left, string right)", result.Source);
+            Assert.DoesNotContain("operator !=(Row left, Row right)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_EmitsNoBodyEqualityOperatorPairSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                [System.Runtime.InteropServices.DllImport("native")]
+                public static extern bool operator !=(Row left, Row right);
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("operator ==(Row left, Row right)", result.Source);
+            Assert.Contains("operator !=(Row left, Row right)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesGenericEqualityOperatorReferenceComparison()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row<T>
+            {
+                public static bool operator ==(Row<T> left, Row<T> right) => (object)left == (object)right;
+                public static bool operator !=(Row<T> left, Row<T> right) => (object)left != (object)right;
+                public override bool Equals(object obj) => obj is Row<T>;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row`1", "op_Equality", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("return (object)left == (object)right;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesInParameterEqualityOperatorReferenceComparison()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(in Row left, in Row right) => (object)left == (object)right;
+                public static bool operator !=(in Row left, in Row right) => (object)left != (object)right;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("return (object)(left) == (object)(right);", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesSpilledLocalEqualityOperatorReferenceComparison()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right)
+                {
+                    Row V_0 = right;
+                    Row S_256 = left;
+                    System.Console.WriteLine(S_256 is null);
+                    return (object)S_256 == (object)V_0;
+                }
+
+                public static bool operator !=(Row left, Row right) => (object)left != (object)right;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("return (object)S_256 == (object)V_0;", result.Source);
         }
         finally
         {

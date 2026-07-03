@@ -43,6 +43,54 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundConditionalAccess</c> (the <c>?.</c> null-conditional access).</summary>
     RoslynBoundConditionalAccess,
+
+    /// <summary>Roslyn's <c>BoundArrayAccess</c> (an array element reference).</summary>
+    RoslynBoundArrayAccess,
+
+    /// <summary>Roslyn's <c>BoundFunctionPointerLoad</c> (the <c>&amp;method</c> function-pointer load).</summary>
+    RoslynBoundFunctionPointerLoad,
+
+    /// <summary>Roslyn's <c>BoundFunctionPointerInvocation</c> (a <c>delegate*</c> invocation).</summary>
+    RoslynBoundFunctionPointerInvocation,
+
+    /// <summary>Roslyn's <c>BoundArrayCreation</c> (a <c>new T[n]</c> array creation).</summary>
+    RoslynBoundArrayCreation,
+
+    /// <summary>Roslyn's <c>BoundArrayLength</c> (an array's <c>.Length</c>).</summary>
+    RoslynBoundArrayLength,
+
+    /// <summary>Roslyn's <c>BoundTypeOfOperator</c> (a <c>typeof(T)</c> expression).</summary>
+    RoslynBoundTypeOfOperator,
+
+    /// <summary>Roslyn's <c>BoundSizeOfOperator</c> (a <c>sizeof(T)</c> expression).</summary>
+    RoslynBoundSizeOfOperator,
+
+    /// <summary>Roslyn's <c>BoundAsOperator</c> (a <c>value as T</c> type test).</summary>
+    RoslynBoundAsOperator,
+
+    /// <summary>Roslyn's <c>BoundCall</c> (a method or local-function invocation).</summary>
+    RoslynBoundCall,
+
+    /// <summary>Roslyn's <c>BoundObjectCreationExpression</c> (a <c>new T(...)</c> object creation).</summary>
+    RoslynBoundObjectCreationExpression,
+
+    /// <summary>Roslyn's <c>BoundDelegateCreationExpression</c> (a delegate / method-group conversion).</summary>
+    RoslynBoundDelegateCreationExpression,
+
+    /// <summary>Roslyn's <c>BoundLambda</c> (a <c>(params) =&gt; body</c> lambda).</summary>
+    RoslynBoundLambda,
+
+    /// <summary>Roslyn's <c>BoundRangeExpression</c> (a <c>start..end</c> range).</summary>
+    RoslynBoundRangeExpression,
+
+    /// <summary>Roslyn's <c>BoundFromEndIndexExpression</c> (a <c>^n</c> from-end index).</summary>
+    RoslynBoundFromEndIndexExpression,
+
+    /// <summary>Roslyn's <c>BoundStackAllocArrayCreation</c> (a <c>stackalloc T[n]</c> expression).</summary>
+    RoslynBoundStackAllocArrayCreation,
+
+    /// <summary>Roslyn's <c>BoundAwaitExpression</c> (an <c>await x</c> expression).</summary>
+    RoslynBoundAwaitExpression,
 }
 
 /// <summary>

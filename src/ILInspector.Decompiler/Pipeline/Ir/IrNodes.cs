@@ -1208,14 +1208,23 @@ public sealed class Unary : IrExpression
 }
 
 /// <summary>
-/// A recovered C# <c>await</c> expression, produced by
-/// <see cref="AwaitRecoveryPass"/> from a runtime-async (async v2)
-/// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call. The single
-/// child is the awaited operand; <see cref="ResultType"/> is the awaited result
-/// type (the helper call's return type — <c>void</c> for the non-generic form).
-/// Runtime async lowers <c>await x</c> directly to this call rather than to a
-/// state machine, so recovery is a call-site rewrite with no MoveNext to unwind.
+/// A recovered C# <c>await</c> expression. It is produced by two passes:
+/// <see cref="AwaitRecoveryPass"/> rewrites a runtime-async (async v2)
+/// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call directly (no
+/// MoveNext to unwind), and <see cref="ClassicAsyncReconstructionPass"/> recovers
+/// it from a classic (runtime-async=off) <c>MoveNext</c> state machine's awaiter
+/// <c>GetResult</c> shape. The single child is the awaited operand;
+/// <see cref="ResultType"/> is the awaited result type — the
+/// <c>AsyncHelpers.Await</c> call's return type for the runtime-async form, or the
+/// awaiter's <c>GetResult</c> return type for the classic form (<c>void</c> for the
+/// non-generic form).
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundAwaitExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "await x (BoundAwaitExpression) / AsyncHelpers.Await call (runtime-async) or MoveNext-GetResult reconstruction (classic async)",
+    precondition: "result is the awaited result type, given at construction: the `AsyncHelpers.Await` call's return type for runtime-async, or the awaiter's `GetResult` return type for classic-async MoveNext reconstruction (`void` for the non-generic form)",
+    witness: "async fixtures (classic-async MoveNext reconstruction); corpus compile-back")]
 public sealed class AwaitExpression : IrExpression
 {
     public AwaitExpression(IrExpression operand, TypeRef? resultType)
@@ -1469,6 +1478,12 @@ public sealed class Binary : IrExpression
         => $"Binary.{Kind}{(IsChecked ? " checked" : "")}{(IsUnsigned ? " unsigned" : "")}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundCall,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundCall / call·callvirt",
+    precondition: "result is the callee's return type (method signature); `IsVirtual` selects `callvirt`, `ConstrainedTo` carries a `constrained.` prefix",
+    witness: "corpus compile-back")]
 public sealed class Call : IrExpression
 {
     public Call(MethodRef callee, bool isVirtual, IEnumerable<IrExpression> arguments)
@@ -1512,6 +1527,12 @@ public sealed class Call : IrExpression
 /// pointer's own type. Renders as a C# function-pointer invocation
 /// <c>pointer(args)</c>.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFunctionPointerInvocation,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundFunctionPointerInvocation / calli",
+    precondition: "result is the `calli` standalone signature's return type; parameter types and calling convention come from that signature, not a resolved method (`IsInstance` marks a receiver absent from the parameter list)",
+    witness: "function-pointer fixtures; corpus compile-back")]
 public sealed class CallIndirect : IrExpression
 {
     public CallIndirect(IrExpression pointer, IEnumerable<IrExpression> arguments, TypeRef returnType, ImmutableArray<TypeRef> parameterTypes)
@@ -1554,6 +1575,12 @@ public sealed class CallIndirect : IrExpression
 }
 
 /// <summary>Object construction: <c>newobj</c> with the constructor's MethodRef (receiver excluded from arguments).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundObjectCreationExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundObjectCreationExpression / newobj",
+    precondition: "result is the constructed type (the `newobj` constructor's declaring type)",
+    witness: "corpus compile-back")]
 public sealed class NewObject : IrExpression
 {
     public NewObject(MethodRef constructor, IEnumerable<IrExpression> arguments)
@@ -2023,6 +2050,12 @@ public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression
 /// reaches print as a comment; the dominant case — feeding a delegate
 /// constructor — is raised to <see cref="DelegateCreation"/> by a pass.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "ldftn·ldvirtftn (method-group / function-pointer load)",
+    precondition: "result is `System.IntPtr` — the raw method-address native int; `IsVirtual` selects `ldvirtftn` (dispatched on the receiver) over `ldftn`",
+    witness: "function-pointer fixtures; corpus compile-back")]
 public sealed class LoadFunctionPointer : IrExpression
 {
     public LoadFunctionPointer(MethodRef method, bool isVirtual, IrExpression? instance)
@@ -2055,6 +2088,12 @@ public sealed class LoadFunctionPointer : IrExpression
 /// result type is the contextual function-pointer type when available, falling
 /// back to the managed function-pointer type of the method's signature.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFunctionPointerLoad,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "&method (BoundFunctionPointerLoad) / ldftn",
+    precondition: "result is the contextual function-pointer type only when the address is stored to a local or field or returned (`MethodAddressPass` recovers the `delegate*` target's type for those parents); otherwise the managed function-pointer type built from the method's own signature",
+    witness: "function-pointer fixtures; corpus compile-back")]
 public sealed class AddressOfMethod : IrExpression
 {
     public AddressOfMethod(MethodRef method, TypeRef? functionPointerType = null)
@@ -2079,6 +2118,12 @@ public sealed class AddressOfMethod : IrExpression
 /// <c>ldftn; newobj DelegateType::.ctor(object, native int)</c> lowering. The
 /// target is the receiver object (a null constant for a static method group).
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundDelegateCreationExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundDelegateCreationExpression / newobj + ldftn·ldvirtftn",
+    precondition: "result is the delegate type `DelegateType` (the `newobj` delegate constructor over a method-group `ldftn`/`ldvirtftn`)",
+    witness: "function-pointer/delegate fixtures; corpus compile-back")]
 public sealed class DelegateCreation : IrExpression
 {
     public DelegateCreation(TypeRef delegateType, MethodRef method, bool isVirtual, IrExpression target)
@@ -2112,6 +2157,12 @@ public sealed class DelegateCreation : IrExpression
 /// to this nested scope when needed. Capturing bodies still print in the outer
 /// function scope after capture substitution.</para>
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundLambda,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundLambda / closure lowering (synthesized method + delegate)",
+    precondition: "result is the delegate type `DelegateType` the lambda is converted to; raised from the compiler's closure/display-class lowering",
+    witness: "lambda/closure fixtures; corpus compile-back")]
 public sealed class Lambda : IrExpression
 {
     public Lambda(
@@ -2215,6 +2266,12 @@ public sealed class LocalFunctionStatement : IrNode
 /// <c>Name(args)</c>, the source spelling, rather than the synthesized
 /// <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c> the call site lowered to.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundCall,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundCall (local function) / call",
+    precondition: "result is the local function's return type `ReturnType` (a `call` to a compiler-lowered local-function method, recognized and rendered as a local-function call)",
+    witness: "local-function fixtures; corpus compile-back")]
 public sealed class LocalFunctionInvocation : IrExpression
 {
     public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
@@ -2348,6 +2405,12 @@ public sealed class StoreStackSlot : IrNode
     public override string Describe() => $"StoreStackSlot S_{Slot}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "(synthesized) evaluation-stack slot",
+    precondition: "`Type` is the reconciled type of a spilled evaluation-stack entry when known (the join of the slot's typed loads/stores — the value-typed-emission slot reconciliation), else null; no metadata token backs it",
+    witness: "stack-slot fixtures; corpus compile-back")]
 public sealed class LoadStackSlot : IrExpression
 {
     public LoadStackSlot(int slot, TypeRef? type)
@@ -2363,6 +2426,12 @@ public sealed class LoadStackSlot : IrExpression
     public override string Describe() => $"LoadStackSlot S_{Slot}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayLength,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundArrayLength / ldlen",
+    precondition: "result is `System.Int32` — the array's `.Length` (`ldlen` pushes a native int; the `.Length` property is `int`)",
+    witness: "array fixtures; corpus compile-back")]
 public sealed class ArrayLength : IrExpression
 {
     public ArrayLength(IrExpression array) => AddChild(array);
@@ -2378,6 +2447,12 @@ public sealed class ArrayLength : IrExpression
 /// <see cref="SliceExpression"/>. Either endpoint may be omitted, spelling the
 /// open forms <c>start..</c>, <c>..end</c>, and <c>..</c>.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundRangeExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundRangeExpression / start..end",
+    precondition: "result is `System.Range` (the `start..end` operator; either endpoint may be omitted)",
+    witness: "range/index fixtures; corpus compile-back")]
 public sealed class RangeExpression : IrExpression
 {
     public RangeExpression(IrExpression? start, IrExpression? end)
@@ -2399,12 +2474,17 @@ public sealed class RangeExpression : IrExpression
     public override string Describe() => "RangeExpression";
 }
 
-/// <summary>
-/// A raised C# range-indexer access (<c>receiver[start..end]</c>) — the inverse
+/// <summary>A raised C# range-indexer access (<c>receiver[start..end]</c>) — the inverse
 /// of the compiler's range-slice lowering (<c>RuntimeHelpers.GetSubArray</c> for
 /// arrays). The result type is the slice's type (the receiver's array type), not
 /// an element type.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "receiver[start..end] (range-indexer access) / GetSubArray·Slice",
+    precondition: "result is the slice's type (the receiver's array/span type, given at construction), not an element type; raised from the range-slice lowering",
+    witness: "range/index fixtures; corpus compile-back")]
 public sealed class SliceExpression : IrExpression
 {
     public SliceExpression(IrExpression receiver, RangeExpression range, TypeRef? resultType)
@@ -2422,6 +2502,12 @@ public sealed class SliceExpression : IrExpression
 }
 
 /// <summary>A raised C# index-from-end operand (<c>^n</c>), used inside array/string element access.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFromEndIndexExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "^n (BoundFromEndIndexExpression) / new Index(n, fromEnd: true)",
+    precondition: "result is `System.Index` (the `^n` from-end operand)",
+    witness: "range/index fixtures; corpus compile-back")]
 public sealed class IndexFromEnd : IrExpression
 {
     public IndexFromEnd(IrExpression offset) => AddChild(offset);
@@ -2457,6 +2543,12 @@ public sealed class Box : IrExpression
 }
 
 /// <summary>The isinst test producing the cast-or-null value (raising refines to is-patterns or as-casts).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundAsOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "value as T (BoundAsOperator) / isinst",
+    precondition: "result is the tested reference type `Type` (the `isinst` token); the value is that type or null",
+    witness: "cast fixtures; corpus compile-back")]
 public sealed class IsInstance : IrExpression
 {
     public IsInstance(TypeRef type, IrExpression operand)
@@ -2628,6 +2720,12 @@ public sealed class CastClass : IrExpression
     public override string Describe() => $"CastClass {Type.ToDisplayString()}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayCreation,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundArrayCreation / newarr",
+    precondition: "result is a single-dimension `T[]` (`SzArray`) of the `newarr` element-type token",
+    witness: "array fixtures; corpus compile-back")]
 public sealed class NewArray : IrExpression
 {
     public NewArray(TypeRef elementType, IrExpression length)
@@ -2649,6 +2747,12 @@ public sealed class NewArray : IrExpression
 /// allocates raw bytes and yields a pointer, so the faithful element type is
 /// <c>byte</c> and the result is <c>byte*</c>.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundStackAllocArrayCreation,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "stackalloc byte[n] (pointer form) / localloc",
+    precondition: "result is `byte*` — localloc yields a raw byte pointer (the faithful element type is `byte`)",
+    witness: "unsafe/stackalloc fixtures; corpus compile-back")]
 public sealed class StackAllocate : IrExpression
 {
     public StackAllocate(IrExpression size) => AddChild(size);
@@ -2671,6 +2775,12 @@ public sealed class StackAllocate : IrExpression
 /// byte size carried by the original <see cref="StackAllocate"/> is redundant
 /// (<c>n * sizeof(T)</c>) and dropped.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundStackAllocArrayCreation,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "stackalloc T[n] (Span form) / localloc + Span ctor",
+    precondition: "result is the target-typed `Span<T>`/`ReadOnlySpan<T>` (given at construction); the element count is the constructor's `length` argument",
+    witness: "unsafe/stackalloc fixtures; corpus compile-back")]
 public sealed class StackAllocArray : IrExpression
 {
     readonly TypeRef? _resultType;
@@ -2691,6 +2801,12 @@ public sealed class StackAllocArray : IrExpression
 }
 
 /// <summary>The raised typeof(T): GetTypeFromHandle over a type token, folded.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundTypeOfOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "typeof(T) (BoundTypeOfOperator) / ldtoken + GetTypeFromHandle",
+    precondition: "result is `System.Type` — the folded `Type.GetTypeFromHandle(ldtoken T)` shape",
+    witness: "corpus compile-back")]
 public sealed class TypeOf : IrExpression
 {
     public TypeOf(TypeRef type) => Type = type;
@@ -2714,6 +2830,12 @@ public enum RuntimeTokenKind { Type, Method, Field }
 /// call leaves the surrounding expression's type unchanged; the printer spells
 /// it as the array literal that the compiler re-lowers to the same blob.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "new T[] { … } in ReadOnlySpan context / RuntimeHelpers.CreateSpan",
+    precondition: "result is the `ReadOnlySpan<T>` `SpanType` the CreateSpan call produced (given); the elements are decoded from the field RVA blob",
+    witness: "span-literal fixtures; corpus compile-back")]
 public sealed class SpanLiteral : IrExpression
 {
     public SpanLiteral(TypeRef elementType, TypeRef spanType, IEnumerable<IrExpression> elements)
@@ -2820,6 +2942,12 @@ public sealed class ArrayLiteral : IrExpression
 /// angle-bracketed <c>&lt;PrivateImplementationDetails&gt;</c> method name never
 /// parses, so leaving the call flat is malformed C#.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundConversion (inline-array → span) / InlineArrayAsSpan",
+    precondition: "result is the `Span<T>`/`ReadOnlySpan<T>` `SpanType` the inline-array AsSpan conversion produced (given)",
+    witness: "inline-array fixtures; corpus compile-back")]
 public sealed class InlineArraySpanConversion : IrExpression
 {
     public InlineArraySpanConversion(TypeRef spanType, IrExpression place)
@@ -2837,6 +2965,12 @@ public sealed class InlineArraySpanConversion : IrExpression
 }
 
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "ldtoken (type/method/field handle)",
+    precondition: "result is the `RuntimeTypeHandle`/`RuntimeMethodHandle`/`RuntimeFieldHandle` selected by the token `Kind`",
+    witness: "corpus compile-back")]
 public sealed class LoadToken : IrExpression
 {
     public LoadToken(RuntimeTokenKind kind, TypeRef? type, string display)
@@ -2970,6 +3104,12 @@ public sealed class EventSubscription : IrNode
 }
 
 /// <summary>The exception value the CLR pushes on entry to a catch or filter handler.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "the caught exception in a catch clause / handler-entry stack value",
+    precondition: "result is the catch region's declared exception type (`Type`), or `System.Object` in filters/untyped contexts — the exception value at handler entry",
+    witness: "exception-handling fixtures; corpus compile-back")]
 public sealed class CaughtException : IrExpression
 {
     public CaughtException(TypeRef? type) => Type = type;
@@ -3009,6 +3149,12 @@ public sealed class EndFilter : IrNode
 }
 
 /// <summary>The address of a local — the receiver form for value-type calls and ref/out arguments.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundLocal,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundLocal (by ref) / ldloca",
+    precondition: "result is a managed reference (`ByRef`) to the local's declared type — the receiver form for a value-type instance call or a `ref`/`out`/`in` argument",
+    witness: "corpus compile-back")]
 public sealed class LoadLocalAddress : IrExpression
 {
     public LoadLocalAddress(int index, TypeRef type)
@@ -3024,6 +3170,12 @@ public sealed class LoadLocalAddress : IrExpression
     public override string Describe() => $"LoadLocalAddress {Index} ({Type.ToDisplayString()})";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundParameter,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundParameter (by ref) / ldarga",
+    precondition: "result is a managed reference (`ByRef`) to the argument's declared type (parameter signature; declaring type for `this`)",
+    witness: "corpus compile-back")]
 public sealed class LoadArgumentAddress : IrExpression
 {
     public LoadArgumentAddress(int index, string name, TypeRef type)
@@ -3041,6 +3193,12 @@ public sealed class LoadArgumentAddress : IrExpression
     public override string Describe() => $"LoadArgumentAddress {Index} ({Type.ToDisplayString()} {Name})";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFieldAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundFieldAccess (by ref) / ldflda·ldsflda",
+    precondition: "result is a managed reference (`ByRef`) to the field's declared type (field signature)",
+    witness: "corpus compile-back")]
 public sealed class LoadFieldAddress : IrExpression
 {
     public LoadFieldAddress(FieldRef field, IrExpression? instance)
@@ -3068,6 +3226,12 @@ public sealed class LoadFieldAddress : IrExpression
     public override string Describe() => $"LoadFieldAddress {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundArrayAccess (by ref) / ldelema",
+    precondition: "result is a managed reference (`ByRef`) to the array's element type (the `ldelema` type token); `IsReadOnly` marks the `readonly.` prefix (a read-only address)",
+    witness: "corpus compile-back")]
 public sealed class LoadElementAddress : IrExpression
 {
     public LoadElementAddress(TypeRef elementType, IrExpression array, IrExpression index, bool isReadOnly)
@@ -3090,6 +3254,13 @@ public sealed class LoadElementAddress : IrExpression
 }
 
 /// <summary>Load through an address (ldobj and the ldind.* family). A null type means the opcode does not encode one (ldind.ref).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "ByRef/pointer dereference / ldobj·ldind.*",
+    precondition: "result is the opcode-encoded type (the `ldobj` token or the `ldind.*` element type); a `bool`/`char` location is recovered from the address's `ByRef`/pointer pointee (the `ldind.u1`/`ldind.u2` storage width is shared by `bool`/`byte` and `char`/`ushort`); `ldind.ref` encodes no type and takes the pointee",
+    witness: "unsafe/indirect fixtures; corpus compile-back")]
 public sealed class LoadIndirect : IrExpression
 {
     public LoadIndirect(TypeRef? type, IrExpression address)
@@ -3157,6 +3328,13 @@ public sealed class InitObject : IrNode
     public override string Describe() => $"InitObject {Type.ToDisplayString()}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundArrayAccess / ldelem",
+    precondition: "result is the element type: the `ldelem` type token, the fixed type of a typed `ldelem.*` opcode (`ldelem.i4` → `int`, `ldelem.r8` → `double`, …), or — for `ldelem.ref`, which encodes no type — the array operand's element type",
+    witness: "array fixtures; corpus compile-back")]
 public sealed class LoadElement : IrExpression
 {
     public LoadElement(TypeRef? elementType, IrExpression array, IrExpression index)
@@ -3196,6 +3374,12 @@ public sealed class StoreElement : IrNode
     public override string Describe() => $"StoreElement {ElementType?.ToDisplayString() ?? "?"}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundSizeOfOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "sizeof(T) (BoundSizeOfOperator) / sizeof",
+    precondition: "result is `System.Int32` — the `sizeof(T)` byte size",
+    witness: "corpus compile-back")]
 public sealed class SizeOf : IrExpression
 {
     public SizeOf(TypeRef type) => Type = type;
@@ -3276,6 +3460,7 @@ public sealed class UnboxAny : IrExpression
 /// rendered honestly, never forced into plausible output. Any occurrence
 /// caps the function's fidelity at <see cref="DecompilationFidelity.Partial"/>.
 /// </summary>
+[Inverse.NotInverted("unrepresented IL kept explicit and rendered honestly — outside the inverse's checkable domain by construction; any occurrence caps fidelity at Partial")]
 public sealed class UnsupportedNode : IrExpression
 {
     public UnsupportedNode(int ilOffset, string opcode, string reason)

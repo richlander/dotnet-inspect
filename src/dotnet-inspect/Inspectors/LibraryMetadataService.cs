@@ -133,6 +133,7 @@ internal static class LibraryMetadataService
                     AssemblyPath = path,
                     Model = inspection,
                     Logger = logger,
+                    IncludeOpportunities = scanners.Contains(Sections.LibrarySections.ScannerOptimizationOpportunities),
                 });
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)

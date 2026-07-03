@@ -24,7 +24,6 @@ public sealed class MetadataSource : IDisposable
     DecompilerSymbolSource _symbols = DecompilerSymbolSource.None;
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
-    readonly AssemblyLocator _locator;
     readonly IAssemblyReferenceResolver _resolver;
     readonly MetadataContext? _suppliedContext;
     MetadataContext? _crossContext;
@@ -32,7 +31,7 @@ public sealed class MetadataSource : IDisposable
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
 
-    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator, IAssemblyReferenceResolver resolver, MetadataContext? context)
+    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
     {
         Path = path;
         _stream = stream;
@@ -41,7 +40,6 @@ public sealed class MetadataSource : IDisposable
         AssemblyName = assemblyName;
         _externalPdbPath = externalPdbPath;
         _readSymbols = readSymbols;
-        _locator = locator;
         _resolver = resolver;
         _suppliedContext = context;
     }
@@ -79,14 +77,15 @@ public sealed class MetadataSource : IDisposable
     /// without managed metadata. <paramref name="externalPdbPath"/> is a portable
     /// PDB to use for source local names when the assembly carries no embedded
     /// or sidecar PDB — e.g. one the CLI downloaded from a symbol server.
-    /// <paramref name="locator"/> resolves referenced assemblies for
-    /// cross-assembly type facts (value-type-ness of a bare token); when null,
-    /// the default policy looks only beside the opened assembly. A richer caller
-    /// (the CLI) supplies a platform/package-aware locator.
+    /// <paramref name="locator"/> is the legacy path-only adapter for resolving
+    /// referenced assemblies for cross-assembly type facts (value-type-ness of a
+    /// bare token); when null, the default policy looks only beside the opened
+    /// assembly. New callers should prefer the <see cref="IAssemblyReferenceResolver"/>
+    /// overload so identity and stream-backed assemblies flow through.
     /// <paramref name="context"/> is a shared <see cref="MetadataContext"/> a
     /// batch caller may pass so a dependency such as CoreLib is opened once
-    /// across many sources; when null, this source creates and owns one (and the
-    /// supplied <paramref name="locator"/> seeds it). A supplied context is
+    /// across many sources; when null, this source creates and owns one seeded
+    /// by the effective resolver. A supplied context is
     /// borrowed — the caller owns its disposal.
     /// </summary>
     public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null, MetadataContext? context = null)
@@ -114,11 +113,18 @@ public sealed class MetadataSource : IDisposable
         => OpenCore(assembly, externalPdbPath: null, readSymbols: false, resolver, context);
 
     /// <summary>
-    /// Default referenced-assembly probing policy for callers that need to share a
-    /// <see cref="MetadataContext"/> across several <see cref="MetadataSource"/>
-    /// instances.
+    /// Default referenced-assembly probing policy for callers that need to share
+    /// a <see cref="MetadataContext"/> across several <see cref="MetadataSource"/>
+    /// instances. It resolves only non-platform assemblies copied beside
+    /// <paramref name="path"/>.
     /// </summary>
-    public static AssemblyLocator DefaultAssemblyLocator(string path) => SiblingLocator(path);
+    public static IAssemblyReferenceResolver DefaultAssemblyReferenceResolver(string path) => new SiblingAssemblyReferenceResolver(path);
+
+    /// <summary>
+    /// Legacy path-only view over <see cref="DefaultAssemblyReferenceResolver"/>.
+    /// Prefer the resolver-returning API for new code.
+    /// </summary>
+    public static AssemblyLocator DefaultAssemblyLocator(string path) => DefaultAssemblyReferenceResolver(path).ToAssemblyLocator();
 
     static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, IAssemblyReferenceResolver? resolver, MetadataContext? context)
     {
@@ -133,9 +139,8 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            var effectiveLocator = locator ?? DefaultAssemblyLocator(path);
-            var effectiveResolver = resolver ?? effectiveLocator.ToAssemblyReferenceResolver();
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, effectiveLocator, effectiveResolver, context);
+            var effectiveResolver = resolver ?? locator?.ToAssemblyReferenceResolver() ?? DefaultAssemblyReferenceResolver(path);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, effectiveResolver, context);
         }
         catch
         {
@@ -159,7 +164,7 @@ public sealed class MetadataSource : IDisposable
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;
             string path = assembly.Path ?? assembly.Identity.Name;
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, resolver.ToAssemblyLocator(), resolver, context);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, resolver, context);
         }
         catch
         {
@@ -175,23 +180,30 @@ public sealed class MetadataSource : IDisposable
     /// resolution (packages, deps.json, projects, shared frameworks) belongs to
     /// callers that inject a resolver.
     /// </summary>
-    static AssemblyLocator SiblingLocator(string path)
+    sealed class SiblingAssemblyReferenceResolver(string path) : IAssemblyReferenceResolver
     {
-        string? dir = System.IO.Path.GetDirectoryName(path);
-        return (name, scope) =>
+        readonly string? _directory = System.IO.Path.GetDirectoryName(path);
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
             if (scope == AssemblyResolutionScope.Platform)
                 return null;
 
-            if (dir is not null)
+            if (_directory is not null)
             {
-                string sibling = System.IO.Path.Combine(dir, name + ".dll");
+                string sibling = System.IO.Path.Combine(_directory, identity.Name + ".dll");
                 if (File.Exists(sibling))
-                    return sibling;
+                {
+                    return new ResolvedAssemblyReference(
+                        identity,
+                        sibling,
+                        () => File.OpenRead(sibling),
+                        Provenance: "SiblingAssembly");
+                }
             }
 
             return null;
-        };
+        }
     }
 
     /// <summary>
@@ -215,9 +227,9 @@ public sealed class MetadataSource : IDisposable
 
     /// <summary>
     /// The shared assembly-reading environment cross-assembly resolution reads
-    /// through. A borrowed context (passed to <see cref="Open(string, string?, AssemblyLocator?, MetadataContext?)"/>)
+    /// through. A borrowed context (passed to <see cref="Open(string, string?, IAssemblyReferenceResolver, MetadataContext?)"/>)
     /// is reused and left for its owner to dispose; otherwise this source creates
-    /// and owns one seeded with its own locator.
+    /// and owns one seeded with its resolver.
     /// </summary>
     MetadataContext CrossContext
     {

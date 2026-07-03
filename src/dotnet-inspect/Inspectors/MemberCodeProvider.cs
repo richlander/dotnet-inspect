@@ -54,12 +54,15 @@ internal static class MemberCodeProvider
         if (!overloadIndex.HasValue)
             return results;
             
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-        if (!peReader.HasMetadata)
+        // Read metadata/IL through the assembly seam (which owns the single PE open) rather than
+        // opening a raw PEReader here — the decompiler-backed sections still open their own
+        // MetadataSource below (with symbols) via OpenPipelineSource.
+        using var image = ILInspector.Metadata.AssemblyInspectionSession.Open(dllPath);
+        if (!image.HasMetadata)
             return results;
 
-        var reader = peReader.GetMetadataReader();
+        var peReader = image.PeReader;
+        var reader = image.MetadataReader;
 
         // All decompiler-backed sections (decompiled source, annotated source, IR
         // stages) read through one MetadataSource that owns its own readers.

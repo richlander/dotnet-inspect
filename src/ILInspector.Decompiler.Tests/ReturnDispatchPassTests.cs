@@ -107,6 +107,38 @@ public class ReturnDispatchPassTests
     }
 
     [Fact]
+    public void MixedSharedReturnTargets_DeclinesOrderedGuardReturns()
+    {
+        var body = new BlockContainer();
+        AddGuard(body, 0, new LoadArgument(0, "x", Int32), targetOffset: 5);
+        AddGuard(body, 1, new LoadArgument(1, "y", Int32), targetOffset: 5);
+        AddGuard(body, 2, new LoadArgument(2, "z", Int32), targetOffset: 6);
+        AddGuard(body, 3, new LoadArgument(3, "w", Int32), targetOffset: 7);
+        AddReturn(body, 4, 0);
+        AddReturn(body, 5, 1);
+        AddReturn(body, 6, 2);
+        AddReturn(body, 7, 3);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [
+                new Parameter("x", Int32),
+                new Parameter("y", Int32),
+                new Parameter("z", Int32),
+                new Parameter("w", Int32),
+            ], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ReturnDispatchPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Equal(8, function.Body.Blocks.Count);
+        Assert.Equal(4, function.Descendants.OfType<ConditionalBranch>().Count());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
     public void ComparisonTree_StillFoldsToNestedGuardReturns()
     {
         var function = BuildComparisonTreeCandidate();

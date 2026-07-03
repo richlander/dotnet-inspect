@@ -113,6 +113,36 @@ Rule of thumb: **its signoff weight equals how many of the changed nodes
 carry runnable predicates.** No predicate → dev aid only; predicate present →
 localized proof, on top of the card.
 
+### The aggregate view: `--assertion-scan`
+
+The single-method dump can't answer population questions; `DecompilerHarness
+--assertion-scan [--sample N] [--package …]` runs the same `assumes:`
+predicates across an assembly and reports a violation histogram (by sink type /
+pass / node / predicate), the methods-with-violation rate, and **annotation
+coverage** — which `[InverseOf]` nodes the scanned population actually
+exercised. `--emit-assertion-violations` / `--diff-assertion-violations` give a
+REGRESSED / IMPROVED differential (the "N→M violations, 0 regressions" proof for
+a coercion PR, mirroring the validity-defects loop).
+
+Reach for it to:
+
+- **Audit a new annotation batch** across a corpus — confirm the nodes you
+  annotated actually appear over real IR (e.g. a full scan of the decompiler
+  assembly, 6756 methods, exercised 22/25 annotated nodes with 0 pass bugs).
+  For batch signoff, prefer the audit corpus from
+  `eng/prepare-decompiler-assertion-corpus.sh`: fixed real-world corpus plus
+  current local product assemblies.
+- **Measure the leak surface** — the methods-with-violation rate is the
+  automatable form of the value-typed-emission leak number.
+- **Localize a coercion regression** — the emit/diff pair names the methods
+  that gained a violation.
+
+It stays **measurement and triage, not a correctness gate.** Its counts and
+histograms do not gate fidelity or validity — that remains the quality-diff
+card and render A/B. Its exit code flags *pass bugs* (importer / pipeline
+crashes), never a violation count. Same rule as the single-method dump: an
+assertion-scan number is population *measurement*, not a pass/fail bar.
+
 ## Annotations (the inverse ledger)
 
 - **`assumes` names an executable, or it moves to prose.** An attribute

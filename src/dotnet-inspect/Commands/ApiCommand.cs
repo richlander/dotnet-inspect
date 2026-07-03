@@ -485,15 +485,6 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
-    /// <summary>
-    /// Forwarder-following policy for whole-type listings: implementations
-    /// beside the starting assembly first, then the installed shared
-    /// framework (so package facades resolve to the platform assemblies
-    /// they forward to at runtime).
-    /// </summary>
-    internal static ILInspector.Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
-        => PlatformAssemblyResolver(startingDll).ToAssemblyLocator();
-
     internal static AssemblyDependencyResolver PlatformAssemblyResolver(string startingDll, string? projectAssetsPath = null, string? targetFramework = null)
     {
         return new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(startingDll)
@@ -664,7 +655,7 @@ public class ApiCommand
             // when such a section is requested) instead of opening one session per section.
             MethodBodyInspectionSession? typeAnalysisSession = null;
             MethodBodyInspectionSession TypeAnalysisSession() =>
-                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(options.DllPath!);
+                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(options.DllPath!, GetRequestedMemberSections(type, options), type);
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -1294,7 +1285,7 @@ public class ApiCommand
 
             MethodBodyInspectionSession? typeAnalysisSession = null;
             MethodBodyInspectionSession TypeAnalysisSession() =>
-                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(renderOptions.DllPath!);
+                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type);
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
