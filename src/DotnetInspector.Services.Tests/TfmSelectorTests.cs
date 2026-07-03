@@ -179,6 +179,17 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectHighestAssembliesFromPackage_RuntimeOnlyPackage_ReturnsRuntimeAssembly()
+    {
+        var runtimeAssembly = WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([runtimeAssembly], paths);
+    }
+
+    [Fact]
     public void FindAssemblyByTfm_UsesPackageNameMatch()
     {
         WriteDll("lib/net8.0/Companion.dll");
