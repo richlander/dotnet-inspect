@@ -19,6 +19,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\runfaster\runfaster.csproj" />
+    <ProjectReference Include="Fixtures\RunFaster.AllocationFixture\RunFaster.AllocationFixture.csproj" ReferenceOutputAssembly="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Fixtures\**" />
+    <Content Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
