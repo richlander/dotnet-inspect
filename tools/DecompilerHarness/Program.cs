@@ -649,7 +649,7 @@ static class Program
                 IReadOnlyList<PipelineStage> stages;
                 try
                 {
-                    stages = IrPasses.RunWithStages(function);
+                    stages = IrPasses.RunWithStages(function, new PassContext(new Stepper(enabled: false), importMethodBody: refMethod => IrImporter.Import(source, refMethod)));
                 }
                 catch (Exception ex)
                 {
@@ -876,7 +876,7 @@ static class Program
                 continue;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, per-pass diff)");
-            Console.Write(StageDump.FormatDiff(IrPasses.RunWithStages(function)));
+            Console.Write(StageDump.FormatDiff(IrPasses.RunWithStages(function, new PassContext(new Stepper(enabled: false), importMethodBody: refMethod => IrImporter.Import(source, refMethod)))));
             return 0;
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
@@ -947,7 +947,7 @@ static class Program
                 continue;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, assertions)");
-            var stages = IrPasses.RunWithStages(function, IrPasses.Default, new AssertionPrinter.StatefulPrinter().Dump);
+            var stages = IrPasses.RunWithStages(function, IrPasses.Default, new AssertionPrinter.StatefulPrinter().Dump, new PassContext(new Stepper(enabled: false), importMethodBody: refMethod => IrImporter.Import(source, refMethod)));
             Console.Write(StageDump.Format(stages));
             return 0;
         }
