@@ -1122,7 +1122,7 @@ public sealed class NullCoalescingPropertyAssignment : IrNode
     Inverse.Forward.RoslynBoundConditionalAccess,
     naming: Inverse.NameProvenance.Native,
     forwardName: "BoundConditionalAccess / ?.",
-    precondition: "result is the member's type (nullable-wrapped for value types); raised from the ?. null-check + receiver-spill pattern",
+    precondition: "result is the member's unwrapped type (`Member.ResultType`); raised from the ?. null-check pattern (surrounding nodes carry any nullable wrapping / coalesce)",
     witness: "corpus compile-back")]
 public sealed class NullConditional : IrExpression
 {
@@ -2876,8 +2876,8 @@ public sealed class LoadToken : IrExpression
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundPropertyAccess,
     naming: Inverse.NameProvenance.Native,
-    forwardName: "BoundPropertyAccess / get_ accessor call",
-    precondition: "type is the property/indexer's return type (accessor signature); raised from a get_ accessor call",
+    forwardName: "BoundPropertyAccess / BoundIndexerAccess (get_ accessor call)",
+    precondition: "type is the property or indexer's return type (accessor signature); raised from a get_ accessor call",
     witness: "corpus compile-back")]
 public sealed class LoadProperty : IrExpression
 {
