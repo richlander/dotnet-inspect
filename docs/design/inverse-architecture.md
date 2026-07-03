@@ -303,7 +303,6 @@ a `[NotInverted(reason)]` row so the boundary is visible, not implicit.
   [inverse-ledger.generated.md](inverse-ledger.generated.md) (drift-gated); it is the
   authoritative table. The conversion-family rows in [The node ledger](#the-node-ledger--the-type-assertions)
   above are a hand-written worked example the generated ledger subsumes.
-- **Assertion dump (capability):** planned, last. An opt-in `--dump` lane that annotates
-  each node with its `[InverseOf]` assertion, evaluates the `assumes:` predicate in
-  place, and pinpoints the first unsound rewrite. Depends on the annotations and the
-  `Check()` predicates.
+- **Assertion dump (capability):** landed (#2193). An opt-in `--dump --assertions` lane
+  that annotates each node with its `[InverseOf]` assertion, evaluates the `assumes:`
+  predicate in place, and pinpoints the first unsound rewrite.
