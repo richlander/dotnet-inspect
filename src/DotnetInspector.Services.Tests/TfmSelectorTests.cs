@@ -131,6 +131,31 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectHighestAssembliesFromPackage_AllTfmsScansAllLayouts()
+    {
+        var tool = WriteDll("tools/net6.0/Tool.dll");
+        var library = WriteDll("lib/net8.0/Lib.dll");
+        var runtime = WriteDll("runtimes/linux-x64/lib/net8.0/Runtime.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir, "all");
+
+        Assert.Null(tfm);
+        Assert.Equal([library, runtime, tool], paths);
+    }
+
+    [Fact]
+    public void SelectHighestAssembliesFromPackage_FiltersSatelliteWithUppercaseCultureDirectory()
+    {
+        var primary = WriteDll("lib/net8.0/MyLib.dll");
+        WriteDll("lib/net8.0/ES-ES/MyLib.resources.dll");
+
+        var (paths, tfm) = TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([primary], paths);
+    }
+
+    [Fact]
     public void GetPackageTfms_ReturnsDistinctTfmsInPriorityOrder()
     {
         WriteDll("lib/netstandard2.0/MyLib.dll");

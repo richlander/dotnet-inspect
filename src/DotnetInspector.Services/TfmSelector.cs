@@ -210,16 +210,25 @@ public static class TfmSelector
     }
 
     public static (List<string> paths, string? tfm) SelectHighestAssembliesFromPackage(string extractPath, string? tfm = null)
-        => !string.IsNullOrWhiteSpace(tfm) && !string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase)
+    {
+        if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
+            return (GetAllPackageAssemblies(extractPath), null);
+
+        return !string.IsNullOrWhiteSpace(tfm)
             ? SelectAssembliesByTfmFromPackage(extractPath, tfm)
             : SelectHighestAssemblies(GetPackageDlls(extractPath), extractPath, tfm);
+    }
+
+    private static List<string> GetAllPackageAssemblies(string extractPath)
+        => FilterResourceAssemblies(Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories))
+            .OrderBy(path => GetExplicitTfmLookupPriority(extractPath, path))
+            .ThenBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     public static (List<string> paths, string? tfm) SelectAssembliesByTfmFromPackage(string extractPath, string tfm)
     {
-        var selected = FilterResourceAssemblies(Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories))
+        var selected = GetAllPackageAssemblies(extractPath)
             .Where(path => string.Equals(GetTfm(extractPath, path), tfm, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(path => GetExplicitTfmLookupPriority(extractPath, path))
-            .ThenBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
         return (selected, tfm);
     }
@@ -386,15 +395,16 @@ public static class TfmSelector
     }
 
     private static bool IsLanguageSubtag(string value)
-        => value.Length is 2 or 3 && value.All(c => c is >= 'a' and <= 'z');
+        => value.Length is 2 or 3 && value.All(IsAsciiLetter);
 
     private static bool IsCultureSubtag(string value)
     {
         if (value.Length is < 2 or > 8)
             return false;
 
-        return value.All(c => c is >= 'a' and <= 'z'
-            || c is >= 'A' and <= 'Z'
-            || c is >= '0' and <= '9');
+        return value.All(c => IsAsciiLetter(c) || c is >= '0' and <= '9');
     }
+
+    private static bool IsAsciiLetter(char value)
+        => value is >= 'a' and <= 'z' or >= 'A' and <= 'Z';
 }
