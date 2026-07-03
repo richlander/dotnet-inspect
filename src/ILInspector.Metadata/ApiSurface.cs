@@ -243,6 +243,14 @@ public class ApiType
 {
     public string? Namespace { get; set; }
     public string Name { get; set; } = "";
+    
+    /// <summary>
+    /// The exact metadata name, preserving literal '+' characters and using '+'
+    /// to delimit nested types, matching how TypeRef constructs its names.
+    /// Null in older serialized surfaces.
+    /// </summary>
+    public string? MetadataName { get; set; }
+    
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];
 
