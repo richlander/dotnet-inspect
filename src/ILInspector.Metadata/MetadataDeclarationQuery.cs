@@ -171,7 +171,7 @@ public static class MetadataDeclarationQuery
                 ReturnType = declaration.ReturnType,
                 SignatureModel = declaration.ReturnType is null
                     ? null
-                    : new ApiSignature { ReturnType = declaration.ReturnType, MemberName = declaration.MetadataName },
+                    : new ApiSignature { ReturnType = declaration.ReturnType, MemberName = declaration.CSharpName },
                 IsStatic = declaration.IsStatic,
                 IsReadOnly = declaration.IsReadOnly,
                 IsConst = declaration.IsConst,
@@ -285,9 +285,10 @@ public static class MetadataDeclarationQuery
 
         var parameters = PropertyParameters(reader, accessorParameters, signature).ToList();
         var name = reader.GetString(property.Name);
+        var csharpName = EscapeIdentifier(name);
         return new MetadataPropertyDeclaration(
             name,
-            EscapeIdentifier(name),
+            csharpName,
             AccessibilityKeyword(bestAccess),
             isPublicOrProtected,
             !accessors.Getter.IsNil || !accessors.Setter.IsNil
@@ -307,7 +308,7 @@ public static class MetadataDeclarationQuery
                 ReturnAttributes = !accessors.Getter.IsNil
                     ? ReturnAttributes(reader, getter.GetParameters()).ToList()
                     : [],
-                MemberName = parameters.Count == 0 ? name : "this[]",
+                MemberName = parameters.Count == 0 ? csharpName : "this[]",
                 Parameters = parameters,
                 Accessors = accessorModels,
             },
@@ -655,7 +656,7 @@ public static class MetadataDeclarationQuery
             ? "{ get; }"
             : "{ " + string.Join(" ", declaration.Signature.Accessors.Select(AccessorText)) + " }";
         return declaration.Signature.Parameters.Count == 0
-            ? $"{returnType} {declaration.MetadataName} {accessors}"
+            ? $"{returnType} {declaration.CSharpName} {accessors}"
             : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(parameter => parameter.Declaration))}] {accessors}";
     }
 

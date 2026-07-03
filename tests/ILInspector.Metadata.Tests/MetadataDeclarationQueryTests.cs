@@ -103,17 +103,22 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
-    public void MethodDeclaration_EscapesKeywordMemberNames()
+    public void TypeSurface_EscapesKeywordMemberNames()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
         var method = GetMethod(type, "class");
 
         var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
         var surface = MetadataDeclarationQuery.GetTypeSurface(Reader, GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
+        var property = Assert.Single(surface.Members, member => member.Name == "while");
+        var field = Assert.Single(surface.Members, member => member.Name == "event");
 
         Assert.Equal("@class", declaration.CSharpName);
         Assert.Equal("@class", declaration.Signature.MemberName);
         Assert.Contains(surface.Members, member => member.Name == "class" && member.Signature!.Contains("@class", StringComparison.Ordinal));
+        Assert.Equal("@while", property.SignatureModel!.MemberName);
+        Assert.Contains("@while", property.Signature);
+        Assert.Equal("@event", field.SignatureModel!.MemberName);
     }
 
     [Fact]
@@ -197,6 +202,10 @@ public class MetadataDeclarationQueryFixtures
     public int Count() => _count;
 
     public int @class() => 0;
+
+    public int @while { get; set; }
+
+    public int @event = 1;
 
     public abstract class AbstractBase
     {
