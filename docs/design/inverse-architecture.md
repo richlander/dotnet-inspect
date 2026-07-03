@@ -291,15 +291,17 @@ a `[NotInverted(reason)]` row so the boundary is visible, not implicit.
 
 ## Status
 
-- **Framing (this doc):** drafted; under review.
+- **Framing (this doc):** landed (#2135).
 - **Annotation infrastructure** (`[InverseOf]`, enums, reflector, coverage test, the
-  `SinkDistinguishableFromStack` assertion): planned. First slice is the conversion
-  family (`Convert` / `Coerce` / `Box`).
-- **Node annotations applied across the IR:** planned, to follow the infrastructure.
-  Because the annotations land in `IrNodes.cs`, which value-typed-emission slices 4–5
-  actively edit, the annotation slice is sequenced *after* the slice-3 merge and the
-  follow-up infra, to keep the churn on that file serialized.
-- **Generated ledger:** planned; will replace the hand-written seed rows above.
+  `SinkDistinguishableFromStack` assertion): landed (#2148).
+- **Node annotations applied across the IR:** the conversion family (`Convert`,
+  `Coerce`, `Box`) is annotated and enforced by the coverage test; the remaining
+  in-domain nodes follow, applied where they are low-conflict with in-flight
+  value-typed-emission work on `IrNodes.cs`.
+- **Generated ledger:** generated from the annotations at
+  [inverse-ledger.generated.md](inverse-ledger.generated.md) (drift-gated); it is the
+  authoritative table. The conversion-family rows in [The node ledger](#the-node-ledger--the-type-assertions)
+  above are a hand-written worked example the generated ledger subsumes.
 - **Assertion dump (capability):** planned, last. An opt-in `--dump` lane that annotates
   each node with its `[InverseOf]` assertion, evaluates the `assumes:` predicate in
   place, and pinpoints the first unsound rewrite. Depends on the annotations and the

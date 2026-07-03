@@ -19,10 +19,10 @@ public class InverseArchitectureTests
 
     public InverseArchitectureTests(ITestOutputHelper output) => _output = output;
 
-    // In-domain product nodes that MUST carry [InverseOf] or [NotInverted]. Empty
-    // for now: this machinery-only change adds no product annotations (no
-    // IrNodes.cs churn). The set grows as the ledger's declared domain grows.
-    static readonly string[] EnforcedProductNodes = [];
+    // In-domain product nodes that MUST carry [InverseOf] or [NotInverted]. The
+    // conversion family is the first annotated slice (docs/design/inverse-architecture.md);
+    // the set grows as the ledger's declared domain grows.
+    static readonly string[] EnforcedProductNodes = ["Convert", "Coerce", "Box"];
 
     static Assembly ProductAssembly => typeof(IrFunction).Assembly;
     Assembly TestAssembly => GetType().Assembly;

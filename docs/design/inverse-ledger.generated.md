@@ -8,7 +8,9 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 
 | Node | Forward construct | Naming | Precondition | Witness |
 | --- | --- | --- | --- | --- |
-| _(none yet)_ | — | — | — | — |
+| `Box` | BoundConversion (boxing) / GT_BOX | Inherited | target is the boxed value type | box/unbox fixtures |
+| `Coerce` | BoundConversion (implicit, target-driven) | Native | sink type recoverable and distinguishable from the stack type | CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B |
+| `Convert` | BoundConversion (numeric) / GT_CAST | Inherited | none — models the conv.* that ran | round-trips by construction; corpus compile-back |
 
 ## Declared non-inverse boundaries
 
