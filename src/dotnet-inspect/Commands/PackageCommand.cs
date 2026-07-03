@@ -232,34 +232,21 @@ public class PackageCommand
             return 0;
         }
 
-        // Check if first argument is a local file path
-        bool isLocalFile = packageArgs.Length >= 1 &&
-            packageArgs[0].EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-
         var client = context.HttpClient;
 
-        string packageName;
-        string version;
-
-        if (isLocalFile)
+        var target = PackageExtractor.ParsePackageTarget(packageArgs[0], explicitVersion);
+        string packageName = target.PackageName;
+        string version = target.Version;
+        if (target.IsLocalFile)
         {
-            string localPath = packageArgs[0];
-            if (!File.Exists(localPath))
+            if (!File.Exists(target.OriginalArgument))
             {
-                Console.Error.WriteLine($"Error: File not found: {localPath}");
+                Console.Error.WriteLine($"Error: File not found: {target.OriginalArgument}");
                 return 1;
             }
-
-            string fileName = Path.GetFileNameWithoutExtension(localPath);
-            packageName = fileName;
-            version = "local";
         }
         else
         {
-            var target = PackageExtractor.ParsePackageTarget(packageArgs[0], explicitVersion);
-            packageName = target.PackageName;
-            version = target.Version;
-
             if (explicitVersion != null)
                 logger.Log($"Using --version: {version}");
             else if (version.Length > 0)
@@ -286,10 +273,10 @@ public class PackageCommand
         {
             var outcome = await PackageExtractor.ExtractPackageAsync(
                 client,
-                isLocalFile ? packageArgs[0] : packageName,
+                target.IsLocalFile ? target.OriginalArgument : packageName,
                 logger.Log,
                 sourceOptions: options.SourceOptions,
-                version: isLocalFile ? null : (version.Length > 0 ? version : null),
+                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
                 forceLatest: options.ForceLatest,
                 includePrerelease: options.IncludePrerelease);
 
@@ -354,8 +341,8 @@ public class PackageCommand
             {
                 return await ExecutePackageAllLibrariesAsync(
                     extractPath,
-                    isLocalFile,
-                    packageArgs[0],
+                    target.IsLocalFile,
+                    target.OriginalArgument,
                     packageName,
                     version,
                     options);
@@ -365,8 +352,8 @@ public class PackageCommand
             {
                 return await ExecutePackageLibraryAsync(
                     extractPath,
-                    isLocalFile,
-                    packageArgs[0],
+                    target.IsLocalFile,
+                    target.OriginalArgument,
                     packageName,
                     version,
                     options);
@@ -387,8 +374,8 @@ public class PackageCommand
                 : null;
 
             var result = await PackageInspector.InspectAsync(
-                extractPath, packageName, version, isLocalFile,
-                isLocalFile ? packageArgs[0] : null,
+                extractPath, packageName, version, target.IsLocalFile,
+                target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger, options.ForceLatest, options.Verbosity,
                 resolution.NupkgPath,
                 fetchMetadata: wantsSignals);
@@ -404,7 +391,7 @@ public class PackageCommand
                 result.SignatureResult = await SignatureVerifier.VerifyAsync(resolution.NupkgPath);
             }
 
-            result.Source = isLocalFile ? SourceKind.File : SourceKind.NuGet;
+            result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
             if (ShouldPopulatePackageSourceFiles(options))

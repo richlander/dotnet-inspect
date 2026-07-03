@@ -318,8 +318,7 @@ public static class SourceResolver
             }
             else if (packagePath != null)
             {
-                var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
-                var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
+                var (bareName, explicitVersion) = PackageExtractor.ParsePackageReference(packagePath);
 
                 // Try platform resolution for whole name (can go remote for platform candidates)
                 if (PlatformResolver.IsPlatformCandidate(bareName))
