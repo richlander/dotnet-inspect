@@ -171,7 +171,12 @@ public sealed class LibraryBodyIndex
         if (runtimeAllocation is null)
             return null;
 
-        bool loop = opportunity.Multiplicity == "loop" || opportunity.InLoop;
+        // Trust the semantic per-invocation multiplicity when it is known: a
+        // return/throw early-exit inside a loop is Conditional/Unknown, NOT a hot loop,
+        // even though its IL offset sits inside the loop bounds. Fall back to the
+        // structural InLoop flag only when multiplicity could not be determined.
+        bool loop = opportunity.Multiplicity == "loop"
+            || (opportunity.Multiplicity is null && opportunity.InLoop);
         bool hotReach = opportunity.RootReach >= DelegateHotRootReach;
         bool notableSize = opportunity.EstimatedSizeBytes is { } size && size >= WeightNotableSizeBytes;
 
