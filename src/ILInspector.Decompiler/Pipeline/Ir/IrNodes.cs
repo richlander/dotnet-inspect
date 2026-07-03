@@ -2387,6 +2387,12 @@ public sealed class LoadStackSlot : IrExpression
     public override string Describe() => $"LoadStackSlot S_{Slot}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayLength,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundArrayLength / ldlen",
+    precondition: "result is `System.Int32` — the array's `.Length` (`ldlen` pushes a native int; the `.Length` property is `int`)",
+    witness: "array fixtures; corpus compile-back")]
 public sealed class ArrayLength : IrExpression
 {
     public ArrayLength(IrExpression array) => AddChild(array);
@@ -2481,6 +2487,12 @@ public sealed class Box : IrExpression
 }
 
 /// <summary>The isinst test producing the cast-or-null value (raising refines to is-patterns or as-casts).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundAsOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "value as T (BoundAsOperator) / isinst",
+    precondition: "result is the tested reference type `Type` (the `isinst` token); the value is that type or null",
+    witness: "cast fixtures; corpus compile-back")]
 public sealed class IsInstance : IrExpression
 {
     public IsInstance(TypeRef type, IrExpression operand)
@@ -2652,6 +2664,12 @@ public sealed class CastClass : IrExpression
     public override string Describe() => $"CastClass {Type.ToDisplayString()}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayCreation,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundArrayCreation / newarr",
+    precondition: "result is a single-dimension `T[]` (`SzArray`) of the `newarr` element-type token",
+    witness: "array fixtures; corpus compile-back")]
 public sealed class NewArray : IrExpression
 {
     public NewArray(TypeRef elementType, IrExpression length)
@@ -2715,6 +2733,12 @@ public sealed class StackAllocArray : IrExpression
 }
 
 /// <summary>The raised typeof(T): GetTypeFromHandle over a type token, folded.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundTypeOfOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "typeof(T) (BoundTypeOfOperator) / ldtoken + GetTypeFromHandle",
+    precondition: "result is `System.Type` — the folded `Type.GetTypeFromHandle(ldtoken T)` shape",
+    witness: "corpus compile-back")]
 public sealed class TypeOf : IrExpression
 {
     public TypeOf(TypeRef type) => Type = type;
@@ -2861,6 +2885,12 @@ public sealed class InlineArraySpanConversion : IrExpression
 }
 
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "ldtoken (type/method/field handle)",
+    precondition: "result is the `RuntimeTypeHandle`/`RuntimeMethodHandle`/`RuntimeFieldHandle` selected by the token `Kind`",
+    witness: "corpus compile-back")]
 public sealed class LoadToken : IrExpression
 {
     public LoadToken(RuntimeTokenKind kind, TypeRef? type, string display)
@@ -3212,6 +3242,13 @@ public sealed class InitObject : IrNode
     public override string Describe() => $"InitObject {Type.ToDisplayString()}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundArrayAccess / ldelem",
+    precondition: "result is the `ldelem` element-type token; `ldelem.ref` encodes no type and takes the array operand's element type",
+    witness: "array fixtures; corpus compile-back")]
 public sealed class LoadElement : IrExpression
 {
     public LoadElement(TypeRef? elementType, IrExpression array, IrExpression index)
@@ -3251,6 +3288,12 @@ public sealed class StoreElement : IrNode
     public override string Describe() => $"StoreElement {ElementType?.ToDisplayString() ?? "?"}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundSizeOfOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "sizeof(T) (BoundSizeOfOperator) / sizeof",
+    precondition: "result is `System.Int32` — the `sizeof(T)` byte size",
+    witness: "corpus compile-back")]
 public sealed class SizeOf : IrExpression
 {
     public SizeOf(TypeRef type) => Type = type;
