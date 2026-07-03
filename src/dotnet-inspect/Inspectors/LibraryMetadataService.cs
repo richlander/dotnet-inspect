@@ -735,7 +735,7 @@ internal static class LibraryMetadataService
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
                     Confidence = opportunity.Confidence,
-                    Loop = opportunity.InLoop ? "loop" : "",
+                    Loop = IteratesInLoop(opportunity) ? "loop" : "",
                     Allocation = opportunity.RuntimeAllocationType,
                     Path = opportunity.PathContext,
                     PathConfidence = opportunity.PathConfidence,
@@ -760,13 +760,23 @@ internal static class LibraryMetadataService
     // test (analysis quality ladder #1623 rung 5), not only by self-consistent monotonicity.
     internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
         => opportunities
-            .OrderByDescending(opportunity => opportunity.InLoop)
+            .OrderByDescending(IteratesInLoop)
             .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
             .ThenByDescending(opportunity => opportunity.RootReach)
             .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)
             .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
+
+    // Whether an allocation opportunity actually iterates as a hot loop, per the
+    // semantic per-invocation multiplicity (#2127). A structural in-loop offset that
+    // is really a return/throw early-exit (Multiplicity Conditional/Unknown) is NOT a
+    // hot loop; fall back to the structural InLoop flag only when multiplicity is
+    // unknown. This is the single source of truth for the Loop column, triage sort,
+    // and the --loop filter.
+    internal static bool IteratesInLoop(Analysis.OptimizationOpportunity opportunity)
+        => opportunity.Multiplicity == "loop"
+            || (opportunity.Multiplicity is null && opportunity.InLoop);
 
     // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
     static int ConfidenceRank(string confidence)
@@ -788,7 +798,7 @@ internal static class LibraryMetadataService
         options ??= PerformanceTriageOptions.Default;
         var filtered = opportunities;
         if (options.LoopOnly)
-            filtered = filtered.Where(opportunity => opportunity.InLoop);
+            filtered = filtered.Where(IteratesInLoop);
         if (options.MinConfidence is { Length: > 0 } confidence)
         {
             var minimumRank = ConfidenceRank(confidence);
@@ -933,7 +943,7 @@ internal static class LibraryMetadataService
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
             "Confidence" => opportunity.Confidence,
-            "Loop" => opportunity.InLoop ? "loop" : "",
+            "Loop" => IteratesInLoop(opportunity) ? "loop" : "",
             "Allocation" => opportunity.RuntimeAllocationType,
             "Path" => opportunity.PathContext,
             "PathConfidence" => opportunity.PathConfidence,

@@ -3136,18 +3136,19 @@ public sealed class LibraryBodyIndex
                                 && delegateAllocation.Frequency == AllocationFrequency.CachedOnce;
                             if (!cachedOnce && pendingDelegateCapturing)
                             {
-                                // Confidence tracks loop membership: an in-loop delegate is a
-                                // repeated allocation (high); a one-shot delegate in a cold
-                                // method is low-value, especially since .NET 10+ partially
-                                // stack-allocates non-escaping ones (low).
+                                // Confidence tracks semantic loop iteration: a delegate that
+                                // genuinely repeats each iteration is high; a one-shot delegate —
+                                // including a loop early-exit that runs once — is low, especially
+                                // since .NET 10+ partially stack-allocates non-escaping ones.
                                 var inLoop = IsInLoopRegion(offset, loopRegions);
+                                bool iteratesInLoop = AllocationMultiplicityFor(decodedBody, offset, loopRegions, AllocationEscape.Unknown) == AllocationMultiplicity.Loop;
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "capturing-delegate",
                                     "delegate over a captured receiver or closure",
                                     "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
-                                    inLoop ? "high" : "low",
+                                    iteratesInLoop ? "high" : "low",
                                     inLoop,
                                     offset,
                                     "On .NET 10+ the JIT can partially stack-allocate a non-escaping closure (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when the closure escapes the method — stored, returned, or passed to a callee that lets it escape."));
@@ -3155,6 +3156,7 @@ public sealed class LibraryBodyIndex
                             else if (!cachedOnce && pendingDelegateInstanceGroup)
                             {
                                 var inLoop = IsInLoopRegion(offset, loopRegions);
+                                bool iteratesInLoop = AllocationMultiplicityFor(decodedBody, offset, loopRegions, AllocationEscape.Unknown) == AllocationMultiplicity.Loop;
                                 bool stackGuardFallback = IsStackGuardFallbackAllocation(decodedBody, offset, callerScope);
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
@@ -3164,7 +3166,7 @@ public sealed class LibraryBodyIndex
                                     stackGuardFallback
                                         ? "This delegate allocation is on a StackGuard fallback path, not the common path; if profiles show it matters, cache it in a field when the receiver is stable or use a static method with explicit state."
                                         : "Each call allocates a delegate that binds the receiver; cache it in a field when the receiver is stable, or use a static method with explicit state.",
-                                    stackGuardFallback ? "low" : inLoop ? "high" : "low",
+                                    stackGuardFallback ? "low" : iteratesInLoop ? "high" : "low",
                                     inLoop,
                                     offset,
                                     stackGuardFallback
@@ -3380,8 +3382,10 @@ public sealed class LibraryBodyIndex
                         var feedsThrow = allocating && boxAllocation!.Escape == AllocationEscape.ThrowPath;
                         pendingBoxOffset = allocating && !feedsThrow ? offset : null;
                         pendingBoxType = allocating && !feedsThrow ? boxAllocation!.AllocatedType ?? boxed : null;
+                        // Semantic loop iteration (a loop early-exit box runs once, so it is
+                        // not a hot loop) drives the box confidence and the Loop signal.
                         pendingBoxInLoop = pendingBoxOffset is not null
-                            && IsInLoopRegion(offset, loopRegions);
+                            && boxAllocation!.Multiplicity == AllocationMultiplicity.Loop;
                         break;
                     }
                     default:

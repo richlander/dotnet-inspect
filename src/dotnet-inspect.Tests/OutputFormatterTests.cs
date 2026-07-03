@@ -436,7 +436,7 @@ public class OutputFormatterTests
         Assert.Equal(["OffsetSmall", "OffsetLarge"], filtered);
     }
 
-    static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape)
+    static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape, string? multiplicity = null)
     {
         var declaring = ILInspector.Analysis.TypeRef.Definition("Asm", "Ns", "Type");
         var method = new ILInspector.Analysis.MethodIdentity(
@@ -449,7 +449,38 @@ public class OutputFormatterTests
             MetadataToken: 0x06000001,
             IsStatic: true);
         return new ILInspector.Analysis.OptimizationOpportunity(
-            method, shape, "evidence", "fix", confidence, inLoop, ILOffset: null, Caveat: null, RootReach: rootReach);
+            method, shape, "evidence", "fix", confidence, inLoop, ILOffset: null, Caveat: null, RootReach: rootReach)
+        {
+            Multiplicity = multiplicity,
+        };
+    }
+
+    [Fact]
+    public void IteratesInLoop_TrustsSemanticMultiplicityOverStructuralInLoop()
+    {
+        // Structurally in a loop but a return/throw early-exit (Multiplicity conditional)
+        // is NOT a hot loop; a genuine loop is; a null multiplicity falls back to InLoop.
+        var loopEarlyExit = Opp("LoopEarlyExit", inLoop: true, confidence: "high", rootReach: 1, shape: "capturing-delegate", multiplicity: "conditional");
+        var genuineLoop = Opp("GenuineLoop", inLoop: true, confidence: "high", rootReach: 1, shape: "allocation-hotspot", multiplicity: "loop");
+        var unknownInLoop = Opp("UnknownInLoop", inLoop: true, confidence: "high", rootReach: 1, shape: "allocation-hotspot", multiplicity: null);
+        var unknownNotInLoop = Opp("UnknownNotInLoop", inLoop: false, confidence: "high", rootReach: 1, shape: "allocation-hotspot", multiplicity: null);
+
+        Assert.False(LibraryMetadataService.IteratesInLoop(loopEarlyExit));
+        Assert.True(LibraryMetadataService.IteratesInLoop(genuineLoop));
+        Assert.True(LibraryMetadataService.IteratesInLoop(unknownInLoop));
+        Assert.False(LibraryMetadataService.IteratesInLoop(unknownNotInLoop));
+
+        // The loop early-exit is deprioritized below a genuine loop despite equal confidence/reach.
+        var ordered = LibraryMetadataService.OrderByTriagePriority([loopEarlyExit, genuineLoop])
+            .Select(o => o.Method.Name).ToList();
+        Assert.Equal(["GenuineLoop", "LoopEarlyExit"], ordered);
+
+        // --loop keeps only genuine loops.
+        var loopOnly = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+            [loopEarlyExit, genuineLoop],
+            new PerformanceTriageOptions { LoopOnly = true })
+            .Select(o => o.Method.Name).ToList();
+        Assert.Equal(["GenuineLoop"], loopOnly);
     }
 
     [Fact]
