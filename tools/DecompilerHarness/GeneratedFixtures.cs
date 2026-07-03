@@ -1242,6 +1242,173 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "conditional-expression", "branch", "frontier", "shape"]);
 
+    public static readonly GeneratedFixtureDefinition AssertionNodeCoverage = new(
+        "assertion.inverse-node-coverage",
+        """
+        namespace GeneratedFixtures.AssertionNodeCoverage;
+
+        public enum Choice
+        {
+            None = 0,
+            One = 1,
+        }
+
+        public struct Mutable
+        {
+            public int Value;
+
+            public Mutable(int value)
+            {
+                Value = value;
+            }
+
+            public int Increment()
+            {
+                Value++;
+                return Value;
+            }
+        }
+
+        public sealed class Holder
+        {
+            public int Number { get; set; }
+            public string Text { get; set; }
+        }
+
+        public unsafe class Class1
+        {
+            private int _field;
+
+            public static int StaticAdd(int left, int right) => left + right;
+
+            public static int Invoke(delegate*<int, int, int> callback, int left, int right)
+                => callback(left, right);
+
+            public static delegate*<int, int, int> Pointer() => &StaticAdd;
+
+            public static System.Func<int, int> Lambda() => x => x + 1;
+
+            public int UseLambda(int value)
+            {
+                System.Func<int, int> add = x => x + _field;
+                return add(value);
+            }
+
+            public static int LocalFunction(int value)
+            {
+                int Twice(int input) => input * 2;
+                return Twice(value);
+            }
+
+            public int InstanceLocalFunction(int value)
+            {
+                int AddField(int input) => input + _field;
+                return AddField(value);
+            }
+
+            public static int Logical(bool left, bool right)
+                => left && !right ? 1 : 0;
+
+            public static int Compare(int left, int right)
+                => left < right ? left : right;
+
+            public static int NullConditional(Holder holder)
+                => holder?.Number ?? -1;
+
+            public static string NullConditionalReference(Holder holder)
+                => holder?.Text ?? "none";
+
+            public static System.Type TypeToken()
+                => typeof(Holder);
+
+            public static int Size()
+                => sizeof(Mutable);
+
+            public static int BoxValue(int value)
+            {
+                object boxed = value;
+                return boxed.GetHashCode();
+            }
+
+            public static int UnboxAny(object boxed)
+                => (int)boxed;
+
+            public static int Unbox(object boxed)
+            {
+                var mutable = (Mutable)boxed;
+                return mutable.Increment();
+            }
+
+            public static string Cast(object value)
+                => ((string)value).ToString();
+
+            public static string As(object value)
+                => value as string;
+
+            public static int[] NewArray(int count)
+                => new int[count];
+
+            public static int ArrayAccess(int[] values, int index)
+                => values[index];
+
+            public static int ArrayLength(int[] values)
+                => values.Length;
+
+            public static ref int ArrayElementAddress(int[] values, int index)
+                => ref values[index];
+
+            public static int Indirect(ref int value)
+                => value;
+
+            public static int ArgumentAddress(Mutable value)
+                => value.Increment();
+
+            public static int LocalAddress()
+            {
+                var value = 41;
+                Increment(ref value);
+                return value;
+            }
+
+            public static void Increment(ref int value)
+                => value++;
+
+            public static void ForwardArgumentAddress(ref int value)
+                => Increment(ref value);
+
+            public Choice CoercedEnum(int value)
+                => (Choice)value;
+
+            public int Field()
+            {
+                _field = 1;
+                return _field;
+            }
+
+            public int FieldAddress()
+            {
+                Increment(ref _field);
+                return _field;
+            }
+
+            public int Property()
+            {
+                Number = 2;
+                return Number;
+            }
+
+            public int Number { get; set; }
+
+            public static int Unary(int value)
+                => -value;
+
+            public static long ConvertNumeric(int value)
+                => (long)value;
+        }
+        """,
+        [],
+        ["assertion", "inverse-ledger", "coverage", "unsafe"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         MinimalPropertyLiteral,
@@ -1291,10 +1458,16 @@ internal static class GeneratedFixtureCatalog
         MinimalConditionalExpressionShapeFrontier,
     ];
 
+    public static IReadOnlyList<GeneratedFixtureDefinition> AssertionCoverage { get; } =
+    [
+        AssertionNodeCoverage,
+    ];
+
     public static IReadOnlyList<GeneratedFixtureDefinition> Catalog { get; } =
     [
         .. All,
         .. Frontiers,
+        .. AssertionCoverage,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> MinimalCompileBackRungs => All;
@@ -1558,7 +1731,7 @@ internal static class GeneratedFixtureRunner
             _ => result.Status.ToString(),
         };
 
-    static T RunWithMaterializedFixtures<T>(
+    internal static T RunWithMaterializedFixtures<T>(
         IReadOnlyList<GeneratedFixtureDefinition> fixtures,
         GeneratedFixtureRunOptions? options,
         Func<string, string, T> run)
@@ -1824,6 +1997,7 @@ internal static class GeneratedFixtureRunner
             <ImplicitUsings>disable</ImplicitUsings>
             <Nullable>disable</Nullable>
             <LangVersion>preview</LangVersion>
+            <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
             <IsPackable>false</IsPackable>
             <IsAotCompatible>false</IsAotCompatible>
             <AssemblyName>GeneratedDecompilerFixtures</AssemblyName>

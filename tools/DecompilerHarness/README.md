@@ -13,7 +13,9 @@ inverse-architecture `assumes:` predicates across input methods and reports the
 measurement view that `--dump --assertions` cannot provide alone: methods with at
 least one violation, violation histograms by sink type, first failing pass, node,
 and predicate, plus the distinct `[InverseOf]` nodes exercised by the scanned
-population. Use `--sample N` to run a deterministic hash-ranked sample per
+population. Unexercised nodes are split into importer-emitted nodes (rare opcode
+or corpus breadth gap) and pass-raised nodes (raise-pass or fixture gap;
+investigate). Use `--sample N` to run a deterministic hash-ranked sample per
 assembly, and combine it with `--package` / `--package-version` /
 `--package-tfm` / `--package-assembly` the same way other harness scans do.
 
@@ -23,6 +25,15 @@ population-scale correctness gates remain compile-back, render A/B, and the
 quality-diff card; see
 [docs/decompiler-raise-discipline.md](../../docs/decompiler-raise-discipline.md)
 for the assertion-dump discipline.
+
+Add `--assertion-fixture-guarantee` to materialize the generated inverse-node
+fixture assembly and include it in annotation coverage. The report prints a
+per-node guarantee summary and any node the fixture no longer produces as a
+**fixture regression alarm**. That alarm is report-only: it identifies a
+raise-pass or fixture regression to investigate, but it does not turn coverage
+counts into a CI gate. The daily assertion scan uses this mode so the
+unexercised list can reach a true zero when the audit corpus plus deterministic
+fixtures cover every `[InverseOf]` node.
 
 For before/after work, mirror the validity-defects loop with
 `--emit-assertion-violations <file>` and
@@ -40,6 +51,9 @@ dotnet run --project tools/DecompilerHarness -c Release -- MyLib.dll \
 
 dotnet run --project tools/DecompilerHarness -c Release -- MyLib.dll \
   --assertion-scan --sample 250 --diff-assertion-violations /tmp/assertions.base.json
+
+dotnet run --project tools/DecompilerHarness -c Release -- MyLib.dll \
+  --assertion-scan --assertion-fixture-guarantee --max-examples 10
 ```
 
 For annotation-batch audits, use the assertion audit corpus instead of one local
@@ -53,13 +67,16 @@ bash eng/prepare-decompiler-assertion-corpus.sh /tmp/assertion-corpus.txt
 mapfile -t assemblies < /tmp/assertion-corpus.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --assertion-scan \
+  --assertion-fixture-guarantee \
   --max-examples 10
 ```
 
-`decompiler-daily.yml` runs the same corpus as a report-only artifact named
-`assertion-scan-report`. The artifact's `assertion-scan.txt` lists exercised and
-unexercised `[InverseOf]` nodes; a non-empty unexercised list is follow-up work
-for corpus/fixture breadth, not a failed daily gate.
+`decompiler-daily.yml` runs the same corpus plus the generated fixture guarantee
+as a report-only artifact named `assertion-scan-report`. The artifact's
+`assertion-scan.txt` lists exercised and unexercised `[InverseOf]` nodes by
+cause; a non-empty importer-emitted list is follow-up work for corpus/fixture
+breadth, while a non-empty pass-raised list or fixture regression alarm is a
+raise-pass or fixture-gap investigation signal, not a failed daily gate.
 
 **Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
 generated-fixture catalogue entries into a temporary class library, runs the
@@ -78,10 +95,13 @@ source-switch lowering observation (lowered as if/else, not the dense switch
 shape) and is opt-in by ID. `minimal.conditional-expression-shape-frontier`
 records a source-shape frontier: the conditional-expression source is
 compile-back exact, but the accepted current output is return-statement shaped
-rather than `ConditionalExpression` shaped. With no selector, stable generated
-fixtures run; use `list` to list fixture IDs, `--json` for machine-readable
-list/results, and `--keep-generated-fixtures` to preserve the generated project
-for drill-down.
+rather than `ConditionalExpression` shaped.
+`assertion.inverse-node-coverage` is the deterministic inverse-ledger coverage
+fixture used by `--assertion-fixture-guarantee`; it is addressable by ID but is
+not part of the default stable generated-fixture ladder. With no selector,
+stable generated fixtures run; use `list` to list fixture IDs, `--json` for
+machine-readable list/results, and `--keep-generated-fixtures` to preserve the
+generated project for drill-down.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape

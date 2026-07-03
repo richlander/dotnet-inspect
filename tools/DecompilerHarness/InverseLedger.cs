@@ -15,6 +15,25 @@ namespace ILInspector.Decompiler.Tests.InverseArchitecture;
 /// </summary>
 public static class InverseLedger
 {
+    public enum NodeCause
+    {
+        ImporterEmitted,
+        PassRaised,
+    }
+
+    static readonly HashSet<string> s_passRaisedNodes = new(StringComparer.Ordinal)
+    {
+        "AddressOfMethod",
+        "Coerce",
+        "DelegateCreation",
+        "Lambda",
+        "LoadProperty",
+        "LocalFunctionInvocation",
+        "LogicalBinary",
+        "NullConditional",
+        "TypeOf",
+    };
+
     /// <summary>One generated ledger row: the type assertion an inverse node makes.</summary>
     public sealed record Row(
         string Node,
@@ -23,7 +42,8 @@ public static class InverseLedger
         NameProvenance Naming,
         string Precondition,
         string Witness,
-        string? Assumes = null);
+        string? Assumes,
+        NodeCause Cause);
 
     /// <summary>Concrete, non-abstract IR expression node types in the given assembly, name-ordered.</summary>
     public static IReadOnlyList<Type> NodeTypes(Assembly assembly)
@@ -43,7 +63,13 @@ public static class InverseLedger
                 x.Inverse.Naming,
                 x.Inverse.Precondition ?? "—",
                 x.Inverse.Witness ?? "—",
-                x.Inverse.Assumes))];
+                x.Inverse.Assumes,
+                CauseFor(x.Node.Name)))];
+
+    public static NodeCause CauseFor(string node)
+        => s_passRaisedNodes.Contains(node)
+            ? NodeCause.PassRaised
+            : NodeCause.ImporterEmitted;
 
     /// <summary>One declared non-inverse boundary: a node deliberately outside the checkable domain.</summary>
     public sealed record Boundary(string Node, string Reason);

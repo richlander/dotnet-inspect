@@ -41,6 +41,7 @@ static class Program
         int compileCap = 4000;
         bool assertions = false;
         bool assertionScan = false;
+        bool assertionFixtureGuarantee = false;
         string? emitAssertionViolations = null;
         string? diffAssertionViolations = null;
         int? sampleSize = null;
@@ -119,6 +120,7 @@ static class Program
                 case "--skip-pdb": skipPdb = true; break;
                 case "--assertions": assertions = true; break;
                 case "--assertion-scan": assertionScan = true; break;
+                case "--assertion-fixture-guarantee": assertionFixtureGuarantee = true; break;
                 case "--sample": sampleSize = int.Parse(args[++i]); break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
                 case "--validity-check": validityCheck = true; break;
@@ -232,7 +234,8 @@ static class Program
                     emitAssertionViolations,
                     diffAssertionViolations,
                     workers,
-                    sequential));
+                    sequential,
+                    assertionFixtureGuarantee));
 
         if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
@@ -1344,6 +1347,12 @@ static class Program
                                 across input methods and report violation
                                 histograms plus annotation coverage. Measurement
                                 only; not a raw-count gate.
+          --assertion-fixture-guarantee
+                                with --assertion-scan: add the generated
+                                inverse-node fixture assembly to annotation
+                                coverage and report any guaranteed node that the
+                                fixture no longer produces. Report-only; not a
+                                raw-count gate.
           --sample <n>          with --assertion-scan: deterministic hash-ranked
                                 method sample per assembly.
           --cfg                 with --dump: print the control-flow graph (per-block
