@@ -1557,6 +1557,119 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesAbstractClosureTypeAndMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Node
+            {
+                private readonly System.Collections.Generic.List<Node> _children = new();
+
+                public Node Parent { get; set; }
+
+                public int ChildIndex { get; set; }
+
+                public abstract string Describe();
+
+                public void CheckInvariant()
+                {
+                    for (int i = 0; i < _children.Count; i++)
+                    {
+                        var child = _children[i];
+                        if (child.Parent != this)
+                            throw new System.InvalidOperationException($"child {child.Describe()} of {Describe()}");
+                        if (child.ChildIndex != i)
+                            throw new System.InvalidOperationException($"child {child.Describe()} slot {child.ChildIndex} expected {i}");
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Node", "CheckInvariant", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public abstract class Node", result.Source);
+            Assert.Contains("public abstract string Describe();", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotMarkFinalNewSlotStructMethodVirtual()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IThing
+            {
+                int GetValue();
+            }
+
+            public struct Thing : IThing
+            {
+                public int GetValue() => 42;
+            }
+
+            public class Class1
+            {
+                public int UseThing()
+                {
+                    var thing = new Thing();
+                    return thing.GetValue();
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "UseThing", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public struct Thing", result.Source);
+            Assert.Contains("public int GetValue()", result.Source);
+            Assert.DoesNotContain("virtual int GetValue", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotMarkUserBaseOverrideWithoutBaseShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class BaseNode
+            {
+                public abstract string Describe();
+            }
+
+            public class DerivedNode : BaseNode
+            {
+                public override string Describe() => "derived";
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("DerivedNode", "Describe", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public string Describe()", result.Source);
+            Assert.DoesNotContain("override string Describe", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""
