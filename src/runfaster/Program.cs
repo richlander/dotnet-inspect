@@ -220,9 +220,12 @@ static int ExecuteCorrelate(CorrelateOptions options)
             return exitCode;
     }
 
+    ApplyTypeConfirmation(result);
     Render(result, options);
     return 0;
 }
+
+static void ApplyTypeConfirmation(CorrelationResult result) => ProgramSupport.ApplyTypeConfirmation(result);
 
 static bool TryLoadLibrary(string library, CorrelationResult result, out int exitCode)
 {
@@ -488,6 +491,7 @@ static bool TryCorrelateNetTrace(
         source.Clr.GCAllocationTick += data =>
         {
             allocationTicks++;
+            result.RecordTypeVolume(data.TypeName, data.AllocationAmount64);
             var stack = traceLog.GetCallStackForEvent(data);
             if (stack is null)
                 return;
@@ -1006,7 +1010,7 @@ static void Render(CorrelationResult result, CorrelateOptions options)
 static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<AllocationCandidate> candidates, CorrelateOptions options)
 {
     return candidates
-        .Where(c => !options.ConfirmedOnly || c.IsObserved)
+        .Where(c => !options.ConfirmedOnly || c.IsObserved || c.TypeConfirmed)
         .OrderByDescending(c => c.IsObserved)
         .ThenByDescending(c => c.ShapeMatched)
         .ThenByDescending(c => c.ShapeAllocationBytes)
@@ -1015,6 +1019,8 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
         .ThenByDescending(c => c.RuntimeWeight)
         .ThenByDescending(c => c.RuntimeHits)
         .ThenByDescending(c => c.RuntimeBytes)
+        .ThenByDescending(c => c.TypeConfirmed)
+        .ThenByDescending(c => c.TypeConfirmedBytes)
         .ThenByDescending(c => c.InLoop)
         .ThenBy(c => c.Method, StringComparer.Ordinal)
         .Take(options.Top);
@@ -1154,6 +1160,30 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
                     Escape(group.Fix ?? ""),
                 ])
                 + " |");
+        }
+        Console.WriteLine();
+    }
+
+    var typeConfirmed = result.Candidates
+        .Where(c => c.TypeConfirmed)
+        .GroupBy(c => (c.Method, c.PredictedType))
+        .Select(g => g.First())
+        .OrderByDescending(c => c.TypeConfirmedBytes)
+        .ThenBy(c => c.Method, StringComparer.Ordinal)
+        .Take(15)
+        .ToArray();
+    if (typeConfirmed.Length > 0)
+    {
+        Console.WriteLine("## Type-confirmed (site inlined or unresolved)");
+        Console.WriteLine();
+        Console.WriteLine("These static sites had no exact IL frame in the trace — commonly because the JIT inlined the method into its caller — but their predicted allocation type was realized-hot at runtime. The allocated type survives inlining even when the site does not, so the type is confirmed hot; the exact site is not pinned (that is the inlining cost). The volume column is the whole type's realized volume, not bytes attributed to this site; for a type-ambiguous row it is shared across the listed sites, so do not sum it.");
+        Console.WriteLine();
+        Console.WriteLine("| Method | Kind | Predicted Type | Realized Type Volume (whole type) | Escape Kind | Site Certainty |");
+        Console.WriteLine("| ------ | ---- | -------------- | --------------------------------: | ----------- | -------------- |");
+        foreach (var c in typeConfirmed)
+        {
+            var certainty = c.TypeConfirmedAmbiguous ? $"type-ambiguous ({c.TypeConfirmedSiteCount.ToString(CultureInfo.InvariantCulture)} sites share type)" : "unique predicted type";
+            Console.WriteLine($"| `{Escape(c.Method)}` | {Escape(c.AllocationKind)} | `{Escape(c.PredictedType ?? "")}` | {FormatBytes(c.TypeConfirmedBytes)} | {Escape(c.EscapeKind ?? "")} | {Escape(certainty)} |");
         }
         Console.WriteLine();
     }
@@ -1377,6 +1407,14 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteBoolean("unambiguousIlOffsetJoinObserved", candidate.UnambiguousIlOffsetJoinObserved);
     writer.WriteBoolean("ambiguousIlOffsetJoin", candidate.AmbiguousIlOffsetJoin);
     writer.WriteBoolean("rowAmbiguous", candidate.RowAmbiguous);
+    if (candidate.TypeConfirmed)
+    {
+        // Whole-type realized volume, not bytes attributed to this site; shared across sites for a
+        // type-ambiguous confirmation, so a consumer must not sum it across rows.
+        writer.WriteNumber("realizedTypeVolumeBytes", candidate.TypeConfirmedBytes);
+        writer.WriteNumber("typeConfirmedSiteCount", candidate.TypeConfirmedSiteCount);
+        writer.WriteBoolean("typeConfirmedAmbiguous", candidate.TypeConfirmedAmbiguous);
+    }
     writer.WriteNumber("sameMethodShapeRows", candidate.SameMethodShapeRows);
     writer.WritePropertyName("observedAllocatedTypes");
     writer.WriteStartArray();
@@ -1512,6 +1550,17 @@ sealed class CorrelationResult
     public List<DiagnosticInputSummary> DiagnosticInputs { get; } = [];
     public List<AllocationCandidate> Candidates { get; } = [];
     public Dictionary<string, MethodAllocationSummary> MethodAllocations { get; } = new(StringComparer.Ordinal);
+    // Runtime allocated-bytes-by-type across ALL ticks, including those whose leaf frame did not
+    // resolve to a static site (e.g. the allocating method was inlined). The allocated type survives
+    // inlining even when the site does not, so this backstops the site-join with type-level confirmation.
+    public Dictionary<string, long> RuntimeTypeVolume { get; } = new(StringComparer.Ordinal);
+
+    public void RecordTypeVolume(string? allocatedType, long bytes)
+    {
+        if (string.IsNullOrWhiteSpace(allocatedType))
+            return;
+        RuntimeTypeVolume[allocatedType] = RuntimeTypeVolume.GetValueOrDefault(allocatedType) + bytes;
+    }
 
     public void RecordMethodAllocation(string method, string? allocatedType, long bytes)
     {
@@ -1594,7 +1643,8 @@ sealed class AllocationCandidate(
     int? estimatedSizeBytes = null,
     string? sizeTier = null,
     string? escapeKind = null,
-    string? churnedType = null)
+    string? churnedType = null,
+    string? runtimeAllocationType = null)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -1608,6 +1658,11 @@ sealed class AllocationCandidate(
     public string MethodStackKey { get; } = methodStackKey;
     public string AllocationKind { get; } = allocationKind;
     public string? AllocatedType { get; } = allocatedType;
+    // The analyzer's string form of the allocated type, populated for kinds that have no simple
+    // AllocatedType TypeRef (delegates, closures, state machines). Used as the type-confirmation
+    // fallback so those kinds are not blind to the type-level backstop.
+    public string? RuntimeAllocationType { get; } = string.IsNullOrWhiteSpace(runtimeAllocationType) ? null : runtimeAllocationType;
+    public string? PredictedType => AllocatedType ?? RuntimeAllocationType;
     public string? Detail { get; } = detail;
     public bool InLoop { get; } = inLoop;
     public string? Frequency { get; } = frequency;
@@ -1634,6 +1689,13 @@ sealed class AllocationCandidate(
     public bool IlOffsetJoinObserved { get; set; }
     public bool AmbiguousIlOffsetJoin { get; set; }
     public int SameMethodShapeRows { get; set; } = 1;
+    // Type-level confirmation (issue #2264): set when this site's exact IL frame did not resolve
+    // (commonly because the JIT inlined the method) but its predicted allocated type was realized-hot
+    // at runtime. Coarser than a site hit: it confirms the type is hot, not which site.
+    public long TypeConfirmedBytes { get; set; }
+    public int TypeConfirmedSiteCount { get; set; }
+    public bool TypeConfirmed => TypeConfirmedBytes > 0 && !IsObserved;
+    public bool TypeConfirmedAmbiguous => TypeConfirmedSiteCount > 1;
     public bool RowAmbiguous => AmbiguousIlOffsetJoin || (ShapeMatched && SameMethodShapeRows > 1 && !ExactOffsetObserved);
     public bool UnambiguousIlOffsetJoinObserved => IlOffsetJoinObserved && !AmbiguousIlOffsetJoin;
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
@@ -1678,7 +1740,7 @@ sealed class AllocationCandidate(
         : AllocationHits > 0
             ? "allocation-hot"
             : RuntimeHits == 0
-        ? "cold-for-this-workload"
+        ? TypeConfirmedBytes > 0 ? (TypeConfirmedAmbiguous ? "type-hot-ambiguous" : "type-hot") : "cold-for-this-workload"
         : ExactOffsetObserved ? "confirmed-hot" : "method-hot";
 
     public bool MatchesAllocatedType(string allocatedType)
@@ -1770,7 +1832,8 @@ sealed class AllocationCandidate(
         occurrence.EstimatedSizeBytes,
         occurrence.SizeTier == AllocationSizeTier.Unknown ? null : FormatSizeTier(occurrence.SizeTier),
         occurrence.EscapeKind == AllocationEscapeKind.None ? null : occurrence.EscapeKind.ToString(),
-        occurrence.ChurnedType);
+        occurrence.ChurnedType,
+        occurrence.RuntimeAllocationType);
 
     static string FormatPathContext(AllocationPathContext context) => context switch
     {
@@ -2107,4 +2170,234 @@ internal static class ProgramSupport
         long remainderBytes = totalBytes % candidateCount;
         return attributedBytes + (candidateIndex < remainderBytes ? 1 : 0);
     }
+
+    // Backstop the site-join with type-level confirmation (issue #2264). When a small allocating
+    // method is inlined, its GCAllocationTick leaf frame belongs to the inliner, so the IL-offset
+    // site-join misses it — but the allocated type is still realized-hot. For each unobserved
+    // candidate whose predicted type matches a realized-hot runtime type, record that type's volume;
+    // ambiguous when several sites share the same type.
+    // Minimum realized type volume and maximum number of static sites sharing a predicted type for a
+    // type-level confirmation to be trustworthy. Below the volume floor the signal is noise; above the
+    // site cap the type is too widely allocated to point anywhere useful.
+    public const long TypeConfirmMinBytes = 1_000_000;
+    public const int TypeConfirmMaxSites = 8;
+
+    public static void ApplyTypeConfirmation(CorrelationResult result)
+    {
+        if (result.RuntimeTypeVolume.Count == 0)
+            return;
+
+        var runtimeByCanon = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (type, bytes) in result.RuntimeTypeVolume)
+        {
+            var canon = CanonicalTypeSignature(type);
+            if (canon.Length == 0)
+                continue;
+            runtimeByCanon[canon] = runtimeByCanon.GetValueOrDefault(canon) + bytes;
+        }
+
+        // Types already explained by a site-observed candidate must not type-confirm other cold
+        // same-type sites: the site-join already attributed that volume, so a cold site of the same
+        // type would be a false "credit steal". Exclude those canonical types entirely.
+        var observedCanons = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidate in result.Candidates)
+        {
+            if (!candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
+                continue;
+            var canon = CanonicalTypeSignature(type);
+            if (canon.Length != 0)
+                observedCanons.Add(canon);
+        }
+
+        var byCanon = new Dictionary<string, List<AllocationCandidate>>(StringComparer.Ordinal);
+        foreach (var candidate in result.Candidates)
+        {
+            if (candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
+                continue;
+            var canon = CanonicalTypeSignature(type);
+            if (canon.Length == 0 || observedCanons.Contains(canon))
+                continue;
+            if (!byCanon.TryGetValue(canon, out var list))
+            {
+                list = [];
+                byCanon[canon] = list;
+            }
+            list.Add(candidate);
+        }
+
+        foreach (var (canon, candidates) in byCanon)
+        {
+            if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
+                continue;
+            if (candidates.Count > TypeConfirmMaxSites)
+                continue;
+            foreach (var candidate in candidates)
+            {
+                candidate.TypeConfirmedBytes = volume;
+                candidate.TypeConfirmedSiteCount = candidates.Count;
+            }
+        }
+    }
+
+    // Canonical type signature: the ordered leaf identifier tokens of a type name, with generic-arity
+    // digits and namespaces dropped and C# keyword aliases mapped to CLR simple names. This reconciles
+    // the static angle-bracket form (System.Func<string, System.Lazy<int>>) with the runtime reflection
+    // form (System.Func`2[System.String,System.Lazy`1[System.Int32]]) so they compare equal, while
+    // staying precise about type arguments (distinct args -> distinct signature).
+    // Canonical type signature: a structured normal form that makes the static angle-bracket type
+    // display and the runtime reflection type name compare equal for the SAME type while staying
+    // precise about everything that distinguishes types. It preserves full namespaces (so A.Foo and
+    // B.Foo differ), array rank ([] vs [,]), pointer (*) and byref (&) modifiers, and generic
+    // arguments (recursively), and maps C# keyword aliases to CLR names. It reconciles the static
+    // form (System.Func<string, System.Lazy<int>>, int[]) with the runtime reflection form
+    // (System.Func`2[System.String,System.Lazy`1[System.Int32]], System.Int32[]).
+    public static string CanonicalTypeSignature(string type)
+    {
+        int pos = 0;
+        var sb = new StringBuilder();
+        ParseType(type, ref pos, sb);
+        return sb.ToString();
+    }
+
+    static void ParseType(string s, ref int pos, StringBuilder sb)
+    {
+        SkipWhitespace(s, ref pos);
+
+        // Qualified name: identifiers joined by '.' or '+' (nested types); normalize '+' to '.'.
+        var name = new StringBuilder();
+        while (pos < s.Length)
+        {
+            char c = s[pos];
+            if (char.IsLetterOrDigit(c) || c == '_')
+            {
+                name.Append(c);
+                pos++;
+            }
+            else if ((c == '.' || c == '+') && pos + 1 < s.Length && (char.IsLetter(s[pos + 1]) || s[pos + 1] == '_'))
+            {
+                name.Append('.');
+                pos++;
+            }
+            else
+            {
+                break;
+            }
+        }
+        sb.Append(ExpandAlias(name.ToString()));
+
+        // Generic arguments: runtime `N[...] (backtick + arity + brackets) or static <...>.
+        if (pos < s.Length && s[pos] == '`')
+        {
+            pos++;
+            while (pos < s.Length && char.IsDigit(s[pos]))
+                pos++;
+            if (pos < s.Length && s[pos] == '[')
+                ParseGenericArgs(s, ref pos, sb, ']');
+        }
+        else if (pos < s.Length && s[pos] == '<')
+        {
+            ParseGenericArgs(s, ref pos, sb, '>');
+        }
+
+        // Suffix modifiers: arrays ([], [,]), pointer (*), byref (&), nullable (?).
+        while (pos < s.Length)
+        {
+            SkipWhitespace(s, ref pos);
+            if (pos >= s.Length)
+                break;
+            char c = s[pos];
+            if (c == '[')
+            {
+                int save = pos;
+                pos++;
+                int commas = 0;
+                bool isArray = true;
+                while (pos < s.Length && s[pos] != ']')
+                {
+                    if (s[pos] == ',')
+                        commas++;
+                    else if (!char.IsWhiteSpace(s[pos]))
+                    {
+                        isArray = false;
+                        break;
+                    }
+                    pos++;
+                }
+                if (isArray && pos < s.Length && s[pos] == ']')
+                {
+                    pos++;
+                    sb.Append('[').Append(new string(',', commas)).Append(']');
+                }
+                else
+                {
+                    pos = save;
+                    break;
+                }
+            }
+            else if (c == '*' || c == '&' || c == '?')
+            {
+                sb.Append(c);
+                pos++;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    static void ParseGenericArgs(string s, ref int pos, StringBuilder sb, char close)
+    {
+        pos++; // consume '<' or '['
+        sb.Append('<');
+        bool first = true;
+        while (pos < s.Length && s[pos] != close)
+        {
+            SkipWhitespace(s, ref pos);
+            if (pos >= s.Length || s[pos] == close)
+                break;
+            if (s[pos] == ',')
+            {
+                pos++;
+                continue;
+            }
+            if (!first)
+                sb.Append(',');
+            first = false;
+            ParseType(s, ref pos, sb);
+            SkipWhitespace(s, ref pos);
+        }
+        if (pos < s.Length && s[pos] == close)
+            pos++;
+        sb.Append('>');
+    }
+
+    static void SkipWhitespace(string s, ref int pos)
+    {
+        while (pos < s.Length && char.IsWhiteSpace(s[pos]))
+            pos++;
+    }
+
+    static string ExpandAlias(string name) => name switch
+    {
+        "string" => "System.String",
+        "object" => "System.Object",
+        "bool" => "System.Boolean",
+        "byte" => "System.Byte",
+        "sbyte" => "System.SByte",
+        "char" => "System.Char",
+        "short" => "System.Int16",
+        "ushort" => "System.UInt16",
+        "int" => "System.Int32",
+        "uint" => "System.UInt32",
+        "long" => "System.Int64",
+        "ulong" => "System.UInt64",
+        "float" => "System.Single",
+        "double" => "System.Double",
+        "decimal" => "System.Decimal",
+        "nint" => "System.IntPtr",
+        "nuint" => "System.UIntPtr",
+        "void" => "System.Void",
+        _ => name,
+    };
 }

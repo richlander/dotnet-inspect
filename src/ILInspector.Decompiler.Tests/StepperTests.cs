@@ -109,6 +109,26 @@ public class StepperTests
     }
 
     [Fact]
+    public void CrossMethodImports_DoNotRecordNestedStepsInParentStepper()
+    {
+        var parent = ImportFixture(nameof(CfgSampleClass.Add));
+        var imported = ImportFixture(nameof(CfgSampleClass.Twice));
+        var stepper = new Stepper(enabled: true);
+        var target = new MethodRef(
+            TypeRef.Definition("Asm", "Ns", "Type"),
+            "Imported",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            HasThis: false);
+        var context = new PassContext(stepper, importMethodBody: method => method == target ? imported : null);
+
+        new ImportingStepPass(target).Run(parent, context);
+
+        var descriptions = Flatten(stepper.Steps).Select(s => s.Description).ToList();
+        Assert.Equal(["parent before import", "parent after import"], descriptions);
+    }
+
+    [Fact]
     public void PinnedLocalAudit_RecordsFixedStatementRewrite()
     {
         var function = ImportFixture(nameof(CfgSampleClass.SumPinnedArray));
@@ -180,5 +200,26 @@ public class StepperTests
             foreach (var child in Flatten(step.Children))
                 yield return child;
         }
+    }
+
+    sealed class ImportingStepPass(MethodRef target) : IIrPass
+    {
+        public string Name => "importing-step-pass";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            context.Stepper.StepOver("parent before import");
+            Assert.True(context.TryImportAndRunMethodBody(target, [new NestedStepPass()], out var imported));
+            Assert.NotNull(imported);
+            context.Stepper.StepOver("parent after import");
+        }
+    }
+
+    sealed class NestedStepPass : IIrPass
+    {
+        public string Name => "nested-step-pass";
+
+        public void Run(IrFunction function, PassContext context)
+            => context.Stepper.StepOver("nested imported rewrite");
     }
 }
