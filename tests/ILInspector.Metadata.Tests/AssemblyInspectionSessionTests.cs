@@ -69,4 +69,70 @@ public class AssemblyInspectionSessionTests
         using var image = AssemblyImage.Open(SelfPath);
         Assert.True(image.HasMetadata);
     }
+
+    [Fact]
+    public void AssemblyImage_DisposesBackingStreamExactlyOnce()
+    {
+        using var stream = new DisposeCountingStream(File.OpenRead(SelfPath));
+        var reference = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(SelfName, Version: null, Culture: null, PublicKeyToken: null),
+            SelfPath,
+            () => stream);
+
+        var image = AssemblyImage.Open(reference);
+        try
+        {
+            Assert.True(image.HasMetadata);
+            Assert.Equal(0, stream.DisposeCount);
+        }
+        finally
+        {
+            image.Dispose();
+        }
+
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    sealed class DisposeCountingStream(Stream inner) : Stream
+    {
+        bool _innerDisposed;
+
+        public int DisposeCount { get; private set; }
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => inner.Length;
+
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() => inner.Flush();
+
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+
+        public override void SetLength(long value) => inner.SetLength(value);
+
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                if (!_innerDisposed)
+                {
+                    inner.Dispose();
+                    _innerDisposed = true;
+                }
+            }
+
+            base.Dispose(disposing);
+        }
+    }
 }
