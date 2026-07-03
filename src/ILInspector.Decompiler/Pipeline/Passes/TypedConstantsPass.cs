@@ -14,12 +14,24 @@ public sealed class TypedConstantsPass : IIrPass
     {
         var shapes = function.TypeShapes;
         var stepper = context.Stepper;
+        var slotTypes = UniqueSlotLoadTypes(function);
         foreach (var node in function.Descendants.ToList())
         {
             switch (node)
             {
                 case Return { Value: { } value }:
                     Retype(value, function.Signature.ReturnType, shapes, stepper);
+                    break;
+                // A synthetic slot whose loads all agree on one type — the join
+                // type the importer recovered (an enum diamond's entry state) —
+                // types its stores too: the `0` arm of `c ? E.A : 0` stored to
+                // the slot is that enum's constant. Reconciling the store here
+                // collapses the printer's type-keyed naming to one variable per
+                // slot, instead of a phantom pair (`E S_3; int S_3_1;`) whose
+                // load reads the range the store never wrote (slice 5a).
+                case StoreStackSlot { Value: { } slotValue } slotStore
+                    when slotTypes.GetValueOrDefault(slotStore.Slot) is { } slotType:
+                    Retype(slotValue, slotType, shapes, stepper);
                     break;
                 case StoreLocal { Value: { } value } store:
                     Retype(value, store.Type, shapes, stepper);
@@ -100,6 +112,35 @@ public sealed class TypedConstantsPass : IIrPass
                 // them) and the printer spells labels through EnumConstantText.
             }
         }
+    }
+
+    /// <summary>
+    /// Per slot, the single type every typed load of that slot agrees on — the
+    /// importer's recovered join type. Null (absent) when loads disagree or
+    /// none carries a type; ambiguity is not an invitation to guess.
+    /// </summary>
+    static Dictionary<int, TypeRef> UniqueSlotLoadTypes(IrFunction function)
+    {
+        var types = new Dictionary<int, TypeRef>();
+        var ambiguous = new HashSet<int>();
+        foreach (var load in function.Descendants.OfType<LoadStackSlot>())
+        {
+            if (load.Type is not { } type || ambiguous.Contains(load.Slot))
+                continue;
+            if (types.TryGetValue(load.Slot, out var existing))
+            {
+                if (!existing.Equals(type))
+                {
+                    types.Remove(load.Slot);
+                    ambiguous.Add(load.Slot);
+                }
+            }
+            else
+            {
+                types[load.Slot] = type;
+            }
+        }
+        return types;
     }
 
     static TypeRef? ElementTargetType(StoreElement store)
