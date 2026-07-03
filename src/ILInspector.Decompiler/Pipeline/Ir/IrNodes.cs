@@ -2535,6 +2535,14 @@ public sealed class PositionalPattern : IrExpression
     public override string Describe() => $"PositionalPattern ({Subpatterns.Length} elements)";
 }
 
+/// <summary>The <c>castclass</c> reference type-check cast (<c>(T)x</c> for a reference type <c>T</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (reference cast)",
+    precondition: "target is the reference type the cast checks",
+    witness: "cast fixtures; corpus compile-back")]
 public sealed class CastClass : IrExpression
 {
     public CastClass(TypeRef type, IrExpression operand)
@@ -3141,6 +3149,13 @@ public sealed class SwitchBranch : IrNode
 }
 
 /// <summary>unbox: a managed pointer into the box (distinct from unbox.any, which loads the value).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (unboxing → managed pointer)",
+    precondition: "operand is a box of the value type; result is a managed pointer into it",
+    witness: "box/unbox fixtures; corpus compile-back")]
 public sealed class Unbox : IrExpression
 {
     public Unbox(TypeRef type, IrExpression operand)
@@ -3157,6 +3172,14 @@ public sealed class Unbox : IrExpression
     public override string Describe() => $"Unbox {Type.ToDisplayString()}";
 }
 
+/// <summary>unbox.any: loads the unboxed value (<c>(T)boxed</c> for a value type <c>T</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (unboxing)",
+    precondition: "target is the unbox.any type token (value type, reference type, or type parameter)",
+    witness: "box/unbox fixtures; corpus compile-back")]
 public sealed class UnboxAny : IrExpression
 {
     public UnboxAny(TypeRef type, IrExpression operand)
