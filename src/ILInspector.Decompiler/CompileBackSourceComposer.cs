@@ -1211,7 +1211,7 @@ public static class CompileBackSourceComposer
         string methodName,
         MethodSignature<string> signature)
     {
-        if (!HasRecordHelperShell(reader, typeDef))
+        if (!HasRecordHelperShell(reader, typeDef, typeIdentity))
             return false;
 
         if (methodName == "GetHashCode"
@@ -1227,7 +1227,7 @@ public static class CompileBackSourceComposer
             && parameterType == SelfTypeSignature(reader, typeDef, typeIdentity);
     }
 
-    static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef)
+    static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
     {
         bool hasEqualityContract = false;
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -1240,14 +1240,50 @@ public static class CompileBackSourceComposer
             }
         }
 
-        if (!hasEqualityContract)
-            return false;
+        bool hasPrintMembers = false;
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (reader.GetString(method.Name) == "PrintMembers")
+            {
+                hasPrintMembers = true;
+                break;
+            }
+        }
+
+        if (!hasPrintMembers)
+            return false;
+
+        return hasEqualityContract
+            || (ShellKind(reader, typeDef) == CompileBackTypeKind.Struct
+                && HasTypedEqualsMethod(reader, typeDef, typeIdentity));
+    }
+
+    static bool HasTypedEqualsMethod(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
+    {
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != "Equals")
+                continue;
+
+            MethodSignature<string> signature;
+            try
+            {
+                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                continue;
+            }
+
+            if (signature.ReturnType == "bool"
+                && signature.ParameterTypes is [var parameterType]
+                && parameterType == SelfTypeSignature(reader, typeDef, typeIdentity))
+            {
                 return true;
+            }
         }
 
         return false;
