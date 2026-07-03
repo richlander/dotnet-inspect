@@ -4,6 +4,42 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Models;
 
+internal static class LibraryInspectionDisplay
+{
+    /// <summary>
+    /// Resolves the compact display version using priority:
+    /// PlatformVersion, InformationalVersion prefix, AssemblyVersion, FileVersion.
+    /// </summary>
+    public static string ResolveVersion(LibraryInspection inspection)
+    {
+        if (!string.IsNullOrEmpty(inspection.PlatformVersion))
+            return inspection.PlatformVersion;
+
+        if (inspection.AssemblyInfo is { } info)
+        {
+            if (!string.IsNullOrEmpty(info.InformationalVersion))
+            {
+                var ver = info.InformationalVersion;
+                var plusIndex = ver.IndexOf('+');
+                if (plusIndex > 0)
+                    ver = ver[..plusIndex];
+                var dashIndex = ver.IndexOf('-');
+                var versionPart = dashIndex > 0 ? ver[..dashIndex] : ver;
+                if (versionPart.Split('.').All(p => int.TryParse(p, out _)))
+                    return dashIndex > 0 ? ver : versionPart;
+            }
+
+            if (!string.IsNullOrEmpty(info.AssemblyVersion))
+                return info.AssemblyVersion;
+
+            if (!string.IsNullOrEmpty(info.FileVersion))
+                return info.FileVersion;
+        }
+
+        return "";
+    }
+}
+
 public class LibraryInspection
 {
     [JsonIgnore]

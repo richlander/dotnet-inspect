@@ -54,6 +54,7 @@ public class VersionDisplayTests
             PlatformVersion = "10.0.1"
         };
 
+        Assert.Equal("10.0.1", LibraryInspectionDisplay.ResolveVersion(inspection));
         Assert.Equal("10.0.1", ExtractVersionField(SerializeCompact(inspection)));
     }
 
@@ -72,6 +73,7 @@ public class VersionDisplayTests
             }
         };
 
+        Assert.Equal("13.0.4", LibraryInspectionDisplay.ResolveVersion(inspection));
         Assert.Equal("13.0.4", ExtractVersionField(SerializeCompact(inspection)));
     }
 
@@ -89,6 +91,7 @@ public class VersionDisplayTests
             }
         };
 
+        Assert.Equal("9.0.0-preview.1", LibraryInspectionDisplay.ResolveVersion(inspection));
         Assert.Equal("9.0.0-preview.1", ExtractVersionField(SerializeCompact(inspection)));
     }
 
@@ -106,6 +109,7 @@ public class VersionDisplayTests
             }
         };
 
+        Assert.Equal("2.1.0.0", LibraryInspectionDisplay.ResolveVersion(inspection));
         Assert.Equal("2.1.0.0", ExtractVersionField(SerializeCompact(inspection)));
     }
 
@@ -122,7 +126,28 @@ public class VersionDisplayTests
             }
         };
 
+        Assert.Equal("1.2.3.0", LibraryInspectionDisplay.ResolveVersion(inspection));
         Assert.Equal("1.2.3.0", ExtractVersionField(SerializeCompact(inspection)));
+    }
+
+    [Fact]
+    public void ResolveVersion_NonVersionInformational_FallsBackToAssemblyVersion()
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "Test.dll",
+            FileType = "dll",
+            FileSize = 1024,
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyVersion = "3.0.0.0",
+                InformationalVersion = "not-a-version+abc",
+                FileVersion = "3.1.0.0"
+            }
+        };
+
+        Assert.Equal("3.0.0.0", LibraryInspectionDisplay.ResolveVersion(inspection));
+        Assert.Equal("3.0.0.0", ExtractVersionField(SerializeCompact(inspection)));
     }
 
     // --- Platform integration tests ---
