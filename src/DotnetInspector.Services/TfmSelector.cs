@@ -11,6 +11,24 @@ public static class TfmSelector
     private static List<string> FilterResourceAssemblies(IEnumerable<string> dlls)
         => dlls.Where(d => !IsSatelliteResourceAssembly(d)).ToList();
 
+    public enum PackageLibraryResolutionStatus
+    {
+        Selected,
+        NoAssemblies,
+        NoMatchingTargetFramework,
+        RequestedLibraryNotFound,
+        Ambiguous
+    }
+
+    public sealed record PackageLibraryResolution(
+        IReadOnlyList<string> Paths,
+        string? Tfm,
+        PackageLibraryResolutionStatus Status,
+        IReadOnlyList<string> CandidatePaths)
+    {
+        public bool IsSelected => Status == PackageLibraryResolutionStatus.Selected && Paths.Count > 0;
+    }
+
     public static IOrderedEnumerable<T> OrderByTfmPriorityDescending<T>(
         IEnumerable<T> items,
         Func<T, string?> tfmSelector)
@@ -253,6 +271,66 @@ public static class TfmSelector
         var (highestTfmDlls, highestTfm) = SelectHighestTfmAssemblies(dlls, extractPath);
         return highestTfmDlls.Count > 0 ? (highestTfmDlls, highestTfm) : (dlls, null);
     }
+
+    public static PackageLibraryResolution SelectPackageLibrary(
+        string extractPath,
+        string packageId,
+        string? requestedLibrary,
+        string? tfm = null)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedLibrary))
+        {
+            var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(extractPath, requestedLibrary, tfm);
+            return matchedAssembly != null
+                ? new PackageLibraryResolution([matchedAssembly], matchedTfm, PackageLibraryResolutionStatus.Selected, [matchedAssembly])
+                : new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.RequestedLibraryNotFound, GetCandidateLibraries(extractPath, tfm));
+        }
+
+        var resolution = SelectPackageLibraries(extractPath, tfm);
+        if (!resolution.IsSelected)
+            return resolution;
+
+        if (resolution.Paths.Count == 1)
+            return new PackageLibraryResolution([resolution.Paths[0]], resolution.Tfm, PackageLibraryResolutionStatus.Selected, resolution.CandidatePaths);
+
+        var packageNameMatches = resolution.Paths
+            .Where(path => Path.GetFileNameWithoutExtension(path).Equals(packageId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return packageNameMatches.Count == 1
+            ? new PackageLibraryResolution([packageNameMatches[0]], resolution.Tfm, PackageLibraryResolutionStatus.Selected, resolution.CandidatePaths)
+            : new PackageLibraryResolution([], resolution.Tfm, PackageLibraryResolutionStatus.Ambiguous, resolution.Paths);
+    }
+
+    public static PackageLibraryResolution SelectPackageLibraries(string extractPath, string? tfm = null)
+    {
+        List<string> selected;
+        string? selectedTfm;
+        if (string.IsNullOrWhiteSpace(tfm))
+        {
+            var candidates = GetPackageAssemblies(extractPath);
+            if (candidates.Count == 0)
+                return new PackageLibraryResolution([], null, PackageLibraryResolutionStatus.NoAssemblies, []);
+
+            (selected, selectedTfm) = SelectHighestAssemblies(candidates, extractPath);
+        }
+        else
+        {
+            (selected, selectedTfm) = SelectHighestAssembliesFromPackage(extractPath, tfm);
+        }
+
+        if (selected.Count == 0)
+            return new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.NoMatchingTargetFramework, GetCandidateLibraries(extractPath, tfm));
+
+        var ordered = selected
+            .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return new PackageLibraryResolution(ordered, selectedTfm, PackageLibraryResolutionStatus.Selected, ordered);
+    }
+
+    private static List<string> GetCandidateLibraries(string extractPath, string? tfm)
+        => string.IsNullOrWhiteSpace(tfm)
+            ? GetPackageAssemblies(extractPath)
+            : SelectHighestAssembliesFromPackage(extractPath, tfm).paths;
 
     public static (string? path, string? tfm) FindAssemblyInPackage(string extractPath, string assemblyName, string? tfm = null)
     {

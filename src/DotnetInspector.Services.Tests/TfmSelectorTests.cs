@@ -190,6 +190,74 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_BareRequest_PrefersPackageNameMatch()
+    {
+        WriteDll("lib/net8.0/Companion.dll");
+        var primary = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(_tempDir, "MyPackage", requestedLibrary: "");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.Selected, result.Status);
+        Assert.Equal([primary], result.Paths);
+        Assert.Equal("net8.0", result.Tfm);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_BareRequest_AmbiguousWhenNoPackageNameMatch()
+    {
+        var first = WriteDll("lib/net8.0/First.dll");
+        var second = WriteDll("lib/net8.0/Second.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(_tempDir, "MyPackage", requestedLibrary: "");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.Ambiguous, result.Status);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([first, second], result.CandidatePaths);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_RequestedLibraryNotFound_ReturnsTfmCandidates()
+    {
+        var candidate = WriteDll("lib/net8.0/Actual.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(_tempDir, "MyPackage", requestedLibrary: "Missing", tfm: "net8.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.RequestedLibraryNotFound, result.Status);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([candidate], result.CandidatePaths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_NoTfm_SelectsHighestTfmInStableOrder()
+    {
+        WriteDll("lib/net8.0/Zeta.dll");
+        var alpha = WriteDll("lib/net10.0/Alpha.dll");
+        var beta = WriteDll("lib/net10.0/Beta.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net10.0", result.Tfm);
+        Assert.Equal([alpha, beta], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_ExplicitTfmWithoutMatches_ReturnsNoMatchingTfm()
+    {
+        WriteDll("lib/net8.0/Actual.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(_tempDir, "net6.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework, result.Status);
+        Assert.Equal("net6.0", result.Tfm);
+        Assert.Empty(result.Paths);
+    }
+
+    [Fact]
     public void FindAssemblyByTfm_UsesPackageNameMatch()
     {
         WriteDll("lib/net8.0/Companion.dll");
