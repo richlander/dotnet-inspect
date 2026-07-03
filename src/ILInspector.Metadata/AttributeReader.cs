@@ -636,6 +636,7 @@ public static class AttributeReader
         KnownAttributeNames.RequiredMemberAttribute => true,
         KnownAttributeNames.AsyncStateMachineAttribute => true,
         KnownAttributeNames.IteratorStateMachineAttribute => true,
+        "System.Runtime.CompilerServices.IntrinsicAttribute" => true,
         "System.Reflection.DefaultMemberAttribute" => true,
         _ => false,
     };
