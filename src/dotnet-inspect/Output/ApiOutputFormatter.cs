@@ -2068,12 +2068,21 @@ public static class ApiOutputFormatter
         return declaringType is null ? signature : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
     }
 
-    static bool SameType(Analysis.TypeRef typeRef, ApiType type)
-        => typeRef.Kind == Analysis.TypeRefKind.Definition
-           && string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal)
-           // Nested types use the metadata '+' separator in the analysis TypeRef
-           // (Outer+Inner) but the '.' separator in the API surface (Outer.Inner).
-           && string.Equals(typeRef.Name.Replace('+', '.'), type.Name, StringComparison.Ordinal);
+    internal static bool SameType(Analysis.TypeRef typeRef, ApiType type)
+    {
+        if (typeRef.Kind != Analysis.TypeRefKind.Definition)
+            return false;
+        if (!string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal))
+            return false;
+
+        if (type.MetadataName != null)
+            return string.Equals(typeRef.Name, type.MetadataName, StringComparison.Ordinal);
+
+        // Fallback for older serialized JSON where MetadataName is absent.
+        // Nested types use the metadata '+' separator in the analysis TypeRef
+        // (Outer+Inner) but the '.' separator in the API surface (Outer.Inner).
+        return string.Equals(typeRef.Name.Replace('+', '.'), type.Name, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Converts the decompiler's telemetry-free <see cref="Decompiler.DecompilerTrace"/>

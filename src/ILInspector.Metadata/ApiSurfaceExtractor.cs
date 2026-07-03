@@ -48,6 +48,7 @@ public static class ApiSurfaceExtractor
             {
                 Namespace = typeNamespace,
                 Name = typeName,
+                MetadataName = GetMetadataName(reader, typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
                 Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
@@ -542,6 +543,17 @@ public static class ApiSurfaceExtractor
         return fullName.StartsWith(prefix, StringComparison.Ordinal)
             ? (rootNamespace, fullName[prefix.Length..])
             : (rootNamespace, fullName);
+    }
+
+    private static string GetMetadataName(MetadataReader reader, TypeDefinition typeDef)
+    {
+        string name = reader.GetString(typeDef.Name);
+        if (typeDef.IsNested)
+        {
+            var declaring = reader.GetTypeDefinition(typeDef.GetDeclaringType());
+            return $"{GetMetadataName(reader, declaring)}+{name}";
+        }
+        return name;
     }
 
     private static string DecodeFieldType(
