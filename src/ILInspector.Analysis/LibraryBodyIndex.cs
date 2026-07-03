@@ -4044,20 +4044,31 @@ public sealed class LibraryBodyIndex
                     occurrence.Kind,
                     occurrence.AllocatedType);
 
-                builder.Add(escape == AllocationEscape.Unknown
+                builder.Add(escape.Escape == AllocationEscape.Unknown
                     ? occurrence
                     : occurrence with
                     {
-                        Escape = escape,
-                        PathContext = escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
-                        PathConfidence = escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
-                        PostDominance = escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
+                        Escape = escape.Escape,
+                        EscapeKind = escape.Escape == AllocationEscape.Escapes ? escape.Kind : AllocationEscapeKind.None,
+                        PathContext = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
+                        PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
+                        PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
                     });
             }
             return builder.MoveToImmutable();
         }
 
-        AllocationEscape ClassifyProducedValueEscape(
+        // Verdict plus the objective refinement of WHERE an Escapes value escapes.
+        // Kind is only meaningful when Escape == Escapes; otherwise it stays None.
+        readonly record struct EscapeClassification(AllocationEscape Escape, AllocationEscapeKind Kind)
+        {
+            public static readonly EscapeClassification Unknown = new(AllocationEscape.Unknown, AllocationEscapeKind.None);
+            public static readonly EscapeClassification LocalOnly = new(AllocationEscape.LocalOnly, AllocationEscapeKind.None);
+            public static readonly EscapeClassification ThrowPath = new(AllocationEscape.ThrowPath, AllocationEscapeKind.None);
+            public static EscapeClassification Escapes(AllocationEscapeKind kind) => new(AllocationEscape.Escapes, kind);
+        }
+
+        EscapeClassification ClassifyProducedValueEscape(
             DecodedBody decodedBody,
             Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
             GenericScope callerScope,
@@ -4066,7 +4077,7 @@ public sealed class LibraryBodyIndex
             TypeRef? allocatedType)
             => ClassifyStackValueUse(decodedBody, reachingDefinitionsProvider, callerScope, positionAfterValue, kind, allocatedType, []);
 
-        AllocationEscape ClassifyDefinitionEscape(
+        EscapeClassification ClassifyDefinitionEscape(
             DecodedBody decodedBody,
             ReachingDefinitionsResult reachingDefinitions,
             Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
@@ -4077,17 +4088,17 @@ public sealed class LibraryBodyIndex
             HashSet<int> visitingDefinitions)
         {
             if (!reachingDefinitions.IsComplete)
-                return AllocationEscape.Unknown;
+                return EscapeClassification.Unknown;
             if (!visitingDefinitions.Add(definition.Id))
-                return AllocationEscape.Unknown;
+                return EscapeClassification.Unknown;
 
-            var verdict = AllocationEscape.LocalOnly;
+            var verdict = EscapeClassification.LocalOnly;
             foreach (var use in reachingDefinitions.UsesOf(definition))
             {
-                AllocationEscape useEscape;
+                EscapeClassification useEscape;
                 if (use.Address)
                 {
-                    useEscape = AllocationEscape.Escapes;
+                    useEscape = EscapeClassification.Escapes(AllocationEscapeKind.None);
                 }
                 else if (TryPositionAfterLoadSlot(decodedBody, use.Offset, use.Slot, use.IsArgument, out int positionAfterLoad))
                 {
@@ -4102,11 +4113,15 @@ public sealed class LibraryBodyIndex
                 }
                 else
                 {
-                    useEscape = AllocationEscape.Unknown;
+                    useEscape = EscapeClassification.Unknown;
                 }
 
                 verdict = JoinEscape(verdict, useEscape);
-                if (verdict == AllocationEscape.Escapes)
+                // Escapes(None) is absorbing under JoinEscape (further merges keep it
+                // Escapes/None), so we can stop. A single-kind Escapes must keep scanning
+                // the remaining uses so a conflicting sink can fail honest to None — the
+                // verdict stays Escapes either way, only the kind can degrade.
+                if (verdict.Escape == AllocationEscape.Escapes && verdict.Kind == AllocationEscapeKind.None)
                     break;
             }
 
@@ -4114,7 +4129,7 @@ public sealed class LibraryBodyIndex
             return verdict;
         }
 
-        AllocationEscape ClassifyStackValueUse(
+        EscapeClassification ClassifyStackValueUse(
             DecodedBody decodedBody,
             Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
             GenericScope callerScope,
@@ -4127,20 +4142,20 @@ public sealed class LibraryBodyIndex
             {
                 int index = decodedBody.NextNonNopIndexAtOrAfter(position);
                 if (index >= decodedBody.Instructions.Length)
-                    return AllocationEscape.LocalOnly;
+                    return EscapeClassification.LocalOnly;
 
                 var instruction = decodedBody.Instructions[index];
                 if (TryReadStoreSlotDefinition(instruction, out var storeAccess))
                 {
                     var reachingDefinitions = reachingDefinitionsProvider();
                     if (reachingDefinitions is null || !reachingDefinitions.IsComplete)
-                        return AllocationEscape.Unknown;
+                        return EscapeClassification.Unknown;
                     var definition = reachingDefinitions.Definitions.FirstOrDefault(def =>
                         def.IsArgument == storeAccess.IsArgument
                         && def.Slot == storeAccess.Slot
                         && def.Offset == instruction.Offset);
                     return definition is null
-                        ? AllocationEscape.Unknown
+                        ? EscapeClassification.Unknown
                         : ClassifyDefinitionEscape(
                             decodedBody,
                             reachingDefinitions,
@@ -4159,11 +4174,11 @@ public sealed class LibraryBodyIndex
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
             {
-                return AllocationEscape.Unknown;
+                return EscapeClassification.Unknown;
             }
         }
 
-        AllocationEscape ClassifyArrayStackValueUse(DecodedBody decodedBody, GenericScope callerScope, int startIndex, TypeRef? allocatedType)
+        EscapeClassification ClassifyArrayStackValueUse(DecodedBody decodedBody, GenericScope callerScope, int startIndex, TypeRef? allocatedType)
         {
             int stackValuesAbove = 0;
             for (int index = startIndex; index < decodedBody.Instructions.Length; index++)
@@ -4187,32 +4202,32 @@ public sealed class LibraryBodyIndex
                         continue;
                     case ILOpCode.Pop:
                         if (stackValuesAbove == 0)
-                            return AllocationEscape.LocalOnly;
+                            return EscapeClassification.LocalOnly;
                         stackValuesAbove--;
                         continue;
                     case ILOpCode.Ldlen:
-                        return stackValuesAbove == 0 ? AllocationEscape.LocalOnly : AllocationEscape.Unknown;
+                        return stackValuesAbove == 0 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
                     case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
                         or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
                         or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref:
-                        return stackValuesAbove == 1 ? AllocationEscape.LocalOnly : AllocationEscape.Unknown;
+                        return stackValuesAbove == 1 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
                     case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
                         or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
                         or ILOpCode.Stelem_ref:
                         return stackValuesAbove switch
                         {
-                            0 => AllocationEscape.Escapes,
-                            2 => AllocationEscape.LocalOnly,
-                            _ => AllocationEscape.Unknown,
+                            0 => EscapeClassification.Escapes(AllocationEscapeKind.Collection),
+                            2 => EscapeClassification.LocalOnly,
+                            _ => EscapeClassification.Unknown,
                         };
                     default:
                         return ClassifyImmediateConsumer(decodedBody, callerScope, instruction, AllocationKind.Array, allocatedType, stackValuesAbove);
                 }
             }
-            return AllocationEscape.Unknown;
+            return EscapeClassification.Unknown;
         }
 
-        AllocationEscape ClassifyImmediateConsumer(
+        EscapeClassification ClassifyImmediateConsumer(
             DecodedBody decodedBody,
             GenericScope callerScope,
             DecodedInstruction instruction,
@@ -4221,27 +4236,20 @@ public sealed class LibraryBodyIndex
             int stackValuesAbove)
         {
             if (stackValuesAbove != 0)
-                return AllocationEscape.Unknown;
+                return EscapeClassification.Unknown;
 
             switch (instruction.OpCode)
             {
                 case ILOpCode.Pop:
-                    return AllocationEscape.LocalOnly;
+                    return EscapeClassification.LocalOnly;
                 case ILOpCode.Ret:
-                    return AllocationEscape.Escapes;
+                    return EscapeClassification.Escapes(AllocationEscapeKind.Return);
                 case ILOpCode.Throw:
-                    return AllocationEscape.ThrowPath;
+                    return EscapeClassification.ThrowPath;
                 case ILOpCode.Stfld:
+                    return EscapeClassification.Escapes(ClassifyFieldStoreEscapeKind(instruction, callerScope));
                 case ILOpCode.Stsfld:
-                case ILOpCode.Stobj:
-                case ILOpCode.Stind_i:
-                case ILOpCode.Stind_i1:
-                case ILOpCode.Stind_i2:
-                case ILOpCode.Stind_i4:
-                case ILOpCode.Stind_i8:
-                case ILOpCode.Stind_r4:
-                case ILOpCode.Stind_r8:
-                case ILOpCode.Stind_ref:
+                    return EscapeClassification.Escapes(AllocationEscapeKind.Static);
                 case ILOpCode.Stelem:
                 case ILOpCode.Stelem_i:
                 case ILOpCode.Stelem_i1:
@@ -4251,9 +4259,23 @@ public sealed class LibraryBodyIndex
                 case ILOpCode.Stelem_r4:
                 case ILOpCode.Stelem_r8:
                 case ILOpCode.Stelem_ref:
-                    return AllocationEscape.Escapes;
+                    // Collection detection is limited to single-dim array element stores.
+                    // List<T>.Add / multidim Set(...) are calls (fall through to Unknown),
+                    // and span element stores lower to stobj/stind (Escapes(None) below):
+                    // those stay fail-honest rather than being labelled Collection.
+                    return EscapeClassification.Escapes(AllocationEscapeKind.Collection);
+                case ILOpCode.Stobj:
+                case ILOpCode.Stind_i:
+                case ILOpCode.Stind_i1:
+                case ILOpCode.Stind_i2:
+                case ILOpCode.Stind_i4:
+                case ILOpCode.Stind_i8:
+                case ILOpCode.Stind_r4:
+                case ILOpCode.Stind_r8:
+                case ILOpCode.Stind_ref:
+                    return EscapeClassification.Escapes(AllocationEscapeKind.None);
                 case ILOpCode.Unbox_any:
-                    return kind == AllocationKind.Box ? AllocationEscape.LocalOnly : AllocationEscape.Unknown;
+                    return kind == AllocationKind.Box ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
                 case ILOpCode.Call:
                 case ILOpCode.Callvirt:
                 case ILOpCode.Newobj:
@@ -4261,23 +4283,95 @@ public sealed class LibraryBodyIndex
                     int token = OperandInt32(instruction);
                     var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                     return IsSpanSafeLocalSink(callee, allocatedType)
-                        ? AllocationEscape.LocalOnly
-                        : AllocationEscape.Unknown;
+                        ? EscapeClassification.LocalOnly
+                        : EscapeClassification.Unknown;
                 }
                 default:
-                    return AllocationEscape.Unknown;
+                    return EscapeClassification.Unknown;
             }
         }
 
-        static AllocationEscape JoinEscape(AllocationEscape left, AllocationEscape right)
+        // stfld into a compiler-generated closure display class (<>c__DisplayClass) or
+        // async/iterator state machine (<...>d__) hoists the value into that object's
+        // lifetime; report it as a capture escape. The iterator result field
+        // `<>2__current` is the exception: it holds the yielded value exposed to the
+        // consumer (not a captured local), and its promotion is genuinely ambiguous,
+        // so it stays fail-honest None. Any other/unresolvable field store is a plain
+        // field escape (fail-honest).
+        AllocationEscapeKind ClassifyFieldStoreEscapeKind(DecodedInstruction instruction, GenericScope callerScope)
         {
-            if (left == AllocationEscape.Escapes || right == AllocationEscape.Escapes)
-                return AllocationEscape.Escapes;
-            if (left == AllocationEscape.Unknown || right == AllocationEscape.Unknown)
-                return AllocationEscape.Unknown;
-            if (left == AllocationEscape.ThrowPath || right == AllocationEscape.ThrowPath)
-                return AllocationEscape.ThrowPath;
-            return AllocationEscape.LocalOnly;
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(OperandInt32(instruction));
+                TypeRef? declaring;
+                string? fieldName;
+                switch (handle.Kind)
+                {
+                    case HandleKind.FieldDefinition:
+                        var field = _reader.GetFieldDefinition((FieldDefinitionHandle)handle);
+                        declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0);
+                        fieldName = _reader.GetString(field.Name);
+                        break;
+                    case HandleKind.MemberReference:
+                        declaring = ResolveMemberReferenceParentType(handle, callerScope);
+                        fieldName = _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name);
+                        break;
+                    default:
+                        declaring = null;
+                        fieldName = null;
+                        break;
+                }
+                if (declaring is null)
+                    return AllocationEscapeKind.Field;
+
+                string leaf = DeclaringTypeLeafName(declaring);
+                // Match only the compiler-generated unspeakable names: closures are
+                // `<>c__DisplayClass...` and iterator/async state machines are `<...>d__...`.
+                // Both contain '<'/'>' which a user-defined type name cannot, so this
+                // never fires on a real user type that merely echoes the suffix.
+                bool isClosure = leaf.Contains("<>c__DisplayClass", StringComparison.Ordinal);
+                bool isStateMachine = leaf.Contains(">d__", StringComparison.Ordinal);
+                if (!isClosure && !isStateMachine)
+                    return AllocationEscapeKind.Field;
+
+                // The yielded value stored into the iterator's `<>2__current` is exposed
+                // to the consumer, not a hoisted capture; don't over-claim capture.
+                if (isStateMachine && fieldName == "<>2__current")
+                    return AllocationEscapeKind.None;
+
+                return AllocationEscapeKind.Capture;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
+            {
+                return AllocationEscapeKind.Field;
+            }
+        }
+
+        TypeRef? ResolveMemberReferenceParentType(EntityHandle handle, GenericScope callerScope)
+        {
+            var parent = _reader.GetMemberReference((MemberReferenceHandle)handle).Parent;
+            return parent.Kind switch
+            {
+                HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)parent, 0),
+                HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)parent, 0),
+                HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, callerScope, (TypeSpecificationHandle)parent, 0),
+                _ => null,
+            };
+        }
+
+        static EscapeClassification JoinEscape(EscapeClassification left, EscapeClassification right)
+        {
+            if (left.Escape == AllocationEscape.Escapes && right.Escape == AllocationEscape.Escapes)
+                return EscapeClassification.Escapes(left.Kind == right.Kind ? left.Kind : AllocationEscapeKind.None);
+            if (left.Escape == AllocationEscape.Escapes)
+                return left;
+            if (right.Escape == AllocationEscape.Escapes)
+                return right;
+            if (left.Escape == AllocationEscape.Unknown || right.Escape == AllocationEscape.Unknown)
+                return EscapeClassification.Unknown;
+            if (left.Escape == AllocationEscape.ThrowPath || right.Escape == AllocationEscape.ThrowPath)
+                return EscapeClassification.ThrowPath;
+            return EscapeClassification.LocalOnly;
         }
 
         static bool TryReadStoreSlotDefinition(DecodedInstruction instruction, out LocalSlotAccess access)

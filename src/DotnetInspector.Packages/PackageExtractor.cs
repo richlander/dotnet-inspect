@@ -40,6 +40,12 @@ public readonly record struct PackageExtractionOutcome(
     public static PackageExtractionOutcome Error(string message) => new(null, message);
 }
 
+public sealed record PackageReferenceTarget(
+    string OriginalArgument,
+    bool IsLocalFile,
+    string PackageName,
+    string Version);
+
 /// <summary>
 /// Shared utility for extracting NuGet packages from local files or NuGet feeds.
 /// </summary>
@@ -497,6 +503,35 @@ public static class PackageExtractor
         }
 
         return (packageSource, null);
+    }
+
+    public static PackageReferenceTarget ParsePackageTarget(string packageArg, string? explicitVersion = null)
+    {
+        bool isLocalFile = packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+        if (isLocalFile)
+        {
+            return new PackageReferenceTarget(
+                packageArg,
+                IsLocalFile: true,
+                Path.GetFileNameWithoutExtension(packageArg),
+                Version: "local");
+        }
+
+        var (name, parsedVersion) = ParsePackageReference(packageArg);
+        string version = explicitVersion ?? parsedVersion ?? "";
+        return new PackageReferenceTarget(
+            packageArg,
+            IsLocalFile: false,
+            name.ToLowerInvariant(),
+            version.ToLowerInvariant());
+    }
+
+    public static bool IsValidPackageReferenceVersion(string? version)
+    {
+        return string.IsNullOrEmpty(version)
+            || string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
+            || version.Contains('*', StringComparison.Ordinal)
+            || NuGet.Versioning.NuGetVersion.TryParse(version, out _);
     }
 
     private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);

@@ -1048,9 +1048,7 @@ public static class ApiOutputFormatter
 
     private static List<(string name, string type, bool hasDefault)> ConstructorParameterInfo(ApiMember constructor)
         => constructor.SignatureModel is { } signature
-            ? signature.Parameters
-                .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
-                .ToList()
+            ? signature.ParameterInfoSummary
             : SignatureParser.ExtractParameterInfo(constructor.Signature);
 
     private static string ConstructorCall(ApiType type, ApiMember constructor)
@@ -1058,17 +1056,30 @@ public static class ApiOutputFormatter
         if (constructor.SignatureModel is { } signature
             && signature.Parameters.All(static parameter => !parameter.HasDefault || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
         {
-            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-                type,
-                constructor,
-                new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
-            if (!string.IsNullOrWhiteSpace(declaration))
-                return ConstructorCallFromDeclaration(declaration);
+            if (HasKeywordGenericIdentifier(type, signature))
+            {
+                var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+                    type,
+                    constructor,
+                    new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
+                if (!string.IsNullOrWhiteSpace(declaration))
+                    return ConstructorCallFromDeclaration(declaration);
+            }
+
+            return signature.ParameterDeclarationsSummary;
         }
 
         // Compatibility-only fallback for legacy signatures without complete
         // structured default-value facts.
         return SignatureParser.FormatConstructorCall(constructor.Signature);
+    }
+
+    private static bool HasKeywordGenericIdentifier(ApiType type, ApiSignature signature)
+    {
+        return type.TypeParameters
+            .Concat(signature.TypeParameters)
+            .Select(parameter => parameter.Name)
+            .Any(name => CSharpDeclarationWriter.EscapeIdentifier(name) != name);
     }
 
     private static string ConstructorCallFromDeclaration(string declaration)
@@ -1236,8 +1247,9 @@ public static class ApiOutputFormatter
         if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken } graphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
-            var root = ToCallGraphNode(index.BuildCallTree(graphToken), GetRequestedCallGraphFields(options));
+            var root = ToCallGraphNode(
+                MethodBodyInspectionSession.Open(dllPath, assemblyResolver).CallTree(graphToken),
+                GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 })
             {
                 memberCode.CallGraphNodes = [root];
@@ -1254,7 +1266,7 @@ public static class ApiOutputFormatter
         if (requestedSections.Contains(SectionNames.CallerGraph) && singleMethodList is [{ MetadataToken: { } callerGraphToken } callerGraphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
+            var callerSession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
             // Extend the reverse graph across the caller scope (--bin/--project/--caller-package)
             // so a dependency member surfaces the product entry points and callers that reach it.
             var scopeIndexes = new List<Analysis.LibraryBodyIndex>();
@@ -1272,9 +1284,7 @@ public static class ApiOutputFormatter
                     }
                 }
             }
-            var callerTree = scopeIndexes.Count > 0
-                ? index.BuildCallerTree(callerGraphToken, scopeIndexes)
-                : index.BuildCallerTree(callerGraphToken);
+            var callerTree = callerSession.CallerTree(callerGraphToken, scopeIndexes);
             var root = ToCallGraphNode(callerTree, GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
             {
@@ -1328,11 +1338,11 @@ public static class ApiOutputFormatter
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
+            var bodySession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
 
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
-                var rows = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), semanticToken)
+                var rows = bodySession.AllocationFacts(semanticToken)
                     .Select(fact => ToAllocationFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.AllocationFacts))
@@ -1344,7 +1354,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
-                var rows = Analysis.SemanticFactProjection.SafetyFacts(index.GetUnsafeEvidenceByMember(), index.GetUnsafetyOccurrences(), semanticToken)
+                var rows = bodySession.SafetyFacts(semanticToken)
                     .Select(fact => ToSafetyFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.SafetyFacts))
@@ -1356,7 +1366,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
-                var rows = Analysis.SemanticFactProjection.CostFacts(index.GetDirectCallsByCaller(), semanticToken)
+                var rows = bodySession.CostFacts(semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.CostFacts))

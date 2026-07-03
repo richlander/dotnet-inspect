@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -189,12 +190,9 @@ public static class SharedParsers
     /// <returns>Parsed package info with bare name, version, and flags.</returns>
     public static PackageVersionInfo ParsePackageVersion(string name)
     {
-        bool hasExplicitVersion = name.Contains('@');
-        if (!hasExplicitVersion)
-            return new(name, null, HasExplicitVersion: false, ForceLatest: false);
-
-        var bareName = name[..name.IndexOf('@')];
-        var explicitVersion = name[(name.IndexOf('@') + 1)..];
+        var (bareName, explicitVersion) = PackageExtractor.ParsePackageReference(name);
+        if (explicitVersion == null)
+            return new(bareName, null, HasExplicitVersion: false, ForceLatest: false);
 
         bool forceLatest = string.Equals(explicitVersion, "latest", StringComparison.OrdinalIgnoreCase);
         if (forceLatest)

@@ -173,6 +173,7 @@ public class TypeParameter
 public class ApiSignature
 {
     public string? ReturnType { get; set; }
+    public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
     public List<TypeParameter> TypeParameters { get; set; } = [];
@@ -184,6 +185,15 @@ public class ApiSignature
     public string ParameterTypesSummary => Parameters.Count == 0
         ? ""
         : $"({string.Join(", ", Parameters.Select(parameter => parameter.TypeWithModifier))})";
+
+    public string ParameterDeclarationsSummary => Parameters.Count == 0
+        ? "()"
+        : CSharpDeclarationWriter.EscapeQualifiedKeywordSegments(
+            $"({string.Join(", ", Parameters.Select(parameter => parameter.Declaration))})");
+
+    public List<(string name, string type, bool hasDefault)> ParameterInfoSummary => Parameters
+        .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
+        .ToList();
 
     public string PublicAccessorsSummary => string.Join(", ",
         Accessors
@@ -213,7 +223,7 @@ public class ApiParameter
                 : $"[{string.Join(", ", Attributes)}] ";
             var head = string.IsNullOrWhiteSpace(Name)
                 ? TypeWithModifier
-                : $"{TypeWithModifier} {Name}";
+                : $"{TypeWithModifier} {CSharpDeclarationWriter.EscapeIdentifier(Name)}";
             var declaration = HasDefault && DefaultValueText is { Length: > 0 }
                 ? $"{head} = {DefaultValueText}"
                 : head;

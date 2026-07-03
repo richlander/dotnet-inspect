@@ -232,60 +232,27 @@ public class PackageCommand
             return 0;
         }
 
-        // Check if first argument is a local file path
-        bool isLocalFile = packageArgs.Length >= 1 &&
-            packageArgs[0].EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-
         var client = context.HttpClient;
 
-        string packageName;
-        string version;
-
-        if (isLocalFile)
+        var target = PackageExtractor.ParsePackageTarget(packageArgs[0], explicitVersion);
+        string packageName = target.PackageName;
+        string version = target.Version;
+        if (target.IsLocalFile)
         {
-            string localPath = packageArgs[0];
-            if (!File.Exists(localPath))
+            if (!File.Exists(target.OriginalArgument))
             {
-                Console.Error.WriteLine($"Error: File not found: {localPath}");
+                Console.Error.WriteLine($"Error: File not found: {target.OriginalArgument}");
                 return 1;
             }
-
-            string fileName = Path.GetFileNameWithoutExtension(localPath);
-            packageName = fileName;
-            version = "local";
         }
         else
         {
-            // Support format: PackageName or PackageName@version
-            string packageArg = packageArgs[0];
-            int atIndex = packageArg.IndexOf('@');
-
             if (explicitVersion != null)
-            {
-                packageName = atIndex > 0
-                    ? packageArg[..atIndex].ToLowerInvariant()
-                    : packageArg.ToLowerInvariant();
-                version = explicitVersion.ToLowerInvariant();
                 logger.Log($"Using --version: {version}");
-            }
-            else if (atIndex > 0)
-            {
-                packageName = packageArg[..atIndex].ToLowerInvariant();
-                version = packageArg[(atIndex + 1)..].ToLowerInvariant();
+            else if (version.Length > 0)
                 logger.Log($"Using specified version: {version}");
-            }
-            else
-            {
-                packageName = packageArg.ToLowerInvariant();
-                version = "";
-            }
 
-            // Validate version looks like a NuGet version (allow wildcard patterns like 11.0.0-preview*)
-            // "latest" is handled as a special tag by PackageExtractor
-            if (version.Length > 0
-                && !string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
-                && !version.Contains('*')
-                && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+            if (!PackageExtractor.IsValidPackageReferenceVersion(version))
             {
                 string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
                 Console.Error.WriteLine($"Error: '{badVersion}' is not a valid package version.");
@@ -306,10 +273,10 @@ public class PackageCommand
         {
             var outcome = await PackageExtractor.ExtractPackageAsync(
                 client,
-                isLocalFile ? packageArgs[0] : packageName,
+                target.IsLocalFile ? target.OriginalArgument : packageName,
                 logger.Log,
                 sourceOptions: options.SourceOptions,
-                version: isLocalFile ? null : (version.Length > 0 ? version : null),
+                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
                 forceLatest: options.ForceLatest,
                 includePrerelease: options.IncludePrerelease);
 
@@ -374,8 +341,8 @@ public class PackageCommand
             {
                 return await ExecutePackageAllLibrariesAsync(
                     extractPath,
-                    isLocalFile,
-                    packageArgs[0],
+                    target.IsLocalFile,
+                    target.OriginalArgument,
                     packageName,
                     version,
                     options);
@@ -385,8 +352,8 @@ public class PackageCommand
             {
                 return await ExecutePackageLibraryAsync(
                     extractPath,
-                    isLocalFile,
-                    packageArgs[0],
+                    target.IsLocalFile,
+                    target.OriginalArgument,
                     packageName,
                     version,
                     options);
@@ -407,8 +374,8 @@ public class PackageCommand
                 : null;
 
             var result = await PackageInspector.InspectAsync(
-                extractPath, packageName, version, isLocalFile,
-                isLocalFile ? packageArgs[0] : null,
+                extractPath, packageName, version, target.IsLocalFile,
+                target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger, options.ForceLatest, options.Verbosity,
                 resolution.NupkgPath,
                 fetchMetadata: wantsSignals);
@@ -424,7 +391,7 @@ public class PackageCommand
                 result.SignatureResult = await SignatureVerifier.VerifyAsync(resolution.NupkgPath);
             }
 
-            result.Source = isLocalFile ? SourceKind.File : SourceKind.NuGet;
+            result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
             if (ShouldPopulatePackageSourceFiles(options))
@@ -570,12 +537,6 @@ public class PackageCommand
         }
     }
 
-    private sealed record PackageTarget(
-        string OriginalArgument,
-        bool IsLocalFile,
-        string PackageName,
-        string Version);
-
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
         InspectionOptions options,
@@ -601,7 +562,7 @@ public class PackageCommand
             return 1;
         }
 
-        var targets = new List<PackageTarget>();
+        var targets = new List<PackageReferenceTarget>();
         foreach (var packageArg in packageArgs)
         {
             if (!TryCreatePackageTarget(packageArg, out var target))
@@ -1039,11 +1000,11 @@ public class PackageCommand
         return false;
     }
 
-    private static bool TryCreatePackageTarget(string packageArg, out PackageTarget target)
+    private static bool TryCreatePackageTarget(string packageArg, out PackageReferenceTarget target)
     {
         target = null!;
-        bool isLocalFile = packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-        if (isLocalFile)
+        var parsed = PackageExtractor.ParsePackageTarget(packageArg);
+        if (parsed.IsLocalFile)
         {
             if (!File.Exists(packageArg))
             {
@@ -1051,34 +1012,19 @@ public class PackageCommand
                 return false;
             }
 
-            target = new PackageTarget(
-                packageArg,
-                IsLocalFile: true,
-                Path.GetFileNameWithoutExtension(packageArg),
-                Version: "local");
+            target = parsed;
             return true;
         }
 
-        int atIndex = packageArg.IndexOf('@');
-        string packageName = atIndex > 0
-            ? packageArg[..atIndex].ToLowerInvariant()
-            : packageArg.ToLowerInvariant();
-        string version = atIndex > 0
-            ? packageArg[(atIndex + 1)..].ToLowerInvariant()
-            : "";
-
-        if (version.Length > 0
-            && !string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
-            && !version.Contains('*')
-            && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+        if (!PackageExtractor.IsValidPackageReferenceVersion(parsed.Version))
         {
-            Console.Error.WriteLine($"Error: '{version}' is not a valid package version.");
+            Console.Error.WriteLine($"Error: '{parsed.Version}' is not a valid package version.");
             Console.Error.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
             Console.Error.WriteLine("Use id@version for per-package version pins.");
             return false;
         }
 
-        target = new PackageTarget(packageArg, IsLocalFile: false, packageName, version);
+        target = parsed;
         return true;
     }
 
@@ -1089,7 +1035,7 @@ public class PackageCommand
         InspectionOptions options,
         CommandContext context)
     {
-        var targets = new List<PackageTarget>();
+        var targets = new List<PackageReferenceTarget>();
         foreach (var packageArg in packageArgs)
         {
             if (!TryCreatePackageTarget(packageArg, out var target))
@@ -1110,7 +1056,7 @@ public class PackageCommand
     }
 
     private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
-        PackageTarget target,
+        PackageReferenceTarget target,
         InspectionOptions options,
         CommandContext context)
     {
@@ -1164,7 +1110,7 @@ public class PackageCommand
     }
 
     private static async Task<InspectionResult?> InspectPackageAsync(
-        PackageTarget target,
+        PackageReferenceTarget target,
         InspectionOptions options,
         CommandContext context,
         bool wantsFilesSection)
@@ -1341,28 +1287,7 @@ public class PackageCommand
 
     private static List<string> SelectPackageLibrariesForSourceFiles(string extractPath, InspectionOptions options)
     {
-        var candidates = TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (candidates.Count == 0)
-            return [];
-
-        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase))
-            return candidates
-                .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-        if (!string.IsNullOrWhiteSpace(options.Tfm))
-            return candidates
-                .Where(path => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    options.Tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-        var (highestTfmDlls, _) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
-        var selected = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
+        var (selected, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
         return selected
             .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -1995,37 +1920,29 @@ public class PackageCommand
             return null;
         }
 
-        var candidates = TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-            return null;
-        }
-
-        string? selectedTfm = options.Tfm;
         List<string> pool;
-        if (!string.IsNullOrWhiteSpace(options.Tfm))
+        string? selectedTfm;
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
-            pool = candidates
-                .Where(path => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    options.Tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (pool.Count == 0)
+            var allCandidates = TfmSelector.GetPackageAssemblies(extractPath);
+            if (allCandidates.Count == 0)
             {
-                Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
-                WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
                 return null;
             }
+
+            (pool, selectedTfm) = TfmSelector.SelectHighestAssemblies(allCandidates, extractPath);
         }
         else
         {
-            var (highestTfmDlls, highestTfm) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
-            pool = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
-            selectedTfm = highestTfm;
+            (pool, selectedTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
+        }
+
+        if (pool.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
+            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+            return null;
         }
 
         if (pool.Count == 1)
@@ -2050,42 +1967,33 @@ public class PackageCommand
         string version,
         InspectionOptions options)
     {
-        var candidates = TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-            return null;
-        }
-
         List<string> selected;
-        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase))
+        string? highestTfm;
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
-            selected = candidates;
-        }
-        else if (!string.IsNullOrWhiteSpace(options.Tfm))
-        {
-            selected = candidates
-                .Where(path => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    options.Tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (selected.Count == 0)
+            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
+            if (candidates.Count == 0)
             {
-                Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
-                WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
                 return null;
             }
+
+            (selected, highestTfm) = TfmSelector.SelectHighestAssemblies(candidates, extractPath);
         }
         else
         {
-            var (highestTfmDlls, highestTfm) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
-            selected = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
-            if (highestTfm != null)
-                Console.Error.WriteLine($"Using TFM: {highestTfm}");
+            (selected, highestTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
         }
+
+        if (selected.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
+            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+            return null;
+        }
+
+        if (highestTfm != null && string.IsNullOrWhiteSpace(options.Tfm))
+            Console.Error.WriteLine($"Using TFM: {highestTfm}");
 
         return selected
             .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
@@ -2573,14 +2481,9 @@ public class PackageCommand
         string? tfm,
         List<string>? candidates = null)
     {
-        candidates ??= TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .Where(path => string.IsNullOrWhiteSpace(tfm)
-                || string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    tfm,
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        candidates ??= string.IsNullOrWhiteSpace(tfm)
+            ? TfmSelector.GetPackageAssemblies(extractPath)
+            : TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm).paths;
 
         if (candidates.Count > 0)
         {
@@ -2734,15 +2637,7 @@ public class PackageCommand
 
     private static void ListPackageTfms(string extractPath, bool tsv, bool jsonl)
     {
-        var dlls = TfmSelector.GetPackageDlls(extractPath);
-        var tfms = TfmSelector.OrderByTfmPriorityDescending(
-                dlls.Select(d => TfmResolver.ExtractTfmFromPath(
-                        Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
-                    .Where(t => t != null)
-                    .Select(t => t!)
-                    .Distinct(StringComparer.OrdinalIgnoreCase),
-                tfm => tfm)
-            .ToList();
+        var tfms = TfmSelector.GetPackageTfms(extractPath);
 
         OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", tsv, jsonl, Console.Out);
     }

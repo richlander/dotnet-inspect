@@ -418,7 +418,6 @@ static class ReturnToSender
             if (!typeDef.GetDeclaringType().IsNil
                 || typeName == "<Module>"
                 || typeName.Contains('<', StringComparison.Ordinal)
-                || typeName.Contains('`', StringComparison.Ordinal)
                 || !IsSupportedTargetType(reader, typeDef))
             {
                 continue;
@@ -521,8 +520,7 @@ static class ReturnToSender
             }
 
             if (seen++ == overload
-                && method.RelativeVirtualAddress != 0
-                && method.GetGenericParameters().Count == 0)
+                && method.RelativeVirtualAddress != 0)
             {
                 return methodHandle;
             }
@@ -1060,6 +1058,7 @@ static class ReturnToSender
                     CompileBackAccessibility.Public,
                     BaseType: null,
                     PrimaryConstructorParameters: null,
+                    TypeParameters: [],
                     Interfaces: [],
                     Members:
                     [
@@ -1070,6 +1069,7 @@ static class ReturnToSender
                             IsStatic: false,
                             ReturnType: null,
                             Parameters: [],
+                            TypeParameters: [],
                             CompileBackStubBodyKind.TargetBody,
                             TargetBody: "",
                             SourceFacts: [])
@@ -1160,7 +1160,6 @@ static class ReturnToSender
         string name = reader.GetString(typeDef.Name);
         return name is not "<Module>"
             && !name.Contains('<', StringComparison.Ordinal)
-            && !name.Contains('`', StringComparison.Ordinal)
             && !IsDelegate(reader, typeDef);
     }
 

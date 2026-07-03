@@ -180,11 +180,19 @@ public static class CSharpDeclarationWriter
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
-        var signature = member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType)
-            ? $"{member.ReturnType} {member.Name}"
-            : TryRenderSignatureModel(type, member, methodParameters, out var modelSignature)
-                ? modelSignature
-                : member.Signature ?? member.ReturnType ?? "";
+        string signature;
+        if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
+        {
+            signature = $"{member.ReturnType} {member.Name}";
+        }
+        else if (TryRenderSignatureModel(type, member, methodParameters, out var modelSignature))
+        {
+            signature = modelSignature;
+        }
+        else
+        {
+            signature = member.Signature ?? member.ReturnType ?? "";
+        }
         if (string.IsNullOrWhiteSpace(signature))
         {
             if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
@@ -234,6 +242,8 @@ public static class CSharpDeclarationWriter
         List<string> parts = [];
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
+        if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
+            parts.Add($"[return: {string.Join(", ", returnAttributes)}]");
 
         List<string> modifiers = [];
         if (member.Name == ".cctor")
@@ -715,7 +725,7 @@ public static class CSharpDeclarationWriter
             : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
     }
 
-    static string EscapeQualifiedKeywordSegments(string signature)
+    internal static string EscapeQualifiedKeywordSegments(string signature)
     {
         var sb = new StringBuilder(signature.Length);
         bool inString = false;
@@ -853,7 +863,7 @@ public static class CSharpDeclarationWriter
     static string EscapeQualifiedName(string name)
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
-    static string EscapeIdentifier(string name)
+    internal static string EscapeIdentifier(string name)
         => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';

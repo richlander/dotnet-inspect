@@ -336,12 +336,128 @@ public static class AttributeReader
         => RenderAttributes(reader, reader.GetParameter(parameter).GetCustomAttributes(), namespaces);
 
     public static List<string> RenderParameterAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
-        => RenderAttributes(
+    {
+        var result = RenderAttributes(
             reader,
             reader.GetParameter(parameter).GetCustomAttributes(),
             namespaces,
             IsParameterSyntaxAttribute,
             qualifyNames: true);
+        try
+        {
+            if (TryRenderMarshalAsAttribute(reader, parameter) is { } marshalAs)
+                result.Add(marshalAs);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            // Match custom-attribute rendering: malformed or unsupported metadata is not emitted wrong.
+        }
+
+        return result;
+    }
+
+    static string? TryRenderMarshalAsAttribute(MetadataReader reader, ParameterHandle parameterHandle)
+    {
+        var parameter = reader.GetParameter(parameterHandle);
+        if ((parameter.Attributes & ParameterAttributes.HasFieldMarshal) == 0)
+            return null;
+
+        var descriptor = parameter.GetMarshallingDescriptor();
+        if (descriptor.IsNil)
+            return null;
+
+        var blob = reader.GetBlobReader(descriptor);
+        if (blob.RemainingBytes == 0)
+            return null;
+
+        var nativeType = blob.ReadByte();
+        if (nativeType == 0x2a)
+            return TryRenderArrayMarshalAs(ref blob);
+
+        if (blob.RemainingBytes != 0 || UnmanagedTypeName(nativeType) is not { } unmanagedType)
+            return null;
+
+        return $"System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.{unmanagedType})";
+    }
+
+    static string? TryRenderArrayMarshalAs(ref BlobReader blob)
+    {
+        var arguments = new List<string>
+        {
+            "System.Runtime.InteropServices.UnmanagedType.LPArray",
+        };
+        if (blob.RemainingBytes > 0)
+        {
+            var elementType = blob.ReadByte();
+            if (elementType != 0x50)
+            {
+                if (UnmanagedTypeName(elementType) is not { } elementUnmanagedType)
+                    return null;
+                arguments.Add($"ArraySubType = System.Runtime.InteropServices.UnmanagedType.{elementUnmanagedType}");
+            }
+        }
+
+        if (blob.RemainingBytes > 0)
+        {
+            var sizeParamIndex = blob.ReadCompressedInteger();
+            if (blob.RemainingBytes == 0)
+            {
+                arguments.Add($"SizeParamIndex = {sizeParamIndex}");
+            }
+            else
+            {
+                var sizeConst = blob.ReadCompressedInteger();
+                var sizeParamSpecified = blob.ReadCompressedInteger() != 0;
+                if (blob.RemainingBytes != 0)
+                    return null;
+                if (sizeParamSpecified)
+                    arguments.Add($"SizeParamIndex = {sizeParamIndex}");
+                arguments.Add($"SizeConst = {sizeConst}");
+            }
+        }
+
+        return $"System.Runtime.InteropServices.MarshalAs({string.Join(", ", arguments)})";
+    }
+
+    static string? UnmanagedTypeName(byte nativeType)
+        => nativeType switch
+        {
+            0x02 => "Bool",
+            0x03 => "I1",
+            0x04 => "U1",
+            0x05 => "I2",
+            0x06 => "U2",
+            0x07 => "I4",
+            0x08 => "U4",
+            0x09 => "I8",
+            0x0a => "U8",
+            0x0b => "R4",
+            0x0c => "R8",
+            0x0f => "Currency",
+            0x13 => "BStr",
+            0x14 => "LPStr",
+            0x15 => "LPWStr",
+            0x16 => "LPTStr",
+            0x19 => "IUnknown",
+            0x1a => "IDispatch",
+            0x1b => "Struct",
+            0x1c => "Interface",
+            0x1d => "SafeArray",
+            0x1f => "SysInt",
+            0x20 => "SysUInt",
+            0x23 => "AnsiBStr",
+            0x24 => "TBStr",
+            0x25 => "VariantBool",
+            0x26 => "FunctionPtr",
+            0x28 => "AsAny",
+            0x2a => "LPArray",
+            0x2b => "LPStruct",
+            0x2d => "Error",
+            0x2e => "IInspectable",
+            0x2f => "HString",
+            0x30 => "LPUTF8Str",
+            _ => null,
+        };
 
     /// <summary>
     /// Renders the attributes on a method, resolved by the same name + public-only
@@ -527,6 +643,7 @@ public static class AttributeReader
     static bool IsParameterSyntaxAttribute(string name) => name switch
     {
         "System.ParamArrayAttribute" => true,
+        "System.Runtime.InteropServices.MarshalAsAttribute" => true,
         KnownAttributeNames.ParamCollectionAttribute => true,
         KnownAttributeNames.DecimalConstantAttribute => true,
         KnownAttributeNames.DateTimeConstantAttribute => true,

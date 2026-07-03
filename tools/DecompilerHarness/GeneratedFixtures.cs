@@ -274,6 +274,370 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "collection", "initializer", "generic"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalGenericMethods = new(
+        "minimal.generic-methods",
+        """
+        namespace GeneratedFixtures.MinimalGenericMethods;
+
+        public class Class1
+        {
+            public T Echo<T>(T value) => value;
+
+            public T Choose<T>(T left, T right) where T : class => left;
+
+            public T Create<T>() where T : new() => new T();
+
+            public T DefaultValue<T>() where T : struct => default;
+
+            public T Comparable<T>(T value) where T : System.IComparable<T> => value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Echo",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Choose",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Create",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "DefaultValue",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericMethods.Class1", "Comparable",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "generic", "method", "constraints"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalGenericType = new(
+        "minimal.generic-type",
+        """
+        namespace GeneratedFixtures.MinimalGenericType;
+
+        public class Box<T>
+        {
+            private T _value;
+
+            public Box(T value)
+            {
+                _value = value;
+            }
+
+            public T Value
+            {
+                get => _value;
+                set => _value = value;
+            }
+
+            public T Echo(T value) => value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalGenericType.Box`1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericType.Box`1", "get_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericType.Box`1", "set_Value",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericType.Box`1", "Echo",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "generic", "type", "property", "setter"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalGenericTypeConstraints = new(
+        "minimal.generic-type-constraints",
+        """
+        namespace GeneratedFixtures.MinimalGenericTypeConstraints;
+
+        public class Factory<T> where T : class, new()
+        {
+            public T Create() => new T();
+
+            public T Echo(T value) => value;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1", "Create",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalGenericTypeConstraints.Factory`1", "Echo",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "generic", "type", "constraints"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalParameterModifiers = new(
+        "minimal.parameter-modifiers",
+        """
+        namespace GeneratedFixtures.MinimalParameterModifiers;
+
+        public class Class1
+        {
+            public void Increment(ref int value)
+            {
+                value++;
+            }
+
+            public void Set(out int value)
+            {
+                value = 42;
+            }
+
+            public int Read(in int value) => value;
+
+            public int Sum(params int[] values)
+            {
+                var sum = 0;
+                foreach (var value in values)
+                    sum += value;
+                return sum;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Increment",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Set",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Read",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterModifiers.Class1", "Sum",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "parameters", "ref", "out", "in", "params"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalDefaultParameters = new(
+        "minimal.default-parameters",
+        """
+        namespace GeneratedFixtures.MinimalDefaultParameters;
+
+        public enum Choice
+        {
+            None = 0,
+            One = 1,
+        }
+
+        public class Class1
+        {
+            public int Add(int value = 42, bool enabled = true)
+                => enabled ? value + 1 : value;
+
+            public string Format(string text = "hello", object value = null)
+                => value is null ? text : text + value.ToString();
+
+            public decimal DecimalDefault(decimal value = 1.25m)
+                => value;
+
+            public int EnumDefault(Choice choice = Choice.One)
+                => (int)choice;
+
+            public long DateTimeDefault(
+                [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                => when.Ticks;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "Add",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "Format",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "DecimalDefault",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "EnumDefault",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalDefaultParameters.Class1", "DateTimeDefault",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "parameters", "defaults"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalParameterAttributes = new(
+        "minimal.parameter-attributes",
+        """
+        namespace GeneratedFixtures.MinimalParameterAttributes;
+
+        public class Class1
+        {
+            public int Length([System.Diagnostics.CodeAnalysis.NotNull] string value)
+                => value.Length;
+
+            public int Copy([System.Runtime.InteropServices.Out] int value)
+                => value;
+
+            public int Update([System.Runtime.InteropServices.In, System.Runtime.InteropServices.Out] ref int value)
+            {
+                value++;
+                return value;
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", "Length",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", "Copy",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterAttributes.Class1", "Update",
+                FidelityCheck.CompileBackStatus.Exact),
+        ],
+        ["minimal", "parameters", "attributes"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalParameterMarshalling = new(
+        "minimal.parameter-marshalling",
+        """
+        namespace GeneratedFixtures.MinimalParameterMarshalling;
+
+        public class Class1
+        {
+            public int I4([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] int value)
+                => value;
+
+            public int LpStr([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string value)
+                => value.Length;
+
+            public int Bool([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool value)
+                => value ? 1 : 0;
+
+            public int Sum(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)] int[] values,
+                int count)
+            {
+                var sum = 0;
+                for (var i = 0; i < count; i++)
+                    sum += values[i];
+                return sum;
+            }
+
+            public int FirstFour(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)] int[] values)
+                => values[0] + values[1] + values[2] + values[3];
+
+            public int PlainArray(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)] int[] values)
+                => values.Length;
+
+            public int FixedArray(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)] int[] values)
+                => values[0] + values[1] + values[2] + values[3];
+
+            public int ZeroSizedArray(
+                [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)] int[] values)
+                => values.Length;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "I4",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "LpStr",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "Bool",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "Sum",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "FirstFour",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "PlainArray",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "FixedArray",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)",
+                ]),
+            new("GeneratedFixtures.MinimalParameterMarshalling.Class1", "ZeroSizedArray",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)",
+                ]),
+        ],
+        ["minimal", "parameters", "marshalling"]);
+
+    public static readonly GeneratedFixtureDefinition MinimalReturnParameterMetadata = new(
+        "minimal.return-parameter-metadata",
+        """
+        namespace GeneratedFixtures.MinimalReturnParameterMetadata;
+
+        public class Class1
+        {
+            [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+            public int I4()
+                => 42;
+
+            [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)]
+            public string Text()
+                => "hello";
+
+            [return: System.Diagnostics.CodeAnalysis.NotNull]
+            public string NotNullText()
+                => "hello";
+
+            [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+            public int FallbackSignature(
+                [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                => when.Year;
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "I4",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
+                ]),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "Text",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)]",
+                ]),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "NotNullText",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Diagnostics.CodeAnalysis.NotNull]",
+                ]),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "FallbackSignature",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
+                    "[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when",
+                ]),
+        ],
+        ["minimal", "parameters", "return", "marshalling", "attributes"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -767,6 +1131,14 @@ internal static class GeneratedFixtureCatalog
         MinimalInterfaceImplementation,
         MinimalObjectInitializer,
         MinimalCollectionInitializer,
+        MinimalGenericMethods,
+        MinimalGenericType,
+        MinimalGenericTypeConstraints,
+        MinimalParameterModifiers,
+        MinimalDefaultParameters,
+        MinimalParameterAttributes,
+        MinimalParameterMarshalling,
+        MinimalReturnParameterMetadata,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,
@@ -826,7 +1198,8 @@ internal sealed record GeneratedFixtureTarget(
     bool IsFrontier = false,
     string? Note = null,
     SyntaxKind? ExpectedShape = null,
-    SyntaxKind? FrontierShape = null)
+    SyntaxKind? FrontierShape = null,
+    IReadOnlyList<string>? ExpectedSourceFragments = null)
 {
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
@@ -993,9 +1366,11 @@ internal static class GeneratedFixtureRunner
                         continue;
                     }
 
+                    var missingSourceFragment = MissingSourceFragment(actual.Source, target.ExpectedSourceFragments);
                     var status = actual.Status == FidelityCheck.CompileBackStatus.Exact
-                        ? GeneratedFixtureReturnToSenderStatus.Pass
-                        : GeneratedFixtureReturnToSenderStatus.Fail;
+                        && missingSourceFragment is null
+                            ? GeneratedFixtureReturnToSenderStatus.Pass
+                            : GeneratedFixtureReturnToSenderStatus.Fail;
                     results.Add(new GeneratedFixtureReturnToSenderResult(
                         fixture.Id,
                         target.Type,
@@ -1003,8 +1378,14 @@ internal static class GeneratedFixtureRunner
                         target.Overload,
                         status,
                         actual.Status,
-                        status == GeneratedFixtureReturnToSenderStatus.Pass ? "exact" : FailureReason(actual),
-                        actual.Detail,
+                        status == GeneratedFixtureReturnToSenderStatus.Pass
+                            ? "exact"
+                            : missingSourceFragment is not null
+                                ? "source-fragment-missing"
+                                : FailureReason(actual),
+                        missingSourceFragment is null
+                            ? actual.Detail
+                            : $"missing expected source fragment: {missingSourceFragment}",
                         target.IsFrontier,
                         target.Note));
                 }
@@ -1012,6 +1393,20 @@ internal static class GeneratedFixtureRunner
 
             return new GeneratedFixtureReturnToSenderRunResult(root, assemblyPath, results);
         });
+    }
+
+    static string? MissingSourceFragment(string source, IReadOnlyList<string>? expectedSourceFragments)
+    {
+        if (expectedSourceFragments is not { Count: > 0 })
+            return null;
+
+        foreach (var expected in expectedSourceFragments)
+        {
+            if (!source.Contains(expected, StringComparison.Ordinal))
+                return expected;
+        }
+
+        return null;
     }
 
     static GeneratedFixtureReturnToSenderResult Skipped(GeneratedFixtureDefinition fixture, GeneratedFixtureTarget target, string reason)

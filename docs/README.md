@@ -62,8 +62,10 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
 | [Decompiler Inspection & Oracle](design/decompiler-inspection-oracle.md) | Unifies single-method inspection (dump/stages) with the corpus-wide fidelity check oracle; product-vs-tool scoping. |
 | [ReturnToSender: Fact-Planned Compile-Back Harness](design/fact-planned-compile-back-harness.md) | Spec for a fresh tools-side compile-back harness with fact-planned TypeProducer/TypePrinter shells. |
+| [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |
 | [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool. |
 | [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
+| [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the final shape (why the CLI should not hold a `PEReader`). |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 
 ### Design history and backlog

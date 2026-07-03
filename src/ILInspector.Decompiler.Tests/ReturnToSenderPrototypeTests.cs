@@ -4,6 +4,8 @@ using ILInspector.Decompiler;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -23,7 +25,7 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact, $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Equal("Class1", result.Plan.TargetMethod.Type);
             Assert.Equal("get_Method1", result.Plan.TargetMethod.Method);
             Assert.Contains("public class Class1", result.Source);
@@ -97,7 +99,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("External", result.Plan.Module.Usings);
             Assert.Contains("public External.Greeting Method1", result.Source);
         }
@@ -240,7 +244,9 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             var type = Assert.Single(result.Plan.Types);
             Assert.Contains(type.SourceFacts, fact =>
                 fact.Producer == "roslyn"
@@ -929,6 +935,523 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Equal(1, result.Plan.TargetMethod.Overload);
             Assert.Contains("public string this[string key]", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsGenericMethodSignatures()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public T Echo<T>(T value) => value;
+
+                public T Choose<T>(T left, T right) where T : class => left;
+
+                public T Create<T>() where T : new() => new T();
+
+                public T DefaultValue<T>() where T : struct => default;
+
+                public T Comparable<T>(T value) where T : System.IComparable<T> => value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Echo", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Choose", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Create", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "DefaultValue", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Comparable", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Echo<T>(T value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Choose<T>(T left, T right) where T : class", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Create<T>() where T : new()", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T DefaultValue<T>() where T : struct", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public T Comparable<T>(T value) where T : System.IComparable<T>", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsParameterModifierSignatures()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public void Increment(ref int value)
+                {
+                    value++;
+                }
+
+                public void Set(out int value)
+                {
+                    value = 42;
+                }
+
+                public int Read(in int value) => value;
+
+                public int Sum(params int[] values)
+                {
+                    var sum = 0;
+                    foreach (var value in values)
+                        sum += value;
+                    return sum;
+                }
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Increment", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Set", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Read", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Sum", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public void Increment(ref int value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public void Set(out int value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int Read(in int value)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int Sum(params int[] values)", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsDefaultParameterSignatures()
+    {
+        var assemblyPath = CompileFixture("""
+            public enum Choice
+            {
+                None = 0,
+                One = 1,
+            }
+
+            public class Class1
+            {
+                public int Add(int value = 42, bool enabled = true)
+                    => enabled ? value + 1 : value;
+
+                public string Format(string text = "hello", object value = null)
+                    => value is null ? text : text + value.ToString();
+
+                public decimal DecimalDefault(decimal value = 1.25m)
+                    => value;
+
+                public int EnumDefault(Choice choice = Choice.One)
+                    => (int)choice;
+
+                public long DateTimeDefault(
+                    [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                    => when.Ticks;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Add", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Format", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "DecimalDefault", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "EnumDefault", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "DateTimeDefault", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int Add(int value = 42, bool enabled = true)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public string Format(string text = \"hello\", object value = null)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public System.Decimal DecimalDefault(System.Decimal value = 1.25m)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("public int EnumDefault(Choice choice = (Choice)1)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)", result.Source);
+                    Assert.Contains("System.DateTime when", result.Source);
+                    Assert.DoesNotContain("System.DateTime when =", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsParameterAttributes()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Length([System.Diagnostics.CodeAnalysis.NotNull] string value)
+                    => value.Length;
+
+                public int Copy([System.Runtime.InteropServices.Out] int value)
+                    => value;
+
+                public int Update([System.Runtime.InteropServices.In, System.Runtime.InteropServices.Out] ref int value)
+                {
+                    value++;
+                    return value;
+                }
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Length", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Copy", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Update", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Diagnostics.CodeAnalysis.NotNull", result.Source);
+                    Assert.Contains("int Length(", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("int Copy(", result.Source);
+                    Assert.DoesNotContain("out int value", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("ref int value", result.Source);
+                    Assert.DoesNotContain("out int value", result.Source);
+                    Assert.DoesNotContain("in int value", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsParameterMarshalling()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int I4([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] int value)
+                    => value;
+
+                public int LpStr([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string value)
+                    => value.Length;
+
+                public int Bool([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool value)
+                    => value ? 1 : 0;
+
+                public int Sum(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)] int[] values,
+                    int count)
+                {
+                    var sum = 0;
+                    for (var i = 0; i < count; i++)
+                        sum += values[i];
+                    return sum;
+                }
+
+                public int FirstFour(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)] int[] values)
+                    => values[0] + values[1] + values[2] + values[3];
+
+                public int PlainArray(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)] int[] values)
+                    => values.Length;
+
+                public int FixedArray(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)] int[] values)
+                    => values[0] + values[1] + values[2] + values[3];
+
+                public int ZeroSizedArray(
+                    [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)] int[] values)
+                    => values.Length;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "I4", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "LpStr", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Bool", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Sum", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "FirstFour", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "PlainArray", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "FixedArray", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "ZeroSizedArray", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsReturnParameterMetadata()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+                public int I4()
+                    => 42;
+
+                [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)]
+                public string Text()
+                    => "hello";
+
+                [return: System.Diagnostics.CodeAnalysis.NotNull]
+                public string NotNullText()
+                    => "hello";
+
+                [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+                public int FallbackSignature(
+                    [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when)
+                    => when.Year;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "I4", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "Text", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "NotNullText", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "FallbackSignature", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)]", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[return: System.Diagnostics.CodeAnalysis.NotNull]", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]", result.Source);
+                    Assert.Contains("[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when", result.Source);
+                    Assert.DoesNotContain("public [return:", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsGenericTypeTargets()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Box<T>
+            {
+                private T _value;
+
+                public Box(T value)
+                {
+                    _value = value;
+                }
+
+                public T Value
+                {
+                    get => _value;
+                    set => _value = value;
+                }
+
+                public T Echo(T value) => value;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Box`1", ".ctor", 0),
+                    new ReturnToSender.RequestedTarget("Box`1", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Box`1", "set_Value", 0),
+                    new ReturnToSender.RequestedTarget("Box`1", "Echo", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status),
+                result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+            Assert.All(results, result => Assert.Contains("public class Box<T>", result.Source));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSourceComposer_NestedGenericTypeParametersSkipDeclaringTypeParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Outer<T>
+            {
+                public class Inner<U>
+                {
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var nested = reader.TypeDefinitions
+                .Select(handle => reader.GetTypeDefinition(handle))
+                .Single(type => reader.GetString(type.Name).StartsWith("Inner", StringComparison.Ordinal));
+            var method = typeof(CompileBackSourceComposer).GetMethod(
+                "TypeParameters",
+                BindingFlags.NonPublic | BindingFlags.Static,
+                [typeof(MetadataReader), typeof(TypeDefinition)]);
+
+            var typeParameters = Assert.IsAssignableFrom<IReadOnlyList<CompileBackTypeParameter>>(
+                method?.Invoke(null, [reader, nested]));
+            var typeParameter = Assert.Single(typeParameters);
+            Assert.Equal("U", typeParameter.Name);
         }
         finally
         {

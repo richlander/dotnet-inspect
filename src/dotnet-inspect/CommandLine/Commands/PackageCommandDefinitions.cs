@@ -1,6 +1,7 @@
 using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.CommandLine;
@@ -122,8 +123,10 @@ public static class PackageCommandDefinitions
 
                     if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.AllLibraries && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
                     {
-                        var pkg = success.Options.PackageArgs[0];
-                        if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
+                        var target = PackageExtractor.ParsePackageTarget(success.Options.PackageArgs[0]);
+                        var pkg = target.IsLocalFile
+                            ? target.OriginalArgument
+                            : PackageExtractor.ParsePackageReference(target.OriginalArgument).name;
                         TipWriter.WritePackageTips(pkg, success.Options.TipLevel, success.Verbosity);
                     }
 
