@@ -2438,6 +2438,12 @@ public sealed class ArrayLength : IrExpression
 /// <see cref="SliceExpression"/>. Either endpoint may be omitted, spelling the
 /// open forms <c>start..</c>, <c>..end</c>, and <c>..</c>.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundRangeExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundRangeExpression / start..end",
+    precondition: "result is `System.Range` (the `start..end` operator; either endpoint may be omitted)",
+    witness: "range/index fixtures; corpus compile-back")]
 public sealed class RangeExpression : IrExpression
 {
     public RangeExpression(IrExpression? start, IrExpression? end)
@@ -2459,12 +2465,17 @@ public sealed class RangeExpression : IrExpression
     public override string Describe() => "RangeExpression";
 }
 
-/// <summary>
-/// A raised C# range-indexer access (<c>receiver[start..end]</c>) — the inverse
+/// <summary>A raised C# range-indexer access (<c>receiver[start..end]</c>) — the inverse
 /// of the compiler's range-slice lowering (<c>RuntimeHelpers.GetSubArray</c> for
 /// arrays). The result type is the slice's type (the receiver's array type), not
 /// an element type.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "receiver[start..end] (range-indexer access) / GetSubArray·Slice",
+    precondition: "result is the slice's type (the receiver's array/span type, given at construction), not an element type; raised from the range-slice lowering",
+    witness: "range/index fixtures; corpus compile-back")]
 public sealed class SliceExpression : IrExpression
 {
     public SliceExpression(IrExpression receiver, RangeExpression range, TypeRef? resultType)
@@ -2482,6 +2493,12 @@ public sealed class SliceExpression : IrExpression
 }
 
 /// <summary>A raised C# index-from-end operand (<c>^n</c>), used inside array/string element access.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFromEndIndexExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "^n (BoundFromEndIndexExpression) / new Index(n, fromEnd: true)",
+    precondition: "result is `System.Index` (the `^n` from-end operand)",
+    witness: "range/index fixtures; corpus compile-back")]
 public sealed class IndexFromEnd : IrExpression
 {
     public IndexFromEnd(IrExpression offset) => AddChild(offset);
@@ -2721,6 +2738,12 @@ public sealed class NewArray : IrExpression
 /// allocates raw bytes and yields a pointer, so the faithful element type is
 /// <c>byte</c> and the result is <c>byte*</c>.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundStackAllocArrayCreation,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "stackalloc byte[n] (pointer form) / localloc",
+    precondition: "result is `byte*` — localloc yields a raw byte pointer (the faithful element type is `byte`)",
+    witness: "unsafe/stackalloc fixtures; corpus compile-back")]
 public sealed class StackAllocate : IrExpression
 {
     public StackAllocate(IrExpression size) => AddChild(size);
@@ -2743,6 +2766,12 @@ public sealed class StackAllocate : IrExpression
 /// byte size carried by the original <see cref="StackAllocate"/> is redundant
 /// (<c>n * sizeof(T)</c>) and dropped.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundStackAllocArrayCreation,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "stackalloc T[n] (Span form) / localloc + Span ctor",
+    precondition: "result is the target-typed `Span<T>`/`ReadOnlySpan<T>` (given at construction); the element count is the constructor's `length` argument",
+    witness: "unsafe/stackalloc fixtures; corpus compile-back")]
 public sealed class StackAllocArray : IrExpression
 {
     readonly TypeRef? _resultType;
@@ -2792,6 +2821,12 @@ public enum RuntimeTokenKind { Type, Method, Field }
 /// call leaves the surrounding expression's type unchanged; the printer spells
 /// it as the array literal that the compiler re-lowers to the same blob.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "new T[] { … } in ReadOnlySpan context / RuntimeHelpers.CreateSpan",
+    precondition: "result is the `ReadOnlySpan<T>` `SpanType` the CreateSpan call produced (given); the elements are decoded from the field RVA blob",
+    witness: "span-literal fixtures; corpus compile-back")]
 public sealed class SpanLiteral : IrExpression
 {
     public SpanLiteral(TypeRef elementType, TypeRef spanType, IEnumerable<IrExpression> elements)
@@ -2898,6 +2933,12 @@ public sealed class ArrayLiteral : IrExpression
 /// angle-bracketed <c>&lt;PrivateImplementationDetails&gt;</c> method name never
 /// parses, so leaving the call flat is malformed C#.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundConversion (inline-array → span) / InlineArrayAsSpan",
+    precondition: "result is the `Span<T>`/`ReadOnlySpan<T>` `SpanType` the inline-array AsSpan conversion produced (given)",
+    witness: "inline-array fixtures; corpus compile-back")]
 public sealed class InlineArraySpanConversion : IrExpression
 {
     public InlineArraySpanConversion(TypeRef spanType, IrExpression place)
