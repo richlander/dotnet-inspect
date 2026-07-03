@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -20,30 +19,10 @@ public static class AssertionPrinter
         {
             var sb = new StringBuilder();
 
-            var executedPredicates = new Dictionary<string, IReadOnlyList<AssumptionViolation>>();
-            foreach (var t in InverseLedger.NodeTypes(typeof(IrFunction).Assembly))
-            {
-                var attr = t.GetCustomAttribute<InverseOfAttribute>();
-                if (attr?.Assumes != null && !executedPredicates.ContainsKey(attr.Assumes))
-                {
-                    var method = typeof(InverseAssumptions).GetMethod(attr.Assumes, BindingFlags.Public | BindingFlags.Static);
-                    if (method != null)
-                    {
-                        try
-                        {
-                            var result = method.Invoke(null, new object[] { function }) as IReadOnlyList<AssumptionViolation>;
-                            executedPredicates[attr.Assumes] = result ?? Array.Empty<AssumptionViolation>();
-                        }
-                        catch
-                        {
-                            // A throwing predicate shouldn't crash the dump
-                            executedPredicates[attr.Assumes] = new[] { new AssumptionViolation(function, $"Predicate {attr.Assumes} threw an exception") };
-                        }
-                    }
-                }
-            }
-
-            var allViolations = executedPredicates.Values.SelectMany(v => v).ToList();
+            var allViolations = AssertionEvaluator.EvaluateAssumptions(function)
+                .SelectMany(r => r.Violations)
+                .ToList();
+            var unannotated = InverseLedger.Unannotated(typeof(IrFunction).Assembly).ToHashSet(StringComparer.Ordinal);
 
             void Append(IrNode node, int indent)
             {
@@ -61,6 +40,10 @@ public static class AssertionPrinter
                         sb.Append($", assumes: {attr.Assumes}");
                     }
                     sb.AppendLine();
+                }
+                else if (node is IrExpression && unannotated.Contains(t.Name))
+                {
+                    sb.Append(' ', indent * 2).AppendLine("// inverse: (unannotated)");
                 }
 
                 // Match violation by exact reference identity, not a lossy substring of Describe()

@@ -40,6 +40,10 @@ static class Program
         bool validityCheck = false;
         int compileCap = 4000;
         bool assertions = false;
+        bool assertionScan = false;
+        string? emitAssertionViolations = null;
+        string? diffAssertionViolations = null;
+        int? sampleSize = null;
         string? emitValidityDefects = null;
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
@@ -114,9 +118,13 @@ static class Program
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
                 case "--assertions": assertions = true; break;
+                case "--assertion-scan": assertionScan = true; break;
+                case "--sample": sampleSize = int.Parse(args[++i]); break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
                 case "--validity-check": validityCheck = true; break;
                 case "--compile-cap": compileCap = int.Parse(args[++i]); break;
+                case "--emit-assertion-violations": emitAssertionViolations = args[++i]; break;
+                case "--diff-assertion-violations": diffAssertionViolations = args[++i]; break;
                 case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
                 case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
                 case "--fidelity-check": fidelityCheck = true; break;
@@ -214,6 +222,17 @@ static class Program
             : ResolveAssemblies(inputs).Concat(packageInputs.Assemblies).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
+
+        if (assertionScan || emitAssertionViolations is not null || diffAssertionViolations is not null)
+            return AssertionScan.Run(
+                assemblies,
+                new AssertionScan.Options(
+                    sampleSize,
+                    maxExamples,
+                    emitAssertionViolations,
+                    diffAssertionViolations,
+                    workers,
+                    sequential));
 
         if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
@@ -1321,6 +1340,12 @@ static class Program
                                 first unsound rewrite if a predicate fails.
                                 Usage rules (dev aid vs PR signoff):
                                 docs/decompiler-raise-discipline.md.
+          --assertion-scan      run the inverse-architecture assumption predicates
+                                across input methods and report violation
+                                histograms plus annotation coverage. Measurement
+                                only; not a raw-count gate.
+          --sample <n>          with --assertion-scan: deterministic hash-ranked
+                                method sample per assembly.
           --cfg                 with --dump: print the control-flow graph (per-block
                                 predecessor/successor edges) of each block container
                                 in the raised IR.
@@ -1356,6 +1381,12 @@ static class Program
           --max-examples <n>    example methods per bucket (default 5)
           --validity-check       compile every decompiled body; report invalid C#
           --compile-cap <n>     cap semantically-bound methods (default 4000)
+          --emit-assertion-violations <f>
+                                with --assertion-scan, write per-method assertion
+                                violations to JSON file <f>.
+          --diff-assertion-violations <f>
+                                with --assertion-scan, diff per-method assertion
+                                violations against JSON baseline <f>.
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
