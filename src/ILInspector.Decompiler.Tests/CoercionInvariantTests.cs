@@ -141,6 +141,209 @@ public class CoercionInvariantTests
     }
 
     [Fact]
+    public void SlotStore_IsATypedSink_WhenLoadsTestifyToOneType()
+    {
+        // Slice 5b: the census's dominant multi-typed-slot shape is the diamond
+        // whose arms store different types into a slot the join reads at one
+        // type. 5a reconciled constant arms; the non-constant arm now wraps in
+        // a Coerce at the slot store, and the printer's type-keyed naming
+        // collapses to one declaration by construction.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new LoadArgument(0, "e", Enum32)));
+        block.Add(new StoreStackSlot(3, new LoadArgument(1, "raw", Int32Type)));
+        block.Add(new Return(new LoadStackSlot(3, Enum32)));
+        container.Add(block);
+        var function = Function(container, Enum32,
+            new Parameter("e", Enum32), new Parameter("raw", Int32Type));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var stores = function.Descendants.OfType<StoreStackSlot>().ToList();
+        Assert.IsType<LoadArgument>(stores[0].Value);
+        var coerced = Assert.IsType<Coerce>(stores[1].Value);
+        Assert.Equal(Enum32, coerced.Target);
+        Assert.Empty(CoercionInvariant.Check(function));
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(E32)raw", output);
+        Assert.DoesNotContain("S_3_1", output);
+    }
+
+    [Fact]
+    public void EnumStore_AtIntTestifiedSlot_WrapsAndKeepsOneRange()
+    {
+        // Round-2 review (both reviewers): the family gate must unwrap enum
+        // SOURCES symmetrically — an enum store at an int-testified slot is a
+        // renderable coercion ((int)e, the slice-4 widening rule), and denying
+        // it split the slot into a severed range with an unassigned read
+        // (`E32 S_0 = e; return S_0_1;` — CS0165).
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(block);
+        var function = Function(container, Int32Type, new Parameter("e", Enum32));
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [Enum32] = Int32Type };
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var coerced = Assert.IsType<Coerce>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(Int32Type, coerced.Target);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("(int)e", output);
+    }
+
+    [Fact]
+    public void BoolTestifiedSlot_DoesNotWrapIntStore()
+    {
+        // Round-2 review (both reviewers): bool and int share stack family I4,
+        // but integer→bool has no C# spelling — wrapping produced a bare
+        // `bool S_0; S_0 = intValue;` (CS0029). The gate's booleanness is
+        // directional: bool→integer composes, integer→bool never wraps.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "intValue", Int32Type)));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new StoreStackSlot(0, new LoadArgument(1, "boolValue", boolType)));
+        second.Add(new Return(new LoadStackSlot(0, boolType)));
+        container.Add(second);
+        var function = Function(container, boolType,
+            new Parameter("intValue", Int32Type),
+            new Parameter("boolValue", boolType));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("bool S_0;\n\nS_0 = intValue;", output.Replace("\r", ""));
+        Assert.Contains("int S_0", output);
+    }
+
+    [Fact]
+    public void CrossEnumSlotStore_WrapsWithDirectEnumCast()
+    {
+        // Round 4 (Gemini): denying this wrap severed the single live range
+        // into an unassigned read (CS0165). C# permits explicit enum→enum
+        // conversion directly, so the renderer now spells it and the range
+        // stays unified.
+        var otherEnum = TypeRef.Definition("synthetic", "", "OtherE32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, otherEnum)));
+        container.Add(block);
+        var function = Function(container, otherEnum, new Parameter("e", Enum32));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Enum32] = TypeShape.Enum,
+            [otherEnum] = TypeShape.Enum,
+        };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [Enum32] = Int32Type,
+            [otherEnum] = Int32Type,
+        };
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(OtherE32)e", output);
+        Assert.DoesNotContain("S_0_1", output);
+    }
+
+    [Fact]
+    public void BoolStore_AtNarrowIntegerTestifiedSlot_WrapsWithTargetCast()
+    {
+        // Round 4 (MAI + Gemini): denying the wrap severed the range
+        // (`byte S_0_1;` read unassigned). The composition now carries the
+        // target cast where int does not convert implicitly:
+        // (byte)(boolValue ? 1 : 0).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "boolValue", boolType)));
+        block.Add(new Return(new LoadStackSlot(0, byteType)));
+        container.Add(block);
+        var function = Function(container, byteType, new Parameter("boolValue", boolType));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(byte)(boolValue ? 1 : 0)", output);
+        Assert.DoesNotContain("S_0_1", output);
+    }
+
+    [Fact]
+    public void EnumStore_WithoutUnderlyingMetadata_WrapsWithAssumedIntCast()
+    {
+        // Round 4 (Gemini): denying severed the range. The renderer's
+        // enum→primitive branch now shares the assumed-int rule for a
+        // missing-value__ shape ((int)e is legal C# for any enum), so the
+        // range stays unified — and the slot testimony itself proves the I4
+        // family, making the assumption safe here.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(block);
+        var function = Function(container, Int32Type, new Parameter("e", Enum32));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(int)e", output);
+        Assert.DoesNotContain("S_0_1", output);
+    }
+
+    [Fact]
+    public void CrossFamilySlotStore_IsNotWrapped_DisjointRangeKeepsSplitNaming()
+    {
+        // Slice-5b adversarial review (Gemini, blocking): a dead `long` store
+        // on an int-testified slot is not a coercion candidate — the verifier
+        // never merges across stack families, so the cross-family store is
+        // proof of a DISJOINT live range. Wrapping it produced a Coerce the
+        // renderer rightly refused to cast (bare CS0266). It yields as a
+        // PrinterOwned counted residual instead, and the printer's split
+        // naming keeps the ranges as separate typed variables.
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "longValue", longType)));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new StoreStackSlot(0, new LoadArgument(1, "intValue", Int32Type)));
+        second.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(second);
+        var function = Function(container, Int32Type,
+            new Parameter("longValue", longType),
+            new Parameter("intValue", Int32Type));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        var audit = CoercionInvariant.Audit(function);
+        Assert.Empty(audit.Violations);
+        Assert.True(audit.Residuals.Values.Sum() > 0, "the disjoint-range store must be counted, not hidden");
+
+        // Split naming gives each range its own correctly-typed variable —
+        // never Gemini's `int S_0; S_0 = longValue;` (CS0266).
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("long S_0;", output);
+        Assert.Contains("int S_0_1;", output);
+        Assert.DoesNotContain("int S_0;", output);
+    }
+
+    [Fact]
     public void SlotCarriedValue_IsExcluded_UntilInstanceTwoTypesIt()
     {
         // Review finding #1: wrapping a LoadStackSlot breaks the printer's slot

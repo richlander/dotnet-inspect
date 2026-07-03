@@ -73,7 +73,74 @@ public static class CoercionSinks
             : store.ElementType;
 
     public static IEnumerable<TypedSink> Enumerate(IrFunction function)
-        => Enumerate(function.Body, function.Signature.ReturnType, function);
+        => Enumerate(function.Body, function.Signature.ReturnType, function,
+            TestifiedSlotTypes(function.Body, function.Signature.ReturnType));
+
+    /// <summary>Scope-bounded descendants: every node in this body, not crossing into nested lambda / local-function bodies (their scopes walk separately).</summary>
+    public static IEnumerable<IrNode> ScopeNodes(IrNode scope)
+    {
+        foreach (var child in scope.Children)
+        {
+            yield return child;
+            if (child is not (Lambda or LocalFunctionStatement))
+            {
+                foreach (var nested in ScopeNodes(child))
+                    yield return nested;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Per slot (per body scope), the single type every load testifies to —
+    /// the importer's recovered join type. A typed load contributes its type,
+    /// an untyped load contributes its consuming sink's target type, and an
+    /// untyped load with no derivable sink vetoes the slot; disagreement
+    /// vetoes. The one slot-evidence rule (slice 5a review), shared by
+    /// constant reconciliation (TypedConstantsPass) and slot-store sink
+    /// enumeration (slice 5b).
+    /// </summary>
+    public static Dictionary<int, TypeRef> TestifiedSlotTypes(IrNode scope, TypeRef? returnType)
+    {
+        var types = new Dictionary<int, TypeRef>();
+        var ambiguous = new HashSet<int>();
+        foreach (var load in ScopeNodes(scope).OfType<LoadStackSlot>())
+        {
+            if (ambiguous.Contains(load.Slot))
+                continue;
+            var evidence = load.Type ?? LoadSinkTargetType(load, returnType);
+            if (evidence is null)
+            {
+                types.Remove(load.Slot);
+                ambiguous.Add(load.Slot);
+                continue;
+            }
+            if (types.TryGetValue(load.Slot, out var existing))
+            {
+                if (!existing.Equals(evidence))
+                {
+                    types.Remove(load.Slot);
+                    ambiguous.Add(load.Slot);
+                }
+            }
+            else
+            {
+                types[load.Slot] = evidence;
+            }
+        }
+        return types;
+    }
+
+    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
+    static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType)
+        => load.Parent switch
+        {
+            StoreLocal store when ReferenceEquals(store.Value, load) => store.Type,
+            StoreArgument store when ReferenceEquals(store.Value, load) => store.Type,
+            StoreField store when ReferenceEquals(store.Value, load) => store.Field.Type,
+            StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
+            Return ret when ReferenceEquals(ret.Value, load) => returnType,
+            _ => null,
+        };
 
     /// <summary>
     /// Walks one body scope. Nested bodies carry their own return types: a
@@ -83,18 +150,18 @@ public static class CoercionSinks
     /// outer signature (review finding: a bool predicate return coerced to the
     /// outer method's int).
     /// </summary>
-    static IEnumerable<TypedSink> Enumerate(IrNode scope, TypeRef? returnType, IrFunction function)
+    static IEnumerable<TypedSink> Enumerate(IrNode scope, TypeRef? returnType, IrFunction function, Dictionary<int, TypeRef> slotTypes)
     {
         foreach (var child in scope.Children)
         {
             switch (child)
             {
                 case Lambda lambda:
-                    foreach (var nested in Enumerate(lambda, returnType: null, function))
+                    foreach (var nested in Enumerate(lambda, returnType: null, function, TestifiedSlotTypes(lambda, returnType: null)))
                         yield return nested;
                     continue;
                 case LocalFunctionStatement local:
-                    foreach (var nested in Enumerate(local, local.ReturnType, function))
+                    foreach (var nested in Enumerate(local, local.ReturnType, function, TestifiedSlotTypes(local, local.ReturnType)))
                         yield return nested;
                     continue;
             }
@@ -102,6 +169,29 @@ public static class CoercionSinks
             {
                 case Return { Value: { } value } when returnType is { } scopeReturn:
                     yield return new(value, scopeReturn);
+                    break;
+                // A slot store is a typed sink once the slot's loads testify to
+                // one type (slice 5b): the census's dominant shape is the
+                // diamond whose arms store different types into a slot the join
+                // reads at one type — 5a reconciled the constant arms; the
+                // Coerce wrap covers the rest, and the printer's type-keyed
+                // naming collapses to one declaration by construction.
+                // Wrappable exactly when CoerceText has a spelling for this
+                // value/target pair. Cross-family stores (a dead `long` store
+                // on an int-testified slot) are proof of disjoint live ranges,
+                // where split naming is correct; same-family oddities stay
+                // unified because CoercionRendering and CoerceText share one
+                // contract.
+                case StoreStackSlot { Value: { } slotValue } slotStore
+                    when slotTypes.GetValueOrDefault(slotStore.Slot) is { } slotType:
+                    yield return new(slotValue, slotType,
+                        CoercionRendering.CanSpellSlotCoercion(
+                            slotValue.ResultType,
+                            slotType,
+                            function.TypeShapes,
+                            function.EnumUnderlyingTypes)
+                            ? SinkScope.Wrappable
+                            : SinkScope.PrinterOwned);
                     break;
                 case StoreLocal { Value: { } value, Type: { } type }:
                     yield return new(value, type);
@@ -168,7 +258,7 @@ public static class CoercionSinks
                 // cannot reach them) and the printer spells labels through
                 // EnumConstantText.
             }
-            foreach (var nested in Enumerate(child, returnType, function))
+            foreach (var nested in Enumerate(child, returnType, function, slotTypes))
                 yield return nested;
         }
     }
