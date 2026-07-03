@@ -357,6 +357,50 @@ public sealed class CSharpDeclarationFormatterTests
     }
 
     [Fact]
+    public void ConstructorOverloadSnippet_EscapesKeywordGenericParameterTypes()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "event" }],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    Signature = "BROKEN",
+                    SignatureModel = new ApiSignature
+                    {
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Type = "System.Action<event>",
+                                Name = "callback"
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new TypeOptions());
+
+        ApiOutputFormatter.PopulateConstructorOverloads(view, type, new TypeOptions());
+
+        Assert.Equal("new Widget(System.Action<@event> callback)", view.ConstructorOverloads![0].Signature.Content);
+    }
+
+    [Fact]
     public void ConstructorOverloadSnippet_IgnoresObsoleteAttributePrefix()
     {
         var type = new ApiType
