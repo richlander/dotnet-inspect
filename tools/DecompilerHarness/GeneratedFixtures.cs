@@ -1304,6 +1304,12 @@ internal static class GeneratedFixtureCatalog
             public string Text { get; set; }
         }
 
+        [System.Runtime.CompilerServices.InlineArray(4)]
+        public struct InlineBuffer
+        {
+            private int _element0;
+        }
+
         public unsafe class Class1
         {
             private int _field;
@@ -1433,6 +1439,40 @@ internal static class GeneratedFixtureCatalog
 
             public static long ConvertNumeric(int value)
                 => (long)value;
+
+            public static int FromEndIndex(int[] values, int offset)
+                => values[^offset];
+
+            public static int Slice(int[] values, int start, int end)
+                => values[start..end][0];
+
+            public static int SpanLiteral()
+            {
+                System.ReadOnlySpan<int> values = [1, 2, 3];
+                return values[0];
+            }
+
+            public static int StackAllocSpan()
+            {
+                System.Span<int> values = stackalloc int[2];
+                values[0] = 42;
+                return values[0];
+            }
+
+            public static int StackAllocPointer(int count)
+            {
+                int* values = stackalloc int[count];
+                values[0] = 1;
+                return values[0];
+            }
+
+            public static int InlineArraySpan()
+            {
+                InlineBuffer buffer = default;
+                System.Span<int> values = buffer;
+                values[0] = 7;
+                return values[0];
+            }
         }
         """,
         [],
