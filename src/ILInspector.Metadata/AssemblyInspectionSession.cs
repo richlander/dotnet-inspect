@@ -25,6 +25,14 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata => _image.HasMetadata;
 
+    // The method-body / IL seam (the CLI's MemberCodeProvider + ILDisassembler) needs low-level
+    // reader access that the public facet API deliberately does not expose. These internal
+    // accessors let that composition read through this owned image instead of opening its own raw
+    // PEReader, so the single PE open stays owned here. The public contract ("callers never touch a
+    // PEReader") is unchanged for external consumers.
+    internal System.Reflection.PortableExecutable.PEReader PeReader => _image.PEReader;
+    internal System.Reflection.Metadata.MetadataReader MetadataReader => _image.GetMetadataReader();
+
     // --- assembly facets: each produced once over the single shared reader ---
 
     /// <summary>Assembly identity and, optionally, its assembly references.</summary>
