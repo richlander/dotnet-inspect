@@ -13,16 +13,26 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class PassContext
 {
     const int MaxCrossMethodPipelineDepth = 64;
-    readonly List<string> _activeCrossMethodPipelines = [];
+    readonly List<string> _activeCrossMethodPipelines;
 
     public PassContext(
         Stepper stepper,
         StructuringDiagnostics? structuringDiagnostics = null,
         Func<MethodRef, IrFunction?>? importMethodBody = null)
+        : this(stepper, structuringDiagnostics, importMethodBody, [])
+    {
+    }
+
+    PassContext(
+        Stepper stepper,
+        StructuringDiagnostics? structuringDiagnostics,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        List<string> activeCrossMethodPipelines)
     {
         Stepper = stepper;
         StructuringDiagnostics = structuringDiagnostics;
         ImportMethodBody = importMethodBody;
+        _activeCrossMethodPipelines = activeCrossMethodPipelines;
     }
 
     public Stepper Stepper { get; }
@@ -63,10 +73,15 @@ public sealed class PassContext
         {
             body = scope.Import();
             if (body is not null)
-                IrPasses.Run(body, passes, this);
+                IrPasses.Run(body, passes, NestedPipelineContext());
             return true;
         }
     }
+
+    PassContext NestedPipelineContext()
+        => Stepper.IsEnabled
+            ? new PassContext(new Stepper(enabled: false), StructuringDiagnostics, ImportMethodBody, _activeCrossMethodPipelines)
+            : this;
 
     /// <summary>
     /// Marks a sibling method active across any raw inspection and nested pass run
