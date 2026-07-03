@@ -1208,14 +1208,23 @@ public sealed class Unary : IrExpression
 }
 
 /// <summary>
-/// A recovered C# <c>await</c> expression, produced by
-/// <see cref="AwaitRecoveryPass"/> from a runtime-async (async v2)
-/// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call. The single
-/// child is the awaited operand; <see cref="ResultType"/> is the awaited result
-/// type (the helper call's return type — <c>void</c> for the non-generic form).
-/// Runtime async lowers <c>await x</c> directly to this call rather than to a
-/// state machine, so recovery is a call-site rewrite with no MoveNext to unwind.
+/// A recovered C# <c>await</c> expression. It is produced by two passes:
+/// <see cref="AwaitRecoveryPass"/> rewrites a runtime-async (async v2)
+/// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call directly (no
+/// MoveNext to unwind), and <see cref="ClassicAsyncReconstructionPass"/> recovers
+/// it from a classic (runtime-async=off) <c>MoveNext</c> state machine's awaiter
+/// <c>GetResult</c> shape. The single child is the awaited operand;
+/// <see cref="ResultType"/> is the awaited result type — the
+/// <c>AsyncHelpers.Await</c> call's return type for the runtime-async form, or the
+/// awaiter's <c>GetResult</c> return type for the classic form (<c>void</c> for the
+/// non-generic form).
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundAwaitExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "await x (BoundAwaitExpression) / AsyncHelpers.Await call (runtime-async) or MoveNext-GetResult reconstruction (classic async)",
+    precondition: "result is the awaited result type, given at construction: the `AsyncHelpers.Await` call's return type for runtime-async, or the awaiter's `GetResult` return type for classic-async MoveNext reconstruction (`void` for the non-generic form)",
+    witness: "async fixtures (classic-async MoveNext reconstruction); corpus compile-back")]
 public sealed class AwaitExpression : IrExpression
 {
     public AwaitExpression(IrExpression operand, TypeRef? resultType)
@@ -3095,6 +3104,12 @@ public sealed class EventSubscription : IrNode
 }
 
 /// <summary>The exception value the CLR pushes on entry to a catch or filter handler.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "the caught exception in a catch clause / handler-entry stack value",
+    precondition: "result is the catch region's declared exception type (`Type`), or `System.Object` in filters/untyped contexts — the exception value at handler entry",
+    witness: "exception-handling fixtures; corpus compile-back")]
 public sealed class CaughtException : IrExpression
 {
     public CaughtException(TypeRef? type) => Type = type;
@@ -3445,6 +3460,7 @@ public sealed class UnboxAny : IrExpression
 /// rendered honestly, never forced into plausible output. Any occurrence
 /// caps the function's fidelity at <see cref="DecompilationFidelity.Partial"/>.
 /// </summary>
+[Inverse.NotInverted("unrepresented IL kept explicit and rendered honestly — outside the inverse's checkable domain by construction; any occurrence caps fidelity at Partial")]
 public sealed class UnsupportedNode : IrExpression
 {
     public UnsupportedNode(int ilOffset, string opcode, string reason)

@@ -103,11 +103,13 @@ internal static class AssertionScan
     [
         new("AddressOfMethod", [AssertionCoverageFixture]),
         new("ArrayLength", [AssertionCoverageFixture]),
+        new("AwaitExpression", [AssertionCoverageFixture]),
         new("Binary", [AssertionCoverageFixture]),
         new("Box", [AssertionCoverageFixture]),
         new("Call", [AssertionCoverageFixture]),
         new("CallIndirect", [AssertionCoverageFixture]),
         new("CastClass", [AssertionCoverageFixture]),
+        new("CaughtException", [AssertionCoverageFixture]),
         new("Coerce", [AssertionCoverageFixture]),
         new("Comparison", [AssertionCoverageFixture]),
         new("Convert", [AssertionCoverageFixture]),

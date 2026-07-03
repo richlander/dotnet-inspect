@@ -1356,6 +1356,18 @@ internal static class GeneratedFixtureCatalog
             public static System.Type TypeToken()
                 => typeof(Holder);
 
+            public static int CaughtException()
+            {
+                try
+                {
+                    throw new System.InvalidOperationException();
+                }
+                catch (System.InvalidOperationException ex)
+                {
+                    return ex.HResult;
+                }
+            }
+
             public static int Size()
                 => sizeof(Mutable);
 
@@ -1473,6 +1485,12 @@ internal static class GeneratedFixtureCatalog
                 values[0] = 7;
                 return values[0];
             }
+        }
+
+        public class AsyncClass
+        {
+            public static async System.Threading.Tasks.Task<int> AwaitExpression()
+                => await System.Threading.Tasks.Task.FromResult(42);
         }
         """,
         [],

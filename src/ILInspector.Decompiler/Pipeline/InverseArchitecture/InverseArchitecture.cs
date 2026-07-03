@@ -88,6 +88,9 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundStackAllocArrayCreation</c> (a <c>stackalloc T[n]</c> expression).</summary>
     RoslynBoundStackAllocArrayCreation,
+
+    /// <summary>Roslyn's <c>BoundAwaitExpression</c> (an <c>await x</c> expression).</summary>
+    RoslynBoundAwaitExpression,
 }
 
 /// <summary>
