@@ -664,7 +664,7 @@ public class ApiCommand
             // when such a section is requested) instead of opening one session per section.
             MethodBodyInspectionSession? typeAnalysisSession = null;
             MethodBodyInspectionSession TypeAnalysisSession() =>
-                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(options.DllPath!);
+                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(options.DllPath!, GetRequestedMemberSections(type, options));
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -1294,7 +1294,7 @@ public class ApiCommand
 
             MethodBodyInspectionSession? typeAnalysisSession = null;
             MethodBodyInspectionSession TypeAnalysisSession() =>
-                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(renderOptions.DllPath!);
+                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions));
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))

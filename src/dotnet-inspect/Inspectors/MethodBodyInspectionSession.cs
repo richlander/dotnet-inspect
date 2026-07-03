@@ -42,11 +42,18 @@ public sealed class MethodBodyInspectionSession
     /// </summary>
     internal static int OpenCountForTests;
 
-    /// <summary>Opens a session over an assembly's analysis body index.</summary>
-    public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null)
+    /// <summary>
+    /// Opens a session over an assembly's analysis body index. <paramref name="includeAllocations"/>
+    /// and <paramref name="includeOpportunities"/> gate the two expensive whole-assembly analysis
+    /// phases (escape-classified allocation occurrences and optimization opportunities); leave them
+    /// on unless the caller knows no requested section consumes them (see
+    /// <c>ApiOutputFormatter.AnalysisScopeFor</c>).
+    /// </summary>
+    public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null,
+        bool includeAllocations = true, bool includeOpportunities = true)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
-        return new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver), Path.GetFileNameWithoutExtension(assemblyPath));
+        return new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver, includeAllocations, includeOpportunities), Path.GetFileNameWithoutExtension(assemblyPath));
     }
 
     /// <summary>

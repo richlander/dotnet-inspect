@@ -13,16 +13,27 @@ public sealed class ScannerContext
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
 
+    /// <summary>
+    /// Whether the shared body session must compute optimization opportunities (and therefore the
+    /// allocation occurrences they build on). True only when the Performance Triage scanner is in
+    /// the requested set; the other body scanners (unsafe members, top leverage) need neither, so
+    /// the index build skips both expensive phases. Defaults to true (compute everything) so an
+    /// unset context never silently drops opportunity data.
+    /// </summary>
+    public bool IncludeOpportunities { get; init; } = true;
+
     private MethodBodyInspectionSession? _bodySession;
 
     /// <summary>
     /// Shared method-body analysis session for <see cref="AssemblyPath"/>, built once on first use.
     /// The body-index scanners (unsafe members, top leverage, optimization opportunities) share it
     /// instead of each rebuilding the full <c>LibraryBodyIndex</c>. Scanners run sequentially
-    /// (<see cref="ScannerRegistry.RunScanners"/>), so no synchronization is required.
+    /// (<see cref="ScannerRegistry.RunScanners"/>), so no synchronization is required. The build is
+    /// narrowed to the phases the requested scanners consume (see <see cref="IncludeOpportunities"/>).
     /// </summary>
     public MethodBodyInspectionSession BodySession() =>
-        _bodySession ??= MethodBodyInspectionSession.Open(AssemblyPath);
+        _bodySession ??= MethodBodyInspectionSession.Open(
+            AssemblyPath, includeAllocations: IncludeOpportunities, includeOpportunities: IncludeOpportunities);
 }
 
 /// <summary>
