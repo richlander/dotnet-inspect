@@ -175,20 +175,6 @@ public sealed partial class CSharpPrinter
     /// the IL already carries as the enum, so it is faithful. A negative literal
     /// is parenthesized (CS0075), mirroring <see cref="CoerceText"/>'s enum path.
     /// </summary>
-    /// <summary>
-    /// The stack family of an enum-typed value's underlying: the resolved
-    /// underlying's family, or I4 for a missing-<c>value__</c> shape (the
-    /// MayOverflowEnumBackingType assumption). Null for non-enums.
-    /// </summary>
-    StackFamily? EnumSemanticFamily(TypeRef? type)
-    {
-        if (type is null || TypeFamilies.Of(type) is not null)
-            return null;
-        if (EnumUnderlyingType(type) is { } underlying)
-            return TypeFamilies.Of(underlying);
-        return _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum ? StackFamily.I4 : null;
-    }
-
     string EnumIntegerCast(IrExpression value, TypeRef enumType)
     {
         // A negative literal needs parentheses after the cast (CS0075); whether it
@@ -1089,9 +1075,7 @@ public sealed partial class CSharpPrinter
         // whole merge — `(StringComparison)(flag ? 1 : 0)` — which is legal off a
         // concrete enum target (the bail's CS0030 risk is type-parameter-only).
         if (target is { } enumTarget
-            && _function.TypeShapes.GetValueOrDefault(enumTarget) == TypeShape.Enum
-            && EffectiveType(value) is { } enumSource && !enumTarget.Equals(enumSource)
-            && TypeFamilies.IsIntegerLike(enumSource))
+            && CoercionRendering.CanSpellIntegerToEnum(EffectiveType(value), enumTarget, _function.TypeShapes))
         {
             return value is Constant { Value: int or long } enumKonst
                 ? EnumConstantText(enumKonst, enumTarget)
@@ -1110,11 +1094,11 @@ public sealed partial class CSharpPrinter
         // target. Narrowing (I8 underlying, I4 target) never gets a silent
         // cast; a real narrowing in the IL arrives as a Convert node instead.
         if (target is { } primitiveTarget
-            && TypeFamilies.IsIntegerLike(primitiveTarget)
-            && EnumSemanticFamily(EffectiveType(value)) is { } underlyingFamily
-            && TypeFamilies.Of(primitiveTarget) is { } targetFamily
-            && (underlyingFamily == targetFamily
-                || (underlyingFamily == StackFamily.I4 && targetFamily == StackFamily.I8)))
+            && CoercionRendering.CanSpellEnumToInteger(
+                EffectiveType(value),
+                primitiveTarget,
+                _function.TypeShapes,
+                _function.EnumUnderlyingTypes))
         {
             return $"({TypeText(primitiveTarget)}){Operand(value)}";
         }
@@ -1124,9 +1108,11 @@ public sealed partial class CSharpPrinter
         // (slice-5b round 4: without the spelling, the range severed into an
         // unassigned read).
         if (target is { } enumToEnumTarget
-            && EnumSemanticFamily(enumToEnumTarget) is not null
-            && EnumSemanticFamily(EffectiveType(value)) is not null
-            && EffectiveType(value)?.Equals(enumToEnumTarget) != true)
+            && CoercionRendering.CanSpellEnumToEnum(
+                EffectiveType(value),
+                enumToEnumTarget,
+                _function.TypeShapes,
+                _function.EnumUnderlyingTypes))
         {
             return CheckedSafeCast($"({TypeText(enumToEnumTarget)}){Operand(value)}");
         }
@@ -1144,10 +1130,8 @@ public sealed partial class CSharpPrinter
         // spelling. Constants only: a non-constant integer into such a position is
         // rarer and not needed for the validity defects this targets.
         if (value is Constant { Value: int or long } unknownKonst
-            && target is { Kind: TypeRefKind.Definition, Name: not "Boolean" } unknownEnum
-            && _function.TypeShapes.GetValueOrDefault(unknownEnum) == TypeShape.Unknown
-            && !TypeFamilies.IsNumericPrimitive(unknownEnum)
-            && EffectiveType(value) is { } unknownEnumSource && TypeFamilies.IsIntegerLike(unknownEnumSource))
+            && target is { } unknownEnum
+            && CoercionRendering.CanSpellUnknownEnumConstant(EffectiveType(value), unknownEnum, _function.TypeShapes))
         {
             return EnumConstantText(unknownKonst, unknownEnum);
         }
@@ -1158,8 +1142,7 @@ public sealed partial class CSharpPrinter
         // back to the bare comparison opcode, so it recompiles exactly. Runs
         // before the merge-node bail so a bool ternary/coalesce into int is wrapped
         // too (its arms are bool, the wrap is legal).
-        if (target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
-            && EffectiveType(value) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
+        if (target is { } intTarget && CoercionRendering.CanSpellBoolToInteger(EffectiveType(value), intTarget))
         {
             // The composition's natural int converts implicitly only to int
             // and wider signed targets; narrow and unsigned targets need the

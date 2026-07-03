@@ -130,47 +130,6 @@ public static class CoercionSinks
         return types;
     }
 
-    /// <summary>
-    /// The slot-store wrappability gate: a POSITIVE whitelist where every
-    /// allowed pair names the CoerceText branch that spells it. Three review
-    /// rounds proved the subtractive form ("same family, minus exceptions")
-    /// cannot be kept honest against the renderer — cross-enum, bool→narrow,
-    /// and assumed-underlying each slipped through a family-level
-    /// approximation. Anything not listed is PrinterOwned: counted residual,
-    /// split naming, no wrap.
-    /// </summary>
-    static bool RenderableSlotCoercion(TypeRef? valueType, TypeRef target, IrFunction function)
-    {
-        // Round 4 inverted the strategy: for a single testified live range,
-        // DENYING the wrap severs the range into an unassigned read (CS0165),
-        // which is strictly worse than any cast. CoerceText is now total over
-        // same-semantic-family pairs — bool composes with a target cast where
-        // int doesn't convert implicitly, enum→enum casts directly, and
-        // missing-`value__` uses the assumed-int rule on both directions — so
-        // the gate is semantic-family equality with one directional exception:
-        // nothing spells integer→bool. Cross-family denials remain, and they
-        // are exactly the true disjoint ranges (cross-family single ranges
-        // cannot verify), where split naming is CORRECT. #2242 tracks
-        // extracting this contract so gate and renderer share one predicate.
-        if (valueType is null)
-            return false;
-        if (TypeFamilies.IsBoolean(target) && !TypeFamilies.IsBoolean(valueType))
-            return false;
-        var valueFamily = SemanticFamily(valueType, function);
-        var targetFamily = SemanticFamily(target, function);
-        return valueFamily is not null && targetFamily is not null
-            && (valueFamily == targetFamily
-                || (valueFamily == StackFamily.I4 && targetFamily == StackFamily.I8
-                    && function.EnumUnderlyingTypes.ContainsKey(valueType)));
-    }
-
-    /// <summary>A type's semantic stack family: its own, or its resolved enum underlying's, or I4 for a missing-<c>value__</c> enum shape (the MayOverflowEnumBackingType assumption, now shared by the renderer's branches).</summary>
-    static StackFamily? SemanticFamily(TypeRef? type, IrFunction function)
-        => TypeFamilies.Of(type)
-            ?? (type is not null && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum
-                ? TypeFamilies.Of(function.EnumUnderlyingTypes.GetValueOrDefault(type)) ?? StackFamily.I4
-                : null);
-
     /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
     static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType)
         => load.Parent switch
@@ -217,18 +176,20 @@ public static class CoercionSinks
                 // reads at one type — 5a reconciled the constant arms; the
                 // Coerce wrap covers the rest, and the printer's type-keyed
                 // naming collapses to one declaration by construction.
-                // Wrappable only within the testified type's stack family: a
-                // cross-family store (a dead `long` store on an int-testified
-                // slot) is not a coercion candidate but PROOF of a disjoint
-                // live range — the verifier never merges across families, so
-                // the testimony belongs to a different range. Those yield as
-                // PrinterOwned: counted residuals (the #2209 burn-down), left
-                // to the unifier's split naming until materialization
-                // (slice-5b adversarial review, Gemini blocking finding).
+                // Wrappable exactly when CoerceText has a spelling for this
+                // value/target pair. Cross-family stores (a dead `long` store
+                // on an int-testified slot) are proof of disjoint live ranges,
+                // where split naming is correct; same-family oddities stay
+                // unified because CoercionRendering and CoerceText share one
+                // contract.
                 case StoreStackSlot { Value: { } slotValue } slotStore
                     when slotTypes.GetValueOrDefault(slotStore.Slot) is { } slotType:
                     yield return new(slotValue, slotType,
-                        RenderableSlotCoercion(slotValue.ResultType, slotType, function)
+                        CoercionRendering.CanSpellSlotCoercion(
+                            slotValue.ResultType,
+                            slotType,
+                            function.TypeShapes,
+                            function.EnumUnderlyingTypes)
                             ? SinkScope.Wrappable
                             : SinkScope.PrinterOwned);
                     break;
