@@ -8,11 +8,12 @@ namespace ILInspector.Decompiler.Pipeline;
 public static class CoercionRendering
 {
     /// <summary>
-    /// The slot-store wrappability contract: every accepted pair is a coercion
-    /// spelling that <c>CoerceText</c> renders. The asymmetries are intentional:
-    /// integer to bool has no spelling, missing enum underlying data assumes I4
-    /// for same-family enum casts, and I4 to I8 enum widening requires a resolved
-    /// enum source.
+    /// The slot-store wrappability contract: every accepted pair is both a
+    /// coercion spelling that <c>CoerceText</c> renders and a stack-family
+    /// relation the verifier can carry in one live range. The asymmetries are
+    /// intentional: integer to bool has no spelling, missing enum underlying
+    /// data assumes I4 for same-family enum casts, and slot I4 to I8 enum
+    /// widening requires a resolved enum source.
     /// </summary>
     public static bool CanSpellSlotCoercion(
         TypeRef? valueType,
@@ -22,17 +23,15 @@ public static class CoercionRendering
     {
         if (valueType is null)
             return false;
-        if (CanSpellBoolToInteger(valueType, target)
-            || CanSpellIntegerToEnum(valueType, target, shapes)
-            || CanSpellEnumToInteger(valueType, target, shapes, enumUnderlyingTypes)
-            || CanSpellEnumToEnum(valueType, target, shapes, enumUnderlyingTypes))
-            return true;
-        if (TypeFamilies.IsBoolean(valueType) || TypeFamilies.IsBoolean(target))
-            return valueType.Equals(target);
-        if (!TypeFamilies.IsNumericPrimitive(valueType) || !TypeFamilies.IsNumericPrimitive(target))
+        if (!CanSpellSlotValue(valueType, target, shapes, enumUnderlyingTypes))
             return false;
-        var valueFamily = TypeFamilies.Of(valueType);
-        return valueFamily is not null && valueFamily == TypeFamilies.Of(target);
+
+        var valueFamily = SlotSemanticFamily(valueType, shapes, enumUnderlyingTypes);
+        var targetFamily = SlotSemanticFamily(target, shapes, enumUnderlyingTypes);
+        return valueFamily is not null && targetFamily is not null
+            && (valueFamily == targetFamily
+                || (valueFamily == StackFamily.I4 && targetFamily == StackFamily.I8
+                    && enumUnderlyingTypes.ContainsKey(valueType)));
     }
 
     public static bool CanSpellIntegerToEnum(
@@ -53,9 +52,7 @@ public static class CoercionRendering
             && EnumSemanticFamily(valueType, shapes, enumUnderlyingTypes) is { } underlyingFamily
             && TypeFamilies.Of(target) is { } targetFamily
             && (underlyingFamily == targetFamily
-                || (underlyingFamily == StackFamily.I4 && targetFamily == StackFamily.I8
-                    && valueType is not null
-                    && enumUnderlyingTypes.ContainsKey(valueType)));
+                || underlyingFamily == StackFamily.I4 && targetFamily == StackFamily.I8);
 
     public static bool CanSpellEnumToEnum(
         TypeRef? valueType,
@@ -63,8 +60,7 @@ public static class CoercionRendering
         IReadOnlyDictionary<TypeRef, TypeShape> shapes,
         IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes)
         => EnumSemanticFamily(target, shapes, enumUnderlyingTypes) is not null
-            && EnumSemanticFamily(valueType, shapes, enumUnderlyingTypes) is { } valueFamily
-            && EnumSemanticFamily(target, shapes, enumUnderlyingTypes) == valueFamily
+            && EnumSemanticFamily(valueType, shapes, enumUnderlyingTypes) is not null
             && valueType?.Equals(target) != true;
 
     public static bool CanSpellUnknownEnumConstant(
@@ -79,6 +75,31 @@ public static class CoercionRendering
 
     public static bool CanSpellBoolToInteger(TypeRef? valueType, TypeRef target)
         => TypeFamilies.IsIntegerLike(target) && TypeFamilies.IsBoolean(valueType);
+
+    static bool CanSpellSlotValue(
+        TypeRef valueType,
+        TypeRef target,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes)
+        => valueType.Equals(target)
+            || CanSpellBoolToInteger(valueType, target)
+            || CanSpellIntegerToEnum(valueType, target, shapes)
+            || CanSpellEnumToInteger(valueType, target, shapes, enumUnderlyingTypes)
+            || CanSpellEnumToEnum(valueType, target, shapes, enumUnderlyingTypes)
+            || CanSpellPrimitiveNumeric(valueType, target);
+
+    static bool CanSpellPrimitiveNumeric(TypeRef valueType, TypeRef target)
+        => !TypeFamilies.IsBoolean(valueType)
+            && !TypeFamilies.IsBoolean(target)
+            && TypeFamilies.IsNumericPrimitive(valueType)
+            && TypeFamilies.IsNumericPrimitive(target)
+            && TypeFamilies.Of(valueType) == TypeFamilies.Of(target);
+
+    static StackFamily? SlotSemanticFamily(
+        TypeRef? type,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes)
+        => TypeFamilies.Of(type) ?? EnumSemanticFamily(type, shapes, enumUnderlyingTypes);
 
     /// <summary>
     /// The stack family of an enum-typed value's underlying: the resolved
