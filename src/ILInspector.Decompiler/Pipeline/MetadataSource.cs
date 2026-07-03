@@ -613,8 +613,11 @@ public sealed class MetadataSource : IDisposable
     public void Dispose()
     {
         _pdbProvider?.Dispose();
-        if (_ownsCrossContext)
-            _crossContext?.Dispose();
+        lock (_crossLock)
+        {
+            if (_ownsCrossContext)
+                _crossContext?.Dispose();
+        }
         Pe.Dispose();
         _stream.Dispose();
     }
