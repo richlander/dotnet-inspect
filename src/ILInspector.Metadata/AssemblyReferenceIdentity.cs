@@ -68,6 +68,10 @@ public interface IAssemblyReferenceResolver
 
 public static class AssemblyReferenceResolverExtensions
 {
+    /// <summary>
+    /// Adapts the canonical identity resolver to the legacy path-only locator
+    /// shape. This adapter can only represent file-backed resolutions.
+    /// </summary>
     public static AssemblyLocator ToAssemblyLocator(this IAssemblyReferenceResolver resolver)
         => (assemblyName, scope) =>
         {
@@ -77,6 +81,10 @@ public static class AssemblyReferenceResolverExtensions
                 : throw new NotSupportedException("AssemblyLocator requires a file-backed resolver result."));
         };
 
+    /// <summary>
+    /// Adapts a legacy path-only locator to the canonical identity resolver
+    /// boundary.
+    /// </summary>
     public static IAssemblyReferenceResolver ToAssemblyReferenceResolver(this AssemblyLocator locator)
         => new AssemblyLocatorReferenceResolver(locator);
 

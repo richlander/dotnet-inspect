@@ -18,7 +18,7 @@ public class IrImporterTests
 
     static IrFunction ImportFixtureWithTrustedPlatformContext(string methodName)
     {
-        using var context = new MetadataContext(TrustedPlatformLocator());
+        using var context = new MetadataContext(TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: context);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
         Assert.NotNull(function);
@@ -923,20 +923,6 @@ public class IrImporterTests
         => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
             || (type.ElementType is { } element && ContainsGenericParameter(element))
             || type.TypeArguments.Any(ContainsGenericParameter);
-
-    static AssemblyLocator TrustedPlatformLocator()
-    {
-        var assemblies = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-            .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
-        return (name, trust) =>
-            trust == AssemblyResolutionScope.Platform && assemblies.TryGetValue(name, out var path)
-                ? path
-                : null;
-    }
 
     [Fact]
     public void AddressOf_OutArgument_ImportsAsLocalAddress()

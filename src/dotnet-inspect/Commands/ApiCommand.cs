@@ -485,15 +485,6 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
-    /// <summary>
-    /// Forwarder-following policy for whole-type listings: implementations
-    /// beside the starting assembly first, then the installed shared
-    /// framework (so package facades resolve to the platform assemblies
-    /// they forward to at runtime).
-    /// </summary>
-    internal static ILInspector.Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
-        => PlatformAssemblyResolver(startingDll).ToAssemblyLocator();
-
     internal static AssemblyDependencyResolver PlatformAssemblyResolver(string startingDll, string? projectAssetsPath = null, string? targetFramework = null)
     {
         return new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(startingDll)

@@ -17,18 +17,15 @@ namespace ILInspector.Decompiler;
 /// </summary>
 public static class TypeSourceComposer
 {
+    /// <summary>
+    /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
+    /// overload for new product and harness code.
+    /// </summary>
     public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
     {
-        locateAssembly ??= SiblingLocator(dllPath);
-        return ComposeCore(
-            type,
-            dllPath,
-            pdbPath,
-            () => TypeForwardResolver.LocateType(dllPath, type.FullName, locateAssembly),
-            (location, ctx) => location.AssemblyPath is { } path
-                ? Pipeline.MetadataSource.Open(path, pdbPath, locateAssembly, ctx)
-                : Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, locateAssembly.ToAssemblyReferenceResolver(), ctx),
-            context);
+        var resolver = locateAssembly?.ToAssemblyReferenceResolver()
+            ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        return Compose(type, dllPath, pdbPath, resolver, context);
     }
 
     public static string? Compose(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
@@ -149,15 +146,6 @@ public static class TypeSourceComposer
             return $"// {DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
-
-    static AssemblyLocator SiblingLocator(string dllPath) => (name, scope) =>
-    {
-        if (scope == AssemblyResolutionScope.Platform)
-            return null;
-
-        string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
-        return File.Exists(sibling) ? sibling : null;
-    };
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,

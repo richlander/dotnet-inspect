@@ -38,17 +38,7 @@ public class LadderRung2GateTests
     static readonly string ExtensionsType = typeof(LadderRung2.LadderRung2Extensions).FullName!;
     static readonly HashSet<string> FixtureTypes = [ProgramType, BoxType, ExtensionsType];
 
-    static readonly Lazy<IReadOnlyDictionary<string, string>> s_runtimeAssemblies = new(() =>
-        (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-        .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-        .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-        .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-        .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase));
-
-    static readonly AssemblyLocator RuntimeLocator = (name, trust) =>
-        trust == AssemblyResolutionScope.Platform && s_runtimeAssemblies.Value.TryGetValue(name, out var path)
-            ? path
-            : null;
+    static readonly IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.TrustedPlatformAssemblies();
 
     // The exact rung 2 construct set across every user-authored fixture type. Locked
     // (type-qualified, duplicates included) so a future fixture edit that drops a
@@ -218,7 +208,7 @@ public class LadderRung2GateTests
     static List<(string Key, IrFunction Function)> LoadRaisedMembers()
     {
         var members = new List<(string Key, IrFunction Function)>();
-        using var source = MetadataSource.Open(FixturePath, locator: RuntimeLocator);
+        using var source = MetadataSource.Open(FixturePath, null, RuntimeResolver);
         foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
         {
             if (!FixtureTypes.Contains(typeName))

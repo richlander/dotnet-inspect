@@ -10,18 +10,18 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The rung 1 <em>product-path</em> guard for the decompiler product quality
 /// ladder (#1599 / #1695). The other rung gates ride the bare per-method seam
-/// (no cross-method import callback, no platform assembly locator), which is fine
+/// (no cross-method import callback, no platform assembly resolver), which is fine
 /// for self-contained syntax but <em>under-resolves</em> the constructs that only
 /// recover through the path users actually hit (<c>dotnet-inspect type … -S
 /// "Decompiled Source"</c>): lambdas and LINQ need the cross-method import seam,
 /// and cross-assembly <c>out</c>/<c>ref</c>/<c>in</c> arguments need a platform
-/// locator. On the seam alone those degrade (lambdas leak <c>&lt;&gt;c</c> names,
+/// resolver. On the seam alone those degrade (lambdas leak <c>&lt;&gt;c</c> names,
 /// a cross-assembly <c>out</c> arg renders <c>ref</c>) even though the product
 /// renders them correctly — exactly the seam-vs-product gap that made the
 /// cross-assembly out-variable look like a bug (#1692).
 ///
 /// <para>This gate composes the <see cref="LadderRung1.ProductSurface"/> fixture
-/// through the same wiring the product uses — a TPA-backed platform locator on
+/// through the same wiring the product uses — a TPA-backed platform resolver on
 /// the <see cref="MetadataSource"/> plus the cross-method import seam on
 /// <see cref="CSharpPrinter"/> — and pins the real product rendering: lambdas
 /// raise to <c>x =&gt; …</c>, LINQ to a raised operator chain, and the
@@ -33,23 +33,13 @@ public class LadderRung1ProductPathGateTests
     static string FixturePath => typeof(LadderRung1.ProductSurface).Assembly.Location;
     static readonly string FixtureType = typeof(LadderRung1.ProductSurface).FullName!;
 
-    // Platform locator backed by the running runtime's trusted-platform-assembly
+    // Platform resolver backed by the running runtime's trusted-platform-assembly
     // list — always populated for the host runtime, so it resolves the fixture's
     // framework references (System.Private.CoreLib for int.TryParse) without
     // depending on SDK/shared-framework discovery. Only Platform-trust references
     // resolve, so a planted local copy can never satisfy a platform name. This is
     // the same convention LadderRung2GateTests uses.
-    static readonly Lazy<IReadOnlyDictionary<string, string>> s_runtimeAssemblies = new(() =>
-        (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-        .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-        .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-        .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-        .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase));
-
-    static readonly AssemblyLocator RuntimeLocator = (name, trust) =>
-        trust == AssemblyResolutionScope.Platform && s_runtimeAssemblies.Value.TryGetValue(name, out var path)
-            ? path
-            : null;
+    static readonly IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.TrustedPlatformAssemblies();
 
     static readonly string[] ExpectedMembers =
     [
@@ -100,7 +90,7 @@ public class LadderRung1ProductPathGateTests
         Assert.Contains("value => value * 2", linq);
 
         // The cross-assembly out-variable resolves to `out`, not `ref` — the
-        // platform locator reads int.TryParse's real parameter rows (#1692).
+        // platform resolver reads int.TryParse's real parameter rows (#1692).
         var outVar = Body("OutVariable");
         Assert.Contains("int.TryParse(text, out result)", outVar);
         Assert.DoesNotContain("ref result", outVar);
@@ -121,7 +111,7 @@ public class LadderRung1ProductPathGateTests
 
         // Parsing each body as a method body catches the degraded forms this gate
         // exists to prevent: a leaked `<>c` name is not a legal C# identifier, so
-        // seam/locator regressions surface as parse errors here, not just as a
+        // seam/resolver regressions surface as parse errors here, not just as a
         // failed substring assertion.
         foreach (var (name, _, body) in members)
         {
@@ -139,13 +129,13 @@ public class LadderRung1ProductPathGateTests
     static List<(string Name, IrFunction Function, string Body)> LoadProductPathMembers()
     {
         var members = new List<(string Name, IrFunction Function, string Body)>();
-        using var source = MetadataSource.Open(FixturePath, locator: RuntimeLocator);
+        using var source = MetadataSource.Open(FixturePath, null, RuntimeResolver);
         foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
         {
             if (typeName != FixtureType)
                 continue;
             // Product wiring: the import seam raises cross-method lambda bodies,
-            // and the locator on `source` resolves cross-assembly ref-kinds.
+            // and the resolver on `source` resolves cross-assembly ref-kinds.
             var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
             members.Add((methodName, function, (result.Output ?? "").Trim()));
         }
