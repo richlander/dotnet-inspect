@@ -29,6 +29,58 @@ public class PackageExtractorTests
         Assert.Null(version);
     }
 
+    [Theory]
+    [InlineData("System.Text.Json", "system.text.json", "")]
+    [InlineData("System.Text.Json@8.0.5", "system.text.json", "8.0.5")]
+    [InlineData("Foo@11.0.0-PREVIEW*", "foo", "11.0.0-preview*")]
+    public void ParsePackageTarget_RemoteReference_NormalizesNameAndVersion(
+        string packageRef,
+        string expectedName,
+        string expectedVersion)
+    {
+        var target = PackageExtractor.ParsePackageTarget(packageRef);
+
+        Assert.False(target.IsLocalFile);
+        Assert.Equal(packageRef, target.OriginalArgument);
+        Assert.Equal(expectedName, target.PackageName);
+        Assert.Equal(expectedVersion, target.Version);
+    }
+
+    [Fact]
+    public void ParsePackageTarget_ExplicitVersion_OverridesEmbeddedVersion()
+    {
+        var target = PackageExtractor.ParsePackageTarget("System.Text.Json@8.0.0", explicitVersion: "9.0.0");
+
+        Assert.False(target.IsLocalFile);
+        Assert.Equal("system.text.json", target.PackageName);
+        Assert.Equal("9.0.0", target.Version);
+    }
+
+    [Fact]
+    public void ParsePackageTarget_LocalNupkg_UsesCliLocalTargetShape()
+    {
+        var target = PackageExtractor.ParsePackageTarget("/tmp/System.Text.Json.9.0.0.nupkg");
+
+        Assert.True(target.IsLocalFile);
+        Assert.Equal("/tmp/System.Text.Json.9.0.0.nupkg", target.OriginalArgument);
+        Assert.Equal("System.Text.Json.9.0.0", target.PackageName);
+        Assert.Equal("local", target.Version);
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("latest", true)]
+    [InlineData("LATEST", true)]
+    [InlineData("1.0.0", true)]
+    [InlineData("13.0.3-beta1", true)]
+    [InlineData("11.0.0-preview*", true)]
+    [InlineData("not-a-version", false)]
+    public void IsValidPackageReferenceVersion_AllowsNuGetLatestAndWildcardVersions(string? version, bool expected)
+    {
+        Assert.Equal(expected, PackageExtractor.IsValidPackageReferenceVersion(version));
+    }
+
     [Fact]
     public async Task ExtractPackageAsync_LocalFile_DoesNotExist_ReturnsError()
     {
