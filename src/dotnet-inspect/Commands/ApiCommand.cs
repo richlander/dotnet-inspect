@@ -660,10 +660,16 @@ public class ApiCommand
                         mo4.CallerScopeAssemblies, mo4);
             }
 
-            if (options.DllPath is { } unsafeDllPath
+            // Type-scope analysis sections share one index build per type (built lazily, only
+            // when such a section is requested) instead of opening one session per section.
+            MethodBodyInspectionSession? typeAnalysisSession = null;
+            MethodBodyInspectionSession TypeAnalysisSession() =>
+                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(options.DllPath!);
+
+            if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
             {
-                ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisSession());
             }
 
             if (options.DllPath is { } exceptionRegionsDllPath
@@ -673,34 +679,34 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, options.IncludeSections);
             }
 
-            if (options.DllPath is { } calledTypesDllPath
+            if (options.DllPath is not null
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
                     || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, options.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisSession(), options.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, options);
             if (options is not MemberOptions
-                && options.DllPath is { } semanticFactsDllPath
+                && options.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, semanticFactsDllPath, semanticSections, options.IncludeSections);
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisSession(), semanticSections, options.IncludeSections);
             }
 
-            if (options.DllPath is { } optimizationDllPath
+            if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisSession(), options.IncludeSections,
                     options.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
 
-            if (options.DllPath is { } leverageDllPath
+            if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath,
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisSession(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
@@ -1286,10 +1292,14 @@ public class ApiCommand
                 }
             }
 
-            if (renderOptions.DllPath is { } unsafeDllPath
+            MethodBodyInspectionSession? typeAnalysisSession = null;
+            MethodBodyInspectionSession TypeAnalysisSession() =>
+                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(renderOptions.DllPath!);
+
+            if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
             {
-                ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisSession());
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath
@@ -1299,33 +1309,33 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, renderOptions.IncludeSections);
             }
 
-            if (renderOptions.DllPath is { } calledTypesDllPath
+            if (renderOptions.DllPath is not null
                 && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes)
                     || renderOptions.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, calledTypesDllPath, renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisSession(), renderOptions.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, renderOptions);
             if (renderOptions is not MemberOptions
-                && renderOptions.DllPath is { } semanticFactsDllPath
+                && renderOptions.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, semanticFactsDllPath, semanticSections, renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisSession(), semanticSections, renderOptions.IncludeSections);
             }
 
-            if (renderOptions.DllPath is { } optimizationDllPath
+            if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, renderOptions.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisSession(), renderOptions.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
 
-            if (renderOptions.DllPath is { } leverageDllPath
+            if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath,
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisSession(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
