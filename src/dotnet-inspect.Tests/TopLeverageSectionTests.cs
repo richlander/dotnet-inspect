@@ -181,7 +181,7 @@ public class TopLeverageSectionTests
     public void LibraryTopLeverage_PopulatesVisibilityStableAndNameNSelector()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
-            DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+            () => DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
 
         Assert.NotNull(rows);
         var helper = Assert.Single(rows!, r => r.Member.EndsWith("LeverageSampleType.SharedHelper()"));
@@ -199,7 +199,7 @@ public class TopLeverageSectionTests
     public void LibraryTopLeverage_PublicOverloadSharingNameWithNonPublic_GetsRoundTrippableSelector()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
-            DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+            () => DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
 
         Assert.NotNull(rows);
         // The public Shadowed(int) is the only public overload, so its selector is the bare
@@ -218,7 +218,7 @@ public class TopLeverageSectionTests
     public void LibraryTopLeverage_AccessorRowUsesOwningPropertySelector()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
-            DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+            () => DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
 
         Assert.NotNull(rows);
         // The ranked accessor (get_Tag) maps to the owning property's selector, so an agent
@@ -233,7 +233,7 @@ public class TopLeverageSectionTests
     public void LibraryTopLeverage_TopLevelInternalTypeRowGainsSelector()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
-            DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+            () => DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
 
         Assert.NotNull(rows);
         // --all now surfaces top-level internal types, so a method on one gets a round-tripping
@@ -263,7 +263,7 @@ public class TopLeverageSectionTests
     public async Task LibraryTopLeverage_StableSelectorRoundTripsToMemberCommand()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
-            DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+            () => DotnetInspector.Inspectors.MethodBodyInspectionSession.Open(typeof(LeverageSampleType).Assembly.Location), typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
         var helper = rows!.First(r => r.Member.EndsWith("LeverageSampleType.SharedHelper()"));
         var match = System.Text.RegularExpressions.Regex.Match(helper.Stable!, @"([A-Za-z0-9_]+)~([0-9a-f]{10})");
         Assert.True(match.Success, "expected a Name~digest selector on the library-scope row");
