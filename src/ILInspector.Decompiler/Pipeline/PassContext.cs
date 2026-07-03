@@ -135,4 +135,14 @@ public sealed class PassContext
 
     /// <summary>A context with stepping disabled — the default for normal runs and for tests that drive a pass directly.</summary>
     public static PassContext None { get; } = new(new Stepper(enabled: false));
+
+    /// <summary>
+    /// A non-stepping context that carries the cross-method import
+    /// <paramref name="importMethodBody"/> seam for the diagnostic dump paths, or
+    /// <see cref="None"/> when no seam is wired. Lets cross-method passes
+    /// (classic-async / iterator / lambda / local-function reconstruction) run in
+    /// the single-method dumps as they do in the shipped product path.
+    /// </summary>
+    public static PassContext ForImport(Func<MethodRef, IrFunction?>? importMethodBody)
+        => importMethodBody is null ? None : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
 }

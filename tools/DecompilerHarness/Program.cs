@@ -978,7 +978,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function, IrPasses.Default, ImportSeam(source));  // raise through the canonical pipeline, as the product does
+            IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var facts = CSharpPrinter.CollectDataflowFacts(function);
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, definite-assignment facts)");
@@ -1040,7 +1040,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function, IrPasses.Default, ImportSeam(source));  // raise through the canonical pipeline, as the product does
+            IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var remarks = FidelityRemarks.Collect(function);
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, fidelity remarks)");
@@ -1095,7 +1095,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function, IrPasses.Lowered, ImportSeam(source));  // lower, but stop short of the cosmetic sugar
+            IrPasses.Run(function, IrPasses.Lowered, PassContext.ForImport(ImportSeam(source)));  // lower, but stop short of the cosmetic sugar
             var facts = CSharpPrinter.CollectDataflowFacts(function);
             var body = CSharpPrinter.Print(function).Output;
 
@@ -1138,7 +1138,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function, IrPasses.Default, ImportSeam(source));  // raise through the canonical pipeline, as the product does
+            IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
 
             string form = mermaid ? "mermaid flowchart" : "control-flow graph";
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {form})");

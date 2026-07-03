@@ -350,17 +350,6 @@ public static class IrPasses
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes)
         => Run(function, passes, PassContext.None);
 
-    /// <summary>
-    /// As <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/>, but wires the
-    /// cross-method import seam so cross-method passes (classic-async / iterator /
-    /// lambda / local-function reconstruction) run as they do in the product path.
-    /// <c>null</c> leaves them no-ops (the shared no-import context). Used by the
-    /// single-method diagnostic dump paths so they match the shipped output.
-    /// </summary>
-    public static void Run(
-        IrFunction function, ImmutableArray<IIrPass> passes, Func<MethodRef, IrFunction?>? importMethodBody)
-        => Run(function, passes, DiagnosticContext(importMethodBody));
-
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes, PassContext context)
     {
         foreach (var pass in passes)
@@ -369,17 +358,6 @@ public static class IrPasses
             function.CheckInvariant();
         }
     }
-
-    /// <summary>
-    /// A non-stepping context that carries the cross-method import seam for the
-    /// diagnostic dump paths, or <see cref="PassContext.None"/> when no seam is
-    /// wired. The stepper stays disabled — this is for the staged/tree dumps, not
-    /// <see cref="RunWithSteps(IrFunction, int)"/> which needs an enabled stepper.
-    /// </summary>
-    static PassContext DiagnosticContext(Func<MethodRef, IrFunction?>? importMethodBody)
-        => importMethodBody is null
-            ? PassContext.None
-            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
 
     /// <summary>The synthetic stage name for the importer output — the pre-transform tree, before any pass runs.</summary>
     public const string ImportStageName = "(import)";
@@ -425,7 +403,7 @@ public static class IrPasses
         IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project,
         Func<MethodRef, IrFunction?>? importMethodBody)
     {
-        var context = DiagnosticContext(importMethodBody);
+        var context = PassContext.ForImport(importMethodBody);
         var stages = new List<PipelineStage>(passes.Length + 1)
         {
             new(ImportStageName, project(function), function.Fidelity),
