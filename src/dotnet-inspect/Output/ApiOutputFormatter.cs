@@ -24,11 +24,32 @@ public static class ApiOutputFormatter
         => ApiCommand.PlatformAssemblyResolver(dllPath, options?.ProjectAssetsPath, options?.Tfm);
 
     /// <summary>
-    /// Opens a type-scope analysis session for the type/library sections. Callers memoize this per
-    /// type so the five type-analysis populators share one index build instead of opening five.
+    /// Which expensive whole-assembly analysis phases the requested sections actually consume.
+    /// Escape-classified allocation occurrences feed Allocation Facts (and, transitively,
+    /// optimization opportunities); optimization opportunities feed Performance Triage. Every other
+    /// analysis section (Calls / Callers / Call Graph / Top Leverage / Cost / Safety / Unsafe /
+    /// Called Types) needs neither, so the index build can skip both. A null/unknown set is treated
+    /// as "needs everything" (safe default).
     /// </summary>
-    internal static MethodBodyInspectionSession OpenTypeAnalysisSession(string dllPath)
-        => MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
+    internal static (bool IncludeAllocations, bool IncludeOpportunities) AnalysisScopeFor(IReadOnlyCollection<string>? requestedSections)
+    {
+        if (requestedSections is null)
+            return (true, true);
+        bool opportunities = requestedSections.Contains(SectionNames.PerformanceTriage);
+        bool allocations = opportunities || requestedSections.Contains(SectionNames.AllocationFacts);
+        return (allocations, opportunities);
+    }
+
+    /// <summary>
+    /// Opens a type-scope analysis session for the type/library sections. Callers memoize this per
+    /// type so the five type-analysis populators share one index build instead of opening five. The
+    /// build is narrowed to the phases <paramref name="requestedSections"/> consumes.
+    /// </summary>
+    internal static MethodBodyInspectionSession OpenTypeAnalysisSession(string dllPath, IReadOnlyCollection<string>? requestedSections = null)
+    {
+        var (allocations, opportunities) = AnalysisScopeFor(requestedSections);
+        return MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath), allocations, opportunities);
+    }
 
     // ===== Full API View Model Factory =====
 
@@ -1126,9 +1147,11 @@ public static class ApiOutputFormatter
         // index-backed section is actually requested (sections like decompiled source / IL
         // go through MemberCodeProvider and never touch it). Every index-backed block below
         // shares this one session instead of re-opening and re-analyzing every method body.
+        // The build is narrowed to the phases the requested sections actually consume.
+        var (indexInclAllocations, indexInclOpportunities) = AnalysisScopeFor(requestedSections);
         MethodBodyInspectionSession? indexSession = null;
         MethodBodyInspectionSession IndexSession() =>
-            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
+            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver, indexInclAllocations, indexInclOpportunities);
 
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.

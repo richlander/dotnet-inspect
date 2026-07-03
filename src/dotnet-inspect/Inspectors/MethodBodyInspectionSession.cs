@@ -34,9 +34,16 @@ public sealed class MethodBodyInspectionSession
     /// </summary>
     public string SourceName { get; }
 
-    /// <summary>Opens a session over an assembly's analysis body index.</summary>
-    public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null)
-        => new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver), Path.GetFileNameWithoutExtension(assemblyPath));
+    /// <summary>
+    /// Opens a session over an assembly's analysis body index. <paramref name="includeAllocations"/>
+    /// and <paramref name="includeOpportunities"/> gate the two expensive whole-assembly analysis
+    /// phases (escape-classified allocation occurrences and optimization opportunities); leave them
+    /// on unless the caller knows no requested section consumes them (see
+    /// <c>ApiOutputFormatter.AnalysisScopeFor</c>).
+    /// </summary>
+    public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null,
+        bool includeAllocations = true, bool includeOpportunities = true)
+        => new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver, includeAllocations, includeOpportunities), Path.GetFileNameWithoutExtension(assemblyPath));
 
     /// <summary>
     /// Allocation facts for one method (<paramref name="methodToken"/>), optionally narrowed to a

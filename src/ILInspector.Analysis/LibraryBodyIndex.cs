@@ -732,7 +732,8 @@ public sealed class LibraryBodyIndex
     public static LibraryBodyIndex Open(string path)
         => Open(path, resolver: null);
 
-    public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null)
+    public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
+        bool includeAllocations = true, bool includeOpportunities = true)
     {
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
@@ -740,7 +741,9 @@ public sealed class LibraryBodyIndex
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
         using var builder = new IndexBuilder(path, reader, peReader, resolver);
-        var index = builder.Build();
+        // Optimization opportunities are synthesized from allocation occurrences (allocation
+        // hotspots), so requesting opportunities implies computing allocations.
+        var index = builder.Build(includeAllocations || includeOpportunities, includeOpportunities);
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
@@ -1955,7 +1958,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build(bool includeAllocations, bool includeOpportunities)
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -2005,20 +2008,25 @@ public sealed class LibraryBodyIndex
                         var decodedBody = DecodeBody(il, body.ExceptionRegions);
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
                         var loopRegions = decodedBody.LoopRegions;
-                        var allocations = CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: true);
+                        var allocations = includeAllocations
+                            ? CollectAllocationOccurrences(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions, classifyEscapes: true)
+                            : ImmutableArray<AllocationOccurrence>.Empty;
                         if (allocations.Length > 0)
                             allocationOccurrences[caller.MetadataToken] = allocations;
                         var unsafety = CollectUnsafetyOccurrences(decodedBody.Instructions, body, caller, scope);
                         if (unsafety.Length > 0)
                             unsafetyOccurrences[caller.MetadataToken] = unsafety;
                         var methodAttributes = methodDef.GetCustomAttributes();
-                        if (!typeSourceGenerated
-                            && !HasGeneratedCodeAttribute(methodAttributes)
-                            && !HasCompilerGeneratedAttribute(methodAttributes)
-                            && !IsBlazorRenderMethod(caller))
-                            optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions));
-                        else
-                            suppressedOpportunityTokens.Add(caller.MetadataToken);
+                        if (includeOpportunities)
+                        {
+                            if (!typeSourceGenerated
+                                && !HasGeneratedCodeAttribute(methodAttributes)
+                                && !HasCompilerGeneratedAttribute(methodAttributes)
+                                && !IsBlazorRenderMethod(caller))
+                                optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, decodedBody, body.ExceptionRegions, caller, scope, loopRegions));
+                            else
+                                suppressedOpportunityTokens.Add(caller.MetadataToken);
+                        }
                         var signals = CollectBodySignals(il, decodedBody, body, scope, loopRegions);
                         if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
                             bodySignals[caller.MetadataToken] = signals;
