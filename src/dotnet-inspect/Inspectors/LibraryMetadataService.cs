@@ -140,14 +140,13 @@ internal static class LibraryMetadataService
                 // Fallback for non-pipeline callers — open the assembly once for all five scans.
                 try
                 {
-                    using var stream = File.OpenRead(path);
-                    using var peReader = new PEReader(stream);
-                    inspection.ExtensionMethods = ScanExtensionMethods(peReader, path, logger);
-                    ScanClassifiedMethods(peReader, path, inspection, logger);
-                    inspection.Resources = ScanResources(peReader, path, logger);
-                    ScanCustomAttributes(peReader, path, inspection, logger);
-                    inspection.UnionTypes = ScanUnionTypes(peReader, path, logger);
-                    ScanTypeForwarders(peReader, path, inspection, logger);
+                    using var session = AssemblyInspectionSession.Open(path);
+                    inspection.ExtensionMethods = ScanExtensionMethods(session, path, logger);
+                    ScanClassifiedMethods(session, path, inspection, logger);
+                    inspection.Resources = ScanResources(session, path, logger);
+                    ScanCustomAttributes(session, path, inspection, logger);
+                    inspection.UnionTypes = ScanUnionTypes(session, path, logger);
+                    ScanTypeForwarders(session, path, inspection, logger);
                 }
                 catch (Exception ex)
                 {
@@ -436,9 +435,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            return ScanExtensionMethods(peReader, path, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            return ScanExtensionMethods(session, path, logger);
         }
         catch (Exception ex)
         {
@@ -447,11 +445,11 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<ExtensionMethodSummary>? ScanExtensionMethods(PEReader peReader, string path, VerboseLogger logger)
+    internal static List<ExtensionMethodSummary>? ScanExtensionMethods(AssemblyInspectionSession session, string path, VerboseLogger logger)
     {
         try
         {
-            var extensions = ExtensionMethodScanner.FindAllExtensions(peReader);
+            var extensions = session.ExtensionMethods();
 
             var collapsed = extensions
                 .GroupBy(e => (e.MethodName, e.Kind, e.ExtensionClass, e.ExtendedType))
@@ -487,21 +485,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            ScanClassifiedMethods(peReader, path, inspection, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
-        }
-    }
-
-    internal static void ScanClassifiedMethods(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        try
-        {
-            ApplyClassifiedMethods(MethodClassificationScanner.Scan(peReader), inspection);
+            using var session = AssemblyInspectionSession.Open(path);
+            ScanClassifiedMethods(session, path, inspection, logger);
         }
         catch (Exception ex)
         {
@@ -1102,13 +1087,12 @@ internal static class LibraryMetadataService
         // the same file per scan.
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            inspection.ExtensionMethods ??= ScanExtensionMethods(peReader, path, logger);
-            ScanClassifiedMethods(peReader, path, inspection, logger);
-            inspection.Resources ??= ScanResources(peReader, path, logger);
-            ScanCustomAttributes(peReader, path, inspection, logger);
-            ScanTypeForwarders(peReader, path, inspection, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            inspection.ExtensionMethods ??= ScanExtensionMethods(session, path, logger);
+            ScanClassifiedMethods(session, path, inspection, logger);
+            inspection.Resources ??= ScanResources(session, path, logger);
+            ScanCustomAttributes(session, path, inspection, logger);
+            ScanTypeForwarders(session, path, inspection, logger);
         }
         catch (Exception ex)
         {
@@ -1123,9 +1107,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            return ScanResources(peReader, path, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            return ScanResources(session, path, logger);
         }
         catch (Exception ex)
         {
@@ -1134,11 +1117,11 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<ResourceSummary>? ScanResources(PEReader peReader, string path, VerboseLogger logger)
+    internal static List<ResourceSummary>? ScanResources(AssemblyInspectionSession session, string path, VerboseLogger logger)
     {
         try
         {
-            var resources = ResourceScanner.Scan(peReader);
+            var resources = session.Resources();
             if (resources.Count == 0) return null;
 
             return resources
@@ -1194,9 +1177,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            ScanCustomAttributes(peReader, path, inspection, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            ScanCustomAttributes(session, path, inspection, logger);
         }
         catch (Exception ex)
         {
@@ -1204,11 +1186,11 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ScanCustomAttributes(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    internal static void ScanCustomAttributes(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {
-            var attrs = AssemblyDetailScanner.ScanCustomAttributes(peReader);
+            var attrs = session.CustomAttributes();
             if (attrs.Count > 0)
             {
                 inspection.CustomAttributes = attrs
@@ -1231,9 +1213,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            return ScanUnionTypes(peReader, path, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            return ScanUnionTypes(session, path, logger);
         }
         catch (Exception ex)
         {
@@ -1242,11 +1223,11 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<UnionTypeSummary>? ScanUnionTypes(PEReader peReader, string path, VerboseLogger logger)
+    internal static List<UnionTypeSummary>? ScanUnionTypes(AssemblyInspectionSession session, string path, VerboseLogger logger)
     {
         try
         {
-            var results = UnionTypeScanner.Scan(peReader);
+            var results = session.UnionTypes();
             return results.Count == 0
                 ? null
                 : results.Select(t => new UnionTypeSummary
@@ -1271,9 +1252,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            ScanTypeForwarders(peReader, path, inspection, logger);
+            using var session = AssemblyInspectionSession.Open(path);
+            ScanTypeForwarders(session, path, inspection, logger);
         }
         catch (Exception ex)
         {
@@ -1281,11 +1261,11 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ScanTypeForwarders(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    internal static void ScanTypeForwarders(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {
-            var forwarders = AssemblyDetailScanner.ScanTypeForwarders(peReader);
+            var forwarders = session.TypeForwarders();
             if (forwarders.Count > 0)
             {
                 inspection.TypeForwarders = forwarders

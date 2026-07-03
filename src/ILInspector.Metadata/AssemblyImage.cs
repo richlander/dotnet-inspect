@@ -40,7 +40,9 @@ public sealed class AssemblyImage : IDisposable
     {
         try
         {
-            return new AssemblyImage(stream, new PEReader(stream));
+            // LeaveOpen: this AssemblyImage is the sole owner of the stream and disposes it
+            // explicitly in Dispose(), so the PEReader must not also take ownership.
+            return new AssemblyImage(stream, new PEReader(stream, PEStreamOptions.LeaveOpen));
         }
         catch
         {
