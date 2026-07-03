@@ -171,6 +171,61 @@ public class CoercionInvariantTests
     }
 
     [Fact]
+    public void EnumStore_AtIntTestifiedSlot_WrapsAndKeepsOneRange()
+    {
+        // Round-2 review (both reviewers): the family gate must unwrap enum
+        // SOURCES symmetrically — an enum store at an int-testified slot is a
+        // renderable coercion ((int)e, the slice-4 widening rule), and denying
+        // it split the slot into a severed range with an unassigned read
+        // (`E32 S_0 = e; return S_0_1;` — CS0165).
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "e", Enum32)));
+        block.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(block);
+        var function = Function(container, Int32Type, new Parameter("e", Enum32));
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [Enum32] = Int32Type };
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var coerced = Assert.IsType<Coerce>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(Int32Type, coerced.Target);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("(int)e", output);
+    }
+
+    [Fact]
+    public void BoolTestifiedSlot_DoesNotWrapIntStore()
+    {
+        // Round-2 review (both reviewers): bool and int share stack family I4,
+        // but integer→bool has no C# spelling — wrapping produced a bare
+        // `bool S_0; S_0 = intValue;` (CS0029). The gate's booleanness is
+        // directional: bool→integer composes, integer→bool never wraps.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "intValue", Int32Type)));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new StoreStackSlot(0, new LoadArgument(1, "boolValue", boolType)));
+        second.Add(new Return(new LoadStackSlot(0, boolType)));
+        container.Add(second);
+        var function = Function(container, boolType,
+            new Parameter("intValue", Int32Type),
+            new Parameter("boolValue", boolType));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("bool S_0;\n\nS_0 = intValue;", output.Replace("\r", ""));
+        Assert.Contains("int S_0", output);
+    }
+
+    [Fact]
     public void CrossFamilySlotStore_IsNotWrapped_DisjointRangeKeepsSplitNaming()
     {
         // Slice-5b adversarial review (Gemini, blocking): a dead `long` store
