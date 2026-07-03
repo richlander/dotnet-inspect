@@ -37,14 +37,13 @@ internal static class AuditSignalBuilder
 
         try
         {
-            using var stream = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(stream);
-            metadata = AssemblyDetailScanner.ScanAuditMetadata(peReader);
+            using var session = AssemblyInspectionSession.Open(assemblyPath);
+            metadata = session.AuditMetadata();
             pInvokeMethodCount = metadata.PInvokeMethodCount;
 
-            // Reuse the same reader for the classified-methods scan rather than re-opening the file.
+            // Reuse the same session for the classified-methods scan rather than re-opening the file.
             if (inspection.UnsafeMethods == null || inspection.PInvokeMethods == null || inspection.AsyncMethods == null)
-                LibraryMetadataService.ScanClassifiedMethods(peReader, assemblyPath, inspection, logger);
+                LibraryMetadataService.ScanClassifiedMethods(session, assemblyPath, inspection, logger);
         }
         catch (Exception ex)
         {
