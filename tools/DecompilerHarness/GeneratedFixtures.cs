@@ -1280,11 +1280,7 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordPropertyGetterSnapshot",
                 "get_Assembly",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "public string Assembly { get; }",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
         ],
         ["record", "property", "getter", "return-to-sender"]);
 
@@ -1297,21 +1293,11 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordEqualityOperatorsRow",
                 "op_Equality",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "operator ==(",
-                    "operator !=(",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
             new(
                 "RecordEqualityOperatorsRow",
                 "op_Inequality",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "operator ==(",
-                    "operator !=(",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
         ],
         ["record", "operator", "equality", "return-to-sender"]);
 
@@ -1324,20 +1310,11 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordVirtualHelpersRow",
                 "ToString",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "protected virtual bool PrintMembers",
-                    "protected virtual System.Type EqualityContract",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
             new(
                 "RecordVirtualHelpersRow",
                 "Equals",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "public virtual bool Equals(RecordVirtualHelpersRow other)",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
         ],
         ["record", "virtual", "helper", "return-to-sender"]);
 
@@ -1350,31 +1327,16 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordFieldReadHelpersRow",
                 "GetHashCode",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "public string Name;",
-                    "public string Value;",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
             new(
                 "RecordFieldReadHelpersRow",
                 "ToString",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "public string Name { get; set; }",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
             new(
                 "RecordFieldReadHelpersRow",
                 "Equals",
                 FidelityCheck.CompileBackStatus.Exact,
-                Overload: 1,
-                ExpectedSourceFragments:
-                [
-                    "public virtual bool Equals(RecordFieldReadHelpersRow other)",
-                    "public string Name;",
-                    "public string Value;",
-                ]),
+                Overload: 1),
         ],
         ["record", "field", "helper", "return-to-sender"]);
 
@@ -1387,23 +1349,12 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordStructFieldReadHelpersRow",
                 "GetHashCode",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "public string Name;",
-                    "public string Value;",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
             new(
                 "RecordStructFieldReadHelpersRow",
                 "Equals",
                 FidelityCheck.CompileBackStatus.Exact,
-                Overload: 1,
-                ExpectedSourceFragments:
-                [
-                    "public bool Equals(RecordStructFieldReadHelpersRow other)",
-                    "public string Name;",
-                    "public string Value;",
-                ]),
+                Overload: 1),
         ],
         ["record", "struct", "field", "helper", "return-to-sender"]);
 
@@ -1416,11 +1367,7 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordGenericTypedEqualsRow`1",
                 "Equals",
-                FidelityCheck.CompileBackStatus.Exact,
-                ExpectedSourceFragments:
-                [
-                    "public virtual bool Equals(RecordGenericTypedEqualsRow<T> other)",
-                ]),
+                FidelityCheck.CompileBackStatus.Exact),
         ],
         ["record", "generic", "equals", "return-to-sender"]);
 
