@@ -6,6 +6,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using DotnetInspector.Core;
+using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
@@ -42,6 +45,7 @@ static class Program
         bool returnToSender = false;
         bool returnToSenderAb = false;
         bool returnToSenderCatalog = false;
+        bool returnToSenderSourceProbe = false;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
         bool gaps = false;
@@ -84,6 +88,10 @@ static class Program
         int topPatterns = 10;
         int? topLibraries = null;
         int cap = int.MaxValue;
+        var packages = new List<string>();
+        string? packageVersion = null;
+        string? packageTfm = null;
+        string? packageAssembly = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -112,6 +120,7 @@ static class Program
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;
+                case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
                 case "--return-to-sender-catalog":
                     returnToSenderCatalog = true;
                     if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
@@ -170,6 +179,10 @@ static class Program
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
                 case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
                 case "--cap": cap = int.Parse(args[++i]); break;
+                case "--package": packages.Add(args[++i]); break;
+                case "--package-version": packageVersion = args[++i]; break;
+                case "--package-tfm": packageTfm = args[++i]; break;
+                case "--package-assembly": packageAssembly = args[++i]; break;
                 case "--workers": workers = int.Parse(args[++i]); break;
                 case "--sequential": sequential = true; break;
                 case "--render-ab": renderAb = args[++i]; break;
@@ -193,7 +206,11 @@ static class Program
             return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, maxExamples);
         }
 
-        var assemblies = ResolveAssemblies(inputs);
+        var assemblies = inputs.Count == 0 && packages.Count > 0
+            ? []
+            : ResolveAssemblies(inputs);
+        if (packages.Count > 0)
+            assemblies.AddRange(ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly));
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
@@ -215,6 +232,9 @@ static class Program
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
+
+        if (returnToSenderSourceProbe)
+            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1138,6 +1158,72 @@ static class Program
         return result;
     }
 
+    static List<string> ResolvePackageAssemblies(IReadOnlyList<string> packages, string? packageVersion, string? packageTfm, string? packageAssembly)
+    {
+        HttpClientFactory.Initialize();
+        NuGetCache.Initialize("dotnet-inspect");
+
+        var assemblies = new List<string>();
+        using var httpClient = HttpClientFactory.CreateNew();
+        foreach (var package in packages)
+        {
+            var outcome = PackageExtractor.ExtractPackageAsync(
+                    httpClient,
+                    package,
+                    log: message => Console.Error.WriteLine(message),
+                    tempDirPrefix: "decompiler-harness",
+                    version: packageVersion)
+                .GetAwaiter()
+                .GetResult();
+            if (!outcome.IsSuccess)
+            {
+                Console.Error.WriteLine($"Warning: {outcome.ErrorMessage}");
+                continue;
+            }
+
+            var extracted = outcome.Result!;
+            string? selectedPath;
+            string? selectedTfm;
+            if (!string.IsNullOrWhiteSpace(packageTfm))
+            {
+                selectedPath = TfmSelector.FindAssemblyByTfm(extracted.ExtractPath, packageTfm, extracted.PackageName);
+                selectedTfm = packageTfm;
+            }
+            else
+            {
+                (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(
+                    TfmSelector.GetPackageAssemblies(extracted.ExtractPath),
+                    extracted.ExtractPath,
+                    extracted.PackageName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(packageAssembly))
+            {
+                var assemblyName = packageAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                    ? packageAssembly
+                    : $"{packageAssembly}.dll";
+                selectedPath = Directory
+                    .EnumerateFiles(extracted.ExtractPath, assemblyName, SearchOption.AllDirectories)
+                    .Where(IsManaged)
+                    .OrderBy(path => path.Contains($"{Path.DirectorySeparatorChar}runtimes{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? 1 : 0)
+                    .ThenBy(path => path, StringComparer.Ordinal)
+                    .FirstOrDefault();
+                selectedTfm = selectedPath is null ? null : Path.GetFileName(Path.GetDirectoryName(selectedPath));
+            }
+
+            if (selectedPath is null)
+            {
+                Console.Error.WriteLine($"Warning: no managed assembly found for package '{package}'.");
+                continue;
+            }
+
+            Console.Error.WriteLine($"Package input: {extracted.PackageName}@{extracted.Version} ({selectedTfm ?? "unknown TFM"}) -> {selectedPath}");
+            assemblies.Add(selectedPath);
+        }
+
+        return assemblies;
+    }
+
     static bool IsManaged(string path)
     {
         try
@@ -1239,12 +1325,26 @@ static class Program
                                 opcodes.
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
+          --return-to-sender-source-probe
+                                derive source-aware metadata fragments from the
+                                input assemblies, run ReturnToSender over those
+                                targets, and report missing-fragment/source
+                                buckets alongside compile-back status.
           --return-to-sender-catalog [selector]
                                 compile the generated fixture catalog, run
                                 ReturnToSender over supported property getters,
                                 and report pass/skip/fail frontier buckets.
                                 Use selector prefix or "list"; supports --json
                                 and --keep-generated-fixtures.
+          --package <id[@version]>
+                                download/extract a NuGet package and add its
+                                selected managed assembly as input (use
+                                dotnet-inspect.any to pin to the deployed tool
+                                package payload instead of a local build).
+          --package-version <v>  explicit version for --package.
+          --package-tfm <tfm>    select a specific TFM from --package.
+          --package-assembly <dll>
+                                select a specific assembly inside --package.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>
