@@ -4,6 +4,8 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 ## Modes
 
+**Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.
+
 **Inventory** (default): sweeps every method body in the given assemblies through the pipeline and reports the fidelity histogram plus stop-reason buckets — the prioritized slice roadmap. Exits nonzero if any importer bug (DEC0001) appears. `--max-examples N` sets how many example methods each bucket lists (default 5) — raise it to widen the candidate pool when picking the next target.
 
 **Gaps** (`--gaps`): the completeness view — see below.

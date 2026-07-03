@@ -73,6 +73,7 @@ static class Program
         bool structuringStops = false;
         bool postdomProbe = false;
         int postdomSample = 0;
+        string? emitInverseLedger = null;
         bool libraryReport = false;
         bool unsupportedNodes = false;
         bool typeCheck = false;
@@ -118,6 +119,7 @@ static class Program
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
+                case "--emit-inverse-ledger": emitInverseLedger = args[++i]; break;
                 case "--assertions": assertions = true; break;
                 case "--assertion-scan": assertionScan = true; break;
                 case "--assertion-fixture-guarantee": assertionFixtureGuarantee = true; break;
@@ -219,6 +221,14 @@ static class Program
         }
 
         using var packageInputs = ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly);
+
+        if (emitInverseLedger is not null)
+        {
+            File.WriteAllText(emitInverseLedger, ILInspector.Decompiler.Tests.InverseArchitecture.InverseLedger.RenderMarkdown(typeof(IrFunction).Assembly));
+            Console.WriteLine($"Wrote inverse ledger to {emitInverseLedger}");
+            return 0;
+        }
+
         var assemblies = inputs.Count == 0 && packages.Count > 0
             ? packageInputs.Assemblies.ToList()
             : ResolveAssemblies(inputs).Concat(packageInputs.Assemblies).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
