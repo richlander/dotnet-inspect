@@ -8,6 +8,40 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 **Gaps** (`--gaps`): the completeness view — see below.
 
+**Assertion scan** (`--assertion-scan`): runs the executable
+inverse-architecture `assumes:` predicates across input methods and reports the
+measurement view that `--dump --assertions` cannot provide alone: methods with at
+least one violation, violation histograms by sink type, first failing pass, node,
+and predicate, plus the distinct `[InverseOf]` nodes exercised by the scanned
+population. Use `--sample N` to run a deterministic hash-ranked sample per
+assembly, and combine it with `--package` / `--package-version` /
+`--package-tfm` / `--package-assembly` the same way other harness scans do.
+
+The scan is a triage and localized-signoff aid, not a CI gate on a raw violation
+count. It automates the value-typed-emission leak-surface census, but the
+population-scale correctness gates remain compile-back, render A/B, and the
+quality-diff card; see
+[docs/decompiler-raise-discipline.md](../../docs/decompiler-raise-discipline.md)
+for the assertion-dump discipline.
+
+For before/after work, mirror the validity-defects loop with
+`--emit-assertion-violations <file>` and
+`--diff-assertion-violations <file>`. The emitted JSON includes every scanned
+method, including clean methods, so a method losing its last violation appears as
+an `IMPROVED` row rather than disappearing behind a cap-boundary artifact.
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll \
+  --assertion-scan --sample 125 --max-examples 5
+
+dotnet run --project tools/DecompilerHarness -c Release -- MyLib.dll \
+  --assertion-scan --sample 250 --emit-assertion-violations /tmp/assertions.base.json
+
+dotnet run --project tools/DecompilerHarness -c Release -- MyLib.dll \
+  --assertion-scan --sample 250 --diff-assertion-violations /tmp/assertions.base.json
+```
+
 **Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
 generated-fixture catalogue entries into a temporary class library, runs the
 Roslyn shape oracle and compile-back oracle, and prints results by stable fixture
