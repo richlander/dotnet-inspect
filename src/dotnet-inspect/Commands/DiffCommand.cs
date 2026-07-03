@@ -428,9 +428,9 @@ public class DiffCommand
         var methods = new Dictionary<string, AnalysisMethod>(StringComparer.Ordinal);
         foreach (var path in paths)
         {
-            var index = LibraryBodyIndex.Open(path);
+            var index = MethodBodyInspectionSession.Open(path);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
-            var signalsByToken = index.GetMethodSignals();
+            var signalsByToken = index.MethodSignalsByToken;
             foreach (var method in index.Methods)
             {
                 if (LibraryMetadataService.IsGeneratedMethod(method, generatedFrameworkTypes))

@@ -1244,14 +1244,14 @@ public static class ApiOutputFormatter
             var callerSession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
             // Extend the reverse graph across the caller scope (--bin/--project/--caller-package)
             // so a dependency member surfaces the product entry points and callers that reach it.
-            var scopeIndexes = new List<Analysis.LibraryBodyIndex>();
+            var scopeSessions = new List<MethodBodyInspectionSession>();
             if (callerScopeAssemblies is { Count: > 0 })
             {
                 foreach (var scopePath in callerScopeAssemblies)
                 {
                     try
                     {
-                        scopeIndexes.Add(Analysis.LibraryBodyIndex.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
                     }
                     catch
                     {
@@ -1259,7 +1259,7 @@ public static class ApiOutputFormatter
                     }
                 }
             }
-            var callerTree = callerSession.CallerTree(callerGraphToken, scopeIndexes);
+            var callerTree = callerSession.CallerTree(callerGraphToken, scopeSessions);
             var root = ToCallGraphNode(callerTree, GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
             {
