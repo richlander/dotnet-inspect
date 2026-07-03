@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -1734,6 +1735,146 @@ public class ReturnToSenderPrototypeTests
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, equalsObject.Status);
                     Assert.Contains("public virtual bool Equals(Row other)", equalsObject.Source);
                 });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
+                    new ReturnToSender.RequestedTarget("Row", "ToString", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 1),
+                ]);
+
+            Assert.Collection(
+                results,
+                getHashCode =>
+                {
+                    Assert.True(
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
+                    Assert.Contains("public string Name;", getHashCode.Source);
+                    Assert.Contains("public string Value;", getHashCode.Source);
+                    Assert.DoesNotContain("public string Name { get; }", getHashCode.Source);
+                },
+                toString =>
+                {
+                    Assert.True(
+                        toString.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{toString.Status}: {toString.Detail}{Environment.NewLine}{toString.Source}");
+                    Assert.Contains("public string Name { get; set; }", toString.Source);
+                    Assert.DoesNotContain("public string Name;", toString.Source);
+                },
+                typedEquals =>
+                {
+                    Assert.True(
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
+                    Assert.Contains("public virtual bool Equals(Row other)", typedEquals.Source);
+                    Assert.Contains("public string Name;", typedEquals.Source);
+                    Assert.Contains("public string Value;", typedEquals.Source);
+                    Assert.DoesNotContain("public string Name { get; }", typedEquals.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesFieldShellForRecordStructGeneratedFieldReadHelpers()
+    {
+        var assemblyPath = CompileFixture("""
+            public record struct Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 1),
+                ]);
+
+            Assert.Collection(
+                results,
+                getHashCode =>
+                {
+                    Assert.True(
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
+                    Assert.Contains("public string Name;", getHashCode.Source);
+                    Assert.Contains("public string Value;", getHashCode.Source);
+                    Assert.DoesNotContain("public string Name { get; }", getHashCode.Source);
+                },
+                typedEquals =>
+                {
+                    Assert.True(
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
+                    Assert.Contains("public bool Equals(Row other)", typedEquals.Source);
+                    Assert.Contains("public string Name;", typedEquals.Source);
+                    Assert.Contains("public string Value;", typedEquals.Source);
+                    Assert.DoesNotContain("public string Name { get; }", typedEquals.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackSelfType_DistinguishesNestedTypeFromNamespacePeer()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace N;
+
+            public class Container
+            {
+                public record Row(string Name);
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            using var source = MetadataSource.Open(assemblyPath);
+            var reader = pe.GetMetadataReader();
+            var nestedHandle = reader.TypeDefinitions
+                .Single(handle => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)) == "N.Container.Row");
+            var nestedType = reader.GetTypeDefinition(nestedHandle);
+            var nestedIdentity = CompileBackTypeIdentity.FromDefinition(reader, nestedType);
+            var namespacePeerIdentity = new CompileBackTypeIdentity(
+                "N.Container",
+                "Row",
+                "Row",
+                "N.Container.Row",
+                "N.Container.Row");
+            var function = IrImporter.Import(source, "N.Container.Row", "GetHashCode", publicOnly: false);
+            Assert.NotNull(function);
+            IrPasses.Run(function, IrPasses.Default, new PassContext(new Stepper(enabled: false)));
+            var load = Assert.Single(function.Descendants.OfType<LoadField>(), field => field.Field.BackingPropertyName == "Name");
+            var helper = typeof(CompileBackSourceComposer).GetMethod("IsSelfType", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+            Assert.True((bool)helper.Invoke(null, [load.Field.DeclaringType, nestedIdentity])!);
+            Assert.False((bool)helper.Invoke(null, [load.Field.DeclaringType, namespacePeerIdentity])!);
+
+            var globalNestedIdentity = new CompileBackTypeIdentity("", "B", "B", "A.B", "A.B");
+            var dottedTopLevelType = TypeRef.Definition("fixture", "", "A.B");
+            Assert.False((bool)helper.Invoke(null, [dottedTopLevelType, globalNestedIdentity])!);
         }
         finally
         {
