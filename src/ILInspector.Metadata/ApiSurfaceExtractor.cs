@@ -176,7 +176,8 @@ public static class ApiSurfaceExtractor
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
-                    ObsoleteMessage = obsoleteMessage
+                    ObsoleteMessage = obsoleteMessage,
+                    Attributes = RenderMemberAttributes(reader, method.GetCustomAttributes())
                 };
 
                 // Check for extension method
@@ -257,6 +258,7 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    Attributes = RenderMemberAttributes(reader, prop.GetCustomAttributes()),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
@@ -313,7 +315,8 @@ public static class ApiSurfaceExtractor
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
-                    ObsoleteMessage = obsoleteMessage
+                    ObsoleteMessage = obsoleteMessage,
+                    Attributes = RenderMemberAttributes(reader, field.GetCustomAttributes())
                 };
 
                 // Read enum constant value
@@ -812,6 +815,13 @@ public static class ApiSurfaceExtractor
 
         return [];
     }
+
+    private static List<string> RenderMemberAttributes(MetadataReader reader, CustomAttributeHandleCollection attributes)
+        => AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            skipAttribute: static name => name == "System.ObsoleteAttribute",
+            qualifyNames: true);
 
     private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
     {

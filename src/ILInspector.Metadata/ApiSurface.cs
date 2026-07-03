@@ -326,6 +326,7 @@ public class ApiMember
 {
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
+    public List<string> Attributes { get; set; } = [];
 
     public string? ReturnType { get; set; }
     public string? Signature { get; set; }

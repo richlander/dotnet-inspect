@@ -688,6 +688,42 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "property", "return", "marshalling", "attributes"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalMemberAttributes = new(
+        "minimal.member-attributes",
+        """
+        namespace GeneratedFixtures.MinimalMemberAttributes;
+
+        public class Class1
+        {
+            [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+            public int Method1()
+                => 42;
+
+            [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+            public string Text
+            {
+                get => "hello";
+            }
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalMemberAttributes.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalMemberAttributes.Class1", "Method1",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int Method1()",
+                ]),
+            new("GeneratedFixtures.MinimalMemberAttributes.Class1", "get_Text",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string Text",
+                ]),
+        ],
+        ["minimal", "member", "attributes"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -1190,6 +1226,7 @@ internal static class GeneratedFixtureCatalog
         MinimalParameterMarshalling,
         MinimalReturnParameterMetadata,
         MinimalPropertyReturnMetadata,
+        MinimalMemberAttributes,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,

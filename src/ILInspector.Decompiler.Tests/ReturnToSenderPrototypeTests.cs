@@ -1439,6 +1439,51 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsMemberAttributes()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+                public int Method1()
+                    => 42;
+
+                [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+                public string Text
+                {
+                    get => "hello";
+                }
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "Method1", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "get_Text", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int Method1()", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string Text", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""
