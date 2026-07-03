@@ -108,12 +108,12 @@ public static class LibrarySections
             .Add(ScannerSwitches, ctx =>
                 ctx.Model.Switches = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerUnsafeMembers, ctx =>
-                ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodySession, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, ctx =>
-                ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(ctx.BodySession, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerOptimizationOpportunities, ctx =>
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
-                    ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
+                    ctx.BodySession, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>

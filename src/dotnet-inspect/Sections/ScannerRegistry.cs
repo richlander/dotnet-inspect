@@ -1,3 +1,4 @@
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 
@@ -11,6 +12,17 @@ public sealed class ScannerContext
     public required string AssemblyPath { get; init; }
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
+
+    private MethodBodyInspectionSession? _bodySession;
+
+    /// <summary>
+    /// Shared method-body analysis session for <see cref="AssemblyPath"/>, built once on first use.
+    /// The body-index scanners (unsafe members, top leverage, optimization opportunities) share it
+    /// instead of each rebuilding the full <c>LibraryBodyIndex</c>. Scanners run sequentially
+    /// (<see cref="ScannerRegistry.RunScanners"/>), so no synchronization is required.
+    /// </summary>
+    public MethodBodyInspectionSession BodySession() =>
+        _bodySession ??= MethodBodyInspectionSession.Open(AssemblyPath);
 }
 
 /// <summary>

@@ -233,7 +233,7 @@ public class OutputFormatterTests
     public void ScanOptimizationOpportunities_OrdersByTriagePriority()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(
-            typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+            () => MethodBodyInspectionSession.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
 
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);
@@ -487,7 +487,7 @@ public class OutputFormatterTests
     public void ScanOptimizationOpportunities_SuppressesGeneratedMethods()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(
-            typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+            () => MethodBodyInspectionSession.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
 
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);
