@@ -350,6 +350,17 @@ public static class IrPasses
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes)
         => Run(function, passes, PassContext.None);
 
+    /// <summary>
+    /// As <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/>, but wires the
+    /// cross-method import seam so cross-method passes (classic-async / iterator /
+    /// lambda / local-function reconstruction) run as they do in the product path.
+    /// <c>null</c> leaves them no-ops (the shared no-import context). Used by the
+    /// single-method diagnostic dump paths so they match the shipped output.
+    /// </summary>
+    public static void Run(
+        IrFunction function, ImmutableArray<IIrPass> passes, Func<MethodRef, IrFunction?>? importMethodBody)
+        => Run(function, passes, DiagnosticContext(importMethodBody));
+
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes, PassContext context)
     {
         foreach (var pass in passes)
@@ -358,6 +369,17 @@ public static class IrPasses
             function.CheckInvariant();
         }
     }
+
+    /// <summary>
+    /// A non-stepping context that carries the cross-method import seam for the
+    /// diagnostic dump paths, or <see cref="PassContext.None"/> when no seam is
+    /// wired. The stepper stays disabled — this is for the staged/tree dumps, not
+    /// <see cref="RunWithSteps(IrFunction, int)"/> which needs an enabled stepper.
+    /// </summary>
+    static PassContext DiagnosticContext(Func<MethodRef, IrFunction?>? importMethodBody)
+        => importMethodBody is null
+            ? PassContext.None
+            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
 
     /// <summary>The synthetic stage name for the importer output — the pre-transform tree, before any pass runs.</summary>
     public const string ImportStageName = "(import)";
@@ -389,16 +411,21 @@ public static class IrPasses
     /// between mutations, so each captured string is the tree as that stage left
     /// it. Debug builds validate invariants after every pass, exactly as
     /// <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
-    /// <paramref name="importMethodBody"/> wires the cross-method import seam;
+    /// </summary>
+    public static IReadOnlyList<PipelineStage> RunWithStages(
+        IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project)
+        => RunWithStages(function, passes, project, importMethodBody: null);
+
+    /// <summary>
+    /// As <see cref="RunWithStages(IrFunction, ImmutableArray{IIrPass}, Func{IrFunction, string})"/>,
+    /// but <paramref name="importMethodBody"/> wires the cross-method import seam;
     /// <c>null</c> uses the shared no-import context (cross-method passes no-op).
     /// </summary>
     public static IReadOnlyList<PipelineStage> RunWithStages(
         IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project,
-        Func<MethodRef, IrFunction?>? importMethodBody = null)
+        Func<MethodRef, IrFunction?>? importMethodBody)
     {
-        var context = importMethodBody is null
-            ? PassContext.None
-            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
+        var context = DiagnosticContext(importMethodBody);
         var stages = new List<PipelineStage>(passes.Length + 1)
         {
             new(ImportStageName, project(function), function.Fidelity),
@@ -420,13 +447,18 @@ public static class IrPasses
     /// <see cref="int.MaxValue"/> to record every step without stopping. The
     /// <see cref="StepLimitReachedException"/> is caught here — callers see a
     /// normal return with the partially-transformed <paramref name="function"/>.
+    /// </summary>
+    public static Stepper RunWithSteps(IrFunction function, int stepLimit = int.MaxValue)
+        => RunWithSteps(function, stepLimit, importMethodBody: null);
+
+    /// <summary>
+    /// As <see cref="RunWithSteps(IrFunction, int)"/>, but
     /// <paramref name="importMethodBody"/> wires the cross-method import seam so
     /// cross-method passes step through their rewrites in the stepper view as
     /// they do in the product path; <c>null</c> leaves them no-ops.
     /// </summary>
     public static Stepper RunWithSteps(
-        IrFunction function, int stepLimit = int.MaxValue,
-        Func<MethodRef, IrFunction?>? importMethodBody = null)
+        IrFunction function, int stepLimit, Func<MethodRef, IrFunction?>? importMethodBody)
     {
         var stepper = new Stepper(enabled: true) { StepLimit = stepLimit };
         var context = new PassContext(stepper, importMethodBody: importMethodBody);

@@ -817,6 +817,16 @@ static class Program
         }
     }
 
+    /// <summary>
+    /// The cross-method import seam for the single-method diagnostic dumps: lets
+    /// cross-method passes (classic-async / iterator / lambda / local-function
+    /// reconstruction) pull in sibling bodies so the dump matches the shipped
+    /// product output. Mirrors the delegate the product path wires in
+    /// <c>TypeSourceComposer</c>.
+    /// </summary>
+    static Func<MethodRef, IrFunction?> ImportSeam(MetadataSource source)
+        => method => IrImporter.Import(source, method);
+
     /// <summary>Stage dump through the pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
     static int Dump(List<string> assemblies, string dumpMethod, int overloadIndex, StageDumpView view, bool skipPdb = false, bool simulate = false)
     {
@@ -866,7 +876,7 @@ static class Program
                 continue;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, per-pass diff)");
-            Console.Write(StageDump.FormatDiff(IrPasses.RunWithStages(function)));
+            Console.Write(StageDump.FormatDiff(IrPasses.RunWithStages(function, ImportSeam(source))));
             return 0;
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
@@ -892,7 +902,7 @@ static class Program
 
             string where = stepLimit == int.MaxValue ? "all steps" : $"replay to step {stepLimit}";
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {where})");
-            var stepper = IrPasses.RunWithSteps(function, stepLimit, method => IrImporter.Import(source, method));
+            var stepper = IrPasses.RunWithSteps(function, stepLimit, ImportSeam(source));
 
             Console.WriteLine();
             Console.WriteLine($"==== steps ({stepper.Count} recorded) ====");
@@ -937,7 +947,7 @@ static class Program
                 continue;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, assertions)");
-            var stages = IrPasses.RunWithStages(function, IrPasses.Default, new AssertionPrinter.StatefulPrinter().Dump);
+            var stages = IrPasses.RunWithStages(function, IrPasses.Default, new AssertionPrinter.StatefulPrinter().Dump, ImportSeam(source));
             Console.Write(StageDump.Format(stages));
             return 0;
         }
@@ -968,7 +978,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
+            IrPasses.Run(function, IrPasses.Default, ImportSeam(source));  // raise through the canonical pipeline, as the product does
             var facts = CSharpPrinter.CollectDataflowFacts(function);
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, definite-assignment facts)");
@@ -1030,7 +1040,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
+            IrPasses.Run(function, IrPasses.Default, ImportSeam(source));  // raise through the canonical pipeline, as the product does
             var remarks = FidelityRemarks.Collect(function);
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, fidelity remarks)");
@@ -1085,7 +1095,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function, IrPasses.Lowered);  // lower, but stop short of the cosmetic sugar
+            IrPasses.Run(function, IrPasses.Lowered, ImportSeam(source));  // lower, but stop short of the cosmetic sugar
             var facts = CSharpPrinter.CollectDataflowFacts(function);
             var body = CSharpPrinter.Print(function).Output;
 
@@ -1128,7 +1138,7 @@ static class Program
             if (function is null)
                 continue;
 
-            IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
+            IrPasses.Run(function, IrPasses.Default, ImportSeam(source));  // raise through the canonical pipeline, as the product does
 
             string form = mermaid ? "mermaid flowchart" : "control-flow graph";
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {form})");
