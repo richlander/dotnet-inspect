@@ -206,11 +206,10 @@ static class Program
             return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, maxExamples);
         }
 
+        using var packageInputs = ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly);
         var assemblies = inputs.Count == 0 && packages.Count > 0
-            ? []
-            : ResolveAssemblies(inputs);
-        if (packages.Count > 0)
-            assemblies.AddRange(ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly));
+            ? packageInputs.Assemblies.ToList()
+            : ResolveAssemblies(inputs).Concat(packageInputs.Assemblies).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
@@ -1158,12 +1157,24 @@ static class Program
         return result;
     }
 
-    static List<string> ResolvePackageAssemblies(IReadOnlyList<string> packages, string? packageVersion, string? packageTfm, string? packageAssembly)
+    sealed class PackageAssemblyInputs(List<string> assemblies, List<string> tempDirs) : IDisposable
+    {
+        public IReadOnlyList<string> Assemblies => assemblies;
+
+        public void Dispose()
+        {
+            foreach (var tempDir in tempDirs)
+                PackageExtractor.Cleanup(tempDir);
+        }
+    }
+
+    static PackageAssemblyInputs ResolvePackageAssemblies(IReadOnlyList<string> packages, string? packageVersion, string? packageTfm, string? packageAssembly)
     {
         HttpClientFactory.Initialize();
         NuGetCache.Initialize("dotnet-inspect");
 
         var assemblies = new List<string>();
+        var tempDirs = new List<string>();
         using var httpClient = HttpClientFactory.CreateNew();
         foreach (var package in packages)
         {
@@ -1182,6 +1193,8 @@ static class Program
             }
 
             var extracted = outcome.Result!;
+            if (extracted.TempDir is not null)
+                tempDirs.Add(extracted.TempDir);
             string? selectedPath;
             string? selectedTfm;
             if (!string.IsNullOrWhiteSpace(packageTfm))
@@ -1199,16 +1212,7 @@ static class Program
 
             if (!string.IsNullOrWhiteSpace(packageAssembly))
             {
-                var assemblyName = packageAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                    ? packageAssembly
-                    : $"{packageAssembly}.dll";
-                selectedPath = Directory
-                    .EnumerateFiles(extracted.ExtractPath, assemblyName, SearchOption.AllDirectories)
-                    .Where(IsManaged)
-                    .OrderBy(path => path.Contains($"{Path.DirectorySeparatorChar}runtimes{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? 1 : 0)
-                    .ThenBy(path => path, StringComparer.Ordinal)
-                    .FirstOrDefault();
-                selectedTfm = selectedPath is null ? null : Path.GetFileName(Path.GetDirectoryName(selectedPath));
+                (selectedPath, selectedTfm) = TfmSelector.FindAssemblyInPackage(extracted.ExtractPath, packageAssembly, packageTfm);
             }
 
             if (selectedPath is null)
@@ -1221,7 +1225,7 @@ static class Program
             assemblies.Add(selectedPath);
         }
 
-        return assemblies;
+        return new PackageAssemblyInputs(assemblies, tempDirs);
     }
 
     static bool IsManaged(string path)
