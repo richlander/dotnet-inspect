@@ -916,7 +916,7 @@ public sealed partial class CSharpPrinter
     bool IsKnownReferenceType(TypeRef? type)
         => TypeFamilies.Of(type) == StackFamily.O
             || type is { Kind: TypeRefKind.SzArray or TypeRefKind.Array }
-            || type is { Kind: TypeRefKind.Definition } && _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference;
+            || type is not null && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference;
 
     string BoxedReferenceOperand(IrExpression operand)
         => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);

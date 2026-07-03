@@ -1766,6 +1766,33 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesGenericEqualityOperatorReferenceComparison()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row<T>
+            {
+                public static bool operator ==(Row<T> left, Row<T> right) => (object)left == (object)right;
+                public static bool operator !=(Row<T> left, Row<T> right) => (object)left != (object)right;
+                public override bool Equals(object obj) => obj is Row<T>;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row`1", "op_Equality", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("return (object)left == (object)right;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""
