@@ -1469,6 +1469,12 @@ public sealed class Binary : IrExpression
         => $"Binary.{Kind}{(IsChecked ? " checked" : "")}{(IsUnsigned ? " unsigned" : "")}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundCall,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundCall / call·callvirt",
+    precondition: "result is the callee's return type (method signature); `IsVirtual` selects `callvirt`, `ConstrainedTo` carries a `constrained.` prefix",
+    witness: "corpus compile-back")]
 public sealed class Call : IrExpression
 {
     public Call(MethodRef callee, bool isVirtual, IEnumerable<IrExpression> arguments)
@@ -1560,6 +1566,12 @@ public sealed class CallIndirect : IrExpression
 }
 
 /// <summary>Object construction: <c>newobj</c> with the constructor's MethodRef (receiver excluded from arguments).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundObjectCreationExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundObjectCreationExpression / newobj",
+    precondition: "result is the constructed type (the `newobj` constructor's declaring type)",
+    witness: "corpus compile-back")]
 public sealed class NewObject : IrExpression
 {
     public NewObject(MethodRef constructor, IEnumerable<IrExpression> arguments)
@@ -2097,6 +2109,12 @@ public sealed class AddressOfMethod : IrExpression
 /// <c>ldftn; newobj DelegateType::.ctor(object, native int)</c> lowering. The
 /// target is the receiver object (a null constant for a static method group).
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundDelegateCreationExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundDelegateCreationExpression / newobj + ldftn·ldvirtftn",
+    precondition: "result is the delegate type `DelegateType` (the `newobj` delegate constructor over a method-group `ldftn`/`ldvirtftn`)",
+    witness: "function-pointer/delegate fixtures; corpus compile-back")]
 public sealed class DelegateCreation : IrExpression
 {
     public DelegateCreation(TypeRef delegateType, MethodRef method, bool isVirtual, IrExpression target)
@@ -2130,6 +2148,12 @@ public sealed class DelegateCreation : IrExpression
 /// to this nested scope when needed. Capturing bodies still print in the outer
 /// function scope after capture substitution.</para>
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundLambda,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundLambda / closure lowering (synthesized method + delegate)",
+    precondition: "result is the delegate type `DelegateType` the lambda is converted to; raised from the compiler's closure/display-class lowering",
+    witness: "lambda/closure fixtures; corpus compile-back")]
 public sealed class Lambda : IrExpression
 {
     public Lambda(
@@ -2233,6 +2257,12 @@ public sealed class LocalFunctionStatement : IrNode
 /// <c>Name(args)</c>, the source spelling, rather than the synthesized
 /// <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c> the call site lowered to.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundCall,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundCall (local function) / call",
+    precondition: "result is the local function's return type `ReturnType` (a `call` to a compiler-lowered local-function method, recognized and rendered as a local-function call)",
+    witness: "local-function fixtures; corpus compile-back")]
 public sealed class LocalFunctionInvocation : IrExpression
 {
     public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
