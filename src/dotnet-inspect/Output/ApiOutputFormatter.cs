@@ -1048,9 +1048,7 @@ public static class ApiOutputFormatter
 
     private static List<(string name, string type, bool hasDefault)> ConstructorParameterInfo(ApiMember constructor)
         => constructor.SignatureModel is { } signature
-            ? signature.Parameters
-                .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
-                .ToList()
+            ? signature.ParameterInfoSummary
             : SignatureParser.ExtractParameterInfo(constructor.Signature);
 
     private static string ConstructorCall(ApiType type, ApiMember constructor)
@@ -1058,17 +1056,30 @@ public static class ApiOutputFormatter
         if (constructor.SignatureModel is { } signature
             && signature.Parameters.All(static parameter => !parameter.HasDefault || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
         {
-            var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-                type,
-                constructor,
-                new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
-            if (!string.IsNullOrWhiteSpace(declaration))
-                return ConstructorCallFromDeclaration(declaration);
+            if (HasKeywordGenericIdentifier(type, signature))
+            {
+                var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+                    type,
+                    constructor,
+                    new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
+                if (!string.IsNullOrWhiteSpace(declaration))
+                    return ConstructorCallFromDeclaration(declaration);
+            }
+
+            return signature.ParameterDeclarationsSummary;
         }
 
         // Compatibility-only fallback for legacy signatures without complete
         // structured default-value facts.
         return SignatureParser.FormatConstructorCall(constructor.Signature);
+    }
+
+    private static bool HasKeywordGenericIdentifier(ApiType type, ApiSignature signature)
+    {
+        return type.TypeParameters
+            .Concat(signature.TypeParameters)
+            .Select(parameter => parameter.Name)
+            .Any(name => CSharpDeclarationWriter.EscapeIdentifier(name) != name);
     }
 
     private static string ConstructorCallFromDeclaration(string declaration)
