@@ -240,6 +240,37 @@ Two design rules keep this sound and cheap:
 The reflector that reads the annotations and emits the ledger lives in tools/tests,
 never in the shipped decompiler.
 
+## Prior art: the structured safety comment
+
+The two-level split — a human-authored claim beside the code, reconciled with the
+implementation by review rather than by the compiler — is the same shape as a Rust
+`// SAFETY:` comment. An `unsafe` block's safety comment asserts the invariant the
+compiler cannot check; an `[InverseOf]` precondition asserts the type contract the
+type system does not encode. Both are a *second viewpoint* — the justification — that
+must agree with the *first*, the mechanism the code implements, and both can silently
+go stale when the code changes. That is why the annotation batches surface a
+precondition mismatch on nearly every review pass, and why the coverage gate exists:
+every in-domain node must carry an annotation, exactly as Clippy's
+`undocumented_unsafe_blocks` requires a comment on every `unsafe` block.
+
+Rust is moving the same convention from freeform prose toward structured,
+tool-checkable attributes. The
+[Safety Tags RFC (rust-lang/rfcs#3842)](https://github.com/rust-lang/rfcs/pull/3842)
+proposes `#[safety::requires(valid_ptr = "…", aligned = "…")]` on an unsafe function
+with `#[safety::checked]` at the call site — the same move `[InverseOf]` makes from a
+`//` comment to a named-field attribute a reflector can read. The executable end has a
+direct analog too: Rust's
+[Contracts experiment (rust-lang/rust#128044)](https://github.com/rust-lang/rust/issues/128044)
+attaches `#[core::contracts::requires(…)]` / `ensures(…)` that run under a debug flag —
+the role the `assumes:` predicate plays here.
+
+The distinction the analogy sharpens: a precondition string is a safety comment
+(reconciled by review, and it can be wrong); an `assumes:` predicate is the assertion
+the machine re-checks. Graduating an annotation from the first to the second is what
+turns a described shape into an enforced invariant — and how much of the ledger crosses
+that line measures how much of the second viewpoint is mechanically reconciled with the
+first, rather than trusted.
+
 ## From affordance to capability: the assertion dump
 
 The doc and the annotations, on their own, are a review affordance: a static audit of
