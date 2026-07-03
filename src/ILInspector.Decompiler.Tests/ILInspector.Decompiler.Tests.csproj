@@ -48,6 +48,7 @@
     entry point).
   -->
   <ItemGroup>
+    <Compile Include="..\..\tools\DecompilerHarness\InverseLedger.cs" Link="InverseArchitecture\InverseLedger.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMetadata.cs"
              Link="CorpusMetadata.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodIdentity.cs"

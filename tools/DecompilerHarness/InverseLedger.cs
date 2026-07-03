@@ -22,7 +22,8 @@ public static class InverseLedger
         Oracle Oracle,
         NameProvenance Naming,
         string Precondition,
-        string Witness);
+        string Witness,
+        string? Assumes = null);
 
     /// <summary>Concrete, non-abstract IR expression node types in the given assembly, name-ordered.</summary>
     public static IReadOnlyList<Type> NodeTypes(Assembly assembly)
@@ -41,7 +42,8 @@ public static class InverseLedger
                 x.Inverse.Oracle,
                 x.Inverse.Naming,
                 x.Inverse.Precondition ?? "—",
-                x.Inverse.Witness ?? "—"))];
+                x.Inverse.Witness ?? "—",
+                x.Inverse.Assumes))];
 
     /// <summary>One declared non-inverse boundary: a node deliberately outside the checkable domain.</summary>
     public sealed record Boundary(string Node, string Reason);
