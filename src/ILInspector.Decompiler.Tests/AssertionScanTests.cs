@@ -170,6 +170,19 @@ public class AssertionScanTests
         Assert.Equal(importViolation.Identity, laterViolation.Identity);
     }
 
+    [Fact]
+    public void SinkType_ParsesRealCoercionInvariantMessage()
+    {
+        var function = Function(
+            Returning(new LoadArgument(0, "raw", Int32)),
+            Enum32,
+            new Parameter("raw", Int32));
+
+        var violation = Assert.Single(CoercionInvariant.Check(function));
+
+        Assert.Equal("E32", AssertionScan.SinkType(violation.Message));
+    }
+
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
         => new(
             "M",

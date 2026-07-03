@@ -42,6 +42,25 @@ dotnet run --project tools/DecompilerHarness -c Release -- MyLib.dll \
   --assertion-scan --sample 250 --diff-assertion-violations /tmp/assertions.base.json
 ```
 
+For annotation-batch audits, use the assertion audit corpus instead of one local
+assembly. It combines the fixed real-world decompiler corpus with the current
+managed product assemblies, so rare annotated nodes are more likely to be
+exercised over real IR while the input set stays reproducible:
+
+```bash
+dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+bash eng/prepare-decompiler-assertion-corpus.sh /tmp/assertion-corpus.txt
+mapfile -t assemblies < /tmp/assertion-corpus.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --assertion-scan \
+  --max-examples 10
+```
+
+`decompiler-daily.yml` runs the same corpus as a report-only artifact named
+`assertion-scan-report`. The artifact's `assertion-scan.txt` lists exercised and
+unexercised `[InverseOf]` nodes; a non-empty unexercised list is follow-up work
+for corpus/fixture breadth, not a failed daily gate.
+
 **Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
 generated-fixture catalogue entries into a temporary class library, runs the
 Roslyn shape oracle and compile-back oracle, and prints results by stable fixture

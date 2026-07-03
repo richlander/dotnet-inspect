@@ -129,6 +129,9 @@ Reach for it to:
 - **Audit a new annotation batch** across a corpus — confirm the nodes you
   annotated actually appear over real IR (e.g. a full scan of the decompiler
   assembly, 6756 methods, exercised 22/25 annotated nodes with 0 pass bugs).
+  For batch signoff, prefer the audit corpus from
+  `eng/prepare-decompiler-assertion-corpus.sh`: fixed real-world corpus plus
+  current local product assemblies.
 - **Measure the leak surface** — the methods-with-violation rate is the
   automatable form of the value-typed-emission leak number.
 - **Localize a coercion regression** — the emit/diff pair names the methods
