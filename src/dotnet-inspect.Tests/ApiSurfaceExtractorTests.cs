@@ -228,6 +228,45 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RendersMarshalAsParameterAttributes()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithMarshalAs");
+        Assert.NotNull(method);
+        Assert.NotNull(method.SignatureModel);
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, method);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] int value",
+            declaration);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string text",
+            declaration);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 2)] int[] values",
+            declaration);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)] int[] fixedValues",
+            declaration);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)] int[] plainValues",
+            declaration);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)] int[] fixedPlainValues",
+            declaration);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)] int[] zeroSizedValues",
+            declaration);
+    }
+
+    [Fact]
     public void Extract_RendersEnumParameterDefaultsAsEnumLiterals()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -719,6 +758,15 @@ public class SampleClassForTesting
     public void MethodWithDateTimeConstantDefault(
         [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) { }
     public void MethodWithStringDefault(string text = "a\"b\\c\n\u0001") { }
+    public void MethodWithMarshalAs(
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] int value,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string text,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 2)] int[] values,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)] int[] fixedValues,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)] int[] plainValues,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)] int[] fixedPlainValues,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)] int[] zeroSizedValues,
+        int count) { }
 }
 
 public class SampleKeywordParameterHost
