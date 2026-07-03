@@ -621,7 +621,9 @@ public static class AttributeReader
     static bool IsReEmittedAttribute(string name) => name switch
     {
         KnownAttributeNames.ExtensionAttribute => true,
+        KnownAttributeNames.CompilerFeatureRequiredAttribute => true,
         KnownAttributeNames.CompilerGeneratedAttribute => true,
+        "System.Runtime.CompilerServices.InlineArrayAttribute" => true,
         KnownAttributeNames.NullableAttribute => true,
         KnownAttributeNames.NullableContextAttribute => true,
         KnownAttributeNames.IsReadOnlyAttribute => true,
