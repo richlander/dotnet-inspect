@@ -1719,6 +1719,8 @@ public class ReturnToSenderPrototypeTests
                 [
                     new ReturnToSender.RequestedTarget("Row", "ToString", 0),
                     new ReturnToSender.RequestedTarget("Row", "Equals", 0),
+                    new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 1),
                 ]);
 
             Assert.Collection(
@@ -1733,6 +1735,20 @@ public class ReturnToSenderPrototypeTests
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, equalsObject.Status);
                     Assert.Contains("public virtual bool Equals(Row other)", equalsObject.Source);
+                },
+                getHashCode =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, getHashCode.Status);
+                    Assert.Contains("public string Name;", getHashCode.Source);
+                    Assert.Contains("public string Value;", getHashCode.Source);
+                    Assert.DoesNotContain("public string Name { get;", getHashCode.Source);
+                },
+                equalsTyped =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, equalsTyped.Status);
+                    Assert.Contains("public string Name;", equalsTyped.Source);
+                    Assert.Contains("public string Value;", equalsTyped.Source);
+                    Assert.DoesNotContain("public string Name { get;", equalsTyped.Source);
                 });
         }
         finally

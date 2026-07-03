@@ -555,6 +555,11 @@ public static class CompileBackSourceComposer
         {
             targetMembers.Add(typedEqualsSibling);
         }
+        foreach (var backingFieldMember in BackingFieldMembers(targetIdentity, function))
+        {
+            if (!targetMembers.Any(member => member.Kind == CompileBackMemberKind.Field && member.Identity.Method == backingFieldMember.Identity.Method))
+                targetMembers.Add(backingFieldMember);
+        }
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -1250,6 +1255,43 @@ public static class CompileBackSourceComposer
         }
 
         return null;
+    }
+
+    static IReadOnlyList<CompileBackMemberRequirement> BackingFieldMembers(
+        CompileBackTypeIdentity typeIdentity,
+        IrFunction function)
+    {
+        var members = new Dictionary<string, CompileBackMemberRequirement>(StringComparer.Ordinal);
+        foreach (var load in function.Descendants.OfType<LoadField>())
+        {
+            if (load.Field.BackingPropertyName is not { Length: > 0 } propertyName
+                || !IsFieldOnType(load.Field.DeclaringType, typeIdentity))
+            {
+                continue;
+            }
+
+            string memberName = Identifier(propertyName);
+            members.TryAdd(memberName, new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(typeIdentity.FullName, memberName, 0, $"field {load.Field.Type.ToDisplayString()}"),
+                CompileBackMemberKind.Field,
+                IsStatic: load.Instance is null,
+                Parameters: [],
+                ReturnType: CompileBackTypeSignature.Display(load.Field.Type.ToDisplayString()),
+                TypeParameters: [],
+                StubBody: CompileBackStubBodyKind.None,
+                TargetBody: null,
+                SourceFacts: [new CompileBackFact("metadata", "target-backing-field", load.Field.Name)]));
+        }
+
+        return members.Values.ToArray();
+    }
+
+    static bool IsFieldOnType(TypeRef type, CompileBackTypeIdentity identity)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        return definition.Kind == TypeRefKind.Definition
+            && definition.Namespace == identity.Namespace
+            && definition.Name == identity.MetadataName;
     }
 
     static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
@@ -2277,6 +2319,8 @@ public static class CompileBackSourceComposer
                 if (members.Any(member =>
                         member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
                         && member.Name == Identifier(propertyName)))
+                    continue;
+                if (members.Any(member => member.Kind == CompileBackMemberKind.Field && member.Name == Identifier(propertyName)))
                     continue;
 
                 MethodSignature<string> signature;
