@@ -97,9 +97,17 @@ public static class InverseLedger
 
     /// <summary>
     /// Escapes a user-authored annotation string for a Markdown table cell. A
-    /// literal <c>|</c> in a precondition/forward/witness/reason (e.g. a bitwise
-    /// <c>|</c> operator or an IL sequence) would otherwise split the row into
-    /// phantom columns; <c>\|</c> is the Markdown table-cell escape.
+    /// literal <c>|</c> in a precondition/forward/witness/reason (a bitwise
+    /// <c>|</c> operator, an IL sequence) would otherwise split the row into
+    /// phantom columns. The HTML entity <c>&amp;#124;</c> is used rather than a
+    /// <c>\|</c> backslash escape because it is context-independent (renders as
+    /// <c>|</c> even where GitHub-flavored Markdown ignores backslash escapes,
+    /// e.g. inside a code span) and idempotent (it introduces no <c>|</c> to be
+    /// re-escaped, so a re-run cannot produce a table-breaking <c>\\|</c>). A
+    /// null value (a boundary declared with no reason) renders as the "—"
+    /// sentinel, matching the row fields' coalescing. A pipe an author
+    /// deliberately wants inside a code span must be written as
+    /// <c>&lt;code&gt;&amp;#124;&lt;/code&gt;</c>, since no escape renders inside backticks.
     /// </summary>
-    static string Cell(string value) => value.Replace("|", "\\|");
+    static string Cell(string? value) => value is null ? "—" : value.Replace("|", "&#124;");
 }

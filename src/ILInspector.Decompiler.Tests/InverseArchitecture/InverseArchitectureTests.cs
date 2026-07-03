@@ -69,15 +69,22 @@ public class InverseArchitectureTests
     {
         var markdown = InverseLedger.RenderMarkdown(TestAssembly);
 
-        // The row renders with every literal `|` escaped as `\|`, so the six
-        // data columns stay intact (a raw `|` would open phantom columns).
+        // Type-assertions row: every literal `|` is escaped to the `&#124;`
+        // entity, so the six data columns stay intact (a raw `|` would open
+        // phantom columns; a `\|` backslash escape would show a literal
+        // backslash inside a code span and double-escape non-idempotently).
         Assert.Contains(
-            "| `SamplePipeNode` | BoundBinaryOperator (a \\| b) | RyuJitImporter | Inherited | operands share a type; the `\\|` operator maps to `or` | InverseArchitectureTests |",
+            "| `SamplePipeNode` | BoundBinaryOperator (a &#124; b) | RyuJitImporter | Inherited | operands share a type; the &#124; operator maps to or | InverseArchitectureTests |",
             markdown);
 
-        // No unescaped pipe from the annotation leaks into the table body.
+        // Boundaries row: Cell() escapes [NotInverted] Reason too.
+        Assert.Contains(
+            "| `SamplePipeBoundaryNode` | outside the checkable domain &#124; see design notes |",
+            markdown);
+
+        // No raw pipe from an annotation leaks into either table body.
         Assert.DoesNotContain("(a | b)", markdown);
-        Assert.DoesNotContain("the `|` operator", markdown);
+        Assert.DoesNotContain("domain | see", markdown);
     }
 
     // Rule #4 (structural): every [InverseOf(assumes: ...)] must name a runnable,
@@ -221,16 +228,26 @@ sealed class SampleUnannotatedNode : IrExpression
 
 // A stand-in node whose annotation strings carry literal `|` characters: proves
 // the reflector escapes them so a bitwise-`|` operator or IL sequence cannot
-// split the ledger row into phantom Markdown columns (#2197).
+// split the ledger row into phantom Markdown columns (#2197). Pipes are kept in
+// plain text (not a code span), the case the entity escape renders cleanly.
 [InverseOf(
     Forward.RoslynBoundBinaryOperator,
     naming: NameProvenance.Inherited,
     oracle: Oracle.RyuJitImporter,
     forwardName: "BoundBinaryOperator (a | b)",
-    precondition: "operands share a type; the `|` operator maps to `or`",
+    precondition: "operands share a type; the | operator maps to or",
     witness: "InverseArchitectureTests")]
 sealed class SamplePipeNode : IrExpression
 {
     public override TypeRef? ResultType => null;
     public override string Describe() => nameof(SamplePipeNode);
+}
+
+// A stand-in boundary whose reason carries a literal `|`: exercises Cell() on
+// the boundaries table (Boundary.Reason), not just the type-assertions table.
+[NotInverted("outside the checkable domain | see design notes")]
+sealed class SamplePipeBoundaryNode : IrExpression
+{
+    public override TypeRef? ResultType => null;
+    public override string Describe() => nameof(SamplePipeBoundaryNode);
 }
