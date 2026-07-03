@@ -1345,7 +1345,7 @@ public class LibraryBodyIndexTests
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates, AllocationMultiplicity.Once)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates, AllocationMultiplicity.Once)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Conditional)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch, AllocationPostDominance.Unknown, AllocationMultiplicity.Loop)]
     [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Loop)]
@@ -1366,6 +1366,42 @@ public class LibraryBodyIndexTests
         Assert.Equal(expectedConfidence, occurrence.PathConfidence);
         Assert.Equal(expectedPostDominance, occurrence.PostDominance);
         Assert.Equal(expectedMultiplicity, occurrence.Multiplicity);
+    }
+
+    [Fact]
+    public void AllocationOccurrences_EarlyReturnInsideLoop_IsNotLoopMultiplicity()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = index.GetAllocationOccurrences()
+            .Where(pair => index.Methods.Any(method => method.MetadataToken == pair.Key
+                && method.Name == nameof(OptimizationOpportunityFixtures.ReturnsObjectFromLoop)))
+            .SelectMany(pair => pair.Value)
+            .Single(occ => occ.CountsAsHeapAllocation
+                && occ.Kind == AllocationKind.Object
+                && occ.AllocatedType?.Name == "PlainObject");
+
+        // The allocation is returned from inside the loop; the return exits the frame,
+        // so it runs at most once -> Conditional (behind the i==5 branch), never Loop.
+        Assert.NotEqual(AllocationMultiplicity.Loop, occurrence.Multiplicity);
+        Assert.Equal(AllocationMultiplicity.Conditional, occurrence.Multiplicity);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesListOfInt), "System.Int32[]")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesQueueOfByte), "System.Byte[]")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesStackOfLong), "System.Int64[]")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesStringBuilder), "System.Char[]")]
+    // Fail-honest: no single known backing store.
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesDictionary), null)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), null)]
+    public void AllocationOccurrences_ReportChurnedBackingType(string methodName, string? expectedChurnedType)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Object);
+
+        Assert.Equal(expectedChurnedType, occurrence.ChurnedType);
     }
 
     [Theory]
@@ -3463,6 +3499,14 @@ public class OptimizationOpportunityFixtures
 
     public static object ReturnsPlainObject() => new PlainObject(1);
 
+    // Growable collections whose churned backing store the analysis reports.
+    public static object AllocatesListOfInt() => new System.Collections.Generic.List<int>();
+    public static object AllocatesQueueOfByte() => new System.Collections.Generic.Queue<byte>();
+    public static object AllocatesStackOfLong() => new System.Collections.Generic.Stack<long>();
+    public static object AllocatesStringBuilder() => new System.Text.StringBuilder();
+    // Multi-array backing (buckets + entries) -> fail-honest, no single churned type.
+    public static object AllocatesDictionary() => new System.Collections.Generic.Dictionary<int, string>();
+
     public void StoresPlainObjectToField() => _objectField = new PlainObject(1);
 
     public static void ExceptionUnknownOrThrow(bool passToUnknown)
@@ -4382,6 +4426,19 @@ public class OptimizationOpportunityFixtures
             if (i < 0)
                 throw new System.InvalidOperationException("never");
         }
+    }
+
+    // Early-return allocation inside a loop: the return exits the frame, so the
+    // allocation runs at most once even though its IL offset sits in the loop.
+    public static object? ReturnsObjectFromLoop(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            ConsumeBoolean(i > 0);
+            if (i == 5)
+                return new PlainObject(i);
+        }
+        return null;
     }
 
     public static void ThrowsInitializedExceptionInLoop(int n)

@@ -128,7 +128,9 @@ public sealed record CompileBackTypeDeclaration(
     IReadOnlyList<CompileBackTypeSignature> Interfaces,
     IReadOnlyList<CompileBackMemberDeclaration> Members,
     IReadOnlyList<CompileBackFact> SourceFacts,
-    IReadOnlyList<CompileBackTypeDeclaration> NestedTypes)
+    IReadOnlyList<CompileBackTypeDeclaration> NestedTypes,
+    IReadOnlyList<string>? Attributes = null,
+    bool IsAbstract = false)
 {
     public string Namespace => Identity.Namespace;
     public string Name => Identity.DisplayName;
@@ -154,7 +156,11 @@ public sealed record CompileBackMemberDeclaration(
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<string>? Attributes = null,
-    IReadOnlyList<string>? ReturnAttributes = null)
+    IReadOnlyList<string>? ReturnAttributes = null,
+    bool IsAbstract = false,
+    bool IsVirtual = false,
+    bool IsOverride = false,
+    bool IsSealed = false)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -262,7 +268,11 @@ public sealed record CompileBackMemberRequirement(
     string? TargetBody,
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<string>? Attributes = null,
-    IReadOnlyList<string>? ReturnAttributes = null);
+    IReadOnlyList<string>? ReturnAttributes = null,
+    bool IsAbstract = false,
+    bool IsVirtual = false,
+    bool IsOverride = false,
+    bool IsSealed = false);
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
@@ -533,7 +543,11 @@ public static class CompileBackSourceComposer
                         targetBody,
                         [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
                         isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
-                        isConstructor ? null : MethodReturnAttributes(reader, method))
+                        isConstructor ? null : MethodReturnAttributes(reader, method),
+                        IsAbstract: !isConstructor && IsAbstractMethod(method),
+                        IsVirtual: !isConstructor && IsVirtualMethod(method),
+                        IsOverride: false,
+                        IsSealed: false)
                 ],
                 primaryConstructor,
                 targetFacts)
@@ -818,7 +832,7 @@ public static class CompileBackSourceComposer
                 sb.AppendLine($"{pad}{declaration} {{ throw null; }}");
                 break;
             case CompileBackMemberKind.Method:
-                if (type.Kind == CompileBackTypeKind.Interface)
+                if (type.Kind == CompileBackTypeKind.Interface || member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
                 {
                     sb.AppendLine($"{pad}{(declaration.EndsWith(';') ? declaration : declaration + ";")}");
                     break;
@@ -864,6 +878,8 @@ public static class CompileBackSourceComposer
                 })
                 .ToList(),
             Interfaces = type.Interfaces.Select(type => type.DisplayName).ToList(),
+            Attributes = type.Attributes?.ToList() ?? [],
+            IsAbstract = type.IsAbstract,
         };
 
     static ApiMember ToApiMember(CompileBackTypeDeclaration type, CompileBackMemberDeclaration member)
@@ -896,6 +912,10 @@ public static class CompileBackSourceComposer
                 _ => null,
             },
             IsStatic = member.IsStatic,
+            IsAbstract = member.IsAbstract,
+            IsVirtual = member.IsVirtual,
+            IsOverride = member.IsOverride,
+            IsSealed = member.IsSealed,
             Accessibility = null,
             Attributes = member.Attributes?.ToList() ?? [],
         };
@@ -1097,6 +1117,20 @@ public static class CompileBackSourceComposer
 
         return [];
     }
+
+    static bool IsAbstractMethod(MethodDefinition method)
+        => IsPublicMethod(method)
+            && (method.Attributes & MethodAttributes.Abstract) != 0;
+
+    static bool IsVirtualMethod(MethodDefinition method)
+        => IsPublicMethod(method)
+            && (method.Attributes & MethodAttributes.Virtual) != 0
+            && (method.Attributes & MethodAttributes.Abstract) == 0
+            && (method.Attributes & MethodAttributes.Final) == 0
+            && (method.Attributes & MethodAttributes.NewSlot) != 0;
+
+    static bool IsPublicMethod(MethodDefinition method)
+        => (method.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
 
     static IReadOnlyList<string> MemberAttributes(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => AttributeReader.RenderAttributes(
@@ -1872,7 +1906,11 @@ public static class CompileBackSourceComposer
                         member.TargetBody,
                         member.SourceFacts,
                         member.Attributes,
-                        member.ReturnAttributes));
+                        member.ReturnAttributes,
+                        member.IsAbstract,
+                        member.IsVirtual,
+                        member.IsOverride,
+                        member.IsSealed));
                 }
 
                 if (requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"))
@@ -1892,7 +1930,9 @@ public static class CompileBackSourceComposer
                         reader,
                         typeDef,
                         includeMemberSurface: requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"),
-                        diagnostics)));
+                        diagnostics),
+                    TypeAttributeList(reader, typeDef),
+                    IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0));
             }
 
             return shells;
@@ -1937,11 +1977,16 @@ public static class CompileBackSourceComposer
                     Interfaces: InterfaceSignatures(reader, nestedDef),
                     members,
                     requirement.SourceFacts,
-                    NestedTypes(reader, nestedDef, includeMemberSurface, diagnostics)));
+                    NestedTypes(reader, nestedDef, includeMemberSurface, diagnostics),
+                    TypeAttributeList(reader, nestedDef),
+                    IsAbstract: (nestedDef.Attributes & TypeAttributes.Abstract) != 0 && (nestedDef.Attributes & TypeAttributes.Interface) == 0));
             }
 
             return nestedTypes;
         }
+
+        static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
+            => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
 
         static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(MetadataReader reader, TypeDefinition typeDef)
         {
@@ -2146,9 +2191,15 @@ public static class CompileBackSourceComposer
                     isConstructor ? null : CompileBackTypeSignature.Display(signature.ReturnType),
                     parameters,
                     TypeParameters: [],
-                    requirement.RequiredKind == CompileBackTypeKind.Interface ? CompileBackStubBodyKind.None : CompileBackStubBodyKind.Throw,
+                    requirement.RequiredKind == CompileBackTypeKind.Interface || IsAbstractMethod(method)
+                        ? CompileBackStubBodyKind.None
+                        : CompileBackStubBodyKind.Throw,
                     TargetBody: null,
-                    [new CompileBackFact("metadata", isConstructor ? "closure-constructor" : "closure-method", name)]));
+                    [new CompileBackFact("metadata", isConstructor ? "closure-constructor" : "closure-method", name)],
+                    IsAbstract: !isConstructor && IsAbstractMethod(method),
+                    IsVirtual: !isConstructor && IsVirtualMethod(method),
+                    IsOverride: false,
+                    IsSealed: false));
             }
 
             if (requirement.RequiredKind == CompileBackTypeKind.Class

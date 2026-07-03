@@ -579,6 +579,20 @@ public class GeneratedFixtureCatalogTests
             frontier: false);
         AssertTarget(
             run,
+            "minimal.type-attributes",
+            "GeneratedFixtures.MinimalTypeAttributes.Class1",
+            ".ctor",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
+            "minimal.type-attributes",
+            "GeneratedFixtures.MinimalTypeAttributes.Class1",
+            "Method1",
+            FidelityCheck.CompileBackStatus.Exact,
+            frontier: false);
+        AssertTarget(
+            run,
             "minimal.if-else",
             "GeneratedFixtures.MinimalIfElse.Class1",
             ".ctor",
@@ -828,6 +842,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("minimal.auto-property.getter", report);
         Assert.Contains("minimal.method-call.same-type", report);
         Assert.Contains("minimal.member-attributes", report);
+        Assert.Contains("minimal.type-attributes", report);
         Assert.Contains("minimal.static-method-call", report);
         Assert.Contains("minimal.static-class", report);
         Assert.Contains("minimal.static-constructor", report);
@@ -927,6 +942,7 @@ public class GeneratedFixtureCatalogTests
                 "minimal.switch-int",
                 "minimal.switch-two-case-lowers-if",
                 "minimal.try-finally",
+                "minimal.type-attributes",
                 "minimal.using-dispose",
                 "minimal.while-loop",
             ],
@@ -953,6 +969,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.conditional-expression-shape-frontier");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.method-call.same-type");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.member-attributes");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.type-attributes");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-method-call");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-class");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "minimal.static-constructor");

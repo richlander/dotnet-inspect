@@ -1115,6 +1115,14 @@ public static class ApiOutputFormatter
         bool hasCode = false;
         var assemblyResolver = AnalysisReferenceResolver(dllPath, options);
 
+        // Build the analysis body index at most once per command, and only when an
+        // index-backed section is actually requested (sections like decompiled source / IL
+        // go through MemberCodeProvider and never touch it). Every index-backed block below
+        // shares this one session instead of re-opening and re-analyzing every method body.
+        MethodBodyInspectionSession? indexSession = null;
+        MethodBodyInspectionSession IndexSession() =>
+            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
+
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
         var singleMethod = overloadIndex.HasValue
@@ -1129,7 +1137,7 @@ public static class ApiOutputFormatter
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
-            var rows = MethodBodyInspectionSession.Open(dllPath, assemblyResolver)
+            var rows = IndexSession()
                 .DirectCalls(token)
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
@@ -1174,7 +1182,7 @@ public static class ApiOutputFormatter
         if (request.Callers && methods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
-            var callerSession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
+            var callerSession = IndexSession();
             var rows = new List<CallerSiteRow>();
 
             // Open each caller-scope assembly once as its own session (skipping any that fail to
@@ -1223,7 +1231,7 @@ public static class ApiOutputFormatter
         {
             RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
             var root = ToCallGraphNode(
-                MethodBodyInspectionSession.Open(dllPath, assemblyResolver).CallTree(graphToken),
+                IndexSession().CallTree(graphToken),
                 GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 })
             {
@@ -1241,17 +1249,17 @@ public static class ApiOutputFormatter
         if (requestedSections.Contains(SectionNames.CallerGraph) && singleMethodList is [{ MetadataToken: { } callerGraphToken } callerGraphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
-            var callerSession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
+            var callerSession = IndexSession();
             // Extend the reverse graph across the caller scope (--bin/--project/--caller-package)
             // so a dependency member surfaces the product entry points and callers that reach it.
-            var scopeIndexes = new List<Analysis.LibraryBodyIndex>();
+            var scopeSessions = new List<MethodBodyInspectionSession>();
             if (callerScopeAssemblies is { Count: > 0 })
             {
                 foreach (var scopePath in callerScopeAssemblies)
                 {
                     try
                     {
-                        scopeIndexes.Add(Analysis.LibraryBodyIndex.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
                     }
                     catch
                     {
@@ -1259,7 +1267,7 @@ public static class ApiOutputFormatter
                     }
                 }
             }
-            var callerTree = callerSession.CallerTree(callerGraphToken, scopeIndexes);
+            var callerTree = callerSession.CallerTree(callerGraphToken, scopeSessions);
             var root = ToCallGraphNode(callerTree, GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
             {
@@ -1271,7 +1279,7 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var evidence = MethodBodyInspectionSession.Open(dllPath, assemblyResolver)
+            var evidence = IndexSession()
                 .UnsafeEvidence(unsafeToken)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
                 .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
@@ -1312,7 +1320,7 @@ public static class ApiOutputFormatter
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
-            var bodySession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
+            var bodySession = IndexSession();
 
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {

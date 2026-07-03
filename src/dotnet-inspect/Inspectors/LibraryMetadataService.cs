@@ -563,8 +563,8 @@ internal static class LibraryMetadataService
     {
         try
         {
-            var index = Analysis.LibraryBodyIndex.Open(path);
-            var rows = index.UnsafeEvidence
+            var session = MethodBodyInspectionSession.Open(path);
+            var rows = session.UnsafeEvidence()
                 .Select(evidence => new UnsafeMemberSummary
                 {
                     Member = FormatMethod(evidence.Member),
@@ -580,7 +580,7 @@ internal static class LibraryMetadataService
                 .ThenBy(row => row.Detail, StringComparer.Ordinal)
                 .ToList();
 
-            foreach (var diagnostic in index.Diagnostics)
+            foreach (var diagnostic in session.Diagnostics)
                 logger.Log($"Warning: unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
 
             return rows.Count > 0 ? rows : null;
@@ -635,13 +635,13 @@ internal static class LibraryMetadataService
     {
         try
         {
-            var index = Analysis.LibraryBodyIndex.Open(path);
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
+            var session = MethodBodyInspectionSession.Open(path);
+            var generatedFrameworkTypes = session.GeneratedFrameworkTypeNames;
             // Reuse the exact Member Index canonical-signature/digest path (via the
             // extracted API surface) so library-scope rows carry the same round-tripping
             // Stable selector, Visibility, and Name:N Selector as the type-scoped view.
             var drillByToken = BuildLibraryDrillMap(path, logger);
-            var rows = index.TopLeverage(int.MaxValue)
+            var rows = session.TopLeverage(int.MaxValue)
                 .Select(entry =>
                 {
                     drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
@@ -721,10 +721,10 @@ internal static class LibraryMetadataService
     {
         try
         {
-            var index = Analysis.LibraryBodyIndex.Open(path);
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
+            var session = MethodBodyInspectionSession.Open(path);
+            var generatedFrameworkTypes = session.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
-                    index.OptimizationOpportunities
+                    session.OptimizationOpportunities
                         .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)),
                     options)
                 .Select(opportunity => new OptimizationOpportunitySummary

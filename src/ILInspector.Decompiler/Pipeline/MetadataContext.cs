@@ -31,8 +31,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </remarks>
 public sealed class MetadataContext : IDisposable
 {
-    readonly ConcurrentDictionary<string, OpenedAssembly?> _opened = new(StringComparer.OrdinalIgnoreCase);
-    readonly ConcurrentDictionary<string, OpenedAssembly?> _openedLocations = new(StringComparer.Ordinal);
+    readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _opened = new(StringComparer.OrdinalIgnoreCase);
+    readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _openedLocations = new(StringComparer.Ordinal);
 
     public MetadataContext(AssemblyLocator locator)
         : this(locator.ToAssemblyReferenceResolver())
@@ -58,7 +58,7 @@ public sealed class MetadataContext : IDisposable
     /// </summary>
     internal OpenedAssembly? Open(string path)
     {
-        return _opened.GetOrAdd(path, p => OpenedAssembly.TryOpen(p));
+        return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(p))).Value;
     }
 
     internal OpenedAssembly? Open(TypeLocation location)
@@ -66,7 +66,7 @@ public sealed class MetadataContext : IDisposable
         if (location.AssemblyPath is { Length: > 0 } path)
             return Open(path);
 
-        return _openedLocations.GetOrAdd(location.AssemblyKey, _ => OpenedAssembly.TryOpen(location.OpenRead));
+        return _openedLocations.GetOrAdd(location.AssemblyKey, _ => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(location.OpenRead))).Value;
     }
 
     internal ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
@@ -75,9 +75,9 @@ public sealed class MetadataContext : IDisposable
     public void Dispose()
     {
         foreach (var opened in _opened.Values)
-            opened?.Dispose();
+            if (opened.IsValueCreated) opened.Value?.Dispose();
         foreach (var opened in _openedLocations.Values)
-            opened?.Dispose();
+            if (opened.IsValueCreated) opened.Value?.Dispose();
         _opened.Clear();
         _openedLocations.Clear();
     }

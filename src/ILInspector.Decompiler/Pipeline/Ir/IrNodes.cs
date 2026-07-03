@@ -929,6 +929,19 @@ public sealed class Continue : IrNode
 
 public enum ComparisonKind { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }
 
+/// <summary>
+/// An integer/float comparison (<c>ceq</c>/<c>clt</c>/<c>cgt</c> family), producing a boolean.
+/// Native name: Roslyn has no distinct comparison node (it is <c>BoundBinaryOperator</c> with a
+/// comparison kind) and IL uses <c>ceq</c>/<c>clt</c>/<c>cgt</c> — the decompiler groups them into
+/// one boolean-yielding node.
+/// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundBinaryOperator,
+    naming: Inverse.NameProvenance.Native,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundBinaryOperator (comparison) / ceq·clt·cgt",
+    precondition: "result is bool (the ceq/clt/cgt integer 0/1 result)",
+    witness: "corpus compile-back")]
 public sealed class Comparison : IrExpression
 {
     public Comparison(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
@@ -956,6 +969,12 @@ public enum LogicalKind { And, Or }
 /// bitwise <see cref="Binary"/> forms. Raised by boolean folding from
 /// guard-return chains and nested guards; IL has no direct encoding.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundBinaryOperator,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundBinaryOperator (logical AND / OR)",
+    precondition: "result is bool; raised from short-circuit branch patterns (IL has no logical-and/or encoding)",
+    witness: "corpus compile-back")]
 public sealed class LogicalBinary : IrExpression
 {
     public LogicalBinary(LogicalKind kind, IrExpression left, IrExpression right)
@@ -1099,6 +1118,12 @@ public sealed class NullCoalescingPropertyAssignment : IrNode
 /// a reference type — so the access carries the member's own result type with no
 /// Nullable wrapping, and the lowered receiver spill collapses into the target.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConditionalAccess,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundConditionalAccess / ?.",
+    precondition: "result is the member's unwrapped type (`Member.ResultType`); raised from the ?. null-check pattern (surrounding nodes carry any nullable wrapping / coalesce)",
+    witness: "corpus compile-back")]
 public sealed class NullConditional : IrExpression
 {
     public NullConditional(IrExpression member) => AddChild(member);
@@ -1140,6 +1165,13 @@ public sealed class Conditional : IrExpression
     public override string Describe() => "Conditional";
 }
 
+/// <summary>Boolean negation (<c>!</c>), raised from a <c>ceq</c>-zero or inverted-branch pattern.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundUnaryOperator,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundUnaryOperator (logical negation)",
+    precondition: "result is bool; raised from ceq-zero / inverted-branch patterns (IL has no `!` opcode)",
+    witness: "corpus compile-back")]
 public sealed class LogicalNot : IrExpression
 {
     public LogicalNot(IrExpression operand) => AddChild(operand);
@@ -1152,6 +1184,14 @@ public sealed class LogicalNot : IrExpression
 
 public enum UnaryKind { Negate, BitwiseNot }
 
+/// <summary>A unary arithmetic operator: negation (<c>neg</c>) or bitwise complement (<c>not</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundUnaryOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundUnaryOperator (neg/not)",
+    precondition: "result type is the operand's type (neg/not preserve the operand type)",
+    witness: "corpus compile-back")]
 public sealed class Unary : IrExpression
 {
     public Unary(UnaryKind kind, IrExpression operand)
@@ -1293,6 +1333,13 @@ public sealed class ExpressionStatement : IrNode
     public override string Describe() => "ExpressionStatement";
 }
 
+/// <summary>A method argument (or <c>this</c>) read — the <c>ldarg</c> family.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundParameter,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundParameter / ldarg",
+    precondition: "type is the argument's declared type (parameter signature; declaring type for `this`)",
+    witness: "corpus compile-back")]
 public sealed class LoadArgument : IrExpression
 {
     public LoadArgument(int index, string name, TypeRef type)
@@ -1329,6 +1376,13 @@ public sealed class StoreArgument : IrNode
     public override string Describe() => $"StoreArgument {Index} ({Type.ToDisplayString()} {Name})";
 }
 
+/// <summary>A local variable read — the <c>ldloc</c> family.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundLocal,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundLocal / ldloc",
+    precondition: "type is the local's declared type (local variable signature)",
+    witness: "corpus compile-back")]
 public sealed class LoadLocal : IrExpression
 {
     public LoadLocal(int index, TypeRef type)
@@ -1383,6 +1437,14 @@ public sealed class Constant : IrExpression
 
 public enum BinaryKind { Add, Subtract, Multiply, Divide, Remainder, And, Or, Xor, ShiftLeft, ShiftRight }
 
+/// <summary>An arithmetic, bitwise, or shift operator (<c>add</c>/<c>sub</c>/<c>and</c>/<c>shl</c> …).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundBinaryOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundBinaryOperator (arithmetic/bitwise/shift)",
+    precondition: "result type is the ECMA binary-numeric result of the operand stack types",
+    witness: "corpus compile-back")]
 public sealed class Binary : IrExpression
 {
     public Binary(BinaryKind kind, bool isChecked, bool isUnsigned, IrExpression left, IrExpression right)
@@ -2181,6 +2243,13 @@ public sealed class Throw : IrNode
     public override string Describe() => "Throw";
 }
 
+/// <summary>A field read — instance (<c>ldfld</c>) or static (<c>ldsfld</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFieldAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundFieldAccess / ldfld·ldsfld",
+    precondition: "type is the field's declared type (field signature)",
+    witness: "corpus compile-back")]
 public sealed class LoadField : IrExpression
 {
     public LoadField(FieldRef field, IrExpression? instance)
@@ -2535,6 +2604,14 @@ public sealed class PositionalPattern : IrExpression
     public override string Describe() => $"PositionalPattern ({Subpatterns.Length} elements)";
 }
 
+/// <summary>The <c>castclass</c> reference type-check cast (<c>(T)x</c> for a reference type <c>T</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (reference cast)",
+    precondition: "target is the reference type the cast checks",
+    witness: "cast fixtures; corpus compile-back")]
 public sealed class CastClass : IrExpression
 {
     public CastClass(TypeRef type, IrExpression operand)
@@ -2796,6 +2873,12 @@ public sealed class LoadToken : IrExpression
 }
 
 /// <summary>A raised property or indexer read (from a get_ accessor call).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundPropertyAccess,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundPropertyAccess / BoundIndexerAccess (get_ accessor call)",
+    precondition: "type is the property or indexer's return type (accessor signature); raised from a get_ accessor call",
+    witness: "corpus compile-back")]
 public sealed class LoadProperty : IrExpression
 {
     public LoadProperty(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments)
@@ -3141,6 +3224,13 @@ public sealed class SwitchBranch : IrNode
 }
 
 /// <summary>unbox: a managed pointer into the box (distinct from unbox.any, which loads the value).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (unboxing → managed pointer)",
+    precondition: "operand is a box of the value type; result is a managed pointer into it",
+    witness: "box/unbox fixtures; corpus compile-back")]
 public sealed class Unbox : IrExpression
 {
     public Unbox(TypeRef type, IrExpression operand)
@@ -3157,6 +3247,14 @@ public sealed class Unbox : IrExpression
     public override string Describe() => $"Unbox {Type.ToDisplayString()}";
 }
 
+/// <summary>unbox.any: loads the unboxed value (<c>(T)boxed</c> for a value type <c>T</c>).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (unboxing)",
+    precondition: "target is the unbox.any type token (value type, reference type, or type parameter)",
+    witness: "box/unbox fixtures; corpus compile-back")]
 public sealed class UnboxAny : IrExpression
 {
     public UnboxAny(TypeRef type, IrExpression operand)

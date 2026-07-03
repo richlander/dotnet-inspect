@@ -111,6 +111,9 @@ public class ApiSurfaceExtractorTests
         Assert.Equal("struct", refStruct.Kind);
         Assert.True(refStruct.IsByRefLike);
         Assert.False(refStruct.IsReadOnly);
+        var refStructDeclaration = CSharpDeclarationWriter.RenderTypeDeclaration(refStruct);
+        Assert.Contains("ref struct SampleRefStruct", refStructDeclaration);
+        Assert.DoesNotContain("CompilerFeatureRequired", refStructDeclaration);
 
         var readOnlyStruct = surface.Types.FirstOrDefault(t => t.Name == "SampleReadOnlyStruct");
         Assert.NotNull(readOnlyStruct);
@@ -121,6 +124,11 @@ public class ApiSurfaceExtractorTests
         Assert.NotNull(plainStruct);
         Assert.False(plainStruct.IsByRefLike);
         Assert.False(plainStruct.IsReadOnly);
+
+        var inlineArray = surface.Types.FirstOrDefault(t => t.Name == "SampleInlineBuffer");
+        Assert.NotNull(inlineArray);
+        var inlineArrayDeclaration = CSharpDeclarationWriter.RenderTypeDeclaration(inlineArray);
+        Assert.DoesNotContain("InlineArray", inlineArrayDeclaration);
     }
 
     [Fact]
@@ -371,6 +379,25 @@ public class ApiSurfaceExtractorTests
         var decimalFieldDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, decimalField);
         Assert.DoesNotContain("DecimalConstant", decimalFieldDeclaration);
         Assert.Contains("DecimalField", decimalFieldDeclaration);
+    }
+
+    [Fact]
+    public void Extract_RendersTypeAttributes()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleTypeAttributeHost));
+        Assert.NotNull(testType);
+
+        var declaration = CSharpDeclarationWriter.RenderTypeDeclaration(testType);
+        Assert.StartsWith(
+            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public class SampleTypeAttributeHost",
+            declaration,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -918,6 +945,12 @@ public class SampleKeywordParameterHost
     public static int Static(int @params, int @void) => @params + @void;
 }
 
+[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+public class SampleTypeAttributeHost
+{
+    public int Method1() => 42;
+}
+
 public class SampleRefReadonlyReturnHost
 {
     public static ref readonly int ChooseReadonly(in int left, in int right, bool chooseLeft)
@@ -993,6 +1026,12 @@ public readonly struct SampleReadOnlyStruct
 public struct SamplePlainStruct
 {
     public int Value;
+}
+
+[System.Runtime.CompilerServices.InlineArray(4)]
+public struct SampleInlineBuffer
+{
+    private int _element0;
 }
 
 /// <summary>

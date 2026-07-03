@@ -1762,8 +1762,6 @@ public class PackageCommand
             options));
     }
 
-    private sealed record PackageLibrarySelection(string Path);
-
     private static async Task<int> ExecutePackageAllLibrariesAsync(
         string extractPath,
         bool isLocalFile,
@@ -1908,56 +1906,23 @@ public class PackageCommand
         if (requestedLibrary == null)
             return null;
         var packageId = PackageExtractor.ParsePackageReference(packageName).name;
+        var resolution = TfmSelector.SelectPackageLibrary(extractPath, packageId, requestedLibrary, options.Tfm);
+        if (resolution.IsSelected)
+            return new PackageLibrarySelection(resolution.Paths[0]);
 
-        if (!string.IsNullOrWhiteSpace(requestedLibrary))
-        {
-            var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, requestedLibrary, options.Tfm);
-            if (matchedAssembly != null)
-                return new PackageLibrarySelection(matchedAssembly);
-
+        if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.RequestedLibraryNotFound)
             Console.Error.WriteLine($"Error: Library '{requestedLibrary}' not found in package '{packageName}'.");
-            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
-            return null;
-        }
-
-        List<string> pool;
-        string? selectedTfm;
-        if (string.IsNullOrWhiteSpace(options.Tfm))
-        {
-            var allCandidates = TfmSelector.GetPackageAssemblies(extractPath);
-            if (allCandidates.Count == 0)
-            {
-                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-                return null;
-            }
-
-            (pool, selectedTfm) = TfmSelector.SelectHighestAssemblies(allCandidates, extractPath);
-        }
-        else
-        {
-            (pool, selectedTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
-        }
-
-        if (pool.Count == 0)
-        {
+        else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
+            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+        else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
             Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
-            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
-            return null;
-        }
+        else
+            Console.Error.WriteLine(resolution.Tfm == null
+                ? $"Error: Package '{packageName}' contains multiple libraries."
+                : $"Error: Package '{packageName}' contains multiple libraries for {resolution.Tfm}.");
 
-        if (pool.Count == 1)
-            return new PackageLibrarySelection(pool[0]);
-
-        var packageNameMatch = pool
-            .Where(path => Path.GetFileNameWithoutExtension(path).Equals(packageId, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (packageNameMatch.Count == 1)
-            return new PackageLibrarySelection(packageNameMatch[0]);
-
-        Console.Error.WriteLine(selectedTfm == null
-            ? $"Error: Package '{packageName}' contains multiple libraries."
-            : $"Error: Package '{packageName}' contains multiple libraries for {selectedTfm}.");
-        WritePackageLibraryCandidates(extractPath, packageName, version, selectedTfm, pool);
+        if (resolution.Status != TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
+            WritePackageLibraryCandidates(extractPath, packageName, version, resolution.Tfm ?? options.Tfm, resolution.CandidatePaths.ToList());
         return null;
     }
 
@@ -1967,39 +1932,28 @@ public class PackageCommand
         string version,
         InspectionOptions options)
     {
-        List<string> selected;
-        string? highestTfm;
-        if (string.IsNullOrWhiteSpace(options.Tfm))
+        var resolution = TfmSelector.SelectPackageLibraries(extractPath, options.Tfm);
+        if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
         {
-            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
-            if (candidates.Count == 0)
-            {
-                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-                return null;
-            }
-
-            (selected, highestTfm) = TfmSelector.SelectHighestAssemblies(candidates, extractPath);
+            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+            return null;
         }
-        else
-        {
-            (selected, highestTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
-        }
-
-        if (selected.Count == 0)
+        if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
         {
             Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
-            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm, resolution.CandidatePaths.ToList());
             return null;
         }
 
-        if (highestTfm != null && string.IsNullOrWhiteSpace(options.Tfm))
-            Console.Error.WriteLine($"Using TFM: {highestTfm}");
+        if (resolution.Tfm != null && string.IsNullOrWhiteSpace(options.Tfm))
+            Console.Error.WriteLine($"Using TFM: {resolution.Tfm}");
 
-        return selected
-            .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+        return resolution.Paths
             .Select(path => new PackageLibrarySelection(path))
             .ToList();
     }
+
+    private sealed record PackageLibrarySelection(string Path);
 
     private static List<string> GetAllLibrariesSections(
         List<LibraryInspection> inspections,
