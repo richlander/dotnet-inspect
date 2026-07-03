@@ -58,6 +58,59 @@ public class CandidateLookupTests
         Assert.Same(target, match);
     }
 
+    [Fact]
+    public void FindNearestByTokenOffset_MatchesNativeImageModuleNames()
+    {
+        var candidate = Candidate(id: 1, methodToken: 0x06000004, ilOffset: 0x0010, libraryPath: "/tmp/Fixture.dll");
+        var lookup = CandidateLookup.Create([candidate]);
+
+        var matches = lookup.FindNearestByTokenOffset(
+            0x06000004,
+            0x0011,
+            modulePath: "/runtime/Fixture.ni.dll",
+            moduleName: "Fixture.ni.dll",
+            methodName: null);
+
+        var match = Assert.Single(matches);
+        Assert.Same(candidate, match);
+    }
+
+    [Fact]
+    public void FindNearestByTokenOffset_DoesNotFallbackAcrossAssembliesWithoutMethodName()
+    {
+        var candidate = Candidate(id: 1, methodToken: 0x06000005, ilOffset: 0x0010, libraryPath: "/tmp/Fixture.dll");
+        var lookup = CandidateLookup.Create([candidate]);
+
+        var matches = lookup.FindNearestByTokenOffset(
+            0x06000005,
+            0x0011,
+            modulePath: null,
+            moduleName: null,
+            methodName: null);
+
+        Assert.Empty(matches);
+    }
+
+    [Fact]
+    public void MarkAllocationHit_SplitsAmbiguousBytesWithoutInflatingTotal()
+    {
+        var first = Candidate(id: 1, methodToken: 0x06000006, ilOffset: 0x0010);
+        var second = Candidate(id: 2, methodToken: 0x06000006, ilOffset: 0x0010, kind: "Delegate");
+        var matched = new HashSet<int>();
+
+        long firstBytes = ProgramSupport.AttributedBytesForTest(101, candidateCount: 2, candidateIndex: 0);
+        long secondBytes = ProgramSupport.AttributedBytesForTest(101, candidateCount: 2, candidateIndex: 1);
+
+        ProgramSupport.MarkAllocationHitForTest(first, matched, "trace", "Fixture.Allocated", firstBytes, ilOffsetJoin: true, exactOffset: false, ambiguousIlJoin: true);
+        ProgramSupport.MarkAllocationHitForTest(second, matched, "trace", "Fixture.Allocated", secondBytes, ilOffsetJoin: true, exactOffset: false, ambiguousIlJoin: true);
+
+        Assert.Equal(101, first.AllocationBytes + second.AllocationBytes);
+        Assert.Equal(51, first.AllocationBytes);
+        Assert.Equal(50, second.AllocationBytes);
+        Assert.True(first.AmbiguousIlOffsetJoin);
+        Assert.True(second.AmbiguousIlOffsetJoin);
+    }
+
     static AllocationCandidate Candidate(
         int id,
         int methodToken,

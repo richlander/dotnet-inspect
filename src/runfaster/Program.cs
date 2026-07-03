@@ -511,15 +511,20 @@ static bool TryCorrelateNetTrace(
                 return;
 
             bool ambiguousIlJoin = matchedCandidates.Count > 1;
-            foreach (var candidate in matchedCandidates)
+            var methodsRecorded = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < matchedCandidates.Count; i++)
             {
-                result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
+                var candidate = matchedCandidates[i];
+                long candidateBytes = ProgramSupport.AttributedBytesForTest(data.AllocationAmount64, matchedCandidates.Count, i);
+
+                if (methodsRecorded.Add(candidate.Method))
+                    result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
                 MarkAllocationHit(
                     candidate,
                     matchedThisEvent,
                     sourceKind,
                     data.TypeName,
-                    data.AllocationAmount64,
+                    candidateBytes,
                     ilOffsetJoin: true,
                     exactOffset: candidate.IlOffset == matchedAddress.ILOffset,
                     ambiguousIlJoin);
@@ -920,28 +925,7 @@ static void MarkAllocationHit(
     bool ilOffsetJoin = false,
     bool exactOffset = false,
     bool ambiguousIlJoin = false)
-{
-    if (!matchedIds.Add(candidate.Id))
-        return;
-
-    candidate.AllocationHits++;
-    candidate.AllocationBytes += sampledBytes;
-    candidate.RuntimeWeight += sampledBytes;
-    candidate.ObservedSources.Add(sourceKind);
-    candidate.IlOffsetJoinObserved |= ilOffsetJoin;
-    candidate.ExactOffsetObserved |= exactOffset;
-    candidate.AmbiguousIlOffsetJoin |= ambiguousIlJoin;
-    if (!string.IsNullOrWhiteSpace(allocatedType))
-    {
-        candidate.ObservedAllocatedTypes[allocatedType] = candidate.ObservedAllocatedTypes.GetValueOrDefault(allocatedType) + sampledBytes;
-        if (candidate.MatchesAllocatedType(allocatedType))
-        {
-            candidate.ShapeMatched = true;
-            candidate.ShapeAllocationHits++;
-            candidate.ShapeAllocationBytes += sampledBytes;
-        }
-    }
-}
+    => ProgramSupport.MarkAllocationHitForTest(candidate, matchedIds, sourceKind, allocatedType, sampledBytes, ilOffsetJoin, exactOffset, ambiguousIlJoin);
 
 static long? TryReadBytes(string line)
 {
@@ -1822,23 +1806,23 @@ sealed class AllocationCandidate(
 sealed class CandidateLookup
 {
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
-    readonly Dictionary<int, List<AllocationCandidate>> _byMethodToken;
+    readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
-        Dictionary<int, List<AllocationCandidate>> byMethodToken,
+        Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
         List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
-        _byMethodToken = byMethodToken;
+        _byModuleMethodToken = byModuleMethodToken;
         _methodFragments = methodFragments;
     }
 
     public static CandidateLookup Create(IReadOnlyList<AllocationCandidate> candidates)
     {
         var byTokenOffset = new Dictionary<(int Token, int Offset), List<AllocationCandidate>>();
-        var byMethodToken = new Dictionary<int, List<AllocationCandidate>>();
+        var byModuleMethodToken = new Dictionary<(string Module, int Token), List<AllocationCandidate>>();
         var fragments = new List<(string Fragment, AllocationCandidate Candidate)>();
         foreach (var group in candidates.GroupBy(static c => (c.Method, c.AllocationKind)))
         {
@@ -1859,12 +1843,16 @@ sealed class CandidateLookup
                 }
                 list.Add(candidate);
 
-                if (!byMethodToken.TryGetValue(candidate.MethodToken, out var tokenList))
+                foreach (var moduleKey in CandidateModuleKeys(candidate))
                 {
-                    tokenList = [];
-                    byMethodToken.Add(candidate.MethodToken, tokenList);
+                    var moduleTokenKey = (moduleKey, candidate.MethodToken);
+                    if (!byModuleMethodToken.TryGetValue(moduleTokenKey, out var tokenList))
+                    {
+                        tokenList = [];
+                        byModuleMethodToken.Add(moduleTokenKey, tokenList);
+                    }
+                    tokenList.Add(candidate);
                 }
-                tokenList.Add(candidate);
             }
 
             AddFragment(candidate.MethodKey, candidate);
@@ -1874,10 +1862,10 @@ sealed class CandidateLookup
             AddMethodLeafFragment(candidate.MethodStackKey, candidate);
         }
 
-        foreach (var tokenList in byMethodToken.Values)
+        foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
 
-        return new CandidateLookup(byTokenOffset, byMethodToken, fragments);
+        return new CandidateLookup(byTokenOffset, byModuleMethodToken, fragments);
 
         void AddFragment(string value, AllocationCandidate candidate)
         {
@@ -1930,15 +1918,26 @@ sealed class CandidateLookup
         if (ilOffset < 0)
             return [];
 
-        if (token == 0 || !_byMethodToken.TryGetValue(token, out var candidates))
+        if (token == 0)
             return [];
 
-        var moduleMatched = candidates
-            .Where(candidate => candidate.IlOffset <= ilOffset && ModuleMatches(candidate, modulePath, moduleName))
+        var moduleCandidates = ModuleLookupKeys(modulePath, moduleName)
+            .SelectMany(moduleKey => _byModuleMethodToken.TryGetValue((moduleKey, token), out var candidates) ? candidates : [])
+            .DistinctBy(static candidate => candidate.Id)
             .ToArray();
-        var search = moduleMatched.Length > 0
-            ? moduleMatched
-            : candidates.Where(candidate => candidate.IlOffset <= ilOffset && MethodMatches(candidate, methodName)).ToArray();
+
+        var search = moduleCandidates
+            .Where(candidate => candidate.IlOffset <= ilOffset)
+            .ToArray();
+        if (search.Length == 0 && !string.IsNullOrWhiteSpace(methodName))
+        {
+            search = _byModuleMethodToken
+                .Where(pair => pair.Key.Token == token)
+                .SelectMany(static pair => pair.Value)
+                .Where(candidate => candidate.IlOffset <= ilOffset && MethodMatches(candidate, methodName))
+                .DistinctBy(static candidate => candidate.Id)
+                .ToArray();
+        }
         if (search.Length == 0)
             return [];
 
@@ -1958,28 +1957,44 @@ sealed class CandidateLookup
         return candidates;
     }
 
-    static bool ModuleMatches(AllocationCandidate candidate, string? modulePath, string? moduleName)
+    static IEnumerable<string> CandidateModuleKeys(AllocationCandidate candidate)
     {
-        if (!string.IsNullOrWhiteSpace(modulePath))
+        if (NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
+            yield return assembly;
+        if (NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
+            yield return path;
+        if (NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
+            yield return file;
+    }
+
+    static IEnumerable<string> ModuleLookupKeys(string? modulePath, string? moduleName)
+    {
+        if (NormalizeModuleKey(modulePath) is { Length: > 0 } path)
+            yield return path;
+        if (NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
+            yield return file;
+        if (NormalizeModuleKey(moduleName) is { Length: > 0 } name)
+            yield return name;
+    }
+
+    static string NormalizeModuleKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        value = Path.GetFileName(value.Trim());
+        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
         {
-            string candidateFile = Path.GetFileName(candidate.LibraryPath);
-            string traceFile = Path.GetFileName(modulePath);
-            if (string.Equals(candidateFile, traceFile, StringComparison.OrdinalIgnoreCase))
-                return true;
+            value = Path.GetFileNameWithoutExtension(value);
         }
 
-        if (!string.IsNullOrWhiteSpace(moduleName))
-        {
-            string candidateFile = Path.GetFileNameWithoutExtension(candidate.LibraryPath);
-            string traceModule = Path.GetFileNameWithoutExtension(moduleName);
-            if (string.Equals(candidate.AssemblyName, traceModule, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(candidateFile, traceModule, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return value.ToLowerInvariant();
     }
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
@@ -2047,4 +2062,49 @@ static partial class Patterns
 
     [GeneratedRegex(@"\b(?<value>\d+(?:\.\d+)?)\s*(?<unit>bytes?|b|kb|kib|mb|mib|gb|gib)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     public static partial Regex Bytes();
+}
+
+internal static class ProgramSupport
+{
+    public static void MarkAllocationHitForTest(
+        AllocationCandidate candidate,
+        HashSet<int> matchedIds,
+        string sourceKind,
+        string? allocatedType,
+        long sampledBytes,
+        bool ilOffsetJoin = false,
+        bool exactOffset = false,
+        bool ambiguousIlJoin = false)
+    {
+        if (!matchedIds.Add(candidate.Id))
+            return;
+
+        candidate.AllocationHits++;
+        candidate.AllocationBytes += sampledBytes;
+        candidate.RuntimeWeight += sampledBytes;
+        candidate.ObservedSources.Add(sourceKind);
+        candidate.IlOffsetJoinObserved |= ilOffsetJoin;
+        candidate.ExactOffsetObserved |= exactOffset;
+        candidate.AmbiguousIlOffsetJoin |= ambiguousIlJoin;
+        if (!string.IsNullOrWhiteSpace(allocatedType))
+        {
+            candidate.ObservedAllocatedTypes[allocatedType] = candidate.ObservedAllocatedTypes.GetValueOrDefault(allocatedType) + sampledBytes;
+            if (candidate.MatchesAllocatedType(allocatedType))
+            {
+                candidate.ShapeMatched = true;
+                candidate.ShapeAllocationHits++;
+                candidate.ShapeAllocationBytes += sampledBytes;
+            }
+        }
+    }
+
+    public static long AttributedBytesForTest(long totalBytes, int candidateCount, int candidateIndex)
+    {
+        if (candidateCount <= 0)
+            return 0;
+
+        long attributedBytes = totalBytes / candidateCount;
+        long remainderBytes = totalBytes % candidateCount;
+        return attributedBytes + (candidateIndex < remainderBytes ? 1 : 0);
+    }
 }
