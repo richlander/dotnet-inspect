@@ -908,10 +908,19 @@ public sealed partial class CSharpPrinter
         => _function.Name is "op_Equality" or "op_Inequality";
 
     bool IsFirstTwoArgumentReferenceComparison(IrExpression left, IrExpression right)
-        => left is LoadArgument { Index: 0 } && right is LoadArgument { Index: 1 }
+        => ArgumentIndex(left) is 0 && ArgumentIndex(right) is 1
                 && IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType)
-            || left is LoadArgument { Index: 1 } && right is LoadArgument { Index: 0 }
+            || ArgumentIndex(left) is 1 && ArgumentIndex(right) is 0
                 && IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType);
+
+    static int? ArgumentIndex(IrExpression expression)
+        => expression switch
+        {
+            LoadArgument argument => argument.Index,
+            LoadIndirect { Address: LoadArgument argument } => argument.Index,
+            LoadIndirect { Address: LoadArgumentAddress argument } => argument.Index,
+            _ => null,
+        };
 
     bool IsKnownReferenceType(TypeRef? type)
         => TypeFamilies.Of(type) == StackFamily.O
