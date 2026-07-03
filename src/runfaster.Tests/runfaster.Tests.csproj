@@ -24,7 +24,7 @@
 
   <ItemGroup>
     <Compile Remove="Fixtures\**" />
-    <Content Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\**\*.nettrace" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

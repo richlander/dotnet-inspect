@@ -13,6 +13,9 @@ public class Program
         }
     }
 
+    // The checked-in fixture.nettrace was captured with AllocateOne at metadata
+    // token 0x06000002. Keep this method first among user-declared methods, or
+    // update the trace and E2EFixtureTests token guard together.
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static object AllocateOne() => new object();
 
