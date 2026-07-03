@@ -105,7 +105,7 @@ public class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            typeof(OutputFormatterTests).Assembly.Location,
+            ApiOutputFormatter.OpenTypeAnalysisSession(typeof(OutputFormatterTests).Assembly.Location),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage });
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);

@@ -23,6 +23,13 @@ public static class ApiOutputFormatter
     static IAssemblyReferenceResolver AnalysisReferenceResolver(string dllPath, ApiOptions? options = null)
         => ApiCommand.PlatformAssemblyResolver(dllPath, options?.ProjectAssetsPath, options?.Tfm);
 
+    /// <summary>
+    /// Opens a type-scope analysis session for the type/library sections. Callers memoize this per
+    /// type so the five type-analysis populators share one index build instead of opening five.
+    /// </summary>
+    internal static MethodBodyInspectionSession OpenTypeAnalysisSession(string dllPath)
+        => MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
+
     // ===== Full API View Model Factory =====
 
     internal static (CliApiSurface view, int truncatedCount) BuildFullApiView(ApiSurface api, ApiOptions options)
@@ -1693,9 +1700,9 @@ public static class ApiOutputFormatter
         return builder.ToString();
     }
 
-    internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)
+    internal static void PopulateUnsafeMembers(TypeView view, ApiType type, MethodBodyInspectionSession session)
     {
-        var rows = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath))
+        var rows = session
             .UnsafeEvidence()
             .Where(evidence => SameType(evidence.Member.DeclaringType, type))
             .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
@@ -1740,10 +1747,10 @@ public static class ApiOutputFormatter
     internal static void PopulateCalledTypes(
         TypeView view,
         ApiType type,
-        string dllPath,
+        MethodBodyInspectionSession session,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var rows = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath))
+        var rows = session
             .CalledTypes(method => SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
@@ -1760,11 +1767,10 @@ public static class ApiOutputFormatter
     internal static void PopulateTypeSemanticFacts(
         TypeView view,
         ApiType type,
-        string dllPath,
+        MethodBodyInspectionSession session,
         IReadOnlySet<string>? requestedSections,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var methodTokens = type.Members
             .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
             .Select(member => member.MetadataToken!.Value)
@@ -1804,12 +1810,11 @@ public static class ApiOutputFormatter
     internal static void PopulateOptimizationOpportunities(
         TypeView view,
         ApiType type,
-        string dllPath,
+        MethodBodyInspectionSession session,
         IReadOnlySet<string>? explicitSections = null,
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
-        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         HashSet<int>? memberTokens = restrictToModelMembers
             ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
             : null;
@@ -1900,9 +1905,8 @@ public static class ApiOutputFormatter
         }
     }
 
-    internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)
+    internal static void PopulateTopLeverage(TypeView view, ApiType type, MethodBodyInspectionSession session, bool restrictToModelMembers = false)
     {
-        var session = MethodBodyInspectionSession.Open(dllPath, AnalysisReferenceResolver(dllPath));
         var drillByToken = BuildMemberDrillMap(type);
 
         // Rank every method declared on this type; fanin is still measured across all
