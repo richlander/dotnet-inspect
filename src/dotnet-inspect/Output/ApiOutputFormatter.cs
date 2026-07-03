@@ -1155,9 +1155,29 @@ public static class ApiOutputFormatter
         if ((requestedSections.Contains(SectionNames.CallGraph) || requestedSections.Contains(SectionNames.CallerGraph))
             && (options?.Fields is { Length: > 0 } || options?.Columns is { Length: > 0 }))
             indexInclAllocations = true;
+
+        // Targeted (single-member) build: when no requested index-backed section needs the
+        // whole-assembly reverse graph (Callers / Call Graph / Caller Graph), the shared index only
+        // decodes the selected member(s) instead of every method body. The remaining index-backed
+        // member sections — Calls, Unsafe Operations, and the Allocation/Safety/Cost facts — read
+        // only the selected member's own body, so their output is identical to a full build (verified
+        // across the DirectCalls / UnsafeEvidence / UnsafetyOccurrences / AllocationOccurrences facts).
+        IReadOnlySet<int>? bodyScope = null;
+        bool needsWholeAssemblyBody = requestedSections.Contains(SectionNames.Callers)
+            || requestedSections.Contains(SectionNames.CallGraph)
+            || requestedSections.Contains(SectionNames.CallerGraph);
+        if (!needsWholeAssemblyBody)
+        {
+            var memberTokens = methods.Where(m => m.MetadataToken.HasValue).Select(m => m.MetadataToken!.Value).ToHashSet();
+            // Only target when every selected member carries a token (a missing token would mean a
+            // rendered member is absent from the scope); otherwise fall back to a full build.
+            if (memberTokens.Count > 0 && memberTokens.Count == methods.Count)
+                bodyScope = memberTokens;
+        }
+
         MethodBodyInspectionSession? indexSession = null;
         MethodBodyInspectionSession IndexSession() =>
-            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver, indexInclAllocations, indexInclOpportunities);
+            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver, indexInclAllocations, indexInclOpportunities, bodyScope);
 
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.

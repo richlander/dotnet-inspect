@@ -738,7 +738,7 @@ public sealed class LibraryBodyIndex
         => Open(path, resolver: null);
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
-        bool includeAllocations = true, bool includeOpportunities = true)
+        bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null)
     {
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
@@ -748,7 +748,7 @@ public sealed class LibraryBodyIndex
         using var builder = new IndexBuilder(path, reader, peReader, resolver);
         // Optimization opportunities are synthesized from allocation occurrences (allocation
         // hotspots), so requesting opportunities implies computing allocations.
-        var index = builder.Build(includeAllocations || includeOpportunities, includeOpportunities);
+        var index = builder.Build(includeAllocations || includeOpportunities, includeOpportunities, bodyScope);
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
@@ -1964,7 +1964,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens) Build(bool includeAllocations, bool includeOpportunities)
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames,         IReadOnlySet<int> NonHeapNewObjOperandTokens) Build(bool includeAllocations, bool includeOpportunities, IReadOnlySet<int>? bodyScope = null)
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -2009,6 +2009,13 @@ public sealed class LibraryBodyIndex
                             continue;
 
                         methods.Add(caller);
+                        // Targeted (single-member) builds decode only the requested method bodies;
+                        // every other method is still indexed as an identity (cheap metadata read)
+                        // but its body is not decoded/scanned. Only sections whose facts are local to
+                        // the selected member (Calls / Unsafe Operations / Allocation-Safety-Cost
+                        // facts) may open a scoped build — reverse/aggregate sections pass null.
+                        if (bodyScope is not null && !bodyScope.Contains(caller.MetadataToken))
+                            continue;
                         var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
                         var il = body.GetILBytes() ?? [];
                         var decodedBody = DecodeBody(il, body.ExceptionRegions);
