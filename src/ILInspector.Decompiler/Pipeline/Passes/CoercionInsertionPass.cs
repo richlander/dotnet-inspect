@@ -130,6 +130,28 @@ public static class CoercionSinks
         return types;
     }
 
+    /// <summary>
+    /// Both types resolve to the same known stack family — the precondition
+    /// for a renderable, value-preserving coercion (CoerceText's same-family
+    /// contract; slice 4's rule). An enum target contributes its underlying's
+    /// family. Either family unknown → false: unknowable is not wrappable.
+    /// </summary>
+    static bool SameSemanticFamily(TypeRef? valueType, TypeRef target, IrFunction function)
+    {
+        var valueFamily = TypeFamilies.Of(valueType);
+        var targetFamily = TypeFamilies.Of(target);
+        if (targetFamily is null && function.TypeShapes.GetValueOrDefault(target) == TypeShape.Enum)
+        {
+            // A resolved enum contributes its underlying's family; a
+            // missing-`value__` shape assumes C#'s default int backing (the
+            // MayOverflowEnumBackingType precedent).
+            targetFamily = function.EnumUnderlyingTypes.GetValueOrDefault(target) is { } underlying
+                ? TypeFamilies.Of(underlying)
+                : StackFamily.I4;
+        }
+        return valueFamily is not null && targetFamily is not null && valueFamily == targetFamily;
+    }
+
     /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
     static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType)
         => load.Parent switch
@@ -176,9 +198,20 @@ public static class CoercionSinks
                 // reads at one type — 5a reconciled the constant arms; the
                 // Coerce wrap covers the rest, and the printer's type-keyed
                 // naming collapses to one declaration by construction.
+                // Wrappable only within the testified type's stack family: a
+                // cross-family store (a dead `long` store on an int-testified
+                // slot) is not a coercion candidate but PROOF of a disjoint
+                // live range — the verifier never merges across families, so
+                // the testimony belongs to a different range. Those yield as
+                // PrinterOwned: counted residuals (the #2209 burn-down), left
+                // to the unifier's split naming until materialization
+                // (slice-5b adversarial review, Gemini blocking finding).
                 case StoreStackSlot { Value: { } slotValue } slotStore
                     when slotTypes.GetValueOrDefault(slotStore.Slot) is { } slotType:
-                    yield return new(slotValue, slotType);
+                    yield return new(slotValue, slotType,
+                        SameSemanticFamily(slotValue.ResultType, slotType, function)
+                            ? SinkScope.Wrappable
+                            : SinkScope.PrinterOwned);
                     break;
                 case StoreLocal { Value: { } value, Type: { } type }:
                     yield return new(value, type);

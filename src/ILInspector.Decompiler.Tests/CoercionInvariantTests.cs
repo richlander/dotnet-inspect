@@ -171,6 +171,44 @@ public class CoercionInvariantTests
     }
 
     [Fact]
+    public void CrossFamilySlotStore_IsNotWrapped_DisjointRangeKeepsSplitNaming()
+    {
+        // Slice-5b adversarial review (Gemini, blocking): a dead `long` store
+        // on an int-testified slot is not a coercion candidate — the verifier
+        // never merges across stack families, so the cross-family store is
+        // proof of a DISJOINT live range. Wrapping it produced a Coerce the
+        // renderer rightly refused to cast (bare CS0266). It yields as a
+        // PrinterOwned counted residual instead, and the printer's split
+        // naming keeps the ranges as separate typed variables.
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "longValue", longType)));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new StoreStackSlot(0, new LoadArgument(1, "intValue", Int32Type)));
+        second.Add(new Return(new LoadStackSlot(0, Int32Type)));
+        container.Add(second);
+        var function = Function(container, Int32Type,
+            new Parameter("longValue", longType),
+            new Parameter("intValue", Int32Type));
+
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Coerce>());
+        var audit = CoercionInvariant.Audit(function);
+        Assert.Empty(audit.Violations);
+        Assert.True(audit.Residuals.Values.Sum() > 0, "the disjoint-range store must be counted, not hidden");
+
+        // Split naming gives each range its own correctly-typed variable —
+        // never Gemini's `int S_0; S_0 = longValue;` (CS0266).
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("long S_0;", output);
+        Assert.Contains("int S_0_1;", output);
+        Assert.DoesNotContain("int S_0;", output);
+    }
+
+    [Fact]
     public void SlotCarriedValue_IsExcluded_UntilInstanceTwoTypesIt()
     {
         // Review finding #1: wrapping a LoadStackSlot breaks the printer's slot
