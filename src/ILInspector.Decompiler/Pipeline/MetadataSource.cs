@@ -20,7 +20,7 @@ public sealed class MetadataSource : IDisposable
     readonly Stream _stream;
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
-    bool _pdbProbed;
+    volatile bool _pdbProbed;
     DecompilerSymbolSource _symbols = DecompilerSymbolSource.None;
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
@@ -615,9 +615,11 @@ public sealed class MetadataSource : IDisposable
             if (_pdbProbed)
                 return _pdbReader;
 
-            _pdbProbed = true;
             if (!_readSymbols)
+            {
+                _pdbProbed = true;
                 return null;
+            }
         try
         {
             if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out var pdbPath)
@@ -644,6 +646,7 @@ public sealed class MetadataSource : IDisposable
         {
             // Unreadable PDB (format error, locked file): act like no PDB exists.
         }
+        _pdbProbed = true;
         return _pdbReader;
         }
     }

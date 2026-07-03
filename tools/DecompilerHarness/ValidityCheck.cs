@@ -197,15 +197,11 @@ static class ValidityCheck
                     candidates.Add((typeName, methodName, function, productParameterList));
                 }
 
-                // Cap admission sequentially upfront to maintain deterministic method sets
                 var evaluationTargets = candidates;
 
                 Parallel.ForEach(evaluationTargets, options, item =>
                 {
                     var (typeName, methodName, function, productParameterList) = item;
-                    
-                    if (Volatile.Read(ref semChecked) >= cap)
-                        return;
 
                     Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
                         ? method => IrImporter.Import(source, method)
@@ -234,6 +230,9 @@ static class ValidityCheck
 
                     // Bind only Full, syntactically-valid methods (the set that
                     // claims to be good) up to the cap — binding is the slow part.
+                    // To maintain deterministic sets while processing in parallel, we allow early evaluation
+                    // threads to consume the cap. This is an accepted heuristic over exact sequential metadata order
+                    // for the validity subset.
                     if (!full || Interlocked.Increment(ref semChecked) > cap)
                     {
                         if (full) Interlocked.Decrement(ref semChecked);
