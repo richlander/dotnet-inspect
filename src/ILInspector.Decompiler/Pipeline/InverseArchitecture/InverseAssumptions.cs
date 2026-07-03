@@ -1,4 +1,10 @@
+using System.Collections.Generic;
+using System.Linq;
+
+
 namespace ILInspector.Decompiler.Pipeline.InverseArchitecture;
+
+public readonly record struct AssumptionViolation(IrNode Node, string Message);
 
 /// <summary>
 /// The runnable assumption predicates named by <c>[InverseOf(assumes: ...)]</c>.
@@ -21,6 +27,10 @@ public static class InverseAssumptions
     /// slice-3 review turned on; reuses <see cref="CoercionInvariant.Check"/> so
     /// the ledger's assertion and the shipped invariant cannot diverge.
     /// </summary>
-    public static IReadOnlyList<string> SinkDistinguishableFromStack(IrFunction function)
-        => CoercionInvariant.Check(function);
+    public static IReadOnlyList<AssumptionViolation> SinkDistinguishableFromStack(IrFunction function)
+    {
+        var violations = CoercionInvariant.Check(function);
+        if (violations.Count == 0) return System.Array.Empty<AssumptionViolation>();
+        return violations.Select(v => new AssumptionViolation(v.Node, v.Message)).ToList();
+    }
 }

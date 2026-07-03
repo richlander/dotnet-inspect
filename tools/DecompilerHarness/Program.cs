@@ -39,6 +39,7 @@ static class Program
         bool byShape = false;
         bool validityCheck = false;
         int compileCap = 4000;
+        bool assertions = false;
         string? emitValidityDefects = null;
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
@@ -112,6 +113,7 @@ static class Program
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
+                case "--assertions": assertions = true; break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
                 case "--validity-check": validityCheck = true; break;
                 case "--compile-cap": compileCap = int.Parse(args[++i]); break;
@@ -283,6 +285,8 @@ static class Program
                 return DumpRemarks(assemblies, dumpMethod, dumpIndex, skipPdb);
             if (lowered)
                 return DumpLowered(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
+            if (assertions)
+                return DumpAssertions(assemblies, dumpMethod, dumpIndex, skipPdb);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, dumpIndex, stepLimit, skipPdb)
                 : Dump(assemblies, dumpMethod, dumpIndex, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb, simulate);
@@ -892,6 +896,33 @@ static class Program
     }
 
     /// <summary>
+    /// Stage dump with the inverse-architecture assertions evaluated and annotated.
+    /// </summary>
+    static int DumpAssertions(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
+            if (function is null)
+                continue;
+
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, assertions)");
+            var stages = IrPasses.RunWithStages(function, IrPasses.Default, new AssertionPrinter.StatefulPrinter().Dump);
+            Console.Write(StageDump.Format(stages));
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
+    /// <summary>
     /// Surfaces the printer's definite-assignment dataflow facts — the per-block
     /// predecessors, gen, and the <c>in</c>/<c>out</c> sets of the CFG fixpoint
     /// that decides which locals keep <c>= default</c>. The same analysis that
@@ -1285,6 +1316,9 @@ static class Program
           --facts               with --dump: print the printer's definite-assignment
                                 dataflow facts — per-block preds/gen and the in/out
                                 sets that decide which locals keep `= default`.
+          --assertions          with --dump: annotates the staged IR with the
+                                inverse-architecture assumptions and flags the
+                                first unsound rewrite if a predicate fails.
           --cfg                 with --dump: print the control-flow graph (per-block
                                 predecessor/successor edges) of each block container
                                 in the raised IR.

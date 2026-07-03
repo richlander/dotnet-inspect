@@ -256,23 +256,25 @@ public static class CoercionInvariant
     /// deliberately leaves to later or targeted deciders, counted by value
     /// kind so the scope limit is measurable burn-down, never silent (#2145).
     /// </summary>
+    public readonly record struct CoercionViolation(IrNode Node, string Message);
+
     public readonly record struct CoercionAudit(
-        IReadOnlyList<string> Violations,
+        IReadOnlyList<CoercionViolation> Violations,
         IReadOnlyDictionary<string, int> Residuals);
 
-    public static IReadOnlyList<string> Check(IrFunction function) => Audit(function).Violations;
+    public static IReadOnlyList<CoercionViolation> Check(IrFunction function) => Audit(function).Violations;
 
     public static CoercionAudit Audit(IrFunction function)
     {
         var shapes = function.TypeShapes;
-        List<string>? violations = null;
+        List<CoercionViolation>? violations = null;
         Dictionary<string, int>? residuals = null;
         foreach (var sink in CoercionSinks.Enumerate(function))
         {
             if (CoercionSinks.RequiresCoercion(sink, shapes))
             {
-                (violations ??= []).Add(
-                    $"{function.Name}: {sink.Value.Describe()} occupies a {sink.Target.ToDisplayString()} sink without a Coerce");
+                (violations ??= []).Add(new(sink.Value,
+                    $"{function.Name}: {sink.Value.Describe()} occupies a {sink.Target.ToDisplayString()} sink without a Coerce"));
             }
             else if (CoercionSinks.IsResidual(sink, shapes))
             {
