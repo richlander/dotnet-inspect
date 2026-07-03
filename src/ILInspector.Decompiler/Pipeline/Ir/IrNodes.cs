@@ -1512,6 +1512,12 @@ public sealed class Call : IrExpression
 /// pointer's own type. Renders as a C# function-pointer invocation
 /// <c>pointer(args)</c>.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "delegate* invocation / calli",
+    precondition: "result is the `calli` standalone signature's return type; parameter types and calling convention come from that signature, not a resolved method (`IsInstance` marks a receiver absent from the parameter list)",
+    witness: "function-pointer fixtures; corpus compile-back")]
 public sealed class CallIndirect : IrExpression
 {
     public CallIndirect(IrExpression pointer, IEnumerable<IrExpression> arguments, TypeRef returnType, ImmutableArray<TypeRef> parameterTypes)
@@ -2023,6 +2029,12 @@ public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression
 /// reaches print as a comment; the dominant case — feeding a delegate
 /// constructor — is raised to <see cref="DelegateCreation"/> by a pass.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "ldftn·ldvirtftn (method-group / function-pointer load)",
+    precondition: "result is `System.IntPtr` — the raw method-address native int; `IsVirtual` selects `ldvirtftn` (dispatched on the receiver) over `ldftn`",
+    witness: "function-pointer fixtures; corpus compile-back")]
 public sealed class LoadFunctionPointer : IrExpression
 {
     public LoadFunctionPointer(MethodRef method, bool isVirtual, IrExpression? instance)
@@ -2055,6 +2067,12 @@ public sealed class LoadFunctionPointer : IrExpression
 /// result type is the contextual function-pointer type when available, falling
 /// back to the managed function-pointer type of the method's signature.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "&method (function-pointer load) / ldftn",
+    precondition: "result is the contextual function-pointer type when known (the `delegate*` field/parameter/`calli` signature the address feeds), else the managed function-pointer type built from the method's own signature",
+    witness: "function-pointer fixtures; corpus compile-back")]
 public sealed class AddressOfMethod : IrExpression
 {
     public AddressOfMethod(MethodRef method, TypeRef? functionPointerType = null)
@@ -2348,6 +2366,13 @@ public sealed class StoreStackSlot : IrNode
     public override string Describe() => $"StoreStackSlot S_{Slot}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Native,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "(synthesized) evaluation-stack slot",
+    precondition: "`Type` is the reconciled type of a spilled evaluation-stack entry when known (the join of the slot's typed loads/stores — the value-typed-emission slot reconciliation), else null; no metadata token backs it",
+    witness: "stack-slot fixtures; corpus compile-back")]
 public sealed class LoadStackSlot : IrExpression
 {
     public LoadStackSlot(int slot, TypeRef? type)
@@ -3009,6 +3034,12 @@ public sealed class EndFilter : IrNode
 }
 
 /// <summary>The address of a local — the receiver form for value-type calls and ref/out arguments.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundLocal,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundLocal (by ref) / ldloca",
+    precondition: "result is a managed reference (`ByRef`) to the local's declared type — the receiver form for a value-type instance call or a `ref`/`out`/`in` argument",
+    witness: "corpus compile-back")]
 public sealed class LoadLocalAddress : IrExpression
 {
     public LoadLocalAddress(int index, TypeRef type)
@@ -3024,6 +3055,12 @@ public sealed class LoadLocalAddress : IrExpression
     public override string Describe() => $"LoadLocalAddress {Index} ({Type.ToDisplayString()})";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundParameter,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundParameter (by ref) / ldarga",
+    precondition: "result is a managed reference (`ByRef`) to the argument's declared type (parameter signature; declaring type for `this`)",
+    witness: "corpus compile-back")]
 public sealed class LoadArgumentAddress : IrExpression
 {
     public LoadArgumentAddress(int index, string name, TypeRef type)
@@ -3041,6 +3078,12 @@ public sealed class LoadArgumentAddress : IrExpression
     public override string Describe() => $"LoadArgumentAddress {Index} ({Type.ToDisplayString()} {Name})";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundFieldAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundFieldAccess (by ref) / ldflda·ldsflda",
+    precondition: "result is a managed reference (`ByRef`) to the field's declared type (field signature)",
+    witness: "corpus compile-back")]
 public sealed class LoadFieldAddress : IrExpression
 {
     public LoadFieldAddress(FieldRef field, IrExpression? instance)
@@ -3068,6 +3111,12 @@ public sealed class LoadFieldAddress : IrExpression
     public override string Describe() => $"LoadFieldAddress {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundArrayAccess (by ref) / ldelema",
+    precondition: "result is a managed reference (`ByRef`) to the array's element type (the `ldelema` type token); `IsReadOnly` marks the `readonly.` prefix (a read-only address)",
+    witness: "corpus compile-back")]
 public sealed class LoadElementAddress : IrExpression
 {
     public LoadElementAddress(TypeRef elementType, IrExpression array, IrExpression index, bool isReadOnly)
@@ -3090,6 +3139,12 @@ public sealed class LoadElementAddress : IrExpression
 }
 
 /// <summary>Load through an address (ldobj and the ldind.* family). A null type means the opcode does not encode one (ldind.ref).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.None,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "ByRef/pointer dereference / ldobj·ldind.*",
+    precondition: "result is the opcode-encoded type (the `ldobj` token or the `ldind.*` element type); a `bool`/`char` location is recovered from the address's `ByRef`/pointer pointee (the `ldind.u1`/`ldind.u2` storage width is shared by `bool`/`byte` and `char`/`ushort`); `ldind.ref` encodes no type and takes the pointee",
+    witness: "unsafe/indirect fixtures; corpus compile-back")]
 public sealed class LoadIndirect : IrExpression
 {
     public LoadIndirect(TypeRef? type, IrExpression address)

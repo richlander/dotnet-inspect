@@ -43,6 +43,9 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundConditionalAccess</c> (the <c>?.</c> null-conditional access).</summary>
     RoslynBoundConditionalAccess,
+
+    /// <summary>Roslyn's <c>BoundArrayAccess</c> (an array element reference).</summary>
+    RoslynBoundArrayAccess,
 }
 
 /// <summary>
