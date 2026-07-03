@@ -1670,6 +1670,196 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_EmitsEqualityOperatorPairSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "op_Equality", 0),
+                    new ReturnToSender.RequestedTarget("Row", "op_Inequality", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("operator ==(", result.Source);
+                    Assert.Contains("operator !=(", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("operator ==(", result.Source);
+                    Assert.Contains("operator !=(", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public static bool operator ==(Row left, string right) => right == "x";
+                public static bool operator !=(Row left, string right) => !(left == right);
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 1)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("operator ==(Row left, string right)", result.Source);
+            Assert.Contains("operator !=(Row left, string right)", result.Source);
+            Assert.DoesNotContain("operator !=(Row left, Row right)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_EmitsNoBodyEqualityOperatorPairSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                [System.Runtime.InteropServices.DllImport("native")]
+                public static extern bool operator !=(Row left, Row right);
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("operator ==(Row left, Row right)", result.Source);
+            Assert.Contains("operator !=(Row left, Row right)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesGenericEqualityOperatorReferenceComparison()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row<T>
+            {
+                public static bool operator ==(Row<T> left, Row<T> right) => (object)left == (object)right;
+                public static bool operator !=(Row<T> left, Row<T> right) => (object)left != (object)right;
+                public override bool Equals(object obj) => obj is Row<T>;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row`1", "op_Equality", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("return (object)left == (object)right;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesInParameterEqualityOperatorReferenceComparison()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(in Row left, in Row right) => (object)left == (object)right;
+                public static bool operator !=(in Row left, in Row right) => (object)left != (object)right;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("return (object)(left) == (object)(right);", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesSpilledLocalEqualityOperatorReferenceComparison()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right)
+                {
+                    Row V_0 = right;
+                    Row S_256 = left;
+                    System.Console.WriteLine(S_256 is null);
+                    return (object)S_256 == (object)V_0;
+                }
+
+                public static bool operator !=(Row left, Row right) => (object)left != (object)right;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("return (object)S_256 == (object)V_0;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""

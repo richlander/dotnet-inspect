@@ -848,6 +848,12 @@ public sealed partial class CSharpPrinter
         // pointer types (CS8521), so this uses the equality form, not is-null.
         if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual)
         {
+            if (IsCurrentEqualityOperator()
+                && IsKnownReferenceComparison(left, right))
+            {
+                return $"(object){Operand(left)} {ComparisonOperator(kind)} (object){Operand(right)}";
+            }
+
             var pointer = left.ResultType is { Kind: TypeRefKind.Pointer } ? left
                 : right.ResultType is { Kind: TypeRefKind.Pointer } ? right
                 : null;
@@ -897,6 +903,17 @@ public sealed partial class CSharpPrinter
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
     }
+
+    bool IsCurrentEqualityOperator()
+        => _function.Name is "op_Equality" or "op_Inequality";
+
+    bool IsKnownReferenceComparison(IrExpression left, IrExpression right)
+        => IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType);
+
+    bool IsKnownReferenceType(TypeRef? type)
+        => TypeFamilies.Of(type) == StackFamily.O
+            || type is { Kind: TypeRefKind.SzArray or TypeRefKind.Array }
+            || type is not null && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference;
 
     string BoxedReferenceOperand(IrExpression operand)
         => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
