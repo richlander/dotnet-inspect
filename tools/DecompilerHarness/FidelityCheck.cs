@@ -366,19 +366,29 @@ static class FidelityCheck
 
                     Parallel.ForEach(reader.TypeDefinitions, options, (typeHandle, state) =>
                     {
-                        if (Volatile.Read(ref successCount) >= perAssemblyCap || Volatile.Read(ref attempts) >= attemptCap)
+                        if (Volatile.Read(ref successCount) >= perAssemblyCap)
                         {
                             state.Break();
                             return;
                         }
 
+                        int currentAttempts = Volatile.Read(ref attempts);
+                        if (currentAttempts >= attemptCap)
+                        {
+                            state.Break();
+                            return;
+                        }
+                        
+                        // Atomically reserve a block of attempts for this type
+                        int reserved = Math.Min(8, attemptCap - currentAttempts);
+                        if (Interlocked.Add(ref attempts, reserved) > attemptCap + reserved)
+                            return;
+
                         // Each type compilation has its own render lambda so it's safe.
-                        // Wait, Renderer isn't thread safe if it holds state. Let's create it per type compilation.
                         var render = Renderer(source, lowered);
 
                         var typeResults = new List<CompileBackResult>();
-                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, typeResults, Math.Min(8, attemptCap - Volatile.Read(ref attempts)));
-                        Interlocked.Add(ref attempts, typeResults.Count);
+                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, typeResults, reserved);
                         
                         var selectableResults = includeAllResults ? typeResults : typeResults.Where(IsUsefulCorpusSample);
                         foreach (var res in selectableResults)

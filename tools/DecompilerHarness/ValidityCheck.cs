@@ -197,7 +197,10 @@ static class ValidityCheck
                     candidates.Add((typeName, methodName, function, productParameterList));
                 }
 
-                Parallel.ForEach(candidates, options, item =>
+                // Cap admission sequentially upfront to maintain deterministic method sets
+                var evaluationTargets = candidates;
+
+                Parallel.ForEach(evaluationTargets, options, item =>
                 {
                     var (typeName, methodName, function, productParameterList) = item;
                     
@@ -231,12 +234,12 @@ static class ValidityCheck
 
                     // Bind only Full, syntactically-valid methods (the set that
                     // claims to be good) up to the cap — binding is the slow part.
-                    if (!full || Volatile.Read(ref semChecked) >= cap)
+                    if (!full || Interlocked.Increment(ref semChecked) > cap)
                     {
+                        if (full) Interlocked.Decrement(ref semChecked);
                         results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: false, []));
                         return; // parallel return
                     }
-                    Interlocked.Increment(ref semChecked);
                     var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
                     var semanticModel = compilation.GetSemanticModel(tree);
                     var defects = compilation.GetDiagnostics()

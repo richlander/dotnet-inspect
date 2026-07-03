@@ -603,13 +603,21 @@ public sealed class MetadataSource : IDisposable
     /// found or it cannot be read; the importer then leaves local names absent
     /// and the printer falls back to <c>V_index</c>.
     /// </summary>
+    readonly object _pdbLock = new();
+    
     MetadataReader? PdbReader()
     {
         if (_pdbProbed)
             return _pdbReader;
-        _pdbProbed = true;
-        if (!_readSymbols)
-            return null;
+            
+        lock (_pdbLock)
+        {
+            if (_pdbProbed)
+                return _pdbReader;
+
+            _pdbProbed = true;
+            if (!_readSymbols)
+                return null;
         try
         {
             if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out var pdbPath)
@@ -634,9 +642,10 @@ public sealed class MetadataSource : IDisposable
         }
         catch
         {
-            // No PDB, or an unreadable one — names stay absent.
+            // Unreadable PDB (format error, locked file): act like no PDB exists.
         }
         return _pdbReader;
+        }
     }
 
     /// <summary>
