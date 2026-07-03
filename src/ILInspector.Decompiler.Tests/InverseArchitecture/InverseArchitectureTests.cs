@@ -162,7 +162,7 @@ public class InverseArchitectureTests
 
         var path = Path.Combine(root!, "docs", "design", "inverse-ledger.generated.md");
         Assert.True(File.Exists(path),
-            $"Missing {path}. Regenerate it from InverseLedger.RenderMarkdown(ProductAssembly).");
+            $"Missing {path}. Regenerate it via `dotnet run --project tools/DecompilerHarness -c Release -- --emit-inverse-ledger <path>`. ");
         Assert.Equal(
             Normalize(InverseLedger.RenderMarkdown(ProductAssembly)),
             Normalize(File.ReadAllText(path)));
