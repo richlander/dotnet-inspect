@@ -1379,6 +1379,66 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsPropertyReturnMetadata()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public string Text
+                {
+                    [return: System.Diagnostics.CodeAnalysis.NotNull]
+                    get => "hello";
+                }
+
+                public int Number
+                {
+                    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+                    get => 42;
+                }
+
+                public string this[int index]
+                {
+                    [return: System.Diagnostics.CodeAnalysis.NotNull]
+                    get => "hello";
+                }
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Class1", "get_Text", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "get_Number", 0),
+                    new ReturnToSender.RequestedTarget("Class1", "get_Item", 0),
+                ]);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[return: System.Diagnostics.CodeAnalysis.NotNull] get", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] get", result.Source);
+                },
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.Contains("this[int index]", result.Source);
+                    Assert.Contains("[return: System.Diagnostics.CodeAnalysis.NotNull] get", result.Source);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""

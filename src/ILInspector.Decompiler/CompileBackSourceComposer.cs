@@ -325,7 +325,8 @@ public static class CompileBackSourceComposer
                                 new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name)),
                                 new CompileBackFact("metadata", "auto-property", propertyName)
                             ]
-                            : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))])
+                            : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
+                        MethodReturnAttributes(reader, getter))
                 ],
                 PrimaryConstructor: null,
                 targetFacts)
@@ -713,13 +714,13 @@ public static class CompileBackSourceComposer
                 }
                 if (member.StubBody == CompileBackStubBodyKind.AutoProperty)
                 {
-                    sb.AppendLine($"{pad}{declaration} {{ get; }}");
+                    sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)}; }}");
                     break;
                 }
                 if (member.StubBody == CompileBackStubBodyKind.AutoPropertyGetSet)
                 {
                     declaration = StripPropertyAccessorBlock(declaration);
-                    sb.AppendLine($"{pad}{declaration} {{ get; set; }}");
+                    sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)}; set; }}");
                     break;
                 }
                 if (member.StubBody == CompileBackStubBodyKind.ThrowGetSet)
@@ -727,7 +728,7 @@ public static class CompileBackSourceComposer
                     declaration = StripPropertyAccessorBlock(declaration);
                     sb.AppendLine($"{pad}{declaration}");
                     sb.AppendLine($"{pad}{{");
-                    sb.AppendLine($"{pad}    get");
+                    sb.AppendLine($"{pad}    {GetterDeclaration(member)}");
                     sb.AppendLine($"{pad}    {{");
                     sb.AppendLine($"{pad}        throw null;");
                     sb.AppendLine($"{pad}    }}");
@@ -742,7 +743,7 @@ public static class CompileBackSourceComposer
                 declaration = StripPropertyAccessorBlock(declaration);
                 sb.AppendLine($"{pad}{declaration}");
                 sb.AppendLine($"{pad}{{");
-                sb.AppendLine($"{pad}    get");
+                sb.AppendLine($"{pad}    {GetterDeclaration(member)}");
                 sb.AppendLine($"{pad}    {{");
                 if (member.StubBody == CompileBackStubBodyKind.Throw)
                 {
@@ -926,7 +927,6 @@ public static class CompileBackSourceComposer
                     .ToList(),
             };
         }
-
         return apiMember;
     }
 
@@ -969,6 +969,11 @@ public static class CompileBackSourceComposer
 
         return declaration;
     }
+
+    static string GetterDeclaration(CompileBackMemberDeclaration member)
+        => member.ReturnAttributes is { Count: > 0 }
+            ? $"[return: {string.Join(", ", member.ReturnAttributes)}] get"
+            : "get";
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
         MetadataReader reader,
