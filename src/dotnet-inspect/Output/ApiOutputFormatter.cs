@@ -1826,7 +1826,7 @@ public static class ApiOutputFormatter
                 opportunity.Evidence,
                 opportunity.SafeFixDirection,
                 opportunity.Confidence,
-                opportunity.InLoop ? "loop" : "",
+                LibraryMetadataService.IteratesInLoop(opportunity) ? "loop" : "",
                 opportunity.RuntimeAllocationType is { Length: > 0 } allocation ? MarkoutInline.Code(allocation) : null,
                 opportunity.PathContext,
                 opportunity.PathConfidence,

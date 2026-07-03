@@ -296,7 +296,9 @@ public sealed class LibraryBodyIndex
                     && IsExceptionConstruction(type))
                     continue;
                 steadyAllocations[token] = steadyAllocations.GetValueOrDefault(token) + 1;
-                if (occurrence.InLoop)
+                // Only allocations that genuinely iterate (semantic multiplicity) make a
+                // method a loop hotspot — a return/throw early-exit inside a loop runs once.
+                if (occurrence.Multiplicity == AllocationMultiplicity.Loop)
                     steadyAllocationLoop.Add(token);
             }
         }
@@ -1665,10 +1667,12 @@ public sealed class LibraryBodyIndex
         sealed class AllocationPostDominanceIndex
         {
             readonly AllocationPostDominance[] _postDominanceByBlock;
+            readonly bool[] _reachesCycleByBlock;
 
-            AllocationPostDominanceIndex(AllocationPostDominance[] postDominanceByBlock)
+            AllocationPostDominanceIndex(AllocationPostDominance[] postDominanceByBlock, bool[] reachesCycleByBlock)
             {
                 _postDominanceByBlock = postDominanceByBlock;
+                _reachesCycleByBlock = reachesCycleByBlock;
             }
 
             public static AllocationPostDominanceIndex Create(DecodedBody decodedBody)
@@ -1676,13 +1680,14 @@ public sealed class LibraryBodyIndex
                 var blockGraph = decodedBody.BlockGraph;
                 var postDominanceByBlock = new AllocationPostDominance[blockGraph.Blocks.Length];
                 if (blockGraph.Blocks.Length == 0)
-                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+                    return new AllocationPostDominanceIndex(postDominanceByBlock, []);
 
                 var edges = blockGraph.Blocks.Select(static block => block.Edges).ToArray();
+                var reachesCycleOnly = BackwardReachable(edges, CyclicBlocks(edges));
                 var postDominators = PostDominators.Of(edges);
                 var returnBlocks = ReturnBlocks(decodedBody);
                 if (returnBlocks.Length == 0)
-                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+                    return new AllocationPostDominanceIndex(postDominanceByBlock, reachesCycleOnly);
 
                 var reachesReturn = BackwardReachable(edges, returnBlocks);
                 var returnSet = returnBlocks.ToHashSet();
@@ -1693,7 +1698,7 @@ public sealed class LibraryBodyIndex
                             || edges[block].LeavesRegion)));
                 var reachesNonExitingBlock = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
                     .Where(block => postDominators.ImmediatePostDominator(block) == PostDominators.None));
-                var reachesCycle = BackwardReachable(edges, CyclicBlocks(edges));
+                var reachesCycle = reachesCycleOnly;
 
                 for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
                 {
@@ -1708,13 +1713,19 @@ public sealed class LibraryBodyIndex
                     }
                 }
 
-                return new AllocationPostDominanceIndex(postDominanceByBlock);
+                return new AllocationPostDominanceIndex(postDominanceByBlock, reachesCycle);
             }
 
             public AllocationPostDominance PostDominanceFor(int blockIndex)
                 => (uint)blockIndex < (uint)_postDominanceByBlock.Length
                     ? _postDominanceByBlock[blockIndex]
                     : AllocationPostDominance.Unknown;
+
+            // Whether control can flow from this block back to a loop backedge. A block
+            // inside a loop region that CANNOT (it exits first via return/throw) runs at
+            // most once per call and is not a hot loop.
+            public bool ReachesCycleFor(int blockIndex)
+                => (uint)blockIndex < (uint)_reachesCycleByBlock.Length && _reachesCycleByBlock[blockIndex];
 
             static bool[] BackwardReachable(IReadOnlyList<BlockEdges> edges, IEnumerable<int> seeds)
             {
@@ -3137,18 +3148,19 @@ public sealed class LibraryBodyIndex
                                 && delegateAllocation.Frequency == AllocationFrequency.CachedOnce;
                             if (!cachedOnce && pendingDelegateCapturing)
                             {
-                                // Confidence tracks loop membership: an in-loop delegate is a
-                                // repeated allocation (high); a one-shot delegate in a cold
-                                // method is low-value, especially since .NET 10+ partially
-                                // stack-allocates non-escaping ones (low).
+                                // Confidence tracks semantic loop iteration: a delegate that
+                                // genuinely repeats each iteration is high; a one-shot delegate —
+                                // including a loop early-exit that runs once — is low, especially
+                                // since .NET 10+ partially stack-allocates non-escaping ones.
                                 var inLoop = IsInLoopRegion(offset, loopRegions);
+                                bool iteratesInLoop = AllocationMultiplicityFor(decodedBody, offset, loopRegions, AllocationEscape.Unknown) == AllocationMultiplicity.Loop;
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "capturing-delegate",
                                     "delegate over a captured receiver or closure",
                                     "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
-                                    inLoop ? "high" : "low",
+                                    iteratesInLoop ? "high" : "low",
                                     inLoop,
                                     offset,
                                     "On .NET 10+ the JIT can partially stack-allocate a non-escaping closure (~88 to ~36 bytes/call measured), reducing but not eliminating it; it stays a full heap allocation when the closure escapes the method — stored, returned, or passed to a callee that lets it escape."));
@@ -3156,6 +3168,7 @@ public sealed class LibraryBodyIndex
                             else if (!cachedOnce && pendingDelegateInstanceGroup)
                             {
                                 var inLoop = IsInLoopRegion(offset, loopRegions);
+                                bool iteratesInLoop = AllocationMultiplicityFor(decodedBody, offset, loopRegions, AllocationEscape.Unknown) == AllocationMultiplicity.Loop;
                                 bool stackGuardFallback = IsStackGuardFallbackAllocation(decodedBody, offset, callerScope);
                                 pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
@@ -3165,7 +3178,7 @@ public sealed class LibraryBodyIndex
                                     stackGuardFallback
                                         ? "This delegate allocation is on a StackGuard fallback path, not the common path; if profiles show it matters, cache it in a field when the receiver is stable or use a static method with explicit state."
                                         : "Each call allocates a delegate that binds the receiver; cache it in a field when the receiver is stable, or use a static method with explicit state.",
-                                    stackGuardFallback ? "low" : inLoop ? "high" : "low",
+                                    stackGuardFallback ? "low" : iteratesInLoop ? "high" : "low",
                                     inLoop,
                                     offset,
                                     stackGuardFallback
@@ -3381,8 +3394,10 @@ public sealed class LibraryBodyIndex
                         var feedsThrow = allocating && boxAllocation!.Escape == AllocationEscape.ThrowPath;
                         pendingBoxOffset = allocating && !feedsThrow ? offset : null;
                         pendingBoxType = allocating && !feedsThrow ? boxAllocation!.AllocatedType ?? boxed : null;
+                        // Semantic loop iteration (a loop early-exit box runs once, so it is
+                        // not a hot loop) drives the box confidence and the Loop signal.
                         pendingBoxInLoop = pendingBoxOffset is not null
-                            && IsInLoopRegion(offset, loopRegions);
+                            && boxAllocation!.Multiplicity == AllocationMultiplicity.Loop;
                         break;
                     }
                     default:
@@ -3477,8 +3492,11 @@ public sealed class LibraryBodyIndex
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                         PostDominance = opportunity.PostDominance ?? FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
-                        Multiplicity = opportunity.Multiplicity ?? FormatMultiplicity(allocation?.Multiplicity
-                            ?? AllocationMultiplicityFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
+                        Multiplicity = opportunity.Multiplicity ?? FormatMultiplicity(
+                            allocation?.Multiplicity is { } allocationMultiplicity
+                                && allocationMultiplicity != AllocationMultiplicity.Unknown
+                                    ? allocationMultiplicity
+                                    : AllocationMultiplicityFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         EstimatedSizeBytes = opportunity.EstimatedSizeBytes ?? allocation?.EstimatedSizeBytes,
                     };
                 }
@@ -4061,7 +4079,16 @@ public sealed class LibraryBodyIndex
             if (escape == AllocationEscape.ThrowPath)
                 return inLoop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional;
             if (inLoop)
+            {
+                // A block inside a loop region only iterates if it can flow back to the
+                // loop backedge. One that exits first — an early return OR an uncaught
+                // throw after the allocation — runs at most once, so it is not a hot loop.
+                if (!decodedBody.PostDominances.ReachesCycleFor(blockIndex))
+                    return confidence == AllocationPathConfidence.DominatesReturn
+                        ? AllocationMultiplicity.Once
+                        : AllocationMultiplicity.Conditional;
                 return AllocationMultiplicity.Loop;
+            }
 
             var context = decodedBody.PathContexts.ContextFor(blockIndex);
             if (context == AllocationPathContext.ErrorPath)
