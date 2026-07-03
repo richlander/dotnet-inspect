@@ -76,11 +76,13 @@ internal static class RenderAbSensor
             var portablePath = CorpusSensor.PortablePath(assemblyPath);
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
-            var stableSample = IrImporter.ImportAssemblyStableSample(source, methodCap).ToList();
+            var stableSample = IrImporter.GetStableSampleCandidates(source, methodCap).ToList();
 
             Parallel.ForEach(stableSample, options, item =>
             {
-                var (typeName, methodName, function) = item;
+                var typeName = item.TypeName;
+                var methodName = item.MethodName;
+                var function = item.Build(source);
                 
                 try
                 {

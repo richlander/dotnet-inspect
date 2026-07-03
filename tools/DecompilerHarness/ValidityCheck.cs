@@ -178,7 +178,7 @@ static class ValidityCheck
                 // constrained generic calls the runtime accepts (no phantom CS0314).
                 var constraints = ShellConstraints.Build(source);
                 
-                var candidates = new List<(string TypeName, string MethodName, IrFunction Function)>();
+                var candidates = new List<(string TypeName, string MethodName, IrFunction Function, string? ProductParameterList)>();
                 foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
                 {
                     // Compiler-generated types/members (anonymous types, closures,
@@ -188,12 +188,18 @@ static class ValidityCheck
                     // shell with identifier-syntax errors. Skip them.
                     if (typeName.Contains('<') || methodName.Contains('<'))
                         continue;
-                    candidates.Add((typeName, methodName, function));
+
+                    string? productSignatureParameters = DequeueProductParameterList(productSignatures, typeName, methodName);
+                    string? productParameterList = function.Signature.Parameters.Any(p => p.HasDefault)
+                        ? productSignatureParameters
+                        : null;
+
+                    candidates.Add((typeName, methodName, function, productParameterList));
                 }
 
                 Parallel.ForEach(candidates, options, item =>
                 {
-                    var (typeName, methodName, function) = item;
+                    var (typeName, methodName, function, productParameterList) = item;
                     
                     if (Volatile.Read(ref semChecked) >= cap)
                         return;
@@ -207,10 +213,6 @@ static class ValidityCheck
                     if (rendered is null)
                         return;
                     bool full = function.Fidelity == DecompilationFidelity.Full;
-                    string? productSignatureParameters = DequeueProductParameterList(productSignatures, typeName, methodName);
-                    string? productParameterList = function.Signature.Parameters.Any(p => p.HasDefault)
-                        ? productSignatureParameters
-                        : null;
 
                     string shell = Shell(function, rendered, typeName, methodName, constraints, productParameterList);
                     var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);

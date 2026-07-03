@@ -192,6 +192,73 @@ public static class IrImporter
     /// under unrelated method insertions unless the new method hashes into the
     /// sample itself.
     /// </summary>
+    public readonly record struct StableSampleCandidate(string TypeName, string MethodName, TypeDefinitionHandle TypeDefHandle, MethodDefinitionHandle MethodHandle)
+    {
+        public IrFunction Build(MetadataSource source)
+        {
+            try
+            {
+                var typeDef = source.Reader.GetTypeDefinition(TypeDefHandle);
+                var method = source.Reader.GetMethodDefinition(MethodHandle);
+                return IrImporter.Build(
+                    source,
+                    MethodImporter.Import(source, TypeDefHandle, MethodHandle),
+                    IrImporter.CallerScope(source.Reader, typeDef, method));
+            }
+            catch (Exception ex)
+            {
+                return IrImporter.CrashFunction(MethodName, TypeName, ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Evaluates a deterministic hash-ranked sample of method bodies from the
+    /// assembly. Returns candidates that can be built in parallel.
+    /// </summary>
+    public static IEnumerable<StableSampleCandidate> GetStableSampleCandidates(MetadataSource source, int sampleSize)
+    {
+        var reader = source.Reader;
+        var candidates = new List<MethodCandidate>();
+        int sequence = 0;
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            string typeName = reader.GetFullTypeName(typeDef);
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (method.RelativeVirtualAddress == 0)
+                    continue;
+                string memberName = reader.GetString(method.Name);
+                string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
+                candidates.Add(new MethodCandidate(
+                    typeDefHandle,
+                    methodHandle,
+                    typeName,
+                    memberName,
+                    sequence++,
+                    StableHash(key),
+                    key));
+            }
+        }
+
+        foreach (var candidate in candidates
+            .OrderBy(c => c.Hash)
+            .ThenBy(c => c.Key, StringComparer.Ordinal)
+            .Take(sampleSize)
+            .OrderBy(c => c.Sequence))
+        {
+            yield return new StableSampleCandidate(candidate.TypeName, candidate.MethodName, candidate.TypeDefHandle, candidate.MethodHandle);
+        }
+    }
+
+    /// <summary>
+    /// Imports a deterministic hash-ranked sample of method bodies from the
+    /// assembly. Unlike "first N" metadata order, the selected set is stable
+    /// under unrelated method insertions unless the new method hashes into the
+    /// sample itself.
+    /// </summary>
     public static IEnumerable<(string TypeName, string MethodName, IrFunction Function)> ImportAssemblyStableSample(MetadataSource source, int sampleSize)
     {
         if (sampleSize <= 0)

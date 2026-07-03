@@ -185,11 +185,13 @@ internal static class CorpusSensor
             string portablePath = PortablePath(assemblyPath);
             var overloads = new ConcurrentDictionary<(string Type, string Method), int>();
 
-            var stableSample = IrImporter.ImportAssemblyStableSample(source, methodCap).ToList();
+            var stableSample = IrImporter.GetStableSampleCandidates(source, methodCap).ToList();
 
             Parallel.ForEach(stableSample, options, item =>
             {
-                var (typeName, methodName, function) = item;
+                var typeName = item.TypeName;
+                var methodName = item.MethodName;
+                var function = item.Build(source);
                 
                 int overload = overloads.AddOrUpdate((typeName, methodName), 0, (_, v) => v + 1);
                 Interlocked.Increment(ref methods);
@@ -288,11 +290,11 @@ internal static class CorpusSensor
             _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
             int assemblyMethods = 0;
             
-            var stableSample = IrImporter.ImportAssemblyStableSample(source, methodCap).ToList();
+            var stableSample = IrImporter.GetStableSampleCandidates(source, methodCap).ToList();
 
             Parallel.ForEach(stableSample, options, item =>
             {
-                var (_, _, function) = item;
+                var function = item.Build(source);
                 Interlocked.Increment(ref assemblyMethods);
                 Interlocked.Increment(ref total);
                 var diagnostics = new StructuringDiagnostics();
