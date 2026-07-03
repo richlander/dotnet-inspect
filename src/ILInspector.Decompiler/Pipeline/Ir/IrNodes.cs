@@ -656,6 +656,12 @@ public sealed class SwitchSection : IrNode
 /// expression it yields. Unlike <see cref="Switch"/> (a statement) this is an
 /// expression, so it appears as the value of a <see cref="Return"/> or a store.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConvertedSwitchExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundConvertedSwitchExpression (value switch { ... })",
+    precondition: "every arm (and the default) assigns the single join local one downstream read consumes, so the arms share that local's type; result is the arms' shared type",
+    witness: "SwitchExpressionRaisingTests, corpus compile-back")]
 public sealed class SwitchExpression : IrExpression
 {
     public SwitchExpression(IrExpression value, IEnumerable<SwitchExpressionArm> arms)
@@ -696,6 +702,12 @@ public sealed class SwitchExpressionArm : IrNode
 /// compiler-emitted union <c>Value</c> getter access; the printer uses the
 /// proven union receiver when rendering the switch input.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConvertedSwitchExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundConvertedSwitchExpression (type-pattern arms over a union receiver)",
+    precondition: "the receiver is the compiler-emitted union `Value` getter access over a proven union case set; each arm is a type pattern for one case; result is the arms' (or null/default arm's) shared type",
+    witness: "TypeSourceComposerUnionTests, union fixture corpus")]
 public sealed class UnionSwitchExpression : IrExpression
 {
     readonly bool _hasDefault;
@@ -993,6 +1005,12 @@ public sealed class LogicalBinary : IrExpression
 }
 
 /// <summary>The raised null-coalescing operator: left when non-null, else right.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundNullCoalescingOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundNullCoalescingOperator (a ?? b)",
+    precondition: "result is the left operand's `Nullable<T>` value type when the raise unwrapped a lifted operand, else the left (falling back to right) operand type — metadata-structural, no stack widening involved",
+    witness: "NullConditionalCoalescePassTests, corpus compile-back")]
 public sealed class Coalesce : IrExpression
 {
     public Coalesce(IrExpression left, IrExpression right)
@@ -1137,6 +1155,13 @@ public sealed class NullConditional : IrExpression
 }
 
 /// <summary>A raised ternary: condition selects between two values (the slot-diamond shape).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConditionalOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConditionalOperator (c ? t : f)",
+    precondition: "result is `MergedType` — the importer's join of the arm types (nominal-exact for integer/enum joins; a common supertype for references) — when set, else the arms' type; arms of disagreeing width or family never join silently (slot testimony vetoes the merge)",
+    witness: "SlotStoreDiamondPassTests, DiamondArmTypeReconciliationTests, corpus compile-back")]
 public sealed class Conditional : IrExpression
 {
     public Conditional(IrExpression condition, IrExpression whenTrue, IrExpression whenFalse)
@@ -1245,6 +1270,12 @@ public sealed class AwaitExpression : IrExpression
 /// the value renders as the operator the source spelled — and recompiles to the
 /// same <c>dup</c> rather than spilling to extra locals.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundIncrementOperator,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundIncrementOperator (++/--, prefix and postfix)",
+    precondition: "result type is the target's declared type; the folded value equals the pre-/post-update value per `IsPrefix` — IncrementDecrementPass folds only the exact dup-beside-update idiom, so recompilation reproduces the same dup",
+    witness: "IncrementDecrementPassTests, corpus compile-back")]
 public sealed class IncrementDecrement : IrExpression
 {
     public IncrementDecrement(IrExpression target, bool isIncrement, bool isPrefix, bool isUserDefined = false, bool isChecked = false)
@@ -1424,6 +1455,13 @@ public sealed class StoreLocal : IrNode
     public override string Describe() => $"StoreLocal {Index} ({Type.ToDisplayString()})";
 }
 
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundLiteral,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitStackNormalization,
+    forwardName: "BoundLiteral / ldc.i4·ldc.i8·ldc.r4·ldc.r8·ldstr·ldnull",
+    precondition: "`Type` is the IL constant's stack type, or the sink-reconciled semantic type within the same stack family (bool/char/enum identity recovery — TypedConstantsPass; the storage width of a bool/char constant is never its semantic type); the value bits are preserved exactly",
+    witness: "TypedConstantsPassTests, EnumCastPrinterTests, corpus render-text A/B")]
 public sealed class Constant : IrExpression
 {
     public Constant(object? value, TypeRef type)
@@ -2409,8 +2447,8 @@ public sealed class StoreStackSlot : IrNode
     Inverse.Forward.None,
     naming: Inverse.NameProvenance.Native,
     forwardName: "(synthesized) evaluation-stack slot",
-    precondition: "`Type` is the reconciled type of a spilled evaluation-stack entry when known (the join of the slot's typed loads/stores — the value-typed-emission slot reconciliation), else null; no metadata token backs it",
-    witness: "stack-slot fixtures; corpus compile-back")]
+    precondition: "`Type` is the reconciled type of a spilled evaluation-stack entry when known (the join of the slot's typed loads/stores — the value-typed-emission slot reconciliation), else null; no metadata token backs it. After SlotMaterializationPass, decided in-domain slots are retired to typed locals before print — a slot node surviving to the printer is the counted residual (ambiguous testimony, cross-family ranges, element-store identity recovery, nested scopes)",
+    witness: "stack-slot fixtures, SlotMaterializationPassTests; corpus compile-back")]
 public sealed class LoadStackSlot : IrExpression
 {
     public LoadStackSlot(int slot, TypeRef? type)

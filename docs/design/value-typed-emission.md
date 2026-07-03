@@ -475,7 +475,23 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    each slot's live ranges as typed local IR nodes and **delete
    `TryChooseUnifiedStackSlotType`** — the writer stops inventing and unifying
    variables. Extend the invariant to "every rendered local is a materialized IR
-   node." Mostly a deletion once step 4 lands.
+   node." Mostly a deletion once step 4 lands. In progress: 5a landed slot
+   reconciliation (`TestifiedSlotTypes` — the one slot-evidence rule: typed
+   loads contribute their type, untyped loads their sink target, underivable
+   or disagreeing loads veto); 5b-1 landed slot stores as typed sinks with the
+   total same-family renderer; 5b-2 lands `SlotMaterializationPass` — decided
+   in-domain function-scope slots become typed locals (keeping their `S_n`
+   names, so the change is render-neutral up to declaration form) **before**
+   coercion insertion, which discharges the minted loads' sink obligations
+   like any local's. What stays on the print-time unifier is the counted
+   residual: ambiguous testimony, cross-family (true disjoint ranges),
+   element-store identity recovery (the #1751 char class — the printer
+   re-types those slots, which a materialized local would foreclose), slots
+   copied from other slots (coupled components materialize together, later),
+   and nested `Lambda`/`LocalFunctionStatement` scopes (blocked on the inner
+   printer threading outer taken names — #2275). The C2 deletion and the
+   invariant extension follow once the residual census reaches the
+   printer-owned floor.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
