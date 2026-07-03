@@ -501,61 +501,77 @@ internal static class LibraryMetadataService
     {
         try
         {
-            var classified = MethodClassificationScanner.Scan(peReader);
-            if (classified.Count == 0) return;
-
-            var unsafe_ = classified
-                .Where(m => m.Classification == MethodClassification.Unsafe)
-                .Select(m => new ClassifiedMethodSummary
-                {
-                    MethodName = m.MethodName,
-                    DeclaringType = m.DeclaringType,
-                    Signature = m.Signature
-                })
-                .OrderBy(m => m.DeclaringType)
-                .ThenBy(m => m.MethodName)
-                .ToList();
-
-            var pinvoke = classified
-                .Where(m => m.Classification == MethodClassification.PInvoke)
-                .Select(m => new ClassifiedMethodSummary
-                {
-                    MethodName = m.MethodName,
-                    DeclaringType = m.DeclaringType,
-                    Signature = m.Signature,
-                    ModuleName = m.ModuleName
-                })
-                .OrderBy(m => m.DeclaringType)
-                .ThenBy(m => m.MethodName)
-                .ToList();
-
-            inspection.UnsafeMethods = unsafe_.Count > 0 ? unsafe_ : null;
-            inspection.PInvokeMethods = pinvoke.Count > 0 ? pinvoke : null;
-
-            var async = classified
-                .Where(m => m.Classification is MethodClassification.RuntimeAsync
-                                             or MethodClassification.StateMachineAsync)
-                .Select(m => new AsyncMethodSummary
-                {
-                    MethodName = m.MethodName,
-                    DeclaringType = m.DeclaringType,
-                    Signature = m.Signature,
-                    Kind = m.Classification == MethodClassification.RuntimeAsync
-                        ? AsyncMethodSummary.RuntimeKind
-                        : AsyncMethodSummary.StateMachineKind
-                })
-                // Runtime async first (sorts before "State machine"), then by type/name.
-                .OrderBy(m => m.Kind, StringComparer.Ordinal)
-                .ThenBy(m => m.DeclaringType)
-                .ThenBy(m => m.MethodName)
-                .ToList();
-
-            inspection.AsyncMethods = async.Count > 0 ? async : null;
+            ApplyClassifiedMethods(MethodClassificationScanner.Scan(peReader), inspection);
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
         }
+    }
+
+    internal static void ScanClassifiedMethods(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        try
+        {
+            ApplyClassifiedMethods(session.ClassifiedMethods(), inspection);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+        }
+    }
+
+    static void ApplyClassifiedMethods(List<ClassifiedMethodInfo> classified, LibraryInspection inspection)
+    {
+        if (classified.Count == 0) return;
+
+        var unsafe_ = classified
+            .Where(m => m.Classification == MethodClassification.Unsafe)
+            .Select(m => new ClassifiedMethodSummary
+            {
+                MethodName = m.MethodName,
+                DeclaringType = m.DeclaringType,
+                Signature = m.Signature
+            })
+            .OrderBy(m => m.DeclaringType)
+            .ThenBy(m => m.MethodName)
+            .ToList();
+
+        var pinvoke = classified
+            .Where(m => m.Classification == MethodClassification.PInvoke)
+            .Select(m => new ClassifiedMethodSummary
+            {
+                MethodName = m.MethodName,
+                DeclaringType = m.DeclaringType,
+                Signature = m.Signature,
+                ModuleName = m.ModuleName
+            })
+            .OrderBy(m => m.DeclaringType)
+            .ThenBy(m => m.MethodName)
+            .ToList();
+
+        inspection.UnsafeMethods = unsafe_.Count > 0 ? unsafe_ : null;
+        inspection.PInvokeMethods = pinvoke.Count > 0 ? pinvoke : null;
+
+        var async = classified
+            .Where(m => m.Classification is MethodClassification.RuntimeAsync
+                                         or MethodClassification.StateMachineAsync)
+            .Select(m => new AsyncMethodSummary
+            {
+                MethodName = m.MethodName,
+                DeclaringType = m.DeclaringType,
+                Signature = m.Signature,
+                Kind = m.Classification == MethodClassification.RuntimeAsync
+                    ? AsyncMethodSummary.RuntimeKind
+                    : AsyncMethodSummary.StateMachineKind
+            })
+            // Runtime async first (sorts before "State machine"), then by type/name.
+            .OrderBy(m => m.Kind, StringComparer.Ordinal)
+            .ThenBy(m => m.DeclaringType)
+            .ThenBy(m => m.MethodName)
+            .ToList();
+
+        inspection.AsyncMethods = async.Count > 0 ? async : null;
     }
 
     internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(string path, VerboseLogger logger)
