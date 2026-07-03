@@ -18,11 +18,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 /// <remarks>
 /// Precision-preserving: a fact is returned only when the defining assembly is
-/// located and its metadata confirms it. Anything unreachable (no locator hit,
+/// located and its metadata confirms it. Anything unreachable (no resolver hit,
 /// a forwarder dead-end, an I/O or format error) yields
 /// <see cref="ValueTypeHint.Unknown"/> — never a guess. Security: a reference
 /// whose public-key token is a trusted platform key is asserted
-/// <see cref="AssemblyResolutionScope.Platform"/> so the locator resolves it only from
+/// <see cref="AssemblyResolutionScope.Platform"/> so resolution is constrained to
 /// platform/framework sources, never a confusable local copy.
 ///
 /// Reading is delegated to a shared <see cref="MetadataContext"/>: each defining

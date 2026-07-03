@@ -67,6 +67,27 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundAsOperator</c> (a <c>value as T</c> type test).</summary>
     RoslynBoundAsOperator,
+
+    /// <summary>Roslyn's <c>BoundCall</c> (a method or local-function invocation).</summary>
+    RoslynBoundCall,
+
+    /// <summary>Roslyn's <c>BoundObjectCreationExpression</c> (a <c>new T(...)</c> object creation).</summary>
+    RoslynBoundObjectCreationExpression,
+
+    /// <summary>Roslyn's <c>BoundDelegateCreationExpression</c> (a delegate / method-group conversion).</summary>
+    RoslynBoundDelegateCreationExpression,
+
+    /// <summary>Roslyn's <c>BoundLambda</c> (a <c>(params) =&gt; body</c> lambda).</summary>
+    RoslynBoundLambda,
+
+    /// <summary>Roslyn's <c>BoundRangeExpression</c> (a <c>start..end</c> range).</summary>
+    RoslynBoundRangeExpression,
+
+    /// <summary>Roslyn's <c>BoundFromEndIndexExpression</c> (a <c>^n</c> from-end index).</summary>
+    RoslynBoundFromEndIndexExpression,
+
+    /// <summary>Roslyn's <c>BoundStackAllocArrayCreation</c> (a <c>stackalloc T[n]</c> expression).</summary>
+    RoslynBoundStackAllocArrayCreation,
 }
 
 /// <summary>

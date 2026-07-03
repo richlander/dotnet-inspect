@@ -7,7 +7,7 @@ public class ObjectInitializerPassTests
 {
     static IrFunction Raised(string methodName)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, locator: RuntimeLocator);
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, null, RuntimeResolver);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
@@ -17,17 +17,7 @@ public class ObjectInitializerPassTests
 
     static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
 
-    static readonly Lazy<IReadOnlyDictionary<string, string>> s_runtimeAssemblies = new(() =>
-        (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-        .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-        .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-        .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-        .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase));
-
-    static readonly AssemblyLocator RuntimeLocator = (name, trust) =>
-        trust == AssemblyResolutionScope.Platform && s_runtimeAssemblies.Value.TryGetValue(name, out var path)
-            ? path
-            : null;
+    static readonly IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.TrustedPlatformAssemblies();
 
     [Fact]
     public void ObjectInitializer_RaisesPropertyMembers()

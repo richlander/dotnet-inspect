@@ -87,6 +87,7 @@ jobs:
           set +e
           dotnet run --project tools/DecompilerHarness -c Release -- "${assertion_assemblies[@]}" \
             --assertion-scan \
+            --assertion-fixture-guarantee \
             --max-examples 10 \
             | tee artifacts/assertion-scan/assertion-scan.txt
           status=${PIPESTATUS[0]}

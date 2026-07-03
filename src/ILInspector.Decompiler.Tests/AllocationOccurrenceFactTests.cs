@@ -8,11 +8,13 @@ namespace ILInspector.Decompiler.Tests;
 public class AllocationOccurrenceFactTests
 {
     static IReadOnlyList<Annotation> Classify(string methodName)
-        => Classify(methodName, locator: null);
+        => Classify(methodName, resolver: null);
 
-    static IReadOnlyList<Annotation> Classify(string methodName, ILInspector.Metadata.AssemblyLocator? locator)
+    static IReadOnlyList<Annotation> Classify(string methodName, ILInspector.Metadata.IAssemblyReferenceResolver? resolver)
     {
-        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location, null, locator);
+        var source = resolver is null
+            ? MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location)
+            : MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location, null, resolver);
         return ResearchViews.CollectFacts(source, typeof(AllocSampleClass).FullName!, methodName)
             .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Allocation)
             .ToList();
@@ -20,13 +22,8 @@ public class AllocationOccurrenceFactTests
 
     // Resolves referenced assemblies from the running runtime directory, where
     // System.Private.CoreLib (and the rest of the shared framework) lives. The
-    // default sibling locator cannot find corelib beside the test assembly.
-    static readonly ILInspector.Metadata.AssemblyLocator RuntimeLocator = (name, trust) =>
-    {
-        string dir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
-        string path = System.IO.Path.Combine(dir, name + ".dll");
-        return System.IO.File.Exists(path) ? path : null;
-    };
+    // default sibling resolver cannot find corelib beside the test assembly.
+    static readonly ILInspector.Metadata.IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.RuntimeAssemblies();
 
     static IReadOnlyList<string> Ids(IReadOnlyList<Annotation> annotations)
         => annotations.Select(a => a.Descriptor.Id).ToList();
@@ -76,19 +73,19 @@ public class AllocationOccurrenceFactTests
     }
 
     [Fact]
-    public void CrossAssemblyValueTypeNewObject_PreservesLegacyAnnotationParity_WithLocator()
+    public void CrossAssemblyValueTypeNewObject_PreservesLegacyAnnotationParity_WithResolver()
     {
         // Track A preserves the legacy visible allocation annotation shape for
         // bare cross-assembly framework value-type constructors. The occurrence
         // is non-counting for Analysis performance signals, but still projects
         // to alloc.new for annotation parity.
-        Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), RuntimeLocator)));
+        Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), RuntimeResolver)));
     }
 
     [Fact]
-    public void CrossAssemblyValueTypeNewObject_PreservesLegacyAnnotationParity_WithoutLocator()
+    public void CrossAssemblyValueTypeNewObject_PreservesLegacyAnnotationParity_WithoutResolver()
     {
-        Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), locator: (name, trust) => null)));
+        Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), TestAssemblyReferenceResolvers.None)));
     }
 
     [Fact]

@@ -26,7 +26,7 @@ public class CrossAssemblyMethodFactsTests
     public void PlatformForwardedByRefMemberRef_RecoversParameterRefKinds()
     {
         using var fixture = CrossAssemblyFixture.Create();
-        using var source = MetadataSource.Open(fixture.ConsumerPath, locator: TrustedPlatformLocator());
+        using var source = MetadataSource.Open(fixture.ConsumerPath, null, TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
 
         var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseUri), "TryCreate");
         Assert.Equal(ParameterRefKindFacts.Known, call.Callee.ParameterRefKindsFacts);
@@ -151,7 +151,7 @@ public class CrossAssemblyMethodFactsTests
     public void MissingCrossAssemblyMetadata_KeepsFactsUnknown()
     {
         using var fixture = CrossAssemblyFixture.Create();
-        using var source = MetadataSource.Open(fixture.ConsumerPath, locator: (_, _) => null);
+        using var source = MetadataSource.Open(fixture.ConsumerPath, null, TestAssemblyReferenceResolvers.None);
 
         var byRef = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseOut), "WriteOut");
         Assert.Equal(ParameterRefKindFacts.Unknown, byRef.Callee.ParameterRefKindsFacts);
@@ -172,7 +172,7 @@ public class CrossAssemblyMethodFactsTests
     public void MissingCrossAssemblyAccessorMetadata_KeepsAccessorFactUnknown()
     {
         using var fixture = CrossAssemblyFixture.Create();
-        using var source = MetadataSource.Open(fixture.ConsumerPath, locator: (_, _) => null);
+        using var source = MetadataSource.Open(fixture.ConsumerPath, null, TestAssemblyReferenceResolvers.None);
 
         var function = ImportFunction(source, nameof(CrossAssemblyFixtureMethods.UseProperty));
         var call = Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "get_Count");
@@ -390,20 +390,6 @@ public class CrossAssemblyMethodFactsTests
         }
 
         public void Dispose() => Directory.Delete(_directory, recursive: true);
-    }
-
-    static AssemblyLocator TrustedPlatformLocator()
-    {
-        var assemblies = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-            .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
-        return (name, trust) =>
-            trust == AssemblyResolutionScope.Platform && assemblies.TryGetValue(name, out var path)
-                ? path
-                : null;
     }
 
     static class CrossAssemblyFixtureMethods

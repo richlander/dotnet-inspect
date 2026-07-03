@@ -36,33 +36,48 @@ static class CorpusMetadata
             .ToList();
         var platformAssemblies = TrustedPlatformAssemblies();
 
-        AssemblyLocator locator = (name, trust) =>
+        return new MetadataContext(new CorpusAssemblyReferenceResolver(
+            directories,
+            dependencyResolvers,
+            platformAssemblies));
+    }
+
+    sealed class CorpusAssemblyReferenceResolver(
+        IReadOnlyList<string?> directories,
+        IReadOnlyList<AssemblyDependencyResolver> dependencyResolvers,
+        IReadOnlyDictionary<string, string> platformAssemblies) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
-            if (trust == AssemblyResolutionScope.Platform)
+            if (scope == AssemblyResolutionScope.Platform)
             {
                 foreach (var directory in directories)
                 {
-                    string candidate = Path.Combine(directory!, name + ".dll");
+                    string candidate = Path.Combine(directory!, identity.Name + ".dll");
                     if (File.Exists(candidate) && IsTrustedPlatformAssembly(candidate))
-                        return candidate;
+                        return FromPath(identity, candidate, "CorpusPlatformSibling");
                 }
 
-                return platformAssemblies.GetValueOrDefault(name);
+                return platformAssemblies.TryGetValue(identity.Name, out var platformPath)
+                    ? FromPath(identity, platformPath, "TrustedPlatformAssembly")
+                    : null;
             }
 
             foreach (var directory in directories)
             {
-                string candidate = Path.Combine(directory!, name + ".dll");
+                string candidate = Path.Combine(directory!, identity.Name + ".dll");
                 if (File.Exists(candidate))
-                    return candidate;
+                    return FromPath(identity, candidate, "CorpusSibling");
             }
+
             foreach (var resolver in dependencyResolvers)
-                if (resolver.Resolve(new AssemblyReferenceIdentity(name, Version: null, Culture: null, PublicKeyToken: null), trust)?.Path is { } resolved)
+                if (resolver.Resolve(identity, scope) is { } resolved)
                     return resolved;
             return null;
-        };
+        }
 
-        return new MetadataContext(locator);
+        static ResolvedAssemblyReference FromPath(AssemblyReferenceIdentity identity, string path, string provenance)
+            => new(identity, path, () => File.OpenRead(path), provenance);
     }
 
     static IReadOnlyDictionary<string, string> TrustedPlatformAssemblies()
