@@ -6,9 +6,11 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 
 ## Type assertions
 
-| Node | Forward construct | Naming | Precondition | Witness |
-| --- | --- | --- | --- | --- |
-| _(none yet)_ | — | — | — | — |
+| Node | Forward construct (Roslyn) | Oracle (RyuJIT) | Naming | Precondition | Witness |
+| --- | --- | --- | --- | --- | --- |
+| `Box` | BoundConversion (boxing) | RyuJitImporter | Inherited | target is the boxed value type | box/unbox fixtures |
+| `Coerce` | BoundConversion (implicit, target-driven) | RyuJitStackNormalization | Native | sink type recoverable and distinguishable from the stack type | CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B |
+| `Convert` | BoundConversion (numeric) | RyuJitStackNormalization | Inherited | none — models the conv.* that ran | round-trips by construction; corpus compile-back |
 
 ## Declared non-inverse boundaries
 

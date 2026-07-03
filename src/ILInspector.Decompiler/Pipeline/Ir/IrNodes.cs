@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 
+using Inverse = ILInspector.Decompiler.Pipeline.InverseArchitecture;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>How a by-reference argument must be spelled at a C# call site — recovered from the callee's parameter metadata.</summary>
@@ -1229,6 +1231,14 @@ public sealed class IncrementDecrement : IrExpression
 /// CoerceText rule; asserted by CoercionInvariant. Roslyn's BoundConversion,
 /// in reverse.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Native,
+    oracle: Inverse.Oracle.RyuJitStackNormalization,
+    forwardName: "BoundConversion (implicit, target-driven)",
+    precondition: "sink type recoverable and distinguishable from the stack type",
+    assumes: nameof(Inverse.InverseAssumptions.SinkDistinguishableFromStack),
+    witness: "CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B")]
 public sealed class Coerce : IrExpression
 {
     public Coerce(TypeRef target, IrExpression operand)
@@ -1246,6 +1256,13 @@ public sealed class Coerce : IrExpression
 }
 
 /// <summary>A numeric conversion (the conv.* family).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitStackNormalization,
+    forwardName: "BoundConversion (numeric)",
+    precondition: "none — models the conv.* that ran",
+    witness: "round-trips by construction; corpus compile-back")]
 public sealed class Convert : IrExpression
 {
     public Convert(TypeRef target, bool isChecked, bool isUnsigned, IrExpression operand)
@@ -2346,6 +2363,14 @@ public sealed class IndexFromEnd : IrExpression
     public override string Describe() => "IndexFromEnd";
 }
 
+/// <summary>The boxing conversion (the <c>box</c> opcode): a value type materialized as a reference.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConversion,
+    naming: Inverse.NameProvenance.Inherited,
+    oracle: Inverse.Oracle.RyuJitImporter,
+    forwardName: "BoundConversion (boxing)",
+    precondition: "target is the boxed value type",
+    witness: "box/unbox fixtures")]
 public sealed class Box : IrExpression
 {
     public Box(TypeRef type, IrExpression operand)
