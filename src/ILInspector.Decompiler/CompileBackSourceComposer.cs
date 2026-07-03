@@ -1291,6 +1291,8 @@ public static class CompileBackSourceComposer
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
         if (definition.Kind != TypeRefKind.Definition)
             return false;
+        if (definition.Namespace != identity.Namespace)
+            return false;
 
         string typeRefMetadataFullName = definition.Namespace.Length == 0
             ? definition.Name.Replace('+', '.')
