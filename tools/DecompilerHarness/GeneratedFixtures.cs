@@ -1485,6 +1485,21 @@ internal static class GeneratedFixtureCatalog
                 values[0] = 7;
                 return values[0];
             }
+
+            public static void PrefixDecrementStore(int[] values, int index, int value)
+            {
+                values[--index] = value;
+            }
+
+            public static int SwitchExpressionDispatch(int value)
+                => value switch
+                {
+                    0 => 1,
+                    1 => 2,
+                    2 => 4,
+                    3 => 8,
+                    _ => 0,
+                };
         }
 
         // Field-backed inline-array place — the canonical InlineArrayAsSpan
@@ -1511,6 +1526,60 @@ internal static class GeneratedFixtureCatalog
         """,
         [],
         ["assertion", "inverse-ledger", "coverage", "unsafe"]);
+
+    // UnionSwitchExpression needs the union marker attribute in
+    // System.Runtime.CompilerServices, which the file-scoped-namespace coverage
+    // fixture above cannot declare — so union dispatch gets its own fixture
+    // (the assertion.il-unbox precedent: one node, one dedicated source).
+    public static readonly GeneratedFixtureDefinition AssertionUnionSwitch = new(
+        "assertion.union-switch",
+        """
+        #nullable enable
+        namespace System.Runtime.CompilerServices
+        {
+            [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+            public sealed class UnionAttribute : System.Attribute;
+
+            public interface IUnion
+            {
+                object? Value { get; }
+            }
+        }
+
+        namespace GeneratedFixtures.UnionSwitch
+        {
+            public sealed class Cat
+            {
+                public string Name => "cat";
+            }
+
+            public sealed class Dog
+            {
+                public string Name => "dog";
+            }
+
+            [System.Runtime.CompilerServices.Union]
+            public readonly struct Pet : System.Runtime.CompilerServices.IUnion
+            {
+                public Pet(Cat value) => Value = value;
+                public Pet(Dog value) => Value = value;
+                public object? Value { get; }
+            }
+
+            public static class Dispatch
+            {
+                public static string Describe(Pet pet)
+                    => pet.Value switch
+                    {
+                        Cat cat => cat.Name,
+                        Dog dog => dog.Name,
+                        _ => "unknown",
+                    };
+            }
+        }
+        """,
+        [],
+        ["assertion", "inverse-ledger", "coverage", "union"]);
 
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
@@ -1565,6 +1634,7 @@ internal static class GeneratedFixtureCatalog
     public static IReadOnlyList<GeneratedFixtureDefinition> AssertionCoverage { get; } =
     [
         AssertionNodeCoverage,
+        AssertionUnionSwitch,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Catalog { get; } =

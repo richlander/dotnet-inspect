@@ -6,8 +6,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// A slot whose loads testify to one type and whose stores are all at that
 /// type — which coercion insertion guarantees for the wrappable population —
 /// is a fully decided variable: it becomes a real local via
-/// <see cref="IrFunction.AddLocal"/>, keeping its <c>S_{slot}</c> name so the
-/// rendering is unchanged, and its <see cref="StoreStackSlot"/>/
+/// <see cref="IrFunction.AddLocal"/>, keeping its <c>S_{slot}</c> name so slot
+/// references read the same — declaration order and form may still change
+/// (materialized locals append to the locals table, and a single-store local
+/// collapses to an initializer) — and its <see cref="StoreStackSlot"/>/
 /// <see cref="LoadStackSlot"/> nodes stop reaching the printer. What remains
 /// on slots is the counted residual the printer's unifier still owns:
 /// ambiguous testimony, cross-family (true disjoint ranges), and nested-body
@@ -86,6 +88,15 @@ public sealed class SlotMaterializationPass : IIrPass
             if (!slotStores.All(store => store.Value.ResultType?.Equals(slotType) == true
                     || CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
+                continue;
+            // A multi-store slot with a single read stays deferred: the printer
+            // folds that shape inline at the consumer (`Use(c ? a : b)`), and a
+            // materialized local renders it as a branchy statement-level
+            // assignment instead — the de-inlining regression the 5b-2 Opus
+            // review quantified (+8/+12-line methods). The shape materializes
+            // when the diamond folds to one store (SlotStoreDiamondPass) or
+            // when a later increment migrates the printer's consumer fold.
+            if (slotStores.Count > 1 && slotLoads.Count == 1)
                 continue;
             // A slot loaded into an array-element store whose semantic element
             // type disagrees with the testified type stays deferred: the

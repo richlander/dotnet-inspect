@@ -74,6 +74,30 @@ public class SlotMaterializationPassTests
         Assert.Equal(2, function.Locals.Length);
     }
 
+    // 5b-2 Opus review (de-inlining): a multi-store slot with a single read is
+    // the printer's inline consumer fold (`Use(c ? a : b)`); materializing it
+    // renders a branchy statement-level assignment instead. It stays deferred.
+    [Fact]
+    public void DefersMultiStoreSlotWithSingleRead()
+    {
+        var body = new BlockContainer();
+        var thenBlock = new Block(0);
+        thenBlock.Add(new StoreStackSlot(0, new Constant(1, Int32)));
+        thenBlock.Add(new Branch(8));
+        var elseBlock = new Block(4);
+        elseBlock.Add(new StoreStackSlot(0, new Constant(2, Int32)));
+        var join = new Block(8);
+        join.Add(new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)));
+        foreach (var block in (Block[])[thenBlock, elseBlock, join])
+            body.Add(block);
+        var function = Function([Int32], body);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
+        Assert.Single(function.Locals);
+    }
+
     // Adversarial review (5b-2 round 2, blocking): a typed-int slot feeding a
     // char[] element store is the printer's #1751 identity recovery — the
     // slot RE-TYPES to char ('+' / '-'), which a materialized int local

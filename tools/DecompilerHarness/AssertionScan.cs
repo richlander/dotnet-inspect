@@ -98,6 +98,7 @@ internal static class AssertionScan
 
     const string AssertionCoverageFixture = "assertion.inverse-node-coverage";
     const string AssertionIlUnboxFixture = "assertion.il-unbox";
+    const string AssertionUnionSwitchFixture = "assertion.union-switch";
 
     static readonly IReadOnlyList<AssertionFixtureGuarantee> AssertionFixtureGuarantees =
     [
@@ -110,10 +111,14 @@ internal static class AssertionScan
         new("CallIndirect", [AssertionCoverageFixture]),
         new("CastClass", [AssertionCoverageFixture]),
         new("CaughtException", [AssertionCoverageFixture]),
+        new("Coalesce", [AssertionCoverageFixture]),
         new("Coerce", [AssertionCoverageFixture]),
         new("Comparison", [AssertionCoverageFixture]),
+        new("Conditional", [AssertionCoverageFixture]),
+        new("Constant", [AssertionCoverageFixture]),
         new("Convert", [AssertionCoverageFixture]),
         new("DelegateCreation", [AssertionCoverageFixture]),
+        new("IncrementDecrement", [AssertionCoverageFixture]),
         new("IndexFromEnd", [AssertionCoverageFixture]),
         new("InlineArraySpanConversion", [AssertionCoverageFixture]),
         new("IsInstance", [AssertionCoverageFixture]),
@@ -143,10 +148,12 @@ internal static class AssertionScan
         new("SpanLiteral", [AssertionCoverageFixture]),
         new("StackAllocArray", [AssertionCoverageFixture]),
         new("StackAllocate", [AssertionCoverageFixture]),
+        new("SwitchExpression", [AssertionCoverageFixture]),
         new("TypeOf", [AssertionCoverageFixture]),
         new("Unary", [AssertionCoverageFixture]),
         new("Unbox", [AssertionIlUnboxFixture]),
         new("UnboxAny", [AssertionCoverageFixture]),
+        new("UnionSwitchExpression", [AssertionUnionSwitchFixture]),
     ];
 
     public static int Run(IReadOnlyList<string> assemblies, Options options)
