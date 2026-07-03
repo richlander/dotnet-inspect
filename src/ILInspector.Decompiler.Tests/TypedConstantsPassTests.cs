@@ -272,10 +272,95 @@ public class TypedConstantsPassTests
     }
 
     [Fact]
+    public void UntypedLoadWithConflictingSink_VetoesReconciliation()
+    {
+        // Slice-5a second round (GPT-5.5): an untyped load is not silence — it
+        // testifies through its consuming sink. Here the untyped load feeds an
+        // int local while the typed load says enum: reconciliation must veto,
+        // or slot reuse smuggles the enum type onto the int range's store.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(0, Int32Type)));
+        block.Add(new StoreLocal(0, Int32Type, new LoadStackSlot(3, null)));
+        block.Add(new Return(new LoadStackSlot(3, LongEnum)));
+        container.Add(block);
+        var function = EnumFunction(container, LongEnum);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var constant = Assert.IsType<Constant>(
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
+        Assert.Equal(Int32Type, constant.Type);
+    }
+
+    [Fact]
+    public void NestedLambdaSlots_ReconcilePerScope()
+    {
+        // Slice-5a second round (GPT-5.5): slot ids are per-body. The outer
+        // scope's slot 3 (int) and the lambda's slot 3 (enum) are different
+        // variables; each reconciles in its own scope only.
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new StoreStackSlot(3, new Constant(2, Int32Type)));
+        lambdaBlock.Add(new StoreLocal(0, LongEnum, new LoadStackSlot(3, LongEnum)));
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            TypeRef.Definition("System.Private.CoreLib", "System", "Action"),
+            [], [], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false,
+            lambdaBody);
+
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(3, new Constant(0, Int32Type)));
+        block.Add(new StoreLocal(1, Int32Type, new LoadStackSlot(3, Int32Type)));
+        block.Add(new StoreLocal(2, TypeRef.Definition("System.Private.CoreLib", "System", "Action"), lambda));
+        container.Add(block);
+        var function = EnumFunction(container, Int32Type);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var stores = function.Descendants.OfType<StoreStackSlot>().ToList();
+        var outer = Assert.IsType<Constant>(stores.Single(s => ((Constant)s.Value).Value is 0).Value);
+        Assert.Equal(Int32Type, outer.Type);
+        var nested = Assert.IsType<Constant>(stores.Single(s => ((Constant)s.Value).Value is not 0).Value);
+        Assert.Equal(LongEnum, nested.Type);
+    }
+
+    [Fact]
+    public void LambdaReturn_IsNotRetypedToOuterSignature()
+    {
+        // The pass's own latent CoercionSinks-class bug, fixed by the scope
+        // walk: a constant returned from a lambda body must not be retyped
+        // against the OUTER method's return type.
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new Return(new Constant(1, Int32Type)));
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            TypeRef.Definition("System.Private.CoreLib", "System", "Func`1"),
+            [], [], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false,
+            lambdaBody);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, TypeRef.Definition("System.Private.CoreLib", "System", "Func`1"), lambda));
+        block.Add(new Return(new Constant(2, Int32Type)));
+        container.Add(block);
+        var function = EnumFunction(container, LongEnum);
+
+        new TypedConstantsPass().Run(function, PassContext.None);
+
+        var lambdaReturn = Assert.IsType<Constant>(
+            function.Descendants.OfType<Lambda>().Single()
+                .Descendants.OfType<Return>().Single().Value);
+        Assert.Equal(Int32Type, lambdaReturn.Type);
+    }
+
+    [Fact]
     public void UntypedLoads_DoNotVetoReconciliation()
     {
-        // An untyped load is silence, not disagreement: the slot still
-        // reconciles to the one typed load's type (review verify item).
+        // An untyped load testifies through its consuming sink; when that sink
+        // AGREES with the typed evidence, the slot still reconciles (the
+        // sink-evidence rule from the slice-5a second round).
         var container = new BlockContainer();
         var block = new Block(0);
         block.Add(new StoreStackSlot(3, new Constant(2, Int32Type)));
