@@ -1287,28 +1287,7 @@ public class PackageCommand
 
     private static List<string> SelectPackageLibrariesForSourceFiles(string extractPath, InspectionOptions options)
     {
-        var candidates = TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (candidates.Count == 0)
-            return [];
-
-        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase))
-            return candidates
-                .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-        if (!string.IsNullOrWhiteSpace(options.Tfm))
-            return candidates
-                .Where(path => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    options.Tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-        var (highestTfmDlls, _) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
-        var selected = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
+        var (selected, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
         return selected
             .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -1941,37 +1920,29 @@ public class PackageCommand
             return null;
         }
 
-        var candidates = TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-            return null;
-        }
-
-        string? selectedTfm = options.Tfm;
         List<string> pool;
-        if (!string.IsNullOrWhiteSpace(options.Tfm))
+        string? selectedTfm;
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
-            pool = candidates
-                .Where(path => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    options.Tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (pool.Count == 0)
+            var allCandidates = TfmSelector.GetPackageAssemblies(extractPath);
+            if (allCandidates.Count == 0)
             {
-                Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
-                WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
                 return null;
             }
+
+            (pool, selectedTfm) = TfmSelector.SelectHighestAssemblies(allCandidates, extractPath);
         }
         else
         {
-            var (highestTfmDlls, highestTfm) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
-            pool = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
-            selectedTfm = highestTfm;
+            (pool, selectedTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
+        }
+
+        if (pool.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
+            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+            return null;
         }
 
         if (pool.Count == 1)
@@ -1996,42 +1967,33 @@ public class PackageCommand
         string version,
         InspectionOptions options)
     {
-        var candidates = TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
-            return null;
-        }
-
         List<string> selected;
-        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase))
+        string? highestTfm;
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
-            selected = candidates;
-        }
-        else if (!string.IsNullOrWhiteSpace(options.Tfm))
-        {
-            selected = candidates
-                .Where(path => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    options.Tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (selected.Count == 0)
+            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
+            if (candidates.Count == 0)
             {
-                Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
-                WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+                Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
                 return null;
             }
+
+            (selected, highestTfm) = TfmSelector.SelectHighestAssemblies(candidates, extractPath);
         }
         else
         {
-            var (highestTfmDlls, highestTfm) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
-            selected = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
-            if (highestTfm != null)
-                Console.Error.WriteLine($"Using TFM: {highestTfm}");
+            (selected, highestTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, options.Tfm);
         }
+
+        if (selected.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
+            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+            return null;
+        }
+
+        if (highestTfm != null && string.IsNullOrWhiteSpace(options.Tfm))
+            Console.Error.WriteLine($"Using TFM: {highestTfm}");
 
         return selected
             .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
@@ -2519,14 +2481,9 @@ public class PackageCommand
         string? tfm,
         List<string>? candidates = null)
     {
-        candidates ??= TfmSelector.GetPackageDlls(extractPath)
-            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .Where(path => string.IsNullOrWhiteSpace(tfm)
-                || string.Equals(
-                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
-                    tfm,
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        candidates ??= string.IsNullOrWhiteSpace(tfm)
+            ? TfmSelector.GetPackageAssemblies(extractPath)
+            : TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm).paths;
 
         if (candidates.Count > 0)
         {
@@ -2680,15 +2637,7 @@ public class PackageCommand
 
     private static void ListPackageTfms(string extractPath, bool tsv, bool jsonl)
     {
-        var dlls = TfmSelector.GetPackageDlls(extractPath);
-        var tfms = TfmSelector.OrderByTfmPriorityDescending(
-                dlls.Select(d => TfmResolver.ExtractTfmFromPath(
-                        Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
-                    .Where(t => t != null)
-                    .Select(t => t!)
-                    .Distinct(StringComparer.OrdinalIgnoreCase),
-                tfm => tfm)
-            .ToList();
+        var tfms = TfmSelector.GetPackageTfms(extractPath);
 
         OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", tsv, jsonl, Console.Out);
     }

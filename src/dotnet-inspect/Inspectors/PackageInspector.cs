@@ -177,9 +177,7 @@ internal static class PackageInspector
         VerboseLogger logger,
         bool acquirePdb)
     {
-        var dlls = TfmSelector.GetPackageDlls(extractPath)
-            .Where(f => !f.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var dlls = TfmSelector.GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
             return null;
 
