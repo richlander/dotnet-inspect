@@ -1600,6 +1600,46 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DoesNotMarkFinalNewSlotStructMethodVirtual()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IThing
+            {
+                int GetValue();
+            }
+
+            public struct Thing : IThing
+            {
+                public int GetValue() => 42;
+            }
+
+            public class Class1
+            {
+                public int UseThing()
+                {
+                    var thing = new Thing();
+                    return thing.GetValue();
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "UseThing", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public struct Thing", result.Source);
+            Assert.Contains("public int GetValue()", result.Source);
+            Assert.DoesNotContain("virtual int GetValue", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""

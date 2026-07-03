@@ -1126,6 +1126,7 @@ public static class CompileBackSourceComposer
         => IsPublicMethod(method)
             && (method.Attributes & MethodAttributes.Virtual) != 0
             && (method.Attributes & MethodAttributes.Abstract) == 0
+            && (method.Attributes & MethodAttributes.Final) == 0
             && (method.Attributes & MethodAttributes.NewSlot) != 0;
 
     static bool IsOverrideMethod(MethodDefinition method)
