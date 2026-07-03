@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Decompiler.Tests.InverseArchitecture;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -181,6 +182,26 @@ public class AssertionScanTests
         var violation = Assert.Single(CoercionInvariant.Check(function));
 
         Assert.Equal("E32", AssertionScan.SinkType(violation.Message));
+    }
+
+    [Fact]
+    public void InverseLedger_ClassifiesPassRaisedNodesSeparatelyFromImporterNodes()
+    {
+        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(Lambda)));
+        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(LocalFunctionInvocation)));
+        Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(CallIndirect)));
+        Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(Unbox)));
+    }
+
+    [Fact]
+    public void FixtureGuarantee_HasMappingForEveryAnnotatedNode()
+    {
+        var annotatedNodes = InverseLedger.Rows(typeof(IrFunction).Assembly)
+            .Select(row => row.Node)
+            .ToArray();
+
+        Assert.Empty(AssertionScan.NodesWithoutFixtureGuarantee(annotatedNodes));
+        Assert.Empty(AssertionScan.InvalidFixtureGuaranteeIds());
     }
 
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)

@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -17,7 +19,8 @@ internal static class AssertionScan
         string? EmitViolationsPath,
         string? DiffViolationsPath,
         int? Workers,
-        bool Sequential);
+        bool Sequential,
+        bool IncludeFixtureGuarantee);
 
     public sealed record ViolationSite(
         string Method,
@@ -46,7 +49,42 @@ internal static class AssertionScan
     public sealed record Result(
         IReadOnlyList<MethodResult> Methods,
         IReadOnlyDictionary<string, int> CoverageByNode,
-        IReadOnlyList<string> AnnotatedNodes);
+        IReadOnlyList<string> AnnotatedNodes,
+        IReadOnlyDictionary<string, InverseLedger.NodeCause>? CauseByNode = null,
+        AssertionFixtureGuaranteeResult? FixtureGuarantee = null);
+
+    public sealed record AssertionFixtureGuaranteeResult(
+        string FixtureIds,
+        IReadOnlyDictionary<string, int> CoverageByNode,
+        IReadOnlyList<AssertionFixtureNodeResult> Nodes)
+    {
+        public IReadOnlyList<AssertionFixtureNodeResult> MissingFixtures
+            => Nodes.Where(n => n.Status == AssertionFixtureNodeStatus.MissingFixture).ToArray();
+
+        public IReadOnlyList<AssertionFixtureNodeResult> Regressions
+            => Nodes.Where(n => n.Status == AssertionFixtureNodeStatus.Regression).ToArray();
+    }
+
+    public sealed record AssertionFixtureNodeResult(
+        string Node,
+        InverseLedger.NodeCause Cause,
+        IReadOnlyList<string> FixtureIds,
+        int ObservedCount)
+    {
+        public AssertionFixtureNodeStatus Status
+            => FixtureIds.Count == 0
+                ? AssertionFixtureNodeStatus.MissingFixture
+                : ObservedCount == 0
+                    ? AssertionFixtureNodeStatus.Regression
+                    : AssertionFixtureNodeStatus.Pass;
+    }
+
+    public enum AssertionFixtureNodeStatus
+    {
+        Pass,
+        MissingFixture,
+        Regression,
+    }
 
     sealed record MethodInput(
         string Assembly,
@@ -55,6 +93,52 @@ internal static class AssertionScan
         string Method,
         int Overload,
         IrFunction Function);
+
+    sealed record AssertionFixtureGuarantee(string Node, IReadOnlyList<string> FixtureIds);
+
+    const string AssertionCoverageFixture = "assertion.inverse-node-coverage";
+    const string AssertionIlUnboxFixture = "assertion.il-unbox";
+
+    static readonly IReadOnlyList<AssertionFixtureGuarantee> AssertionFixtureGuarantees =
+    [
+        new("AddressOfMethod", [AssertionCoverageFixture]),
+        new("ArrayLength", [AssertionCoverageFixture]),
+        new("Binary", [AssertionCoverageFixture]),
+        new("Box", [AssertionCoverageFixture]),
+        new("Call", [AssertionCoverageFixture]),
+        new("CallIndirect", [AssertionCoverageFixture]),
+        new("CastClass", [AssertionCoverageFixture]),
+        new("Coerce", [AssertionCoverageFixture]),
+        new("Comparison", [AssertionCoverageFixture]),
+        new("Convert", [AssertionCoverageFixture]),
+        new("DelegateCreation", [AssertionCoverageFixture]),
+        new("IsInstance", [AssertionCoverageFixture]),
+        new("Lambda", [AssertionCoverageFixture]),
+        new("LoadArgument", [AssertionCoverageFixture]),
+        new("LoadArgumentAddress", [AssertionCoverageFixture]),
+        new("LoadElement", [AssertionCoverageFixture]),
+        new("LoadElementAddress", [AssertionCoverageFixture]),
+        new("LoadField", [AssertionCoverageFixture]),
+        new("LoadFieldAddress", [AssertionCoverageFixture]),
+        new("LoadFunctionPointer", [AssertionCoverageFixture]),
+        new("LoadIndirect", [AssertionCoverageFixture]),
+        new("LoadLocal", [AssertionCoverageFixture]),
+        new("LoadLocalAddress", [AssertionCoverageFixture]),
+        new("LoadProperty", [AssertionCoverageFixture]),
+        new("LoadStackSlot", [AssertionCoverageFixture]),
+        new("LoadToken", [AssertionCoverageFixture]),
+        new("LocalFunctionInvocation", [AssertionCoverageFixture]),
+        new("LogicalBinary", [AssertionCoverageFixture]),
+        new("LogicalNot", [AssertionCoverageFixture]),
+        new("NewArray", [AssertionCoverageFixture]),
+        new("NewObject", [AssertionCoverageFixture]),
+        new("NullConditional", [AssertionCoverageFixture]),
+        new("SizeOf", [AssertionCoverageFixture]),
+        new("TypeOf", [AssertionCoverageFixture]),
+        new("Unary", [AssertionCoverageFixture]),
+        new("Unbox", [AssertionIlUnboxFixture]),
+        new("UnboxAny", [AssertionCoverageFixture]),
+    ];
 
     public static int Run(IReadOnlyList<string> assemblies, Options options)
     {
@@ -70,7 +154,12 @@ internal static class AssertionScan
             return 1;
         }
 
-        var result = Evaluate(assemblies, options.SampleSize, options.Workers, options.Sequential);
+        var result = Evaluate(
+            assemblies,
+            options.SampleSize,
+            options.Workers,
+            options.Sequential,
+            options.IncludeFixtureGuarantee);
         Report(result, options.MaxExamples, options.SampleSize);
 
         if (options.EmitViolationsPath is not null)
@@ -85,14 +174,32 @@ internal static class AssertionScan
         IReadOnlyList<string> assemblies,
         int? sampleSize = null,
         int? workers = null,
-        bool sequential = false)
+        bool sequential = false,
+        bool includeFixtureGuarantee = false)
+    {
+        var annotatedRows = InverseLedger.Rows(typeof(IrFunction).Assembly)
+            .OrderBy(row => row.Node, StringComparer.Ordinal)
+            .ToArray();
+        var annotatedNodes = annotatedRows.Select(row => row.Node).ToArray();
+        var causeByNode = annotatedRows.ToDictionary(row => row.Node, row => row.Cause, StringComparer.Ordinal);
+        var result = EvaluateAssemblies(assemblies, sampleSize, workers, sequential, annotatedNodes, causeByNode);
+        if (!includeFixtureGuarantee)
+            return result;
+
+        var fixtureResult = EvaluateFixtureGuarantee(annotatedNodes, causeByNode, workers, sequential);
+        return Merge(result, fixtureResult);
+    }
+
+    static Result EvaluateAssemblies(
+        IReadOnlyList<string> assemblies,
+        int? sampleSize,
+        int? workers,
+        bool sequential,
+        IReadOnlyList<string> annotatedNodes,
+        IReadOnlyDictionary<string, InverseLedger.NodeCause> causeByNode)
     {
         var methods = new ConcurrentBag<MethodResult>();
         var coverage = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
-        var annotatedNodes = InverseLedger.Rows(typeof(IrFunction).Assembly)
-            .Select(row => row.Node)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
         var parallel = new ParallelOptions
         {
             MaxDegreeOfParallelism = sequential ? 1 : (workers ?? Math.Max(1, Environment.ProcessorCount - 2)),
@@ -117,7 +224,8 @@ internal static class AssertionScan
                         candidate.TypeName,
                         candidate.MethodName,
                         candidate.Overload,
-                        function);
+                        function,
+                        method => IrImporter.Import(source, method));
                     methods.Add(result);
                     AddCoverage(coverage, result.CoveredNodes);
                 });
@@ -142,7 +250,8 @@ internal static class AssertionScan
                     input.Type,
                     input.Method,
                     input.Overload,
-                    input.Function);
+                    input.Function,
+                    method => IrImporter.Import(source, method));
                 methods.Add(result);
                 AddCoverage(coverage, result.CoveredNodes);
             });
@@ -151,7 +260,152 @@ internal static class AssertionScan
         return new Result(
             methods.OrderBy(m => m.Key, StringComparer.Ordinal).ToArray(),
             coverage.OrderBy(kvp => kvp.Key, StringComparer.Ordinal).ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
-            annotatedNodes);
+            annotatedNodes,
+            causeByNode);
+    }
+
+    static Result Merge(Result corpus, Result fixtures)
+    {
+        var coverage = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (node, count) in corpus.CoverageByNode)
+            coverage[node] = count;
+        foreach (var (node, count) in fixtures.CoverageByNode)
+            coverage[node] = coverage.GetValueOrDefault(node) + count;
+
+        return corpus with
+        {
+            Methods = corpus.Methods.Concat(fixtures.Methods).OrderBy(m => m.Key, StringComparer.Ordinal).ToArray(),
+            CoverageByNode = coverage,
+            FixtureGuarantee = fixtures.FixtureGuarantee,
+        };
+    }
+
+    static Result EvaluateFixtureGuarantee(
+        IReadOnlyList<string> annotatedNodes,
+        IReadOnlyDictionary<string, InverseLedger.NodeCause> causeByNode,
+        int? workers,
+        bool sequential)
+    {
+        var fixtureIds = AssertionFixtureGuarantees
+            .SelectMany(pair => pair.FixtureIds)
+            .Where(id => id != AssertionIlUnboxFixture)
+            .Distinct(StringComparer.Ordinal)
+            .ToHashSet(StringComparer.Ordinal);
+        var fixtures = GeneratedFixtureCatalog.Catalog
+            .Where(fixture => fixtureIds.Contains(fixture.Id))
+            .ToArray();
+        var csharpResult = GeneratedFixtureRunner.RunWithMaterializedFixtures(
+            fixtures,
+            GeneratedFixtureRunOptions.Default,
+            (_, assemblyPath) =>
+            {
+                return EvaluateAssemblies([assemblyPath], null, workers, sequential, annotatedNodes, causeByNode);
+            });
+
+        var unboxFixture = BuildUnboxFixtureAssembly();
+        try
+        {
+            var unboxResult = EvaluateAssemblies([unboxFixture.Path], null, workers, sequential, annotatedNodes, causeByNode);
+            var scan = Merge(csharpResult, unboxResult);
+            var guarantee = BuildFixtureGuarantee(
+                string.Join(", ", AssertionFixtureGuarantees
+                    .SelectMany(g => g.FixtureIds)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)),
+                annotatedNodes,
+                causeByNode,
+                scan.CoverageByNode);
+            return scan with { FixtureGuarantee = guarantee };
+        }
+        finally
+        {
+            TryDeleteDirectory(unboxFixture.Directory);
+        }
+    }
+
+    static AssertionFixtureGuaranteeResult BuildFixtureGuarantee(
+        string assemblyPath,
+        IReadOnlyList<string> annotatedNodes,
+        IReadOnlyDictionary<string, InverseLedger.NodeCause> causeByNode,
+        IReadOnlyDictionary<string, int> coverageByNode)
+    {
+        var fixturesByNode = AssertionFixtureGuarantees
+            .ToDictionary(g => g.Node, g => g.FixtureIds, StringComparer.Ordinal);
+        var rows = annotatedNodes
+            .Select(node => new AssertionFixtureNodeResult(
+                node,
+                causeByNode.TryGetValue(node, out var cause) ? cause : InverseLedger.CauseFor(node),
+                fixturesByNode.TryGetValue(node, out var fixtures) ? fixtures : [],
+                coverageByNode.GetValueOrDefault(node)))
+            .OrderBy(row => row.Node, StringComparer.Ordinal)
+            .ToArray();
+        return new AssertionFixtureGuaranteeResult(assemblyPath, coverageByNode, rows);
+    }
+
+    internal static IReadOnlyList<string> NodesWithoutFixtureGuarantee(IReadOnlyList<string> annotatedNodes)
+    {
+        var guaranteed = AssertionFixtureGuarantees
+            .Select(g => g.Node)
+            .ToHashSet(StringComparer.Ordinal);
+        return annotatedNodes
+            .Where(node => !guaranteed.Contains(node))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static IReadOnlyList<string> InvalidFixtureGuaranteeIds()
+    {
+        var fixtureIds = GeneratedFixtureCatalog.Catalog
+            .Select(fixture => fixture.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        fixtureIds.Add(AssertionIlUnboxFixture);
+        return AssertionFixtureGuarantees
+            .SelectMany(g => g.FixtureIds)
+            .Where(id => !fixtureIds.Contains(id))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    static (string Path, string Directory) BuildUnboxFixtureAssembly()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-assertion-il-unbox-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "GeneratedAssertionIlUnbox.dll");
+
+        var assemblyName = new AssemblyName("GeneratedAssertionIlUnbox");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var mutableBuilder = module.DefineType(
+            "GeneratedFixtures.AssertionIlUnbox.Mutable",
+            TypeAttributes.Public | TypeAttributes.SequentialLayout | TypeAttributes.Sealed,
+            typeof(ValueType));
+        mutableBuilder.DefineField("Value", typeof(int), FieldAttributes.Public);
+        var mutable = mutableBuilder.CreateType();
+
+        var holder = module.DefineType(
+            "GeneratedFixtures.AssertionIlUnbox.Class1",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var method = holder.DefineMethod(
+            "Unbox",
+            MethodAttributes.Public | MethodAttributes.Static,
+            mutable.MakeByRefType(),
+            [typeof(object)]);
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Unbox, mutable);
+        il.Emit(OpCodes.Ret);
+
+        holder.CreateType();
+        assembly.Save(path);
+        return (path, directory);
+    }
+
+    static void TryDeleteDirectory(string path)
+    {
+        try { Directory.Delete(path, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     internal static MethodResult EvaluateFunction(
@@ -160,7 +414,8 @@ internal static class AssertionScan
         string type,
         string method,
         int overload,
-        IrFunction function)
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody = null)
     {
         string signature = CorpusMethodIdentity.SignatureText(function.Signature);
         string key = $"{assemblyPath}!{type}::{method}{signature}";
@@ -214,10 +469,13 @@ internal static class AssertionScan
 
         try
         {
+            var context = importMethodBody is null
+                ? PassContext.None
+                : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
             Capture(IrPasses.ImportStageName);
             foreach (var pass in IrPasses.Default)
             {
-                pass.Run(function, PassContext.None);
+                pass.Run(function, context);
                 function.CheckInvariant();
                 Capture(pass.Name);
             }
@@ -297,7 +555,30 @@ internal static class AssertionScan
             Console.WriteLine($"  covered: {string.Join(", ", result.CoverageByNode.Keys.Order(StringComparer.Ordinal))}");
         var missing = result.AnnotatedNodes.Except(result.CoverageByNode.Keys, StringComparer.Ordinal).ToArray();
         if (missing.Length > 0)
-            Console.WriteLine($"  not exercised: {string.Join(", ", missing)}");
+        {
+            PrintMissingByCause("  importer-emitted not exercised", missing, result.CauseByNode, InverseLedger.NodeCause.ImporterEmitted);
+            PrintMissingByCause("  pass-raised not exercised (raise-pass or fixture gap; investigate)", missing, result.CauseByNode, InverseLedger.NodeCause.PassRaised);
+        }
+
+        if (result.FixtureGuarantee is { } fixtureGuarantee)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Generated fixture guarantee:");
+            Console.WriteLine($"  fixtures: {fixtureGuarantee.FixtureIds}");
+            Console.WriteLine($"  guaranteed nodes: {fixtureGuarantee.Nodes.Count(n => n.Status == AssertionFixtureNodeStatus.Pass)}/{fixtureGuarantee.Nodes.Count}");
+            if (fixtureGuarantee.MissingFixtures.Count > 0)
+                Console.WriteLine($"  nodes without fixture mapping: {string.Join(", ", fixtureGuarantee.MissingFixtures.Select(n => n.Node))}");
+            if (fixtureGuarantee.Regressions.Count > 0)
+            {
+                Console.WriteLine("  fixture regression alarms (report-only):");
+                foreach (var row in fixtureGuarantee.Regressions.OrderBy(r => r.Cause).ThenBy(r => r.Node, StringComparer.Ordinal))
+                    Console.WriteLine($"    {row.Cause}: {row.Node} expected from {string.Join(", ", row.FixtureIds)}");
+            }
+            else if (fixtureGuarantee.MissingFixtures.Count == 0)
+            {
+                Console.WriteLine("  fixture regression alarms (report-only): (none)");
+            }
+        }
 
         if (methodsWithViolations.Length > 0)
         {
@@ -319,6 +600,22 @@ internal static class AssertionScan
             foreach (var method in passBugExamples)
                 Console.WriteLine($"  {method.Key}: {method.PassBug}");
         }
+    }
+
+    static void PrintMissingByCause(
+        string label,
+        IReadOnlyList<string> missing,
+        IReadOnlyDictionary<string, InverseLedger.NodeCause>? causeByNode,
+        InverseLedger.NodeCause cause)
+    {
+        var nodes = missing
+            .Where(node => (causeByNode is not null && causeByNode.TryGetValue(node, out var classified)
+                ? classified
+                : InverseLedger.CauseFor(node)) == cause)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        if (nodes.Length > 0)
+            Console.WriteLine($"{label}: {string.Join(", ", nodes)}");
     }
 
     static void PrintHistogram(string title, IEnumerable<IGrouping<string, ViolationSite>> groups)
