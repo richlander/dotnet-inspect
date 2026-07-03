@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Decompiler.Pipeline.InverseArchitecture;
 using ILInspector.Decompiler.Tests.InverseArchitecture;
@@ -166,6 +167,23 @@ internal static class AssertionScan
         var violations = new List<ViolationSite>();
         var seenViolations = new HashSet<string>(StringComparer.Ordinal);
         var covered = new SortedSet<string>(StringComparer.Ordinal);
+        var importCrashes = function.Diagnostics
+            .Where(diagnostic => diagnostic.Id == DiagnosticIds.InternalError)
+            .ToArray();
+        if (importCrashes.Length > 0)
+        {
+            return new MethodResult(
+                assembly,
+                assemblyPath,
+                type,
+                method,
+                overload,
+                signature,
+                key,
+                violations,
+                covered,
+                importCrashes[0].ToString());
+        }
 
         void Capture(string passName)
         {

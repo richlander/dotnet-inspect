@@ -1,5 +1,6 @@
 using System.Text.Json;
 
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
@@ -94,6 +95,27 @@ public class AssertionScanTests
 
         var method = Assert.Single(snapshot.Methods);
         Assert.Equal("InvalidOperationException: boom", method.PassBug);
+    }
+
+    [Fact]
+    public void EvaluateFunction_TreatsImporterCrashDiagnosticAsPassBug()
+    {
+        var function = Function(Returning(new Constant(0, Int32)), Int32);
+        function.Diagnostics.Add(new DecompilerDiagnostic(
+            DiagnosticIds.InternalError,
+            "importer crash: InvalidOperationException: boom"));
+
+        var result = AssertionScan.EvaluateFunction(
+            "synthetic",
+            "synthetic.dll",
+            "Samples.Holder",
+            "ImportCrash",
+            overload: 0,
+            function);
+
+        Assert.Equal("DEC0001: importer crash: InvalidOperationException: boom", result.PassBug);
+        Assert.Empty(result.Violations);
+        Assert.Empty(result.CoveredNodes);
     }
 
     [Fact]
