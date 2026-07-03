@@ -2740,7 +2740,7 @@ public sealed class NewArray : IrExpression
 /// </summary>
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundStackAllocArrayCreation,
-    naming: Inverse.NameProvenance.Inherited,
+    naming: Inverse.NameProvenance.Native,
     forwardName: "stackalloc byte[n] (pointer form) / localloc",
     precondition: "result is `byte*` — localloc yields a raw byte pointer (the faithful element type is `byte`)",
     witness: "unsafe/stackalloc fixtures; corpus compile-back")]
@@ -2934,9 +2934,9 @@ public sealed class ArrayLiteral : IrExpression
 /// parses, so leaving the call flat is malformed C#.
 /// </summary>
 [Inverse.InverseOf(
-    Inverse.Forward.None,
+    Inverse.Forward.RoslynBoundConversion,
     naming: Inverse.NameProvenance.Native,
-    forwardName: "inline-array → span conversion / InlineArrayAsSpan",
+    forwardName: "BoundConversion (inline-array → span) / InlineArrayAsSpan",
     precondition: "result is the `Span<T>`/`ReadOnlySpan<T>` `SpanType` the inline-array AsSpan conversion produced (given)",
     witness: "inline-array fixtures; corpus compile-back")]
 public sealed class InlineArraySpanConversion : IrExpression
