@@ -36,6 +36,7 @@ public sealed class OrChainGuardPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        
         while (FoldOne(function, context.Stepper))
         {
         }

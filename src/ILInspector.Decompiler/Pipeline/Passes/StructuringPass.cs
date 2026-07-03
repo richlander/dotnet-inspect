@@ -385,11 +385,18 @@ public sealed class StructuringPass : IIrPass
                     // the region; the merge stays reached by fallthrough.
                     if (target == joinIndex)
                     {
+                        if (target >= 0 && target < ctx.Blocks.Count && IsTerminatorBlock(ctx.Blocks[target]) && ctx.ConditionalTargetCounts.GetValueOrDefault(ctx.Blocks[target].StartOffset) >= 2)
+                        {
+                            i++;
+                            break;
+                        }
+
                         if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
                             return false;
                         i = stop;
                         break;
                     }
+
                     if (target > stop)
                     {
                         if (CanClonePastRegionTerminatorInLeaveRetryLoop(ctx, continueTarget, target)
@@ -800,6 +807,8 @@ public sealed class StructuringPass : IIrPass
         body = null!;
         if (target < 0 || target >= ctx.Blocks.Count)
             return false;
+        if (target >= 0 && target < ctx.Blocks.Count && IsTerminatorBlock(ctx.Blocks[target]) && ctx.ConditionalTargetCounts.GetValueOrDefault(ctx.Blocks[target].StartOffset) >= 2) return false;
+
         if (!IsTerminatorBlock(ctx.Blocks[target]) || ContainsConstructorChainCall(ctx.Blocks[target]))
             return false;
 
@@ -815,6 +824,8 @@ public sealed class StructuringPass : IIrPass
     {
         body = null!;
         inlinedStop = -1;
+        if (target >= 0 && target < ctx.Blocks.Count && IsTerminatorBlock(ctx.Blocks[target]) && ctx.ConditionalTargetCounts.GetValueOrDefault(ctx.Blocks[target].StartOffset) >= 2) return false;
+
         int maxStop = Math.Min(ctx.Blocks.Count, target + MaxInlineRegionBlocks);
         for (int stop = target + 1; stop <= maxStop; stop++)
         {
@@ -1062,9 +1073,13 @@ public sealed class StructuringPass : IIrPass
             // genuine multi-way tree. Inlining it as a guard clause is what lets
             // the tree nest. Gated to trees so a small selection's return is left
             // to the ternary/boolean passes rather than duplicated into guards.
+            // a return leaf reached only by its equality test and never by fallthrough,
+            // in a container that is a comparison tree.
             Return => isComparisonTree
                 && conditionalPredecessors >= 1
-                && !fallenInto.Contains(block.StartOffset),
+                && !fallenInto.Contains(block.StartOffset)
+                && !(block.Children.Count == 1 && block.Children[0] is Return r && r.Value is Constant c && Equals(c.Value, true) && conditionalPredecessors >= 2),
+
             _ => false,
         };
     }

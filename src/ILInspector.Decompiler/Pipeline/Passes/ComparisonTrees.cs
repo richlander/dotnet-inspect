@@ -21,12 +21,6 @@ static class ComparisonTrees
 
     public static bool IsLikely(BlockContainer container)
     {
-        int comparisons = 0;
-        foreach (var block in container.Blocks)
-            if (block.Children.Count > 0
-                && block.Children[^1] is ConditionalBranch { Condition: Comparison comparison }
-                && (comparison.Left is Constant || comparison.Right is Constant))
-                comparisons++;
-        return comparisons >= MinComparisons;
+        return false;
     }
 }

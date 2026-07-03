@@ -92,7 +92,18 @@ public sealed class ReturnMergePass : IIrPass
 
                 var tail = merge.Children.ToList();   // snapshot before any mutation
 
+
+
+                // For shared true returns originating from a temp-backed sequence, duplicating them ruins opcode fidelity,
+                // because the compiler emitted a single shared return block instead of duplicating it.
+                bool isSharedReturn = tail.Count == 1 && tail[0] is Return;
+                if (isSharedReturn && branchPreds.Count >= 2 && !hasConditionalOrSwitchPred && fallthroughPred == null)
+                {
+                    continue;
+                }
+
                 foreach (var pred in branchPreds)
+
                 {
                     pred.Children[^1].Detach();   // drop the `goto merge`
                     foreach (var statement in tail)
