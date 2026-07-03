@@ -71,6 +71,68 @@ public class AssertionScanTests
         Assert.Equal(snapshot.Methods.Count, roundTrip!.Methods.Count);
     }
 
+    [Fact]
+    public void Snapshot_PreservesPassBugsSoDiffDoesNotCountTruncationAsImprovement()
+    {
+        var crashed = new AssertionScan.MethodResult(
+            Assembly: "synthetic",
+            AssemblyPath: "synthetic.dll",
+            Type: "Samples.Holder",
+            Method: "Crashes",
+            Overload: 0,
+            Signature: "() -> corelib:System.Void",
+            Key: "synthetic.dll!Samples.Holder::Crashes() -> corelib:System.Void",
+            Violations: [],
+            CoveredNodes: [],
+            PassBug: "InvalidOperationException: boom");
+        var scan = new AssertionScan.Result(
+            [crashed],
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            []);
+
+        var snapshot = AssertionScan.AssertionViolationSnapshot.FromResult(scan);
+
+        var method = Assert.Single(snapshot.Methods);
+        Assert.Equal("InvalidOperationException: boom", method.PassBug);
+    }
+
+    [Fact]
+    public void Snapshot_PreservesDuplicateViolationOrdinals()
+    {
+        var duplicateA = new AssertionScan.ViolationSite(
+            Method: "synthetic.dll!Samples.Holder::M() -> corelib:System.Void",
+            Pass: IrPasses.ImportStageName,
+            Predicate: "SinkDistinguishableFromStack",
+            Node: nameof(LoadArgument),
+            SinkType: "bool",
+            Message: "M: LoadArgument raw occupies a bool sink without a Coerce",
+            Ordinal: 0);
+        var duplicateB = duplicateA with { Ordinal = 1 };
+        var result = new AssertionScan.MethodResult(
+            Assembly: "synthetic",
+            AssemblyPath: "synthetic.dll",
+            Type: "Samples.Holder",
+            Method: "M",
+            Overload: 0,
+            Signature: "() -> corelib:System.Void",
+            Key: duplicateA.Method,
+            Violations: [duplicateA, duplicateB],
+            CoveredNodes: [],
+            PassBug: null);
+        var scan = new AssertionScan.Result(
+            [result],
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            []);
+
+        var snapshot = AssertionScan.AssertionViolationSnapshot.FromResult(scan);
+        var method = Assert.Single(snapshot.Methods);
+
+        Assert.Equal(2, method.Violations.Count);
+        Assert.Equal(2, method.ViolationIdentities().Count);
+        Assert.Contains("#0", method.Violations[0].Identity);
+        Assert.Contains("#1", method.Violations[1].Identity);
+    }
+
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
         => new(
             "M",

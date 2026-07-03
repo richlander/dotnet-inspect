@@ -24,9 +24,10 @@ internal static class AssertionScan
         string Predicate,
         string Node,
         string SinkType,
-        string Message)
+        string Message,
+        int Ordinal)
     {
-        public string Identity => $"{Pass}|{Predicate}|{Node}|{SinkType}|{Message}";
+        public string Identity => $"{Pass}|{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
     }
 
     public sealed record MethodResult(
@@ -183,7 +184,7 @@ internal static class AssertionScan
                     string stableIdentity = $"{identity}#{ordinal}";
                     stageViolations.Add((
                         stableIdentity,
-                        new ViolationSite(key, passName, predicate.Name, node, sinkType, violation.Message)));
+                        new ViolationSite(key, passName, predicate.Name, node, sinkType, violation.Message, ordinal)));
                 }
             }
 
@@ -326,9 +327,14 @@ internal static class AssertionScan
 
         var baselineByMethod = baseline.Methods.ToDictionary(m => m.Key, StringComparer.Ordinal);
         var currentByMethod = current.Methods.ToDictionary(m => m.Key, StringComparer.Ordinal);
-        var comparable = currentByMethod.Keys.Intersect(baselineByMethod.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        int onlyCurrent = currentByMethod.Count - comparable.Length;
-        int onlyBaseline = baselineByMethod.Count - comparable.Length;
+        var shared = currentByMethod.Keys.Intersect(baselineByMethod.Keys, StringComparer.Ordinal).ToArray();
+        var comparable = shared
+            .Where(method => currentByMethod[method].PassBug is null && baselineByMethod[method].PassBug is null)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        int onlyCurrent = currentByMethod.Count - shared.Length;
+        int onlyBaseline = baselineByMethod.Count - shared.Length;
+        int passBugExcluded = shared.Length - comparable.Length;
 
         var gained = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
         var lost = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
@@ -343,7 +349,7 @@ internal static class AssertionScan
         }
 
         Console.WriteLine();
-        Console.WriteLine($"ASSERTION VIOLATION DIFF vs {baselinePath} ({comparable.Length} methods checked in both; {onlyCurrent} only-current, {onlyBaseline} only-baseline excluded)");
+        Console.WriteLine($"ASSERTION VIOLATION DIFF vs {baselinePath} ({comparable.Length} methods checked in both; {onlyCurrent} only-current, {onlyBaseline} only-baseline, {passBugExcluded} pass-bug excluded)");
         PrintDiffSide("REGRESSED (method gained the violation)", gained);
         PrintDiffSide("IMPROVED (method lost the violation)", lost);
     }
@@ -389,8 +395,9 @@ internal static class AssertionScan
                         m.Overload,
                         m.Signature,
                         m.Key,
+                        m.PassBug,
                         m.Violations
-                            .Select(v => new AssertionViolationRecord(v.Pass, v.Predicate, v.Node, v.SinkType, v.Message))
+                            .Select(v => new AssertionViolationRecord(v.Pass, v.Predicate, v.Node, v.SinkType, v.Message, v.Ordinal))
                             .OrderBy(v => v.Identity, StringComparer.Ordinal)
                             .ToArray()))
                     .OrderBy(m => m.Key, StringComparer.Ordinal)
@@ -405,6 +412,7 @@ internal static class AssertionScan
         int Overload,
         string Signature,
         string Key,
+        string? PassBug,
         IReadOnlyList<AssertionViolationRecord> Violations)
     {
         public SortedSet<string> ViolationIdentities()
@@ -416,8 +424,9 @@ internal static class AssertionScan
         string Predicate,
         string Node,
         string SinkType,
-        string Message)
+        string Message,
+        int Ordinal)
     {
-        public string Identity => $"{Pass}|{Predicate}|{Node}|{SinkType}|{Message}";
+        public string Identity => $"{Pass}|{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
     }
 }
