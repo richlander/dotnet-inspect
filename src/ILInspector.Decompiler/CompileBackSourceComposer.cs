@@ -1651,7 +1651,7 @@ public static class CompileBackSourceComposer
 
     static string? AutoPropertyNameForBackingField(MetadataReader reader, TypeDefinition typeDef, string fieldName)
     {
-        if (!fieldName.StartsWith('<', StringComparison.Ordinal) || !fieldName.EndsWith(">k__BackingField", StringComparison.Ordinal))
+        if (!fieldName.StartsWith("<", StringComparison.Ordinal) || !fieldName.EndsWith(">k__BackingField", StringComparison.Ordinal))
             return null;
 
         string propertyName = fieldName[1..^">k__BackingField".Length];
