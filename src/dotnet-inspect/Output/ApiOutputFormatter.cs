@@ -1295,7 +1295,11 @@ public static class ApiOutputFormatter
                 {
                     try
                     {
-                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: false, includeOpportunities: false));
+                        // External caller nodes carry their scope assembly's method signals, so the
+                        // scope build needs allocations whenever this graph renders allocation/IL
+                        // fields (indexInclAllocations already captures that). Opportunities are never
+                        // read from the reverse graph.
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: indexInclAllocations, includeOpportunities: false));
                     }
                     catch
                     {
