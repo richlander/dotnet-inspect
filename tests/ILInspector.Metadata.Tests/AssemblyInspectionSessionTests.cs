@@ -73,7 +73,7 @@ public class AssemblyInspectionSessionTests
     [Fact]
     public void AssemblyImage_DisposesBackingStreamExactlyOnce()
     {
-        var stream = new DisposeCountingStream(File.OpenRead(SelfPath));
+        using var stream = new DisposeCountingStream(File.OpenRead(SelfPath));
         var reference = new ResolvedAssemblyReference(
             new AssemblyReferenceIdentity(SelfName, Version: null, Culture: null, PublicKeyToken: null),
             SelfPath,
