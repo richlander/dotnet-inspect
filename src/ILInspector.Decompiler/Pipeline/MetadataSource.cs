@@ -20,7 +20,7 @@ public sealed class MetadataSource : IDisposable
     readonly Stream _stream;
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
-    bool _pdbProbed;
+    volatile bool _pdbProbed;
     DecompilerSymbolSource _symbols = DecompilerSymbolSource.None;
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
@@ -219,7 +219,7 @@ public sealed class MetadataSource : IDisposable
         }
     }
 
-    Dictionary<TypeRef, TypeShape>? _shapes;
+    volatile Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
     Dictionary<TypeRef, TypeRef>? _enumUnderlyingTypes;
     Dictionary<TypeRef, TypeRef?>? _baseTypes;
@@ -271,11 +271,17 @@ public sealed class MetadataSource : IDisposable
         return _enumUnderlyingTypes!.GetValueOrDefault(type);
     }
 
+    readonly object _mapLock = new();
+
     void EnsureTypeMaps()
     {
         if (_shapes is not null)
             return;
-        var shapes = new Dictionary<TypeRef, TypeShape>();
+        lock (_mapLock)
+        {
+            if (_shapes is not null)
+                return;
+            var shapes = new Dictionary<TypeRef, TypeShape>();
         var enums = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>();
         var enumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>();
         var bases = new Dictionary<TypeRef, TypeRef?>();
@@ -317,6 +323,7 @@ public sealed class MetadataSource : IDisposable
         _interfaceImpls = interfaceImpls;
         _unionTypes = unionTypes;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
+        }
     }
 
     ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
@@ -596,13 +603,23 @@ public sealed class MetadataSource : IDisposable
     /// found or it cannot be read; the importer then leaves local names absent
     /// and the printer falls back to <c>V_index</c>.
     /// </summary>
+    readonly object _pdbLock = new();
+    
     MetadataReader? PdbReader()
     {
         if (_pdbProbed)
             return _pdbReader;
-        _pdbProbed = true;
-        if (!_readSymbols)
-            return null;
+            
+        lock (_pdbLock)
+        {
+            if (_pdbProbed)
+                return _pdbReader;
+
+            if (!_readSymbols)
+            {
+                _pdbProbed = true;
+                return null;
+            }
         try
         {
             if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out var pdbPath)
@@ -627,9 +644,11 @@ public sealed class MetadataSource : IDisposable
         }
         catch
         {
-            // No PDB, or an unreadable one — names stay absent.
+            // Unreadable PDB (format error, locked file): act like no PDB exists.
         }
+        _pdbProbed = true;
         return _pdbReader;
+        }
     }
 
     /// <summary>
