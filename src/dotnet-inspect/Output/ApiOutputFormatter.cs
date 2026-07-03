@@ -1149,6 +1149,12 @@ public static class ApiOutputFormatter
         // shares this one session instead of re-opening and re-analyzing every method body.
         // The build is narrowed to the phases the requested sections actually consume.
         var (indexInclAllocations, indexInclOpportunities) = AnalysisScopeFor(requestedSections);
+        // Call Graph / Caller Graph allocation and IL-evidence annotations (opt-in via
+        // --fields/--columns) read allocation-derived method signals, so the escape-classified
+        // allocation phase must run when those graphs are rendered with explicit fields.
+        if ((requestedSections.Contains(SectionNames.CallGraph) || requestedSections.Contains(SectionNames.CallerGraph))
+            && (options?.Fields is { Length: > 0 } || options?.Columns is { Length: > 0 }))
+            indexInclAllocations = true;
         MethodBodyInspectionSession? indexSession = null;
         MethodBodyInspectionSession IndexSession() =>
             indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver, indexInclAllocations, indexInclOpportunities);
@@ -1224,7 +1230,7 @@ public static class ApiOutputFormatter
                 {
                     try
                     {
-                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: false, includeOpportunities: false));
                     }
                     catch
                     {
@@ -1289,7 +1295,7 @@ public static class ApiOutputFormatter
                 {
                     try
                     {
-                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options)));
+                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: false, includeOpportunities: false));
                     }
                     catch
                     {

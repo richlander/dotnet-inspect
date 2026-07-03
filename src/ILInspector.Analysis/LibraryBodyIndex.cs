@@ -29,7 +29,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
-        IReadOnlySet<int> nonHeapNewObjOperandTokens)
+        IReadOnlySet<int> nonHeapNewObjOperandTokens,
+        bool opportunitiesComputed)
     {
         Path = path;
         Methods = methods;
@@ -37,6 +38,7 @@ public sealed class LibraryBodyIndex
         UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
         _rawOpportunities = optimizationOpportunities;
+        _opportunitiesComputed = opportunitiesComputed;
         _unsafeLeverageMethods = unsafeLeverageMethods;
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
@@ -56,6 +58,7 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
+    readonly bool _opportunitiesComputed;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
@@ -71,6 +74,8 @@ public sealed class LibraryBodyIndex
     {
         get
         {
+            if (!_opportunitiesComputed)
+                return ImmutableArray<OptimizationOpportunity>.Empty;
             if (_opportunities.IsDefault)
             {
                 var reachByToken = new Dictionary<int, int>();
@@ -748,7 +753,8 @@ public sealed class LibraryBodyIndex
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.AllocationOccurrences, index.UnsafetyOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
-            index.NonHeapNewObjOperandTokens);
+            index.NonHeapNewObjOperandTokens,
+            opportunitiesComputed: includeOpportunities);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
