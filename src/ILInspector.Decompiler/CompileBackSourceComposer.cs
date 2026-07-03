@@ -1289,9 +1289,14 @@ public static class CompileBackSourceComposer
     static bool IsFieldOnType(TypeRef type, CompileBackTypeIdentity identity)
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        return definition.Kind == TypeRefKind.Definition
-            && definition.Namespace == identity.Namespace
-            && definition.Name == identity.MetadataName;
+        if (definition.Kind != TypeRefKind.Definition)
+            return false;
+
+        string typeRefMetadataFullName = definition.Namespace.Length == 0
+            ? definition.Name.Replace('+', '.')
+            : $"{definition.Namespace}.{definition.Name.Replace('+', '.')}";
+
+        return typeRefMetadataFullName == identity.MetadataFullName;
     }
 
     static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)

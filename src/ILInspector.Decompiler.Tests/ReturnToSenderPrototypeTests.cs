@@ -1,5 +1,6 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -1750,6 +1751,40 @@ public class ReturnToSenderPrototypeTests
                     Assert.Contains("public string Value;", equalsTyped.Source);
                     Assert.DoesNotContain("public string Name { get;", equalsTyped.Source);
                 });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFieldOnType_MatchesNestedRecordBackingFields()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Container
+            {
+                public record Row(string Name, string Value);
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            using var source = MetadataSource.Open(assemblyPath);
+            var reader = pe.GetMetadataReader();
+            var typeHandle = reader.TypeDefinitions
+                .Single(handle => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)) == "Container.Row");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            var function = IrImporter.Import(source, "Container.Row", "GetHashCode", publicOnly: false);
+            Assert.NotNull(function);
+            IrPasses.Run(function, IrPasses.Default, new PassContext(new Stepper(enabled: false)));
+            var load = Assert.Single(function.Descendants.OfType<LoadField>(), field => field.Field.BackingPropertyName == "Name");
+            var helper = typeof(CompileBackSourceComposer).GetMethod(
+                "IsFieldOnType",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.True((bool)helper!.Invoke(null, [load.Field.DeclaringType, identity])!);
         }
         finally
         {
