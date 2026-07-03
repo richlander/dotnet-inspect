@@ -3998,10 +3998,11 @@ public sealed class LibraryBodyIndex
         }
 
         // Per-invocation multiplicity, consolidated from the existing path axes.
-        // Loop membership takes precedence: an allocation inside a loop runs 0..N times
-        // per call regardless of any branch/error sub-path, so it is the hot signal we
-        // must not hide. Otherwise:
-        //   throw/error path -> Conditional (runs only when the exception fires)
+        // A thrown allocation exits the frame, so it runs at most once even inside a
+        // loop -> Conditional takes precedence over loop membership. Otherwise loop
+        // membership wins (a catch-block or normal allocation whose loop continues runs
+        // 0..N per call), then:
+        //   error path       -> Conditional (runs only when the exception fires)
         //   dominates-return -> Once (runs on every returning path, exactly once)
         //   behind a branch  -> Conditional (0 or 1 per call)
         //   otherwise        -> Unknown (straight-line but not proven to dominate return)
@@ -4011,10 +4012,10 @@ public sealed class LibraryBodyIndex
             IReadOnlyList<(int Start, int End)> loopRegions,
             AllocationEscape escape)
         {
-            if (IsInLoopRegion(offset, loopRegions))
-                return AllocationMultiplicity.Loop;
             if (escape == AllocationEscape.ThrowPath)
                 return AllocationMultiplicity.Conditional;
+            if (IsInLoopRegion(offset, loopRegions))
+                return AllocationMultiplicity.Loop;
 
             int blockIndex = decodedBody.BlockGraph.BlockIndexAt(offset);
             var context = decodedBody.PathContexts.ContextFor(blockIndex);
@@ -4123,7 +4124,7 @@ public sealed class LibraryBodyIndex
                         PathContext = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
                         PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
                         PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
-                        Multiplicity = escape.Escape == AllocationEscape.ThrowPath && occurrence.Multiplicity != AllocationMultiplicity.Loop
+                        Multiplicity = escape.Escape == AllocationEscape.ThrowPath
                             ? AllocationMultiplicity.Conditional
                             : occurrence.Multiplicity,
                     });
