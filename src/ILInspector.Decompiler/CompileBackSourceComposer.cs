@@ -525,30 +525,37 @@ public static class CompileBackSourceComposer
         if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
+        var targetMembers = primaryConstructor?.FieldInitializers.ToList() ??
+        [
+            new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
+                isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                method.Attributes.HasFlag(MethodAttributes.Static),
+                MethodParameters(reader, method, signature),
+                isConstructor ? null : CompileBackTypeSignature.Display(signature.ReturnType),
+                MethodTypeParameters(reader, method),
+                CompileBackStubBodyKind.TargetBody,
+                targetBody,
+                [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
+                isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
+                isConstructor ? null : MethodReturnAttributes(reader, method),
+                IsAbstract: !isConstructor && IsAbstractMethod(method),
+                IsVirtual: !isConstructor && IsVirtualMethod(method),
+                IsOverride: false,
+                IsSealed: false)
+        ];
+        if (!isConstructor
+            && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName) is { } equalitySibling)
+        {
+            targetMembers.Add(equalitySibling);
+        }
+
         var requirements = new List<CompileBackTypeRequirement>
         {
             new(
                 targetIdentity,
                 ShellKind(reader, targetTypeDef),
-                primaryConstructor?.FieldInitializers ??
-                [
-                    new CompileBackMemberRequirement(
-                        new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
-                        isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
-                        method.Attributes.HasFlag(MethodAttributes.Static),
-                        MethodParameters(reader, method, signature),
-                        isConstructor ? null : CompileBackTypeSignature.Display(signature.ReturnType),
-                        MethodTypeParameters(reader, method),
-                        CompileBackStubBodyKind.TargetBody,
-                        targetBody,
-                        [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
-                        isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
-                        isConstructor ? null : MethodReturnAttributes(reader, method),
-                        IsAbstract: !isConstructor && IsAbstractMethod(method),
-                        IsVirtual: !isConstructor && IsVirtualMethod(method),
-                        IsOverride: false,
-                        IsSealed: false)
-                ],
+                targetMembers,
                 primaryConstructor,
                 targetFacts)
         };
@@ -1117,6 +1124,55 @@ public static class CompileBackSourceComposer
 
         return [];
     }
+
+    static CompileBackMemberRequirement? EqualityOperatorSibling(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity typeIdentity,
+        string methodName)
+    {
+        var siblingName = methodName switch
+        {
+            "op_Equality" => "op_Inequality",
+            "op_Inequality" => "op_Equality",
+            _ => null,
+        };
+        if (siblingName is null)
+            return null;
+
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != siblingName
+                || method.RelativeVirtualAddress == 0)
+            {
+                continue;
+            }
+
+            var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
+                CompileBackMemberKind.Method,
+                method.Attributes.HasFlag(MethodAttributes.Static),
+                MethodParameters(reader, method, signature),
+                CompileBackTypeSignature.Display(signature.ReturnType),
+                MethodTypeParameters(reader, method),
+                CompileBackStubBodyKind.Throw,
+                TargetBody: null,
+                [new CompileBackFact("metadata", "operator-pair-sibling", siblingName)],
+                MemberAttributes(reader, method.GetCustomAttributes()),
+                MethodReturnAttributes(reader, method),
+                IsAbstract: IsAbstractMethod(method),
+                IsVirtual: IsVirtualMethod(method),
+                IsOverride: false,
+                IsSealed: false);
+        }
+
+        return null;
+    }
+
+    static string MethodSignatureText(string name, MethodSignature<string> signature)
+        => $"{signature.ReturnType} {name}({string.Join(", ", signature.ParameterTypes)})";
 
     static bool IsAbstractMethod(MethodDefinition method)
         => IsPublicMethod(method)
