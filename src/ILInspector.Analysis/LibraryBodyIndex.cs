@@ -4355,6 +4355,12 @@ public sealed class LibraryBodyIndex
             if (stackValuesAbove != 0)
                 return EscapeClassification.Unknown;
 
+            if (IsCompilerGeneratedDisplayClass(allocatedType)
+                && TryClassifyDisplayClassDelegateTarget(decodedBody, instruction.Offset, callerScope, out var displayClassEscape))
+            {
+                return displayClassEscape;
+            }
+
             switch (instruction.OpCode)
             {
                 case ILOpCode.Pop:
@@ -4407,6 +4413,121 @@ public sealed class LibraryBodyIndex
                     return EscapeClassification.Unknown;
             }
         }
+
+        bool TryClassifyDisplayClassDelegateTarget(
+            DecodedBody decodedBody,
+            int position,
+            GenericScope callerScope,
+            out EscapeClassification classification)
+        {
+            classification = EscapeClassification.Unknown;
+            int index = decodedBody.NextNonNopIndexAtOrAfter(position);
+            if (index >= decodedBody.Instructions.Length)
+                return false;
+
+            // Track only copies of the display-class allocation (true) vs unrelated stack
+            // values (false); fail closed as soon as a shape needs fuller stack semantics.
+            var stack = new List<bool> { true };
+            const int MaxScanInstructions = 48;
+            int maxIndex = Math.Min(decodedBody.Instructions.Length, index + MaxScanInstructions);
+            for (; index < maxIndex; index++)
+            {
+                var instruction = decodedBody.Instructions[index];
+                if (instruction.Branches || instruction.Exits)
+                    return false;
+
+                switch (instruction.OpCode)
+                {
+                    case ILOpCode.Nop:
+                        continue;
+                    case ILOpCode.Dup:
+                        if (stack.Count == 0)
+                            return false;
+                        stack.Add(stack[^1]);
+                        continue;
+                    case ILOpCode.Stfld:
+                        if (!Pop(stack, 2))
+                            return false;
+                        if (!stack.Contains(true))
+                            return false;
+                        continue;
+                    case ILOpCode.Ldfld:
+                        if (stack.Count == 0 || stack[^1])
+                            return false;
+                        continue;
+                    case ILOpCode.Ldftn:
+                        stack.Add(false);
+                        if (StackTopIsDelegateTarget(stack)
+                            && NextNonNopIsDelegateConstructor(decodedBody, instruction.NextOffset, callerScope))
+                        {
+                            classification = EscapeClassification.Escapes(AllocationEscapeKind.Capture);
+                            return true;
+                        }
+                        return false;
+                    case ILOpCode.Ldvirtftn:
+                        if (!Pop(stack, 1))
+                            return false;
+                        stack.Add(false);
+                        if (StackTopIsDelegateTarget(stack)
+                            && NextNonNopIsDelegateConstructor(decodedBody, instruction.NextOffset, callerScope))
+                        {
+                            classification = EscapeClassification.Escapes(AllocationEscapeKind.Capture);
+                            return true;
+                        }
+                        return false;
+                    default:
+                        if (IsSimpleStackPush(instruction.OpCode))
+                        {
+                            stack.Add(false);
+                            continue;
+                        }
+                        return false;
+                }
+            }
+
+            return false;
+
+            static bool Pop(List<bool> stack, int count)
+            {
+                if (stack.Count < count)
+                    return false;
+                stack.RemoveRange(stack.Count - count, count);
+                return true;
+            }
+
+            static bool StackTopIsDelegateTarget(List<bool> stack)
+                => stack.Count >= 2 && !stack[^1] && stack[^2];
+        }
+
+        bool NextNonNopIsDelegateConstructor(DecodedBody decodedBody, int position, GenericScope callerScope)
+        {
+            int index = decodedBody.NextNonNopIndexAtOrAfter(position);
+            if (index >= decodedBody.Instructions.Length)
+                return false;
+
+            var instruction = decodedBody.Instructions[index];
+            if (instruction.OpCode != ILOpCode.Newobj)
+                return false;
+
+            int token = OperandInt32(instruction);
+            var constructor = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+            return IsDelegateConstructorToken(token, constructor);
+        }
+
+        static bool IsCompilerGeneratedDisplayClass(TypeRef? type)
+            => type is not null
+               && DeclaringTypeLeafName(type).StartsWith("<>c__DisplayClass", StringComparison.Ordinal);
+
+        static bool IsSimpleStackPush(ILOpCode opcode)
+            => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
+                or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
+                or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull
+                or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
+                or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 or ILOpCode.Ldstr
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
+                or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
+                or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga;
 
         // stfld into a compiler-generated closure display class (<>c__DisplayClass) or
         // async/iterator state machine (<...>d__) hoists the value into that object's

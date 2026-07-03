@@ -1239,6 +1239,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.DropsPlainObject), AllocationKind.Object, AllocationEscape.LocalOnly)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CapturingLambda), AllocationKind.Closure, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ExceptionUnknownOrThrow), AllocationKind.Object, AllocationEscape.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesThenUnboxesLocal), AllocationKind.Box, AllocationEscape.LocalOnly)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstReturn), AllocationKind.Box, AllocationEscape.Unknown)]
@@ -1266,6 +1267,8 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectToLookalikeDisplayClassField), AllocationKind.Object, AllocationEscapeKind.Field)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresObjectIntoArrayElement), AllocationKind.Object, AllocationEscapeKind.Collection)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CapturesArrayInClosure), AllocationKind.Array, AllocationEscapeKind.Capture)]
+    // The display-class allocation itself escapes as the target object captured by the delegate.
+    [InlineData(nameof(OptimizationOpportunityFixtures.CapturingLambda), AllocationKind.Closure, AllocationEscapeKind.Capture)]
     // Multiple distinct escape sinks -> fail-honest None (still an Escapes verdict).
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresToStaticThenReturns), AllocationKind.Object, AllocationEscapeKind.None)]
     // Fail-honest: non-escaping / unknown verdicts carry no kind.
