@@ -787,17 +787,33 @@ public static class ApiSurfaceExtractor
 
         string paramStr2 = string.Join(", ", parameters);
         var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
+        var returnAttributes = ReturnParameterAttributes(reader, paramHandles);
         var methodTypeParameters = GenericParameters(reader, method.GetGenericParameters(), context, nullableDefault, includeVariance: false);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
+        var returnAttributePrefix = returnAttributes.Count == 0
+            ? ""
+            : $"[return: {string.Join(", ", returnAttributes)}] ";
+        return ($"{returnAttributePrefix}{returnType} {methodName}({paramStr2})", new ApiSignature
         {
             ReturnType = returnType,
+            ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
             Parameters = parameterModels
         });
+    }
+
+    private static List<string> ReturnParameterAttributes(MetadataReader reader, ParameterHandleCollection handles)
+    {
+        foreach (var handle in handles)
+        {
+            if (reader.GetParameter(handle).SequenceNumber == 0)
+                return AttributeReader.RenderParameterAttributes(reader, handle);
+        }
+
+        return [];
     }
 
     private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)

@@ -582,6 +582,50 @@ internal static class GeneratedFixtureCatalog
         ],
         ["minimal", "parameters", "marshalling"]);
 
+    public static readonly GeneratedFixtureDefinition MinimalReturnParameterMetadata = new(
+        "minimal.return-parameter-metadata",
+        """
+        namespace GeneratedFixtures.MinimalReturnParameterMetadata;
+
+        public class Class1
+        {
+            [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+            public int I4()
+                => 42;
+
+            [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)]
+            public string Text()
+                => "hello";
+
+            [return: System.Diagnostics.CodeAnalysis.NotNull]
+            public string NotNullText()
+                => "hello";
+        }
+        """,
+        [
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "I4",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
+                ]),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "Text",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)]",
+                ]),
+            new("GeneratedFixtures.MinimalReturnParameterMetadata.Class1", "NotNullText",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "[return: System.Diagnostics.CodeAnalysis.NotNull]",
+                ]),
+        ],
+        ["minimal", "parameters", "return", "marshalling", "attributes"]);
+
     public static readonly GeneratedFixtureDefinition MinimalIfElse = new(
         "minimal.if-else",
         """
@@ -1082,6 +1126,7 @@ internal static class GeneratedFixtureCatalog
         MinimalDefaultParameters,
         MinimalParameterAttributes,
         MinimalParameterMarshalling,
+        MinimalReturnParameterMetadata,
         MinimalIfElse,
         MinimalIntegerAddition,
         MinimalStructMembers,

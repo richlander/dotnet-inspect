@@ -234,6 +234,8 @@ public static class CSharpDeclarationWriter
         List<string> parts = [];
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
+        if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
+            parts.Add($"[return: {string.Join(", ", returnAttributes)}]");
 
         List<string> modifiers = [];
         if (member.Name == ".cctor")
