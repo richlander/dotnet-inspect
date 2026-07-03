@@ -219,7 +219,7 @@ public sealed class MetadataSource : IDisposable
         }
     }
 
-    Dictionary<TypeRef, TypeShape>? _shapes;
+    volatile Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
     Dictionary<TypeRef, TypeRef>? _enumUnderlyingTypes;
     Dictionary<TypeRef, TypeRef?>? _baseTypes;

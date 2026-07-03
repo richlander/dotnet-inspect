@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
 using System.Reflection.Metadata;
 using ILInspector.Metadata;
 
@@ -36,10 +37,10 @@ internal sealed class CrossAssemblyTypeResolver
     readonly string _selfSimpleName;
     readonly MetadataReader _selfReader;
     readonly MetadataContext _context;
-    readonly Dictionary<TypeRef, ValueTypeHint> _valueTypeCache = [];
-    readonly Dictionary<TypeRef, MetadataFactState> _inlineArrayCache = [];
-    readonly Dictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = [];
-    readonly Dictionary<(TypeRef Type, TypeRef Interface), MetadataFactState> _interfaceCache = [];
+    readonly ConcurrentDictionary<TypeRef, ValueTypeHint> _valueTypeCache = new();
+    readonly ConcurrentDictionary<TypeRef, MetadataFactState> _inlineArrayCache = new();
+    readonly ConcurrentDictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = new();
+    readonly ConcurrentDictionary<(TypeRef Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
 
     public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
     {
@@ -126,11 +127,7 @@ internal sealed class CrossAssemblyTypeResolver
         if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
             return callee;
 
-        if (!_methodFactCache.TryGetValue(callee, out var facts))
-        {
-            facts = ResolveMethodFacts(callee, type);
-            _methodFactCache[callee] = facts;
-        }
+        var facts = _methodFactCache.GetOrAdd(callee, c => ResolveMethodFacts(c, type));
 
         if (facts is not { } resolved)
             return callee;
