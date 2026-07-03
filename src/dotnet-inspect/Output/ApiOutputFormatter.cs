@@ -1339,11 +1339,11 @@ public static class ApiOutputFormatter
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
-            var index = Analysis.LibraryBodyIndex.Open(dllPath, assemblyResolver);
+            var bodySession = MethodBodyInspectionSession.Open(dllPath, assemblyResolver);
 
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
-                var rows = Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), semanticToken)
+                var rows = bodySession.AllocationFacts(semanticToken)
                     .Select(fact => ToAllocationFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.AllocationFacts))
@@ -1355,7 +1355,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
-                var rows = Analysis.SemanticFactProjection.SafetyFacts(index.GetUnsafeEvidenceByMember(), index.GetUnsafetyOccurrences(), semanticToken)
+                var rows = bodySession.SafetyFacts(semanticToken)
                     .Select(fact => ToSafetyFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.SafetyFacts))
@@ -1367,7 +1367,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
-                var rows = Analysis.SemanticFactProjection.CostFacts(index.GetDirectCallsByCaller(), semanticToken)
+                var rows = bodySession.CostFacts(semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.CostFacts))
