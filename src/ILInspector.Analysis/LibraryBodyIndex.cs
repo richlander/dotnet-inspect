@@ -4452,8 +4452,9 @@ public sealed class LibraryBodyIndex
                             return false;
                         continue;
                     case ILOpCode.Ldfld:
-                        if (stack.Count == 0 || stack[^1])
+                        if (!Pop(stack, 1))
                             return false;
+                        stack.Add(false);
                         continue;
                     case ILOpCode.Ldftn:
                         stack.Add(false);
@@ -4476,6 +4477,13 @@ public sealed class LibraryBodyIndex
                         }
                         return false;
                     default:
+                        if (IsSimpleBinaryStackReplacement(instruction.OpCode))
+                        {
+                            if (!PopUntracked(stack, 2))
+                                return false;
+                            stack.Add(false);
+                            continue;
+                        }
                         if (IsSimpleStackPush(instruction.OpCode))
                         {
                             stack.Add(false);
@@ -4491,6 +4499,19 @@ public sealed class LibraryBodyIndex
             {
                 if (stack.Count < count)
                     return false;
+                stack.RemoveRange(stack.Count - count, count);
+                return true;
+            }
+
+            static bool PopUntracked(List<bool> stack, int count)
+            {
+                if (stack.Count < count)
+                    return false;
+                for (int i = stack.Count - count; i < stack.Count; i++)
+                {
+                    if (stack[i])
+                        return false;
+                }
                 stack.RemoveRange(stack.Count - count, count);
                 return true;
             }
@@ -4528,6 +4549,15 @@ public sealed class LibraryBodyIndex
                 or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
                 or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
                 or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga;
+
+        static bool IsSimpleBinaryStackReplacement(ILOpCode opcode)
+            => opcode is ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un
+                or ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un
+                or ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un
+                or ILOpCode.Div or ILOpCode.Div_un or ILOpCode.Rem or ILOpCode.Rem_un
+                or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
+                or ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un
+                or ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un;
 
         // stfld into a compiler-generated closure display class (<>c__DisplayClass) or
         // async/iterator state machine (<...>d__) hoists the value into that object's

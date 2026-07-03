@@ -1240,6 +1240,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresPlainObjectToField), AllocationKind.Object, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.CapturingLambda), AllocationKind.Closure, AllocationEscape.Escapes)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CapturingLambdaWithDependentLocal), AllocationKind.Closure, AllocationEscape.Escapes)]
     [InlineData(nameof(OptimizationOpportunityFixtures.ExceptionUnknownOrThrow), AllocationKind.Object, AllocationEscape.Unknown)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesThenUnboxesLocal), AllocationKind.Box, AllocationEscape.LocalOnly)]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxThenIsinstReturn), AllocationKind.Box, AllocationEscape.Unknown)]
@@ -1269,6 +1270,7 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.CapturesArrayInClosure), AllocationKind.Array, AllocationEscapeKind.Capture)]
     // The display-class allocation itself escapes as the target object captured by the delegate.
     [InlineData(nameof(OptimizationOpportunityFixtures.CapturingLambda), AllocationKind.Closure, AllocationEscapeKind.Capture)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CapturingLambdaWithDependentLocal), AllocationKind.Closure, AllocationEscapeKind.Capture)]
     // Multiple distinct escape sinks -> fail-honest None (still an Escapes verdict).
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresToStaticThenReturns), AllocationKind.Object, AllocationEscapeKind.None)]
     // Fail-honest: non-escaping / unknown verdicts carry no kind.
@@ -3961,6 +3963,12 @@ public class OptimizationOpportunityFixtures
     public static Func<int> CapturingLambda(int seed)
     {
         return () => seed + 1;
+    }
+
+    public static Func<int> CapturingLambdaWithDependentLocal(int seed, int addend)
+    {
+        int sum = seed + addend;
+        return () => seed + sum;
     }
 
     // A capturing lambda consumed by a lazy LINQ operator (Where). Rewriting the lambda as
