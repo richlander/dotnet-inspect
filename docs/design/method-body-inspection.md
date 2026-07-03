@@ -2,7 +2,7 @@
 
 > Design north-star for raising `member` body sections and `library --il-offset`
 > onto one service model. This complements the assembly acquisition/session seam
-> in the [assembly inspection query model](https://github.com/richlander/dotnet-inspect/pull/2138):
+> in the [assembly inspection query model](assembly-inspection-query.md):
 > assembly inspection opens and identifies an assembly; method-body inspection
 > explains one method body or one IL coordinate inside it.
 
@@ -49,7 +49,7 @@ ResolvedAssemblyReference
           -> MethodBodyInspection
 ```
 
-The command chooses a query and requested lenses. The service returns
+The command chooses a selector and requested facets. The service returns
 section-ready inspection facts. Renderers format those facts; they do not open
 indexes, classify opcodes, or assemble semantic rows.
 
@@ -74,7 +74,7 @@ and stable member selectors.
 
 ### `ILCoordinateQuery`
 
-Identifies a method location by metadata coordinates:
+Identifies a method-body selector by metadata coordinates:
 
 ```csharp
 public sealed record ILCoordinateQuery(
@@ -83,15 +83,15 @@ public sealed record ILCoordinateQuery(
 ```
 
 This is the `library --il-offset` shape. It should not be a separate command
-architecture. It is another locator for the same method-body inspection
+architecture. It is another selector for the same method-body inspection
 pipeline.
 
-## Lenses
+## Facets
 
-Both query shapes request the same lenses. A lens is a product capability, not a
-CLI section name. Section selection maps to lenses at the command boundary.
+Both query shapes request the same facets. A facet is a product capability, not a
+CLI section name. Section selection maps to facets at the command boundary.
 
-| Lens | Facts returned | Owner |
+| Facet | Facts returned | Owner |
 | --- | --- | --- |
 | `Member` | assembly, type, member, signature, visibility, async, selected token | Metadata |
 | `Instruction` | IL offset, opcode, operand, block, branches, next offset | Metadata / Instructions |
@@ -109,7 +109,7 @@ CLI section name. Section selection maps to lenses at the command boundary.
 | `AnnotatedSource` | raised source plus hidden facts and IL | Research |
 | `OriginalSource` | fetched source slice | Metadata / SourceLink |
 
-The important rule: a lens has one canonical owner. CLI sections such as
+The important rule: a facet has one canonical owner. CLI sections such as
 `Allocation Facts`, `Allocation Context`, `Facts`, or `Annotated Source` may
 render different projections, but they should not compute the underlying facts
 independently.
@@ -119,8 +119,8 @@ independently.
 ```csharp
 public sealed class MethodBodyInspectionSession
 {
-    public MethodBodyInspection Inspect(MemberQuery query, MethodBodyLensSet lenses);
-    public MethodBodyInspection Inspect(ILCoordinateQuery query, MethodBodyLensSet lenses);
+    public MethodBodyInspection Inspect(MemberQuery query, MethodBodyFacetSet facets);
+    public MethodBodyInspection Inspect(ILCoordinateQuery query, MethodBodyFacetSet facets);
 }
 
 public sealed record MethodBodyInspection(
@@ -144,7 +144,7 @@ public sealed record MethodBodyInspection(
 
 The exact record names can change. The boundary should not:
 
-- input is a member identity or IL coordinate plus requested lenses
+- input is a member identity or IL coordinate plus requested facets
 - output is a product-model inspection shape
 - the CLI does not open `LibraryBodyIndex`, `PdbContext`, `MetadataSource`, or
   `PEReader`
@@ -208,14 +208,14 @@ service shape proves out. If this grows beyond CLI-local orchestration, prefer a
 new high-level inspection/composition project over expanding
 `DotnetInspector.Services`.
 
-This composition layer is the natural home for caching and lazy lens execution.
+This composition layer is the natural home for caching and lazy facet execution.
 
 ### CLI
 
 Owns only:
 
 - parse command options
-- map section selection to lenses
+- map section selection to facets
 - call the service
 - render the returned shape
 - write command-line diagnostics for invalid user input
@@ -226,7 +226,7 @@ The assembly inspection session answers: "what assembly am I inspecting, how do
 I open it once, and what assembly-level scanners are requested?"
 
 The method-body session answers: "inside that assembly, which method body or IL
-coordinate am I explaining, and which lenses are requested?"
+coordinate am I explaining, and which facets are requested?"
 
 Method-body inspection should be able to start from today's `dllPath` while the
 assembly session design settles, but the target constructor should consume the
@@ -234,7 +234,7 @@ assembly session or its `ResolvedAssemblyReference`, not introduce another
 string-only seam.
 
 This depends on the sibling assembly acquisition design in
-[PR #2138](https://github.com/richlander/dotnet-inspect/pull/2138). Treat the
+[Assembly Inspection Query Model](assembly-inspection-query.md). Treat the
 two docs as one program of work under #2122: assembly inspection owns resolution
 and PE lifetime; method-body inspection owns member/coordinate facts inside the
 resolved assembly.
@@ -243,7 +243,7 @@ resolved assembly.
 
 Move in reviewable slices.
 
-1. **Design the shared model.** Land this doc and agree on the lens ownership
+1. **Design the shared model.** Land this doc and agree on the facet ownership
    table.
 2. **Add a path-backed adapter.** Add `MethodBodyInspectionSession.Open(path)`
    or an internal composition-layer equivalent that can be swapped later for
@@ -286,11 +286,11 @@ Move in reviewable slices.
   view-compatible section records? Prefer canonical product records first, with
   thin render adapters.
 - Should missing facts be represented as empty lists, diagnostics, or
-  unavailable-lens reasons? `member` sections often render empty-state notes;
+  unavailable-facet reasons? `member` sections often render empty-state notes;
   `library --il-offset` currently returns command errors for required contexts.
 - How much of caller-scope resolution belongs in this service versus the
   command? The scope is user input, but resolving assemblies for the scope is a
   service concern.
-- Should `OriginalSource` be a method-body lens or remain a SourceLink service
-  call that the method-body service composes? It is a lens from the user's
+- Should `OriginalSource` be a method-body facet or remain a SourceLink service
+  call that the method-body service composes? It is a facet from the user's
   perspective, even if SourceLink owns the fetch.
