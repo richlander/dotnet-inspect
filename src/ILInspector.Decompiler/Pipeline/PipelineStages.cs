@@ -227,7 +227,7 @@ public static class StageDump
                 }
             }
 
-            sb.Append(Format(IrPasses.RunWithStages(function)));
+            sb.Append(Format(IrPasses.RunWithStages(function, new PassContext(new Stepper(enabled: false), importMethodBody: refMethod => IrImporter.Import(source, refMethod)))));
 
             sb.AppendLine();
             // RunWithStages above ran the canonical Default pass list on

@@ -369,8 +369,8 @@ public static class IrPasses
     /// per stage, so the harness and the CLI share identical boundaries rather
     /// than each re-deriving them (docs/decompiler.md).
     /// </summary>
-    public static IReadOnlyList<PipelineStage> RunWithStages(IrFunction function)
-        => RunWithStages(function, Default, IrPrinter.Dump);
+    public static IReadOnlyList<PipelineStage> RunWithStages(IrFunction function, PassContext? context = null)
+        => RunWithStages(function, Default, IrPrinter.Dump, context);
 
     /// <summary>
     /// Runs <paramref name="passes"/>, capturing <paramref name="project"/>'s
@@ -380,7 +380,7 @@ public static class IrPasses
     /// <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
     /// </summary>
     public static IReadOnlyList<PipelineStage> RunWithStages(
-        IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project)
+        IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project, PassContext? context = null)
     {
         var stages = new List<PipelineStage>(passes.Length + 1)
         {
@@ -388,7 +388,7 @@ public static class IrPasses
         };
         foreach (var pass in passes)
         {
-            pass.Run(function, PassContext.None);
+            pass.Run(function, context ?? PassContext.None);
             function.CheckInvariant();
             stages.Add(new(pass.Name, project(function), function.Fidelity));
         }
@@ -404,10 +404,10 @@ public static class IrPasses
     /// <see cref="StepLimitReachedException"/> is caught here — callers see a
     /// normal return with the partially-transformed <paramref name="function"/>.
     /// </summary>
-    public static Stepper RunWithSteps(IrFunction function, int stepLimit = int.MaxValue)
+    public static Stepper RunWithSteps(IrFunction function, int stepLimit = int.MaxValue, Func<MethodRef, IrFunction?>? importMethodBody = null)
     {
         var stepper = new Stepper(enabled: true) { StepLimit = stepLimit };
-        var context = new PassContext(stepper);
+        var context = new PassContext(stepper, importMethodBody: importMethodBody);
         try
         {
             foreach (var pass in Default)

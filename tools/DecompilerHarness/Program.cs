@@ -902,7 +902,7 @@ static class Program
 
             string where = stepLimit == int.MaxValue ? "all steps" : $"replay to step {stepLimit}";
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {where})");
-            var stepper = IrPasses.RunWithSteps(function, stepLimit);
+            var stepper = IrPasses.RunWithSteps(function, stepLimit, refMethod => IrImporter.Import(source, refMethod));
 
             Console.WriteLine();
             Console.WriteLine($"==== steps ({stepper.Count} recorded) ====");
