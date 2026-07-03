@@ -649,7 +649,7 @@ static class Program
                 IReadOnlyList<PipelineStage> stages;
                 try
                 {
-                    stages = IrPasses.RunWithStages(function);
+                    stages = IrPasses.RunWithStages(function, ImportSeam(source));
                 }
                 catch (Exception ex)
                 {
