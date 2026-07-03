@@ -37,6 +37,12 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundUnaryOperator</c> (negation, bitwise complement).</summary>
     RoslynBoundUnaryOperator,
+
+    /// <summary>Roslyn's <c>BoundPropertyAccess</c> / indexer access (a property or indexer read).</summary>
+    RoslynBoundPropertyAccess,
+
+    /// <summary>Roslyn's <c>BoundConditionalAccess</c> (the <c>?.</c> null-conditional access).</summary>
+    RoslynBoundConditionalAccess,
 }
 
 /// <summary>

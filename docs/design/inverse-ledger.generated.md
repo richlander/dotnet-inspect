@@ -17,6 +17,10 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 | `LoadArgument` | BoundParameter / ldarg | None | Inherited | type is the argument's declared type (parameter signature; declaring type for `this`) | corpus compile-back |
 | `LoadField` | BoundFieldAccess / ldfld·ldsfld | None | Inherited | type is the field's declared type (field signature) | corpus compile-back |
 | `LoadLocal` | BoundLocal / ldloc | None | Inherited | type is the local's declared type (local variable signature) | corpus compile-back |
+| `LoadProperty` | BoundPropertyAccess / get_ accessor call | None | Native | type is the property/indexer's return type (accessor signature); raised from a get_ accessor call | corpus compile-back |
+| `LogicalBinary` | BoundBinaryOperator (logical AND / OR) | None | Native | result is bool; raised from short-circuit branch patterns (IL has no logical-and/or encoding) | corpus compile-back |
+| `LogicalNot` | BoundUnaryOperator (logical negation) | None | Native | result is bool; raised from ceq-zero / inverted-branch patterns (IL has no `!` opcode) | corpus compile-back |
+| `NullConditional` | BoundConditionalAccess / ?. | None | Native | result is the member's type (nullable-wrapped for value types); raised from the ?. null-check + receiver-spill pattern | corpus compile-back |
 | `Unary` | BoundUnaryOperator (neg/not) | RyuJitImporter | Inherited | result type is the operand's type (neg/not preserve the operand type) | corpus compile-back |
 | `Unbox` | BoundConversion (unboxing → managed pointer) | RyuJitImporter | Inherited | operand is a box of the value type; result is a managed pointer into it | box/unbox fixtures; corpus compile-back |
 | `UnboxAny` | BoundConversion (unboxing) | RyuJitImporter | Inherited | target is the unbox.any type token (value type, reference type, or type parameter) | box/unbox fixtures; corpus compile-back |

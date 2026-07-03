@@ -969,6 +969,12 @@ public enum LogicalKind { And, Or }
 /// bitwise <see cref="Binary"/> forms. Raised by boolean folding from
 /// guard-return chains and nested guards; IL has no direct encoding.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundBinaryOperator,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundBinaryOperator (logical AND / OR)",
+    precondition: "result is bool; raised from short-circuit branch patterns (IL has no logical-and/or encoding)",
+    witness: "corpus compile-back")]
 public sealed class LogicalBinary : IrExpression
 {
     public LogicalBinary(LogicalKind kind, IrExpression left, IrExpression right)
@@ -1112,6 +1118,12 @@ public sealed class NullCoalescingPropertyAssignment : IrNode
 /// a reference type — so the access carries the member's own result type with no
 /// Nullable wrapping, and the lowered receiver spill collapses into the target.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConditionalAccess,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundConditionalAccess / ?.",
+    precondition: "result is the member's type (nullable-wrapped for value types); raised from the ?. null-check + receiver-spill pattern",
+    witness: "corpus compile-back")]
 public sealed class NullConditional : IrExpression
 {
     public NullConditional(IrExpression member) => AddChild(member);
@@ -1153,6 +1165,13 @@ public sealed class Conditional : IrExpression
     public override string Describe() => "Conditional";
 }
 
+/// <summary>Boolean negation (<c>!</c>), raised from a <c>ceq</c>-zero or inverted-branch pattern.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundUnaryOperator,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundUnaryOperator (logical negation)",
+    precondition: "result is bool; raised from ceq-zero / inverted-branch patterns (IL has no `!` opcode)",
+    witness: "corpus compile-back")]
 public sealed class LogicalNot : IrExpression
 {
     public LogicalNot(IrExpression operand) => AddChild(operand);
@@ -2854,6 +2873,12 @@ public sealed class LoadToken : IrExpression
 }
 
 /// <summary>A raised property or indexer read (from a get_ accessor call).</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundPropertyAccess,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundPropertyAccess / get_ accessor call",
+    precondition: "type is the property/indexer's return type (accessor signature); raised from a get_ accessor call",
+    witness: "corpus compile-back")]
 public sealed class LoadProperty : IrExpression
 {
     public LoadProperty(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments)
