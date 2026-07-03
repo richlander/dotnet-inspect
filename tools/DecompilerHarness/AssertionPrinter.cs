@@ -19,7 +19,7 @@ public static class AssertionPrinter
         public string Dump(IrFunction function)
         {
             var sb = new StringBuilder();
-            
+
             var executedPredicates = new Dictionary<string, IReadOnlyList<AssumptionViolation>>();
             foreach (var t in InverseLedger.NodeTypes(typeof(IrFunction).Assembly))
             {
