@@ -926,7 +926,7 @@ internal static class LibraryMetadataService
         if (field == "Weight")
             return WeightSortRank(left.Weight).CompareTo(WeightSortRank(right.Weight));
         if (field == "Loop")
-            return left.InLoop.CompareTo(right.InLoop);
+            return IteratesInLoop(left).CompareTo(IteratesInLoop(right));
         if (field == "IL")
             return (left.ILOffset ?? -1).CompareTo(right.ILOffset ?? -1);
         return string.Compare(

@@ -296,7 +296,9 @@ public sealed class LibraryBodyIndex
                     && IsExceptionConstruction(type))
                     continue;
                 steadyAllocations[token] = steadyAllocations.GetValueOrDefault(token) + 1;
-                if (occurrence.InLoop)
+                // Only allocations that genuinely iterate (semantic multiplicity) make a
+                // method a loop hotspot — a return/throw early-exit inside a loop runs once.
+                if (occurrence.Multiplicity == AllocationMultiplicity.Loop)
                     steadyAllocationLoop.Add(token);
             }
         }
@@ -1665,10 +1667,12 @@ public sealed class LibraryBodyIndex
         sealed class AllocationPostDominanceIndex
         {
             readonly AllocationPostDominance[] _postDominanceByBlock;
+            readonly bool[] _reachesCycleByBlock;
 
-            AllocationPostDominanceIndex(AllocationPostDominance[] postDominanceByBlock)
+            AllocationPostDominanceIndex(AllocationPostDominance[] postDominanceByBlock, bool[] reachesCycleByBlock)
             {
                 _postDominanceByBlock = postDominanceByBlock;
+                _reachesCycleByBlock = reachesCycleByBlock;
             }
 
             public static AllocationPostDominanceIndex Create(DecodedBody decodedBody)
@@ -1676,13 +1680,14 @@ public sealed class LibraryBodyIndex
                 var blockGraph = decodedBody.BlockGraph;
                 var postDominanceByBlock = new AllocationPostDominance[blockGraph.Blocks.Length];
                 if (blockGraph.Blocks.Length == 0)
-                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+                    return new AllocationPostDominanceIndex(postDominanceByBlock, []);
 
                 var edges = blockGraph.Blocks.Select(static block => block.Edges).ToArray();
+                var reachesCycleOnly = BackwardReachable(edges, CyclicBlocks(edges));
                 var postDominators = PostDominators.Of(edges);
                 var returnBlocks = ReturnBlocks(decodedBody);
                 if (returnBlocks.Length == 0)
-                    return new AllocationPostDominanceIndex(postDominanceByBlock);
+                    return new AllocationPostDominanceIndex(postDominanceByBlock, reachesCycleOnly);
 
                 var reachesReturn = BackwardReachable(edges, returnBlocks);
                 var returnSet = returnBlocks.ToHashSet();
@@ -1693,7 +1698,7 @@ public sealed class LibraryBodyIndex
                             || edges[block].LeavesRegion)));
                 var reachesNonExitingBlock = BackwardReachable(edges, Enumerable.Range(0, edges.Length)
                     .Where(block => postDominators.ImmediatePostDominator(block) == PostDominators.None));
-                var reachesCycle = BackwardReachable(edges, CyclicBlocks(edges));
+                var reachesCycle = reachesCycleOnly;
 
                 for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
                 {
@@ -1708,13 +1713,19 @@ public sealed class LibraryBodyIndex
                     }
                 }
 
-                return new AllocationPostDominanceIndex(postDominanceByBlock);
+                return new AllocationPostDominanceIndex(postDominanceByBlock, reachesCycle);
             }
 
             public AllocationPostDominance PostDominanceFor(int blockIndex)
                 => (uint)blockIndex < (uint)_postDominanceByBlock.Length
                     ? _postDominanceByBlock[blockIndex]
                     : AllocationPostDominance.Unknown;
+
+            // Whether control can flow from this block back to a loop backedge. A block
+            // inside a loop region that CANNOT (it exits first via return/throw) runs at
+            // most once per call and is not a hot loop.
+            public bool ReachesCycleFor(int blockIndex)
+                => (uint)blockIndex < (uint)_reachesCycleByBlock.Length && _reachesCycleByBlock[blockIndex];
 
             static bool[] BackwardReachable(IReadOnlyList<BlockEdges> edges, IEnumerable<int> seeds)
             {
@@ -3480,8 +3491,11 @@ public sealed class LibraryBodyIndex
                         PathContext = opportunity.PathContext ?? FormatPathContext(AllocationPathContextFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         PathConfidence = opportunity.PathConfidence ?? FormatPathConfidence(AllocationPathConfidenceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
                         PostDominance = opportunity.PostDominance ?? FormatPostDominance(AllocationPostDominanceFor(decodedBody, opportunityOffset, AllocationEscape.Unknown)),
-                        Multiplicity = opportunity.Multiplicity ?? FormatMultiplicity(allocation?.Multiplicity
-                            ?? AllocationMultiplicityFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
+                        Multiplicity = opportunity.Multiplicity ?? FormatMultiplicity(
+                            allocation?.Multiplicity is { } allocationMultiplicity
+                                && allocationMultiplicity != AllocationMultiplicity.Unknown
+                                    ? allocationMultiplicity
+                                    : AllocationMultiplicityFor(decodedBody, opportunityOffset, loopRegions, AllocationEscape.Unknown)),
                         EstimatedSizeBytes = opportunity.EstimatedSizeBytes ?? allocation?.EstimatedSizeBytes,
                     };
                 }
@@ -4042,7 +4056,16 @@ public sealed class LibraryBodyIndex
             if (escape == AllocationEscape.ThrowPath)
                 return inLoop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional;
             if (inLoop)
+            {
+                // A block inside a loop region only iterates if it can flow back to the
+                // loop backedge. One that exits first — an early return OR an uncaught
+                // throw after the allocation — runs at most once, so it is not a hot loop.
+                if (!decodedBody.PostDominances.ReachesCycleFor(blockIndex))
+                    return confidence == AllocationPathConfidence.DominatesReturn
+                        ? AllocationMultiplicity.Once
+                        : AllocationMultiplicity.Conditional;
                 return AllocationMultiplicity.Loop;
+            }
 
             var context = decodedBody.PathContexts.ContextFor(blockIndex);
             if (context == AllocationPathContext.ErrorPath)
