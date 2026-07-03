@@ -890,6 +890,7 @@ public record OptimizationOpportunityRow(
     [property: MarkoutSkipNull] string? PathConfidence,
     [property: MarkoutPropertyName("Post Dominance")]
     [property: MarkoutSkipNull] string? PostDominance,
+    [property: MarkoutSkipNull] string? Weight,
     [property: MarkoutSkipNull] string? IL);
 
 [MarkoutSerializable]

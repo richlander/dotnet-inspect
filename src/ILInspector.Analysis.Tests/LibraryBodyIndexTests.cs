@@ -1343,14 +1343,14 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
-    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch, AllocationPostDominance.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
-    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown)]
-    public void AllocationOccurrences_IncludeRuntimeTypePathContextConfidenceAndPostDominance(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence, AllocationPostDominance expectedPostDominance)
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), AllocationKind.Array, "System.Int32[]", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates, AllocationMultiplicity.Once)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), AllocationKind.Box, "boxed System.Guid", AllocationPathContext.StraightLine, AllocationPathConfidence.DominatesReturn, AllocationPostDominance.ReturnPostDominates, AllocationMultiplicity.Once)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ThrowsInLoop), AllocationKind.Object, "System.InvalidOperationException", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Conditional)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop), AllocationKind.Object, "System.Object", AllocationPathContext.LoopBody, AllocationPathConfidence.BehindBranch, AllocationPostDominance.Unknown, AllocationMultiplicity.Loop)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.FinallyAllocates), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.StraightLine, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Unknown)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesInLoop), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Conditional)]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Conditional)]
+    public void AllocationOccurrences_IncludeRuntimeTypePathContextConfidenceAndPostDominance(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence, AllocationPostDominance expectedPostDominance, AllocationMultiplicity expectedMultiplicity)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
@@ -1365,6 +1365,7 @@ public class LibraryBodyIndexTests
         Assert.Equal(expectedPath, occurrence.PathContext);
         Assert.Equal(expectedConfidence, occurrence.PathConfidence);
         Assert.Equal(expectedPostDominance, occurrence.PostDominance);
+        Assert.Equal(expectedMultiplicity, occurrence.Multiplicity);
     }
 
     [Theory]
@@ -1434,7 +1435,8 @@ public class LibraryBodyIndexTests
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.Branch
                     && occurrence.PathConfidence == AllocationPathConfidence.BehindBranch
-                    && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates);
+                    && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates
+                    && occurrence.Multiplicity == AllocationMultiplicity.Conditional);
             Assert.Contains(
                 index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "SwitchAllocation"
@@ -1448,6 +1450,7 @@ public class LibraryBodyIndexTests
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathContext.SwitchArm, occurrence.PathContext));
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPathConfidence.BehindBranch, occurrence.PathConfidence));
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPostDominance.ReturnPostDominates, occurrence.PostDominance));
+            Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationMultiplicity.Conditional, occurrence.Multiplicity));
             Assert.Contains(
                 index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "AfterIfJoinAllocation"

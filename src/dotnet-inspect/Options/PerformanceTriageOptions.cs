@@ -31,6 +31,7 @@ public sealed record PerformanceTriageOptions
         "Path",
         "PathConfidence",
         "PostDominance",
+        "Weight",
         "IL",
     ];
 
@@ -47,6 +48,7 @@ public sealed record PerformanceTriageOptions
         "Path",
         "PathConfidence",
         "PostDominance",
+        "Weight",
     ];
 
     public static readonly string[] KnownShapes =
@@ -235,7 +237,7 @@ public sealed record PerformanceTriageOptions
             }
 
             if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
-                && field is not ("RootReach" or "Confidence"))
+                && field is not ("RootReach" or "Confidence" or "Weight"))
             {
                 error = $"Error: Field '{field}' supports only = and != predicates.";
                 return false;
@@ -246,9 +248,9 @@ public sealed record PerformanceTriageOptions
                 error = $"Error: Field 'RootReach' expects an integer value in --where predicate '{expression}'.";
                 return false;
             }
-            if (field == "Confidence" && !IsKnownConfidence(value))
+            if (field is "Confidence" or "Weight" && !IsKnownConfidence(value))
             {
-                error = $"Error: Field 'Confidence' expects one of low, medium, high in --where predicate '{expression}'.";
+                error = $"Error: Field '{field}' expects one of low, medium, high in --where predicate '{expression}'.";
                 return false;
             }
 

@@ -1854,6 +1854,7 @@ public static class ApiOutputFormatter
                 opportunity.PathContext,
                 opportunity.PathConfidence,
                 opportunity.PostDominance,
+                opportunity.Weight,
                 opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null))
             .ToList();
 

@@ -399,6 +399,7 @@ internal static class ILOffsetSourceQuery
             Path = fact.Path,
             PathConfidence = fact.PathConfidence,
             PostDominance = fact.PostDominance,
+            Multiplicity = fact.Multiplicity,
             Evidence = fact.Evidence
         };
 

@@ -595,6 +595,9 @@ public class ILOffsetAllocationContext
     public string? PathConfidence { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PostDominance { get; init; }
+    [JsonPropertyName("multiplicity")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Multiplicity { get; init; }
     public string? Evidence { get; init; }
 }
 
@@ -695,6 +698,8 @@ public record class OptimizationOpportunitySummary
     public string? PathConfidence { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PostDominance { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Weight { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IL { get; init; }
 }

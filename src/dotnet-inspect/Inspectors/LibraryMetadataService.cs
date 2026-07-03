@@ -741,6 +741,7 @@ internal static class LibraryMetadataService
                     Path = opportunity.PathContext,
                     PathConfidence = opportunity.PathConfidence,
                     PostDominance = opportunity.PostDominance,
+                    Weight = opportunity.Weight,
                     IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
                 })
                 .ToList();
@@ -857,6 +858,15 @@ internal static class LibraryMetadataService
             return MatchCompare(compare, predicate.Operator);
         }
 
+        if (predicate.Field == "Weight")
+        {
+            int expected = ConfidenceRank(predicate.Value);
+            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
+                return false;
+            int compare = ConfidenceRank(opportunity.Weight ?? "").CompareTo(expected);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
         if (predicate.Field == "Member")
         {
             var full = FormatMethod(opportunity.Method);
@@ -897,6 +907,8 @@ internal static class LibraryMetadataService
             return left.RootReach.CompareTo(right.RootReach);
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
+        if (field == "Weight")
+            return ConfidenceRank(left.Weight ?? "").CompareTo(ConfidenceRank(right.Weight ?? ""));
         if (field == "Loop")
             return left.InLoop.CompareTo(right.InLoop);
         if (field == "IL")
@@ -920,6 +932,7 @@ internal static class LibraryMetadataService
             "Path" => opportunity.PathContext,
             "PathConfidence" => opportunity.PathConfidence,
             "PostDominance" => opportunity.PostDominance,
+            "Weight" => opportunity.Weight,
             "IL" => opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
             "RootReach" => opportunity.RootReach.ToString(CultureInfo.InvariantCulture),
             _ => null,
