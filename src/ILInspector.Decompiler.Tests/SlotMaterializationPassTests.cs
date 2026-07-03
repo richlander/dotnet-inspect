@@ -74,6 +74,30 @@ public class SlotMaterializationPassTests
         Assert.Equal(2, function.Locals.Length);
     }
 
+    // Adversarial review (5b-2 round 2, blocking): a typed-int slot feeding a
+    // char[] element store is the printer's #1751 identity recovery — the
+    // slot RE-TYPES to char ('+' / '-'), which a materialized int local
+    // forecloses. Slots whose element-store target disagrees with the
+    // testified type stay on the unifier.
+    [Fact]
+    public void DefersSlotWhoseElementStoreTargetDisagreesWithTestimony()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(43, Int32)));
+        block.Add(new StoreElement(Char,
+            new LoadArgument(0, "chars", TypeRef.SzArray(Char)),
+            new Constant(0, Int32),
+            new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([], body);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Locals);
+    }
+
     // Adversarial review (5b-2, latent): LoadSinkTargetType omitted
     // StoreElement even though the sink model handles it — an untyped slot
     // load consumed by an array-element store contributed no testimony,

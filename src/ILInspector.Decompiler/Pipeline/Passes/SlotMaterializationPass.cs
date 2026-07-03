@@ -87,6 +87,19 @@ public sealed class SlotMaterializationPass : IIrPass
                     || CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
                 continue;
+            // A slot loaded into an array-element store whose semantic element
+            // type disagrees with the testified type stays deferred: the
+            // printer RE-TYPES such slots (the #1751 char identity recovery —
+            // `chars[i] = intSlot` becomes `char S_2 = '+' : '-'`, because
+            // char's storage width is never its semantic type), and a
+            // materialized int local forecloses that. Coerce is the wrong tool
+            // here — the recovery changes the slot's type, not the value's
+            // spelling (round-2 review: CharElementStorePrinterTests).
+            if (slotLoads.Any(load => load.Parent is StoreElement element
+                    && ReferenceEquals(element.Value, load)
+                    && CoercionSinks.StoreElementTarget(element, function.TypeShapes) is { } elementTarget
+                    && !elementTarget.Equals(slotType)))
+                continue;
             // A slot whose store copies from another slot stays deferred:
             // materializing one end of a slot-to-slot copy defeats the
             // printer's copy folding (`switch ((uint)S_256)` gained an
