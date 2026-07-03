@@ -57,4 +57,29 @@ public class MethodBodyInspectionSessionTests
         _ = session.SafetyFacts(token).ToList();          // must not throw
         _ = session.CostFacts(token).ToList();            // must not throw
     }
+
+    static int CallingToken(Analysis.LibraryBodyIndex index)
+        => index.GetDirectCallsByCaller().First(kv => kv.Value.Length > 0).Key;
+
+    [Fact]
+    public void CallTree_MatchesDirectBuild_ForCallingMethod()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var token = CallingToken(index);
+
+        var expected = index.BuildCallTree(token);
+        var actual = MethodBodyInspectionSession.Open(SelfPath).CallTree(token);
+
+        Assert.NotEmpty(actual.Children);
+        Assert.Equal(expected.Children.Count(), actual.Children.Count());
+    }
+
+    [Fact]
+    public void CallerTree_NoScope_ReturnsRoot()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(SelfPath);
+        var token = CallingToken(index);
+
+        Assert.NotNull(MethodBodyInspectionSession.Open(SelfPath).CallerTree(token));
+    }
 }

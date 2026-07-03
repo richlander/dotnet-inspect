@@ -41,4 +41,17 @@ public sealed class MethodBodyInspectionSession
     /// <summary>Cost facts for one method, optionally narrowed to a single IL coordinate.</summary>
     public ImmutableArray<Analysis.CostFact> CostFacts(int methodToken, int? ilOffset = null)
         => Analysis.SemanticFactProjection.CostFacts(_index.GetDirectCallsByCaller(), methodToken, ilOffset);
+
+    /// <summary>Outbound call graph rooted at one method.</summary>
+    public Analysis.CallTreeNode CallTree(int methodToken)
+        => _index.BuildCallTree(methodToken);
+
+    /// <summary>
+    /// Inbound caller graph rooted at one method. When <paramref name="scopeIndexes"/> is
+    /// non-empty the reverse graph is extended across those caller-scope assemblies.
+    /// </summary>
+    public Analysis.CallTreeNode CallerTree(int methodToken, IReadOnlyList<Analysis.LibraryBodyIndex>? scopeIndexes = null)
+        => scopeIndexes is { Count: > 0 }
+            ? _index.BuildCallerTree(methodToken, scopeIndexes)
+            : _index.BuildCallerTree(methodToken);
 }
