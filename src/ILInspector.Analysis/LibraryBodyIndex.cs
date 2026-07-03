@@ -2612,6 +2612,7 @@ public sealed class LibraryBodyIndex
                 {
                     PostDominance = AllocationPostDominanceFor(decodedBody, offset, escape),
                     Multiplicity = AllocationMultiplicityFor(decodedBody, offset, loopRegions, escape),
+                    ChurnedType = ChurnedTypeFor(kind, allocatedType),
                 };
 
             bool ShouldEmitUnresolvedValueTypeAnnotation(int operandToken, TypeRef type)
@@ -3930,6 +3931,28 @@ public sealed class LibraryBodyIndex
                 AllocationKind.StateMachine => $"state machine ({RuntimeTypeName(allocatedType)})",
                 _ => RuntimeTypeName(allocatedType),
             };
+        }
+
+        // The backing array a growable collection churns as it resizes — the type that
+        // actually allocates at runtime, distinct from the collection object itself. Only
+        // the single-backing-array collections are reported; Dictionary/HashSet grow
+        // multiple internal arrays (buckets + entries) so they stay fail-honest null.
+        static string? ChurnedTypeFor(AllocationKind kind, TypeRef? allocatedType)
+        {
+            if (kind != AllocationKind.Object || allocatedType is null)
+                return null;
+
+            if (FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Text", "System.Text", "StringBuilder"))
+                return "System.Char[]";
+
+            if (allocatedType.Kind == TypeRefKind.GenericInstance
+                && allocatedType.TypeArguments.Length == 1
+                && (FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Collections", "System.Collections.Generic", "List`1")
+                    || FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Collections", "System.Collections.Generic", "Queue`1")
+                    || FrameworkIdentity.IsKnownFrameworkType(allocatedType, "System.Collections", "System.Collections.Generic", "Stack`1")))
+                return $"{RuntimeTypeName(allocatedType.TypeArguments[0])}[]";
+
+            return null;
         }
 
         static string RuntimeTypeName(TypeRef type)

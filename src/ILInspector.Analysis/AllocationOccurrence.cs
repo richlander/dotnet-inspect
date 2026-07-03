@@ -123,6 +123,14 @@ public sealed record AllocationOccurrence(
 
     public AllocationMultiplicity Multiplicity { get; init; }
 
+    /// <summary>
+    /// The backing array a growable collection actually churns as it resizes
+    /// (e.g. <c>List&lt;T&gt;</c> → <c>T[]</c>, <c>StringBuilder</c> → <c>char[]</c>),
+    /// distinct from the allocated object type. Null when there is no single known
+    /// backing store (fail-honest). Sharpens the static↔dynamic observed-type match.
+    /// </summary>
+    public string? ChurnedType { get; init; }
+
     public string AnnotationId => Kind switch
     {
         AllocationKind.Box => "alloc.box",

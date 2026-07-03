@@ -67,6 +67,8 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             parts.Add($"escape-kind={escapeKind}");
         if (FormatMultiplicity(occurrence.Multiplicity) is { } multiplicity)
             parts.Add($"multiplicity={multiplicity}");
+        if (occurrence.ChurnedType is { Length: > 0 } churned)
+            parts.Add($"churned={churned}");
         return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 

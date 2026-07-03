@@ -585,6 +585,7 @@ public class LibraryInspectionView
     [MarkoutSection(Name = SectionNames.AllocationContext, ShowWhenProperty = nameof(HasILOffsetAllocationContext))]
     [MarkoutIgnoreColumnWhen(nameof(AllocationContextEscapeKindIsEmpty), nameof(ILOffsetAllocationContextRow.EscapeKind))]
     [MarkoutIgnoreColumnWhen(nameof(AllocationContextMultiplicityIsEmpty), nameof(ILOffsetAllocationContextRow.Multiplicity))]
+    [MarkoutIgnoreColumnWhen(nameof(AllocationContextChurnedTypeIsEmpty), nameof(ILOffsetAllocationContextRow.ChurnedType))]
     public List<ILOffsetAllocationContextRow>? ILOffsetAllocationContextSection =>
         _data.ILOffset?.AllocationContext?
             .Select(context => new ILOffsetAllocationContextRow(
@@ -602,7 +603,8 @@ public class LibraryInspectionView
                 context.PathConfidence,
                 context.PostDominance,
                 context.Evidence,
-                context.Multiplicity))
+                context.Multiplicity,
+                context.ChurnedType))
             .ToList();
 
     [MarkoutIgnore]
@@ -857,6 +859,11 @@ public class LibraryInspectionView
     public static bool AllocationContextMultiplicityIsEmpty(List<ILOffsetAllocationContextRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.Multiplicity));
 
+    // The churned/backing type is only present on known growable-collection allocations,
+    // so drop the column when no row carries one.
+    public static bool AllocationContextChurnedTypeIsEmpty(List<ILOffsetAllocationContextRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.ChurnedType));
+
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
@@ -1042,7 +1049,8 @@ public record ILOffsetAllocationContextRow(
     [property: MarkoutPropertyName("Path Confidence")] string? PathConfidence,
     [property: MarkoutPropertyName("Post Dominance")] string? PostDominance,
     string? Evidence,
-    [property: MarkoutSkipNull] string? Multiplicity);
+    [property: MarkoutSkipNull] string? Multiplicity,
+    [property: MarkoutPropertyName("Churned Type")][property: MarkoutSkipNull] string? ChurnedType);
 
 [MarkoutSerializable]
 public record ILOffsetSafetyContextRow(
