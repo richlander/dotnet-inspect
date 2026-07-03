@@ -1055,11 +1055,49 @@ public static class CompileBackSourceComposer
         MetadataReader reader,
         MethodDefinition method,
         MethodSignature<string> signature)
-        => ToCompileBackParameters(MetadataDeclarationQuery.GetMethod(
+    {
+        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        var parameters = ToCompileBackParameters(MetadataDeclarationQuery.GetMethod(
             reader,
-            reader.GetTypeDefinition(method.GetDeclaringType()),
+            declaringType,
             method,
             signature).Signature.Parameters);
+        return NormalizeSelfTypeParameters(reader, declaringType, parameters);
+    }
+
+    static IReadOnlyList<CompileBackParameter> NormalizeSelfTypeParameters(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        IReadOnlyList<CompileBackParameter> parameters)
+    {
+        if (parameters.Count == 0 || declaringType.GetDeclaringType().IsNil)
+            return parameters;
+
+        string selfType = MetadataDeclarationQuery.SelfTypeSignature(reader, declaringType);
+        string directSelfType = DirectSelfTypeSignature(reader, declaringType);
+        if (directSelfType == selfType || parameters.All(parameter => parameter.Type.DisplayName != directSelfType))
+            return parameters;
+
+        return parameters
+            .Select(parameter => parameter.Type.DisplayName == directSelfType
+                ? parameter with { Type = CompileBackTypeSignature.Display(selfType) }
+                : parameter)
+            .ToArray();
+    }
+
+    static string DirectSelfTypeSignature(MetadataReader reader, TypeDefinition type)
+    {
+        var handles = type.GetGenericParameters();
+        int inheritedCount = 0;
+        var declaringType = type.GetDeclaringType();
+        if (!declaringType.IsNil)
+            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
+        var directNames = handles
+            .Skip(inheritedCount)
+            .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
+            .ToArray();
+        return TypeResolver.ApplyGenericArguments(TypeResolver.GetFullName(reader, type), directNames);
+    }
 
     static IReadOnlyList<string> MethodReturnAttributes(MetadataReader reader, MethodDefinition method)
         => MetadataDeclarationQuery.GetMethod(
@@ -1838,6 +1876,11 @@ public static class CompileBackSourceComposer
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
             var shells = new List<CompileBackTypeDeclaration>();
+            var requirementsByMetadataName = requirements.ToDictionary(
+                requirement => requirement.Type.MetadataFullName,
+                requirement => requirement,
+                StringComparer.Ordinal);
+            var emittedRoots = new HashSet<TypeDefinitionHandle>();
             foreach (var requirement in requirements)
             {
                 if (FindType(reader, requirement.Type.MetadataFullName) is not { } handle)
@@ -1846,57 +1889,92 @@ public static class CompileBackSourceComposer
                     continue;
                 }
 
-                var typeDef = reader.GetTypeDefinition(handle);
-                var members = new List<CompileBackMemberDeclaration>();
-                foreach (var member in requirement.RequiredMembers)
+                var rootHandle = TopLevelRootOf(reader, handle);
+                if (!emittedRoots.Add(rootHandle))
+                    continue;
+
+                var rootDef = reader.GetTypeDefinition(rootHandle);
+                var rootIdentity = CompileBackTypeIdentity.FromDefinition(reader, rootDef);
+                if (!requirementsByMetadataName.TryGetValue(rootIdentity.MetadataFullName, out var rootRequirement))
                 {
-                    members.Add(new CompileBackMemberDeclaration(
-                        member.Identity,
-                        member.Kind,
-                        CompileBackAccessibility.Public,
-                        member.IsStatic,
-                        member.ReturnType,
-                        member.Parameters,
-                        member.TypeParameters,
-                        member.StubBody,
-                        member.TargetBody,
-                        member.SourceFacts,
-                        member.Attributes,
-                        member.ReturnAttributes,
-                        member.IsAbstract,
-                        member.IsVirtual,
-                        member.IsOverride,
-                        member.IsSealed));
+                    rootRequirement = new CompileBackTypeRequirement(
+                        rootIdentity,
+                        ShellKind(reader, rootDef),
+                        RequiredMembers: [],
+                        PrimaryConstructor: null,
+                        SourceFacts: [new CompileBackFact("metadata", "declaring-closure-type", rootIdentity.FullName)]);
                 }
 
-                if (requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"))
-                    AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
-
-                shells.Add(new CompileBackTypeDeclaration(
-                    requirement.Type,
-                    requirement.RequiredKind,
-                    CompileBackAccessibility.Public,
-                    BaseType: null,
-                    PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
-                    TypeParameters: TypeParameters(reader, typeDef),
-                    Interfaces: InterfaceSignatures(reader, typeDef),
-                    members,
-                    requirement.SourceFacts,
-                    NestedTypes(
-                        reader,
-                        typeDef,
-                        includeMemberSurface: requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member"),
-                        diagnostics),
-                    TypeAttributeList(reader, typeDef),
-                    IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0));
+                shells.Add(TypeDeclaration(reader, rootHandle, rootRequirement, requirementsByMetadataName, diagnostics));
             }
 
             return shells;
         }
 
+        static CompileBackTypeDeclaration TypeDeclaration(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            CompileBackTypeRequirement requirement,
+            IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
+            List<CompileBackPlanningDiagnostic> diagnostics)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            var members = RequiredMemberDeclarations(requirement);
+            bool includeMemberSurface = requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            if (includeMemberSurface)
+                AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
+
+            return new CompileBackTypeDeclaration(
+                requirement.Type,
+                requirement.RequiredKind,
+                CompileBackAccessibility.Public,
+                BaseType: null,
+                PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
+                TypeParameters: TypeParameters(reader, typeDef),
+                Interfaces: InterfaceSignatures(reader, typeDef),
+                members,
+                requirement.SourceFacts,
+                NestedTypes(
+                    reader,
+                    typeDef,
+                    requirementsByMetadataName,
+                    includeMemberSurface,
+                    diagnostics),
+                TypeAttributeList(reader, typeDef),
+                IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0);
+        }
+
+        static List<CompileBackMemberDeclaration> RequiredMemberDeclarations(CompileBackTypeRequirement requirement)
+        {
+            var members = new List<CompileBackMemberDeclaration>();
+            foreach (var member in requirement.RequiredMembers)
+            {
+                members.Add(new CompileBackMemberDeclaration(
+                    member.Identity,
+                    member.Kind,
+                    CompileBackAccessibility.Public,
+                    member.IsStatic,
+                    member.ReturnType,
+                    member.Parameters,
+                    member.TypeParameters,
+                    member.StubBody,
+                    member.TargetBody,
+                    member.SourceFacts,
+                    member.Attributes,
+                    member.ReturnAttributes,
+                    member.IsAbstract,
+                    member.IsVirtual,
+                    member.IsOverride,
+                    member.IsSealed));
+            }
+
+            return members;
+        }
+
         static IReadOnlyList<CompileBackTypeDeclaration> NestedTypes(
             MetadataReader reader,
             TypeDefinition typeDef,
+            IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
             bool includeMemberSurface,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
@@ -1906,7 +1984,6 @@ public static class CompileBackSourceComposer
                 var nestedDef = reader.GetTypeDefinition(nestedHandle);
                 string name = reader.GetString(nestedDef.Name);
                 if (name.Contains('<', StringComparison.Ordinal)
-                    || name.Contains('`', StringComparison.Ordinal)
                     || IsDelegate(reader, nestedDef))
                 {
                     continue;
@@ -1914,26 +1991,29 @@ public static class CompileBackSourceComposer
 
                 var identity = CompileBackTypeIdentity.FromDefinition(reader, nestedDef);
                 var kind = ShellKind(reader, nestedDef);
-                var requirement = new CompileBackTypeRequirement(
+                requirementsByMetadataName.TryGetValue(identity.MetadataFullName, out var requirement);
+                requirement ??= new CompileBackTypeRequirement(
                     identity,
                     kind,
                     RequiredMembers: [],
                     PrimaryConstructor: null,
                     SourceFacts: [new CompileBackFact("metadata", "nested-closure-type", identity.FullName)]);
-                var members = new List<CompileBackMemberDeclaration>();
-                if (includeMemberSurface)
+                var members = RequiredMemberDeclarations(requirement);
+                bool includeNestedMemberSurface = includeMemberSurface
+                    || requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+                if (includeNestedMemberSurface)
                     AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics, allowUnsafeSurface: true);
                 nestedTypes.Add(new CompileBackTypeDeclaration(
                     identity,
                     kind,
                     CompileBackAccessibility.Public,
                     BaseType: null,
-                    PrimaryConstructorParameters: null,
+                    PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
                     TypeParameters: TypeParameters(reader, nestedDef),
                     Interfaces: InterfaceSignatures(reader, nestedDef),
                     members,
                     requirement.SourceFacts,
-                    NestedTypes(reader, nestedDef, includeMemberSurface, diagnostics),
+                    NestedTypes(reader, nestedDef, requirementsByMetadataName, includeNestedMemberSurface, diagnostics),
                     TypeAttributeList(reader, nestedDef),
                     IsAbstract: (nestedDef.Attributes & TypeAttributes.Abstract) != 0 && (nestedDef.Attributes & TypeAttributes.Interface) == 0));
             }

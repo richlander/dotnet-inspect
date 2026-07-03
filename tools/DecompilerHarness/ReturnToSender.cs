@@ -404,8 +404,7 @@ static class ReturnToSender
         var typeHandles = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
             .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
-                && fullName.Length != 0
-                && item.Definition.GetDeclaringType().IsNil)
+                && fullName.Length != 0)
             .ToDictionary(item => reader.GetFullTypeName(item.Definition), item => item.Handle, StringComparer.Ordinal);
 
         foreach (var target in targets)
@@ -415,8 +414,7 @@ static class ReturnToSender
 
             var typeDef = reader.GetTypeDefinition(typeHandle);
             string typeName = reader.GetString(typeDef.Name);
-            if (!typeDef.GetDeclaringType().IsNil
-                || typeName == "<Module>"
+            if (typeName == "<Module>"
                 || typeName.Contains('<', StringComparison.Ordinal)
                 || !IsSupportedTargetType(reader, typeDef))
             {

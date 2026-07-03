@@ -113,9 +113,10 @@ fixture used by `--assertion-fixture-guarantee`; it is addressable by ID but is
 not part of the default stable generated-fixture ladder. The `record.*` fixtures
 are addressable ReturnToSender catalog coverage for record property accessors,
 equality operators, virtual helpers, field-read helpers, record structs, and
-generic typed `Equals(T)`; run `--return-to-sender-catalog record` for that
-slice. With no selector, stable generated fixtures run; use `list` to list
-fixture IDs, `--json` for machine-readable list/results, and
+generic and nested-generic typed `Equals(T)`; run
+`--return-to-sender-catalog record` for that slice. With no selector, stable
+generated fixtures run; use `list` to list fixture IDs, `--json` for
+machine-readable list/results, and
 `--keep-generated-fixtures` to preserve the generated project for drill-down.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic

@@ -908,6 +908,7 @@ public class GeneratedFixtureCatalogTests
                 "record.equality-operators",
                 "record.field-read-helpers",
                 "record.generic-typed-equals",
+                "record.nested-generic-typed-equals",
                 "record.property-getter",
                 "record.struct-field-read-helpers",
                 "record.virtual-helpers",
@@ -1021,6 +1022,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.field-read-helpers");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.struct-field-read-helpers");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.generic-typed-equals");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.nested-generic-typed-equals");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
@@ -1093,7 +1095,7 @@ public class GeneratedFixtureCatalogTests
         string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
 
         Assert.True(run.Passed, report);
-        Assert.Equal(11, run.Results.Count);
+        Assert.Equal(12, run.Results.Count);
         Assert.All(run.Results, result =>
         {
             Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, result.Status);
@@ -1113,7 +1115,11 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(run.Results, result =>
             result.FixtureId == "record.generic-typed-equals" &&
             result.Type == "RecordGenericTypedEqualsRow`1");
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "record.nested-generic-typed-equals" &&
+            result.Type == "RecordNestedGenericTypedEqualsContainer`1.Row`1");
         Assert.Contains("record.generic-typed-equals", report);
+        Assert.Contains("record.nested-generic-typed-equals", report);
         Assert.DoesNotContain("Skipped target reasons", report);
         Assert.DoesNotContain("Failed target buckets", report);
     }
