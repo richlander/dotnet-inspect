@@ -273,6 +273,10 @@ public class ApiCommand
         {
             Namespace = type.Namespace,
             Name = type.Name,
+            // Preserve the exact metadata name so the filtered copy keeps matching
+            // via ApiOutputFormatter.SameType (which prefers MetadataName over the
+            // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
+            MetadataName = type.MetadataName,
             Kind = type.Kind,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
@@ -1370,6 +1374,7 @@ public class ApiCommand
             {
                 Namespace = type.Namespace,
                 Name = type.Name,
+                MetadataName = type.MetadataName,
                 Kind = type.Kind,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
@@ -1445,6 +1450,7 @@ public class ApiCommand
         {
             Namespace = type.Namespace,
             Name = type.Name,
+            MetadataName = type.MetadataName,
             Kind = type.Kind,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,

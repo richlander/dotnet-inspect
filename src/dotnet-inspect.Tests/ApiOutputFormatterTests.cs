@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Commands;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -115,6 +117,24 @@ public class ApiOutputFormatterTests
         Assert.True(ApiOutputFormatter.SameType(typeRef, inner));
     }
 
+    // --- Filtered projections must carry MetadataName to the analysis path ---
+
+    [Fact]
+    public void BuildFilteredTypeForSections_PreservesMetadataName()
+    {
+        // The type-command render path filters the extracted type through
+        // BuildFilteredTypeForSections before opening the type-scope analysis
+        // session (which calls SameType). If the projection dropped MetadataName,
+        // SameType would fall back to the lossy '+'→'.' compare and re-drop rows
+        // for a literal-'+' type — the exact #2238 bug, reintroduced downstream.
+        var type = new ApiType { Namespace = null, Name = "A+B", MetadataName = "A+B", Members = [] };
+
+        var filtered = ApiCommand.BuildFilteredTypeForSections(type, new ApiOptions());
+
+        Assert.Equal("A+B", filtered.MetadataName);
+        Assert.True(ApiOutputFormatter.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
+    }
+
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---
 
     [Fact]
@@ -192,14 +212,21 @@ public class ApiOutputFormatterTests
             if (process is null)
                 return false;
 
-            process.StandardOutput.ReadToEnd();
-            process.StandardError.ReadToEnd();
+            // Drain both pipes concurrently before waiting: a synchronous
+            // ReadToEnd() on one stream blocks until EOF, so if ilasm fills the
+            // other pipe's buffer the child blocks on write and the timeout below
+            // is never reached (classic process deadlock).
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(30_000))
             {
                 try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
                 return false;
             }
 
+            // The streams reach EOF once the process exits; give the reads a
+            // bounded chance to finish so no background read leaks.
+            Task.WaitAll([stdout, stderr], 5_000);
             return process.ExitCode == 0;
         }
         catch (System.ComponentModel.Win32Exception)
