@@ -1871,6 +1871,10 @@ public class ReturnToSenderPrototypeTests
 
             Assert.True((bool)helper.Invoke(null, [load.Field.DeclaringType, nestedIdentity])!);
             Assert.False((bool)helper.Invoke(null, [load.Field.DeclaringType, namespacePeerIdentity])!);
+
+            var globalNestedIdentity = new CompileBackTypeIdentity("", "B", "B", "A.B", "A.B");
+            var dottedTopLevelType = TypeRef.Definition("fixture", "", "A.B");
+            Assert.False((bool)helper.Invoke(null, [dottedTopLevelType, globalNestedIdentity])!);
         }
         finally
         {

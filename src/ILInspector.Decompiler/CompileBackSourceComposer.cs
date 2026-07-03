@@ -1270,9 +1270,11 @@ public static class CompileBackSourceComposer
                 continue;
 
             MethodSignature<string> signature;
+            IReadOnlyList<TypeRef> parameterTypes;
             try
             {
                 signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                parameterTypes = MethodParameterTypes(reader, typeDef, method);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -1280,7 +1282,7 @@ public static class CompileBackSourceComposer
             }
 
             if (signature.ReturnType == "bool"
-                && MethodParameterTypes(reader, typeDef, method) is [var parameterType]
+                && parameterTypes is [var parameterType]
                 && IsSelfType(parameterType, typeIdentity))
             {
                 return true;
@@ -1310,9 +1312,20 @@ public static class CompileBackSourceComposer
             if (reader.GetString(method.Name) != "Equals")
                 continue;
 
-            var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            MethodSignature<string> signature;
+            IReadOnlyList<TypeRef> parameterTypes;
+            try
+            {
+                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                parameterTypes = MethodParameterTypes(reader, typeDef, method);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                continue;
+            }
+
             if (signature.ReturnType != "bool"
-                || MethodParameterTypes(reader, typeDef, method) is not [var parameterType]
+                || parameterTypes is not [var parameterType]
                 || !IsSelfType(parameterType, typeIdentity))
             {
                 continue;
@@ -1350,10 +1363,18 @@ public static class CompileBackSourceComposer
         if (definition.Namespace != identity.Namespace)
             return false;
 
-        string typeRefMetadataFullName = definition.Namespace.Length == 0
-            ? definition.Name.Replace('+', '.')
-            : $"{definition.Namespace}.{definition.Name.Replace('+', '.')}";
-        return typeRefMetadataFullName == identity.MetadataFullName;
+        return definition.Name == IdentityTypeRefName(identity);
+    }
+
+    static string IdentityTypeRefName(CompileBackTypeIdentity identity)
+    {
+        string localPath = identity.Namespace.Length > 0
+            && identity.MetadataFullName.StartsWith(identity.Namespace + ".", StringComparison.Ordinal)
+                ? identity.MetadataFullName[(identity.Namespace.Length + 1)..]
+                : identity.MetadataFullName;
+        return localPath == identity.MetadataName
+            ? identity.MetadataName
+            : localPath.Replace('.', '+');
     }
 
     static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
