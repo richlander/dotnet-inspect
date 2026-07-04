@@ -86,7 +86,11 @@ internal static class RenderAbSensor
                 
                 try
                 {
-                    IrPasses.Run(function);
+                    // PrintRaised runs IrPasses.Default itself — a preceding
+                    // IrPasses.Run here double-piped every method, so the
+                    // sensor measured a second-run pipeline the product never
+                    // ships (the double run folded goto-region diamonds the
+                    // single run leaves raw — found via slice F1 scoping).
                     var rendered = CSharpPrinter.PrintRaised(function).Output;
                     if (rendered is not null)
                     {
