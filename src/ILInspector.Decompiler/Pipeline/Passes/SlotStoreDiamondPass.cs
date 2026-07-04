@@ -36,7 +36,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
         var slotTypes = CoercionSinks.TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes);
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            var scopedSlotTypes = IsInsideNestedBody(container) ? null : slotTypes;
+            var scopedSlotTypes = ReferenceOwnership.IsInsideNestedFunctionBody(container) ? null : slotTypes;
             var blocks = container.Blocks;
             var offsetToIndex = new Dictionary<int, int>();
             for (int i = 0; i < blocks.Count; i++)
@@ -194,13 +194,6 @@ public sealed class SlotStoreDiamondPass : IIrPass
             : null;
     }
 
-    static bool IsInsideNestedBody(IrNode node)
-    {
-        for (var current = node.Parent; current is not null; current = current.Parent)
-            if (current is Lambda or LocalFunctionStatement)
-                return true;
-        return false;
-    }
 
     static bool TryBoolConstant(IrExpression expression, out IrExpression normalized)
     {

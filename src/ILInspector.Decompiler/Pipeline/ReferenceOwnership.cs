@@ -21,6 +21,23 @@ public static class ReferenceOwnership
     public static bool IsInsideAny(IrNode node, IEnumerable<IrNode> roots)
         => roots.Any(root => IsInside(node, root));
 
+    /// <summary>
+    /// Whether the node sits inside a nested <see cref="Lambda"/> or
+    /// <see cref="LocalFunctionStatement"/> body. Nested bodies carry their own
+    /// slot numbering and return types (the per-body-scope rule), so a
+    /// function-scope fact map — slot testimony, locals, return type — must not
+    /// be consulted for nodes past this boundary.
+    /// </summary>
+    public static bool IsInsideNestedFunctionBody(IrNode node)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (current is Lambda or LocalFunctionStatement)
+                return true;
+        }
+        return false;
+    }
+
     public static bool ReferencesLocal(IrNode node, int index) => node switch
     {
         LoadLocal load => load.Index == index,
