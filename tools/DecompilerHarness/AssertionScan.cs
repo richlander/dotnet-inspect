@@ -326,60 +326,102 @@ internal static class AssertionScan
         int? workers,
         bool sequential)
     {
-        var fixtureIds = AssertionFixtureGuarantees
-            .SelectMany(pair => pair.FixtureIds)
-            .Where(id => id != AssertionIlUnboxFixture)
+        var declaredFixtureIds = AssertionFixtureGuarantees
+            .SelectMany(g => g.FixtureIds)
             .Distinct(StringComparer.Ordinal)
-            .ToHashSet(StringComparer.Ordinal);
-        var fixtures = GeneratedFixtureCatalog.Catalog
-            .Where(fixture => fixtureIds.Contains(fixture.Id))
             .ToArray();
-        var csharpResult = GeneratedFixtureRunner.RunWithMaterializedFixtures(
-            fixtures,
-            GeneratedFixtureRunOptions.Default,
-            (_, assemblyPath) =>
-            {
-                return EvaluateAssemblies([assemblyPath], null, workers, sequential, annotatedNodes, causeByNode);
-            });
 
-        var unboxFixture = BuildUnboxFixtureAssembly();
-        try
+        // Score each node against coverage from its OWN declared fixture(s). The C#
+        // fixtures compile into one combined assembly, so scanning them together mixes
+        // their coverage — a sibling fixture's incidental production would then mask an
+        // inert declared producer (the #2289 IsPattern masking). Build and scan each
+        // declared fixture in isolation so the declared producer must exercise the node.
+        var perFixtureCoverage = new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.Ordinal);
+        var scans = new List<Result>();
+
+        foreach (var fixtureId in declaredFixtureIds
+            .Where(id => id != AssertionIlUnboxFixture)
+            .Order(StringComparer.Ordinal))
         {
-            var unboxResult = EvaluateAssemblies([unboxFixture.Path], null, workers, sequential, annotatedNodes, causeByNode);
-            var scan = Merge(csharpResult, unboxResult);
-            var guarantee = BuildFixtureGuarantee(
-                string.Join(", ", AssertionFixtureGuarantees
-                    .SelectMany(g => g.FixtureIds)
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal)),
-                annotatedNodes,
-                causeByNode,
-                scan.CoverageByNode);
-            return scan with { FixtureGuarantee = guarantee };
+            var fixture = GeneratedFixtureCatalog.Catalog.FirstOrDefault(f => f.Id == fixtureId);
+            if (fixture is null)
+                continue;
+            var fixtureScan = GeneratedFixtureRunner.RunWithMaterializedFixtures(
+                [fixture],
+                GeneratedFixtureRunOptions.Default,
+                (_, assemblyPath) => EvaluateAssemblies([assemblyPath], null, workers, sequential, annotatedNodes, causeByNode));
+            perFixtureCoverage[fixtureId] = fixtureScan.CoverageByNode;
+            scans.Add(fixtureScan);
         }
-        finally
+
+        if (declaredFixtureIds.Contains(AssertionIlUnboxFixture))
         {
-            TryDeleteDirectory(unboxFixture.Directory);
+            var unboxFixture = BuildUnboxFixtureAssembly();
+            try
+            {
+                var unboxScan = EvaluateAssemblies([unboxFixture.Path], null, workers, sequential, annotatedNodes, causeByNode);
+                perFixtureCoverage[AssertionIlUnboxFixture] = unboxScan.CoverageByNode;
+                scans.Add(unboxScan);
+            }
+            finally
+            {
+                TryDeleteDirectory(unboxFixture.Directory);
+            }
         }
+
+        var aggregate = scans.Aggregate(Merge);
+        var guarantee = BuildFixtureGuarantee(
+            string.Join(", ", declaredFixtureIds.Order(StringComparer.Ordinal)),
+            annotatedNodes,
+            causeByNode,
+            perFixtureCoverage);
+        return aggregate with { FixtureGuarantee = guarantee };
     }
 
     static AssertionFixtureGuaranteeResult BuildFixtureGuarantee(
-        string assemblyPath,
+        string fixtureIds,
         IReadOnlyList<string> annotatedNodes,
         IReadOnlyDictionary<string, InverseLedger.NodeCause> causeByNode,
-        IReadOnlyDictionary<string, int> coverageByNode)
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> perFixtureCoverage)
     {
         var fixturesByNode = AssertionFixtureGuarantees
             .ToDictionary(g => g.Node, g => g.FixtureIds, StringComparer.Ordinal);
         var rows = annotatedNodes
-            .Select(node => new AssertionFixtureNodeResult(
-                node,
-                causeByNode.TryGetValue(node, out var cause) ? cause : InverseLedger.CauseFor(node),
-                fixturesByNode.TryGetValue(node, out var fixtures) ? fixtures : [],
-                coverageByNode.GetValueOrDefault(node)))
+            .Select(node =>
+            {
+                var declared = fixturesByNode.TryGetValue(node, out var fixtures) ? fixtures : [];
+                return new AssertionFixtureNodeResult(
+                    node,
+                    causeByNode.TryGetValue(node, out var cause) ? cause : InverseLedger.CauseFor(node),
+                    declared,
+                    ObservedFromDeclaredFixtures(declared, perFixtureCoverage, node));
+            })
             .OrderBy(row => row.Node, StringComparer.Ordinal)
             .ToArray();
-        return new AssertionFixtureGuaranteeResult(assemblyPath, coverageByNode, rows);
+        return new AssertionFixtureGuaranteeResult(fixtureIds, AggregateCoverage(perFixtureCoverage), rows);
+    }
+
+    /// <summary>
+    /// A node's observed coverage counted only from the fixtures that DECLARE it. A
+    /// sibling fixture's incidental production of the node does not count — the declared
+    /// producer must itself exercise the node, so an inert declared fixture cannot pass
+    /// by free-riding on another fixture's coverage (#2293).
+    /// </summary>
+    internal static int ObservedFromDeclaredFixtures(
+        IReadOnlyList<string> declaredFixtureIds,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> perFixtureCoverage,
+        string node)
+        => declaredFixtureIds.Sum(id =>
+            perFixtureCoverage.TryGetValue(id, out var coverage) ? coverage.GetValueOrDefault(node) : 0);
+
+    static IReadOnlyDictionary<string, int> AggregateCoverage(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> perFixtureCoverage)
+    {
+        var coverage = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var fixtureCoverage in perFixtureCoverage.Values)
+            foreach (var (node, count) in fixtureCoverage)
+                coverage[node] = coverage.GetValueOrDefault(node) + count;
+        return coverage;
     }
 
     internal static IReadOnlyList<string> NodesWithoutFixtureGuarantee(IReadOnlyList<string> annotatedNodes)
