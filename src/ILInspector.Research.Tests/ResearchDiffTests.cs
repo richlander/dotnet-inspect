@@ -125,6 +125,24 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromCSharpBodyDiff_PreservesProducerMessageAndTypedRow()
+    {
+        var csharpRow = Assert.Single(CSharpBodyDiff.CompareAssemblies(
+            DiffFixturePath("DiffFixtures.V1"),
+            DiffFixturePath("DiffFixtures.V2"),
+            typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorSample" }).Rows,
+            row => row.ChangeId == "csharp.line.removed");
+
+        var diff = ResearchDiff.FromCSharpBodyDiff(new CSharpBodyDiffResult([csharpRow]));
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal(csharpRow.ChangeId, row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.CSharp, row.EvidenceKind);
+        Assert.Equal(csharpRow.Message, row.Message);
+        Assert.Same(csharpRow, row.CSharpRow);
+    }
+
+    [Fact]
     public void Combine_PreservesStructuredApiDiff()
     {
         var oldSurface = Surface("Widget", Member("Existing"));
@@ -202,6 +220,26 @@ public class ResearchDiffTests
         Assert.Contains(changedMembers, member =>
             member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
             && member.HasChange("il.hunk.changed"));
+        Assert.DoesNotContain(changedMembers, member =>
+            member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharp_QueryImplementationChanges()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            DiffFixturePath("DiffFixtures.V1"),
+            DiffFixturePath("DiffFixtures.V2"),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        var changedMembers = diff.MembersWhere(member => member.ImplementationChanged);
+
+        Assert.Contains(changedMembers, member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
+            && member.HasChange("csharp.line.removed"));
+        Assert.Contains(changedMembers, member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
+            && member.HasChange("csharp.line.added"));
         Assert.DoesNotContain(changedMembers, member =>
             member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
     }

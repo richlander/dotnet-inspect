@@ -31,12 +31,12 @@ public class CSharpBodyDiffTests
             && row.Text.Contains("2", StringComparison.Ordinal));
         Assert.All(diff.Rows.Where(row => row.Member.Contains("ConstantValue", StringComparison.Ordinal)), row =>
         {
-            Assert.StartsWith("ConstantValue~", row.StableMemberSelector, StringComparison.Ordinal);
-            Assert.StartsWith("M:DiffFixtureSample.DiffSample.ConstantValue()", row.CanonicalSignature, StringComparison.Ordinal);
+            Assert.StartsWith("ConstantValue~", row.Anchor.StableSelector, StringComparison.Ordinal);
+            Assert.StartsWith("M:DiffFixtureSample.DiffSample.ConstantValue()", row.Anchor.CanonicalSignature, StringComparison.Ordinal);
             Assert.Contains("DiffFixtureSample|neutral|", row.AssemblyIdentity, StringComparison.Ordinal);
             Assert.StartsWith(row.AssemblyIdentity + "|", row.StableMemberKey, StringComparison.Ordinal);
-            Assert.Contains(row.CanonicalSignature + "#", row.StableMemberKey, StringComparison.Ordinal);
-            Assert.Equal(10, row.Digest.Length);
+            Assert.Contains(row.Anchor.CanonicalSignature + "#", row.StableMemberKey, StringComparison.Ordinal);
+            Assert.Equal(10, row.Anchor.Fingerprint.Length);
             Assert.StartsWith("csharp.line.", row.ChangeId, StringComparison.Ordinal);
             Assert.NotEmpty(row.Message);
             Assert.NotNull(row.SourceCoordinate);
@@ -66,8 +66,8 @@ public class CSharpBodyDiffTests
         var row = Assert.Single(diff.Rows, row =>
             row.Member.Contains("GenericParamBody`1", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
-        Assert.StartsWith("GenericParamBody~", row.StableMemberSelector, StringComparison.Ordinal);
-        Assert.Equal("M:DiffFixtureSample.DiffSample.GenericParamBody<!!0>(!!0)", row.CanonicalSignature);
+        Assert.StartsWith("GenericParamBody~", row.Anchor.StableSelector, StringComparison.Ordinal);
+        Assert.Equal("M:DiffFixtureSample.DiffSample.GenericParamBody<!!0>(!!0)", row.Anchor.CanonicalSignature);
     }
 
     [Fact]
@@ -221,8 +221,8 @@ public class CSharpBodyDiffTests
         var row = Assert.Single(diff.Rows, row =>
             row.Member.Contains("ConstructorSample.#ctor()", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
-        Assert.StartsWith("#ctor~", row.StableMemberSelector, StringComparison.Ordinal);
-        Assert.Equal("M:DiffFixtureSample.ConstructorSample.#ctor()", row.CanonicalSignature);
+        Assert.StartsWith("#ctor~", row.Anchor.StableSelector, StringComparison.Ordinal);
+        Assert.Equal("M:DiffFixtureSample.ConstructorSample.#ctor()", row.Anchor.CanonicalSignature);
     }
 
     [Fact]
@@ -234,10 +234,10 @@ public class CSharpBodyDiffTests
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConversionSample" });
 
         var row = Assert.Single(diff.Rows, row =>
-            row.CanonicalSignature.Contains("op_Implicit", StringComparison.Ordinal)
+            row.Anchor.CanonicalSignature.Contains("op_Implicit", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
-        Assert.EndsWith("~System.Int32", row.CanonicalSignature, StringComparison.Ordinal);
-        Assert.DoesNotContain(diff.Rows, row => row.CanonicalSignature.EndsWith("~System.String", StringComparison.Ordinal));
+        Assert.EndsWith("~System.Int32", row.Anchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.DoesNotContain(diff.Rows, row => row.Anchor.CanonicalSignature.EndsWith("~System.String", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -249,9 +249,9 @@ public class CSharpBodyDiffTests
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "CheckedConversionSample" });
 
         var row = Assert.Single(diff.Rows, row =>
-            row.CanonicalSignature.Contains("op_CheckedExplicit", StringComparison.Ordinal)
+            row.Anchor.CanonicalSignature.Contains("op_CheckedExplicit", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
-        Assert.EndsWith("~System.Int32", row.CanonicalSignature, StringComparison.Ordinal);
+        Assert.EndsWith("~System.Int32", row.Anchor.CanonicalSignature, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -265,8 +265,8 @@ public class CSharpBodyDiffTests
         var row = Assert.Single(diff.Rows, row =>
             row.Member.Contains("GenericParameterCollisionSample`1.M`1", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
-        Assert.Equal("M:DiffFixtureSample.GenericParameterCollisionSample`1.M<!!0>(!!0)", row.CanonicalSignature);
-        Assert.DoesNotContain(diff.Rows, row => row.CanonicalSignature.EndsWith("(!0)", StringComparison.Ordinal));
+        Assert.Equal("M:DiffFixtureSample.GenericParameterCollisionSample`1.M<!!0>(!!0)", row.Anchor.CanonicalSignature);
+        Assert.DoesNotContain(diff.Rows, row => row.Anchor.CanonicalSignature.EndsWith("(!0)", StringComparison.Ordinal));
     }
 
     [Fact]

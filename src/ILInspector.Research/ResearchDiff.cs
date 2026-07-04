@@ -47,6 +47,7 @@ public enum ResearchDiffEvidenceKind
     MetadataApi,
     IlBody,
     BodySignal,
+    CSharp,
 }
 
 public sealed record ResearchDiffRow(
@@ -55,7 +56,8 @@ public sealed record ResearchDiffRow(
     string Message,
     ApiChange? ApiChange = null,
     IlDiffRow? IlRow = null,
-    BodySignalDiffRow? BodySignalRow = null);
+    BodySignalDiffRow? BodySignalRow = null,
+    CSharpDiffRow? CSharpRow = null);
 
 public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
@@ -200,6 +202,21 @@ public static class ResearchDiff
             ]);
     }
 
+    public static ResearchDiffResult FromCSharpBodyDiff(CSharpBodyDiffResult diff)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        return new ResearchDiffResult(
+            [],
+            Rows:
+            [
+                .. diff.Rows.Select(row => new ResearchDiffRow(
+                    row.ChangeId,
+                    ResearchDiffEvidenceKind.CSharp,
+                    row.Message,
+                    CSharpRow: row))
+            ]);
+    }
+
     public static ResearchDiffResult Combine(params ResearchDiffResult[] results)
     {
         ArgumentNullException.ThrowIfNull(results);
@@ -232,6 +249,9 @@ public static class ResearchDiff
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.IlBody))
             AddIlBodyDiff(builder, oldInput, newInput);
+
+        if (options.Mechanisms.HasFlag(ResearchDiffMechanism.CSharp))
+            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters);
 
         return builder.ToResult();
     }
@@ -550,6 +570,31 @@ public static class ResearchDiff
                         Category: ResearchDiffChangeCategory.IlBody));
                 }
             }
+        }
+    }
+
+    static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
+    {
+        if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
+            return;
+
+        foreach (var row in CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters).Rows)
+        {
+            var subject = new ResearchSubjectKey(
+                ResearchDiffSubjectKind.Member,
+                row.StableMemberKey,
+                row.Member,
+                row.Anchor.TypeFullName,
+                row.Anchor.MemberName);
+            var direction = row.Kind == CSharpDiffKind.Add ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
+            builder.Add(subject, new ResearchDiffEvidence(
+                ResearchDiffMechanism.CSharp,
+                row.ChangeId,
+                direction,
+                OldValue: direction == ResearchDiffDirection.Removed ? row.Text : null,
+                NewValue: direction == ResearchDiffDirection.Added ? row.Text : null,
+                Detail: row.Message,
+                Category: ResearchDiffChangeCategory.CSharp));
         }
     }
 

@@ -9,6 +9,7 @@ using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Research;
 
@@ -21,9 +22,7 @@ public enum CSharpDiffKind
 public sealed record CSharpDiffRow(
     string AssemblyIdentity,
     string StableMemberKey,
-    string StableMemberSelector,
-    string CanonicalSignature,
-    string Digest,
+    MemberAnchor Anchor,
     string Member,
     string ChangeId,
     string Message,
@@ -180,18 +179,16 @@ public static class CSharpBodyDiff
                 string selectorName = CanonicalMemberName(methodName);
                 string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
                 string canonicalSignature = $"M:{typeKey}.{selectorName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
-                string digest = GetMemberDigest(canonicalSignature);
+                var anchor = CreateMemberAnchor(typeKey, selectorName, canonicalSignature);
                 string displayName = methodName == ".ctor" ? "#ctor" : methodName;
                 string display = $"{typeDisplay}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
                 yield return new CSharpMethodEntry(
                     path,
                     source.AssemblyName,
                     stableAssemblyKey,
-                    canonicalSignature,
-                    $"{stableAssemblyKey}|{canonicalSignature}",
+                    anchor,
+                    $"{stableAssemblyKey}|{anchor.CanonicalSignature}",
                     DuplicateDiscriminator(reader, method),
-                    $"{selectorName}~{digest}",
-                    digest,
                     display,
                     typeFullName,
                     methodName,
@@ -243,12 +240,13 @@ public static class CSharpBodyDiff
         return $"<{string.Join(",", Enumerable.Range(0, arity).Select(index => $"{prefix}{index}"))}>";
     }
 
-    static string GetMemberDigest(string canonicalSignature)
-    {
-        var input = Encoding.UTF8.GetBytes("dotnet-inspect.member-index.v1\n" + canonicalSignature);
-        var hash = SHA256.HashData(input);
-        return System.Convert.ToHexString(hash).ToLowerInvariant()[..10];
-    }
+    static MemberAnchor CreateMemberAnchor(string typeFullName, string memberName, string canonicalSignature)
+        => new(
+            $"{memberName}~{MemberAnchor.ComputeFingerprint(canonicalSignature)}",
+            canonicalSignature,
+            MemberAnchor.ComputeFingerprint(canonicalSignature),
+            typeFullName,
+            memberName);
 
     static string DuplicateDiscriminator(MetadataReader reader, MethodDefinition method)
     {
@@ -735,9 +733,7 @@ public static class CSharpBodyDiff
         return new CSharpDiffRow(
             entry.StableAssemblyKey,
             entry.StableMemberKey,
-            entry.StableMemberSelector,
-            entry.CanonicalSignature,
-            entry.Digest,
+            entry.Anchor,
             entry.Display,
             changeId,
             message,
@@ -798,11 +794,9 @@ public static class CSharpBodyDiff
         string Path,
         string AssemblyName,
         string StableAssemblyKey,
-        string CanonicalSignature,
+        MemberAnchor Anchor,
         string StableMemberKey,
         string DuplicateDiscriminator,
-        string StableMemberSelector,
-        string Digest,
         string Display,
         string TypeFullName,
         string MethodName,
@@ -810,7 +804,7 @@ public static class CSharpBodyDiff
         bool HasBody,
         string BodyFingerprint)
     {
-        public string RawKey => CanonicalSignature;
+        public string RawKey => Anchor.CanonicalSignature;
     }
 
     enum CSharpMethodRenderState
