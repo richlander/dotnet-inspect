@@ -285,6 +285,112 @@ public class CoerceChokePointTests
         AssertCompiles("public static long M(bool c, long l, int x)", body);
     }
 
+    // work-2302 review (both reviewers, blocking): the unchecked(...) wrapper
+    // must not absorb NESTED checked operations — a checked add renders bare
+    // under an ambient checked region, so wrapping its pre-rendered text
+    // silenced its overflow check (`unchecked((uint)(a + b))` where the IL
+    // demands `unchecked((uint)checked(a + b))`). CheckedSafeCast now renders
+    // its operand with the context cleared so nested checked nodes self-wrap.
+    [Fact]
+    public void CheckedAddUnderCoerce_InCheckedRegion_KeepsItsOwnCheckedWrapper()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var checkedInner = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(1, "a", intType),
+            new LoadArgument(2, "b", intType));
+        var outer = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(0, "u", uintType),
+            new Coerce(uintType, checkedInner));
+        string body = RenderReturn(
+            outer,
+            uintType,
+            [new Parameter("u", uintType), new Parameter("a", intType), new Parameter("b", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("unchecked((uint)checked(a + b))", body);
+        AssertCompiles("public static uint M(uint u, int a, int b)", body);
+    }
+
+    [Fact]
+    public void PlainAddUnderCoerce_InCheckedRegion_StaysInsideTheUncheckedWrapper()
+    {
+        // The dual: a PLAIN add under the reinterpret needs no checked(...) —
+        // the cleared context renders it bare and the unchecked wrapper is its
+        // faithful home (no double-wrap noise).
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var plainInner = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(1, "a", intType),
+            new LoadArgument(2, "b", intType));
+        var outer = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(0, "u", uintType),
+            new Coerce(uintType, plainInner));
+        string body = RenderReturn(
+            outer,
+            uintType,
+            [new Parameter("u", uintType), new Parameter("a", intType), new Parameter("b", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("unchecked((uint)(a + b))", body);
+        Assert.DoesNotContain("checked(a + b)", body.Replace("unchecked((uint)(a + b))", ""));
+        AssertCompiles("public static uint M(uint u, int a, int b)", body);
+    }
+
+    [Fact]
+    public void CheckedAddArm_AtUnsignedMergedType_InCheckedRegion_KeepsItsCheckedWrapper()
+    {
+        // The join-arm form of the same finding: the third-direction arm cast
+        // must protect checked arithmetic inside the arm.
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var checkedArm = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(2, "a", intType),
+            new LoadArgument(3, "b", intType));
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "u", uintType),
+            checkedArm)
+        {
+            MergedType = uintType,
+        };
+        var outer = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new Constant(0, uintType),
+            conditional);
+        string body = RenderReturn(
+            outer,
+            uintType,
+            [
+                new Parameter("c", boolType),
+                new Parameter("u", uintType),
+                new Parameter("a", intType),
+                new Parameter("b", intType),
+            ],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("unchecked((uint)checked(a + b))", body);
+        AssertCompiles("public static uint M(bool c, uint u, int a, int b)", body);
+    }
+
     // #2301: a cross-signedness reinterpret cast rendered inside a lexical
     // checked region must wrap in unchecked(...) — bare `(uint)x` there
     // recompiles to a conv.ovf.u4 the IL never had (and throws on negative x).
