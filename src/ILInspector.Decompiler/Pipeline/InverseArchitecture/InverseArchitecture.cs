@@ -106,6 +106,30 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundConvertedSwitchExpression</c> (a <c>value switch { ... }</c> expression after conversion).</summary>
     RoslynBoundConvertedSwitchExpression,
+
+    /// <summary>Roslyn's <c>BoundConvertedTupleLiteral</c> (a <c>(a, b, ...)</c> tuple literal after conversion).</summary>
+    RoslynBoundTupleLiteral,
+
+    /// <summary>Roslyn's <c>BoundTupleBinaryOperator</c> (tuple <c>==</c>/<c>!=</c>, compared element-wise).</summary>
+    RoslynBoundTupleBinaryOperator,
+
+    /// <summary>Roslyn's <c>BoundIsPatternExpression</c> (a <c>value is pattern</c> test, all pattern forms).</summary>
+    RoslynBoundIsPatternExpression,
+
+    /// <summary>Roslyn's <c>BoundCollectionExpression</c> (a C# 12 <c>[e0, ..spread, e1]</c> collection expression).</summary>
+    RoslynBoundCollectionExpression,
+
+    /// <summary>Roslyn's <c>BoundObjectInitializerExpression</c> / <c>BoundCollectionInitializerExpression</c> (the brace body of <c>new T { ... }</c>).</summary>
+    RoslynBoundObjectInitializerExpression,
+
+    /// <summary>Roslyn's <c>BoundAnonymousObjectCreationExpression</c> (a <c>new { a = x }</c> anonymous-type creation).</summary>
+    RoslynBoundAnonymousObjectCreationExpression,
+
+    /// <summary>Roslyn's <c>BoundWithExpression</c> (a record <c>receiver with { ... }</c> nondestructive mutation).</summary>
+    RoslynBoundWithExpression,
+
+    /// <summary>Roslyn's <c>BoundInterpolatedString</c> (an <c>$"..."</c> interpolated string).</summary>
+    RoslynBoundInterpolatedString,
 }
 
 /// <summary>

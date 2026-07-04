@@ -1662,6 +1662,12 @@ public sealed class NewObject : IrExpression
 /// is the parallel name list (argument order), carried as metadata rather than
 /// child nodes since names are not expressions.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundAnonymousObjectCreationExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundAnonymousObjectCreationExpression (new { a = x })",
+    precondition: "`Type` is the compiler's <>f__AnonymousType construction the raise replaced; `PropertyNames` parallels the constructor argument order",
+    witness: "AnonymousObjectPassTests, corpus compile-back")]
 public sealed class AnonymousObject : IrExpression
 {
     public AnonymousObject(TypeRef type, ImmutableArray<string> propertyNames, IEnumerable<IrExpression> values)
@@ -1703,6 +1709,12 @@ public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex
 /// <see cref="StringInterpolationPass"/> from csc's straight-line
 /// <c>DefaultInterpolatedStringHandler</c> lowering.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundInterpolatedString,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundInterpolatedString ($\"...\")",
+    precondition: "result is `System.String`; raised from csc's straight-line DefaultInterpolatedStringHandler lowering; `HasAlignment` distinguishes an absent alignment from a present zero so each hole round-trips to the same AppendFormatted overload",
+    witness: "StringInterpolationPassTests, corpus compile-back")]
 public sealed class InterpolatedStringExpression : IrExpression
 {
     public InterpolatedStringExpression(IEnumerable<InterpolatedStringPart> parts, IEnumerable<IrExpression> formattedValues)
@@ -1725,6 +1737,12 @@ public sealed class InterpolatedStringExpression : IrExpression
 /// records the element values and the underlying ValueTuple type; tuple element
 /// names are a signature/custom-attribute concern and are not recovered here.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundTupleLiteral,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundConvertedTupleLiteral ((a, b, ...))",
+    precondition: "result is the underlying `System.ValueTuple<...>` constructed type of the constructor call the raise replaced; element names are a signature/attribute concern and are not recovered here",
+    witness: "TupleCreationPassTests, corpus compile-back")]
 public sealed class TupleExpression : IrExpression
 {
     public TupleExpression(TypeRef tupleType, IEnumerable<IrExpression> elements)
@@ -1746,6 +1764,12 @@ public sealed class TupleExpression : IrExpression
 /// A raised C# tuple binary operator, produced from csc's hidden ValueTuple
 /// operand spills and element-wise comparison lowering.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundTupleBinaryOperator,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundTupleBinaryOperator (tuple ==/!=)",
+    precondition: "result is `System.Boolean`; raised only from csc's hidden ValueTuple operand spills plus element-wise comparison lowering; `TupleType` is the operands' ValueTuple type",
+    witness: "TupleBinaryOperatorPassTests, corpus compile-back")]
 public sealed class TupleBinaryExpression : IrExpression
 {
     public TupleBinaryExpression(bool isEquality, TypeRef tupleType, IrExpression left, IrExpression right)
@@ -1922,6 +1946,12 @@ public sealed class DeconstructionAssignment : IrNode
 /// are the entry values, parallel to <see cref="Members"/> (a member name for the
 /// object form, <c>null</c> for a collection element).
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundObjectInitializerExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundObjectInitializerExpression / BoundCollectionInitializerExpression (new T { ... })",
+    precondition: "result is the creation's type; raised only when the constructor result is threaded through a dup chain, mutated by a run of member stores or Add calls, and consumed exactly once; entry order preserves the IL store order",
+    witness: "ObjectInitializerPassTests, ObjectInitializerContiguityTests, corpus compile-back")]
 public sealed class ObjectInitializerExpression : IrExpression
 {
     public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<InitializerEntry> entries)
@@ -1968,6 +1998,12 @@ public sealed class ObjectInitializerExpression : IrExpression
 /// clone-then-member-set lowering when the synthesized record clone and the
 /// single non-escaping mutation target are proven.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundWithExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundWithExpression (receiver with { X = value })",
+    precondition: "result is the receiver's record type; raised only when the compiler-synthesized clone call and the single non-escaping mutation target are proven; every entry names a member and carries exactly one value",
+    witness: "WithExpressionPassTests, corpus compile-back")]
 public sealed class WithExpression : IrExpression
 {
     public WithExpression(IrExpression receiver, IEnumerable<InitializerEntry> entries)
@@ -2006,6 +2042,12 @@ public sealed class WithExpression : IrExpression
 /// appears as the value of a parent <see cref="InitializerEntry"/>, so the IR tree
 /// carries arbitrary nesting depth without any special-casing here.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundObjectInitializerExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundObjectInitializerExpression member (Inner = { X = a } / Items = { e0, e1 })",
+    precondition: "an ObjectInitializerExpression body without the creation — the member is initialized in place, not reconstructed; appears only as the value of a parent InitializerEntry, raised from member/Add stores rooted at a member read off the threaded reference",
+    witness: "ObjectInitializerPassTests, ObjectInitializerContiguityTests, corpus compile-back")]
 public sealed class InitializerBlock : IrExpression
 {
     public InitializerBlock(bool isCollection, IEnumerable<InitializerEntry> entries)
@@ -2611,6 +2653,12 @@ public sealed class IsInstance : IrExpression
 /// expression; <see cref="LocalIndex"/> is the bound pattern variable, declared
 /// by the pattern itself (so the printer skips its up-front declaration).
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundIsPatternExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundIsPatternExpression (value is T t)",
+    precondition: "result is `System.Boolean`; `LocalIndex` is the pattern-bound narrowed local (declared by the pattern, so its up-front declaration is skipped); raised only when the `value as T` store immediately precedes the null test gating the local's sole use scope",
+    witness: "IsPatternPassTests, corpus compile-back")]
 public sealed class IsPattern : IrExpression
 {
     public IsPattern(IrExpression value, TypeRef type, int localIndex)
@@ -2644,6 +2692,12 @@ public sealed class IsPattern : IrExpression
 /// property <c>as</c> store plus bool-slot test when the bound local is used only
 /// in the matched branch.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundIsPatternExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundIsPatternExpression (value is { Property: T t })",
+    precondition: "result is `System.Boolean`; `Accessor` is the property getter the subpattern reads; raised only from the null-guarded property `as` store plus bool-slot test with the bound local used solely in the matched branch",
+    witness: "IsPatternPassTests, IdiomShapeScorecard pattern cases, corpus compile-back")]
 public sealed class RecursivePropertyDeclarationPattern : IrExpression
 {
     public RecursivePropertyDeclarationPattern(IrExpression value, MethodRef accessor, TypeRef patternType, int localIndex)
@@ -2680,6 +2734,12 @@ public sealed class RecursivePropertyDeclarationPattern : IrExpression
 /// csc's null/length/element-temp/equality-chain lowering when the element temp
 /// and bool result slot are compiler-generated and do not escape.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundIsPatternExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundIsPatternExpression (value is [\"a\" or \"b\"])",
+    precondition: "result is `System.Boolean`; raised from csc's null/length/element-temp/equality-chain lowering over a string array, only when the element temp and bool result slot are compiler-generated and do not escape; alternatives are the element-zero constants",
+    witness: "ListPatternPassTests, corpus compile-back")]
 public sealed class SingleElementListPattern : IrExpression
 {
     public SingleElementListPattern(IrExpression value, IReadOnlyList<Constant> alternatives)
@@ -2707,6 +2767,12 @@ public readonly record struct PositionalPatternSubpattern(ComparisonKind Kind);
 /// <c>value is ("ok", &gt; 0)</c>. The first slice stores constant or relational
 /// sub-patterns produced from csc's null/deconstruct/guard lowering.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundIsPatternExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundIsPatternExpression (value is (\"ok\", > 0))",
+    precondition: "result is `System.Boolean`; raised from csc's null/deconstruct/guard lowering over a deconstructable receiver; element subpatterns are constant or relational, with one constant per subpattern",
+    witness: "IdiomShapeScorecard pattern cases, corpus compile-back")]
 public sealed class PositionalPattern : IrExpression
 {
     public PositionalPattern(IrExpression value, IReadOnlyList<PositionalPatternSubpattern> subpatterns, IReadOnlyList<Constant> constants)
@@ -2904,6 +2970,12 @@ public sealed class SpanLiteral : IrExpression
 /// temporary produced, so the surrounding context is unchanged when csc
 /// re-lowers the collection expression.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundCollectionExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundCollectionExpression ([e0, ..spread, e1])",
+    precondition: "result is the target type the replaced expression or returned temporary produced (the surrounding context is unchanged when csc re-lowers); raised only from exact synthesized lowerings — inline-array span buffers, PDB-discriminated `List<T>` SetCount/AsSpan fills, and symbol-confirmed array spread-with-tail copy/slice shapes",
+    witness: "CollectionExpressionFrontierTests, corpus compile-back")]
 public sealed class CollectionExpression : IrExpression
 {
     public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements)
@@ -2924,6 +2996,12 @@ public sealed class CollectionExpression : IrExpression
 }
 
 /// <summary>A spread element inside a <see cref="CollectionExpression"/>: <c>..source</c>.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundCollectionExpression,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "BoundCollectionExpressionSpreadElement (..source)",
+    precondition: "result is the spread source's type; appears only as an element of a CollectionExpression",
+    witness: "CollectionExpressionFrontierTests, corpus compile-back")]
 public sealed class CollectionSpreadElement : IrExpression
 {
     public CollectionSpreadElement(IrExpression source) => AddChild(source);
@@ -2944,6 +3022,12 @@ public sealed class CollectionSpreadElement : IrExpression
 /// The compiler re-lowers the reconstructed literal to the same content-addressed
 /// blob, so the round-trip is opcode-exact.
 /// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayCreation,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundArrayCreation + BoundArrayInitialization (new T[] { ... } via RuntimeHelpers.InitializeArray)",
+    precondition: "result is the array type; elements are decoded from the `<PrivateImplementationDetails>` blob's raw little-endian bytes at the element width; the compiler re-lowers the literal to the same content-addressed blob, so the round-trip is opcode-exact",
+    witness: "InitializeArrayTests, corpus compile-back")]
 public sealed class ArrayLiteral : IrExpression
 {
     public ArrayLiteral(TypeRef elementType, TypeRef arrayType, IEnumerable<IrExpression> elements)
