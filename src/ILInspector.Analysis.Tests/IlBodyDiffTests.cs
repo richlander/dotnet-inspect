@@ -202,22 +202,17 @@ public class IlBodyDiffTests
     }
 
     [Fact]
-    public void Compare_CompiledFixtureLdTokenChange_ReportsTokenVariants()
+    public void Compare_CompiledFixtureTokenOpcodes_ReportsTokenVariants()
     {
         var typeDiff = DiffFixtureDiff("LdTokenType");
         AssertTokenOperandPair(typeDiff, "ldtoken", "TypeTokenA", "TypeTokenB");
 
         var fieldDiff = DiffFixtureDiff("LdTokenField");
-        Assert.Contains(fieldDiff.Rows, row =>
-            row.Kind == IlDiffKind.Remove
-            && row.Operation.OpcodeFamily == "ldtoken"
-            && row.Operation.Operand?.Kind == IlOperandIdentityKind.Token
-            && row.Operation.Operand.Value.Contains("field ", StringComparison.Ordinal));
-        Assert.Contains(fieldDiff.Rows, row =>
-            row.Kind == IlDiffKind.Add
-            && row.Operation.OpcodeFamily == "ldtoken"
-            && row.Operation.Operand?.Kind == IlOperandIdentityKind.Token
-            && row.Operation.Operand.Value.Contains("field ", StringComparison.Ordinal));
+        var removedFieldToken = SingleTokenOperand(fieldDiff, IlDiffKind.Remove, "ldtoken", "field ");
+        var addedFieldToken = SingleTokenOperand(fieldDiff, IlDiffKind.Add, "ldtoken", "field ");
+        Assert.Contains("<PrivateImplementationDetails>", removedFieldToken.Value, StringComparison.Ordinal);
+        Assert.Contains("<PrivateImplementationDetails>", addedFieldToken.Value, StringComparison.Ordinal);
+        Assert.NotEqual(removedFieldToken.Value, addedFieldToken.Value);
 
         var methodDiff = DiffFixtureDiff("MethodToken");
         AssertTokenOperandPair(methodDiff, "ldftn", "::TokenTargetA(", "::TokenTargetB(");
@@ -228,14 +223,12 @@ public class IlBodyDiffTests
     {
         var diff = DiffFixtureDiff("SwitchRetarget");
 
-        Assert.Contains(diff.Rows, row =>
-            row.Kind == IlDiffKind.Remove
-            && row.Operation.OpcodeFamily == "switch"
-            && row.Operation.Operand?.Kind == IlOperandIdentityKind.SwitchTargets);
-        Assert.Contains(diff.Rows, row =>
-            row.Kind == IlDiffKind.Add
-            && row.Operation.OpcodeFamily == "switch"
-            && row.Operation.Operand?.Kind == IlOperandIdentityKind.SwitchTargets);
+        var removedSwitchTargets = SingleOperand(diff, IlDiffKind.Remove, "switch", IlOperandIdentityKind.SwitchTargets);
+        var addedSwitchTargets = SingleOperand(diff, IlDiffKind.Add, "switch", IlOperandIdentityKind.SwitchTargets);
+        Assert.Equal(
+            removedSwitchTargets.Value.Split(',').Length,
+            addedSwitchTargets.Value.Split(',').Length);
+        Assert.NotEqual(removedSwitchTargets.Value, addedSwitchTargets.Value);
     }
 
     [Fact]
@@ -386,16 +379,30 @@ public class IlBodyDiffTests
         string removedOperandFragment,
         string addedOperandFragment)
     {
-        Assert.Contains(diff.Rows, row =>
-            row.Kind == IlDiffKind.Remove
+        _ = SingleTokenOperand(diff, IlDiffKind.Remove, opcodeFamily, removedOperandFragment);
+        _ = SingleTokenOperand(diff, IlDiffKind.Add, opcodeFamily, addedOperandFragment);
+    }
+
+    static IlOperandIdentity SingleTokenOperand(
+        IlBodyDiffResult diff,
+        IlDiffKind kind,
+        string opcodeFamily,
+        string operandFragment)
+        => SingleOperand(diff, kind, opcodeFamily, IlOperandIdentityKind.Token, operandFragment);
+
+    static IlOperandIdentity SingleOperand(
+        IlBodyDiffResult diff,
+        IlDiffKind kind,
+        string opcodeFamily,
+        IlOperandIdentityKind operandKind,
+        string? operandFragment = null)
+    {
+        var row = Assert.Single(diff.Rows, row =>
+            row.Kind == kind
             && row.Operation.OpcodeFamily == opcodeFamily
-            && row.Operation.Operand?.Kind == IlOperandIdentityKind.Token
-            && row.Operation.Operand.Value.Contains(removedOperandFragment, StringComparison.Ordinal));
-        Assert.Contains(diff.Rows, row =>
-            row.Kind == IlDiffKind.Add
-            && row.Operation.OpcodeFamily == opcodeFamily
-            && row.Operation.Operand?.Kind == IlOperandIdentityKind.Token
-            && row.Operation.Operand.Value.Contains(addedOperandFragment, StringComparison.Ordinal));
+            && row.Operation.Operand?.Kind == operandKind
+            && (operandFragment is null || row.Operation.Operand.Value.Contains(operandFragment, StringComparison.Ordinal)));
+        return Assert.IsType<IlOperandIdentity>(row.Operation.Operand);
     }
 
     static IlBodyDiffResult DiffFixtureDiff(string name)
