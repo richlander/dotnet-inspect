@@ -29,9 +29,17 @@ internal static class AssertionScan
         string Node,
         string SinkType,
         string Message,
-        int Ordinal)
+        int Ordinal,
+        bool FinalStageSurvivor = false)
     {
         public string Identity => $"{Pass}|{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
+
+        /// <summary>
+        /// Pass-independent identity — the assertion is the same claim wherever it
+        /// is observed. Used to match a first-appearance site against the set of
+        /// violations still present at the final stage (the survivor set).
+        /// </summary>
+        public string StageIdentity => $"{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
     }
 
     public sealed record MethodResult(
@@ -457,9 +465,12 @@ internal static class AssertionScan
                 importCrashes[0].ToString());
         }
 
+        var finalStageIdentities = new HashSet<string>(StringComparer.Ordinal);
+
         void Capture(string passName)
         {
             AddCoveredNodes(function, covered);
+            var stageIdentities = new HashSet<string>(StringComparer.Ordinal);
             var stageViolations = new List<(string Identity, ViolationSite Site)>();
             foreach (var predicate in AssertionEvaluator.EvaluateAssumptions(function))
             {
@@ -470,6 +481,7 @@ internal static class AssertionScan
                     string identity = $"{predicate.Name}|{node}|{sinkType}|{violation.Message}";
                     int ordinal = OccurrenceOrdinal(occurrenceOrdinals, identity, violation.Node);
                     string stableIdentity = $"{identity}#{ordinal}";
+                    stageIdentities.Add(stableIdentity);
                     stageViolations.Add((
                         stableIdentity,
                         new ViolationSite(key, passName, predicate.Name, node, sinkType, violation.Message, ordinal)));
@@ -481,6 +493,12 @@ internal static class AssertionScan
                 if (seenViolations.Add(identity))
                     violations.Add(site);
             }
+
+            // The most recent Capture is the final stage once the loop ends: keep
+            // this stage's identities so survivors (still present at the final
+            // stage — the corpus analog of #2271's UNSOUND) can be marked after.
+            finalStageIdentities.Clear();
+            finalStageIdentities.UnionWith(stageIdentities);
         }
 
         try
@@ -506,13 +524,25 @@ internal static class AssertionScan
                 overload,
                 signature,
                 key,
-                violations,
+                MarkSurvivors(violations, finalStageIdentities),
                 covered,
                 $"{ex.GetType().Name}: {ex.Message}");
         }
 
-        return new MethodResult(assembly, assemblyPath, type, method, overload, signature, key, violations, covered, PassBug: null);
+        return new MethodResult(assembly, assemblyPath, type, method, overload, signature, key,
+            MarkSurvivors(violations, finalStageIdentities), covered, PassBug: null);
     }
+
+    /// <summary>
+    /// Flags each first-appearance violation whose claim is still present at the
+    /// final stage — a discharged obligation (wrapped by a later pass, e.g.
+    /// coercion insertion) is cleared, a survivor is the real soundness signal.
+    /// </summary>
+    internal static IReadOnlyList<ViolationSite> MarkSurvivors(
+        IReadOnlyList<ViolationSite> violations, IReadOnlySet<string> finalStageIdentities)
+        => violations
+            .Select(v => v with { FinalStageSurvivor = finalStageIdentities.Contains(v.StageIdentity) })
+            .ToArray();
 
     static int OccurrenceOrdinal(Dictionary<string, Dictionary<IrNode, int>> ordinals, string identity, IrNode node)
     {
@@ -557,12 +587,32 @@ internal static class AssertionScan
         Console.WriteLine($"ASSERTION SCAN over {scope} ({passBugs} pass bugs)");
         Console.WriteLine($"  methods with >=1 violation: {methodsWithViolations.Length} ({Percent(methodsWithViolations.Length, total)})");
         Console.WriteLine($"  first violation sites      : {violationCount}");
+
+        // Final-stage survivors are the corpus analog of #2271's UNSOUND marker:
+        // an assertion still failing after the last pass, where nothing downstream
+        // remains to discharge it. Every other violation site is a discharged
+        // OBLIGATION (a later pass, e.g. coercion insertion, wrapped the sink) —
+        // the pipeline working as designed. The survivor count is the real
+        // soundness number; "final stage is zero" for the wrappable population is
+        // the target (known PrinterOwned residuals excluded). See #2269.
+        var survivors = methodsWithViolations.SelectMany(m => m.Violations).Where(v => v.FinalStageSurvivor).ToArray();
+        int survivorMethods = methodsWithViolations.Count(m => m.Violations.Any(v => v.FinalStageSurvivor));
+        Console.WriteLine($"  final-stage survivors (UNSOUND): {survivors.Length} across {survivorMethods} method(s)");
+        Console.WriteLine($"  discharged obligations         : {violationCount - survivors.Length}");
         Console.WriteLine();
 
         PrintHistogram("By sink type:", methodsWithViolations.SelectMany(m => m.Violations).GroupBy(v => v.SinkType));
         PrintHistogram("By first failing pass:", methodsWithViolations.SelectMany(m => m.Violations).GroupBy(v => v.Pass));
         PrintHistogram("By node:", methodsWithViolations.SelectMany(m => m.Violations).GroupBy(v => v.Node));
         PrintHistogram("By predicate:", methodsWithViolations.SelectMany(m => m.Violations).GroupBy(v => v.Predicate));
+
+        if (survivors.Length > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Final-stage survivors (UNSOUND — the soundness signal):");
+            PrintHistogram("  by node:", survivors.GroupBy(v => v.Node));
+            PrintHistogram("  by sink type:", survivors.GroupBy(v => v.SinkType));
+        }
 
         Console.WriteLine();
         Console.WriteLine("Annotation coverage:");
@@ -679,6 +729,8 @@ internal static class AssertionScan
 
         var gained = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
         var lost = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+        var survivorGained = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+        var survivorLost = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var method in comparable)
         {
             var now = currentByMethod[method].ViolationIdentities();
@@ -687,12 +739,27 @@ internal static class AssertionScan
                 (gained.TryGetValue(violation, out var methods) ? methods : gained[violation] = []).Add(method);
             foreach (var violation in was.Except(now, StringComparer.Ordinal))
                 (lost.TryGetValue(violation, out var methods) ? methods : lost[violation] = []).Add(method);
+
+            var nowSurvivors = currentByMethod[method].SurvivorIdentities();
+            var wasSurvivors = baselineByMethod[method].SurvivorIdentities();
+            foreach (var violation in nowSurvivors.Except(wasSurvivors, StringComparer.Ordinal))
+                (survivorGained.TryGetValue(violation, out var methods) ? methods : survivorGained[violation] = []).Add(method);
+            foreach (var violation in wasSurvivors.Except(nowSurvivors, StringComparer.Ordinal))
+                (survivorLost.TryGetValue(violation, out var methods) ? methods : survivorLost[violation] = []).Add(method);
         }
 
         Console.WriteLine();
         Console.WriteLine($"ASSERTION VIOLATION DIFF vs {baselinePath} ({comparable.Length} methods checked in both; {onlyCurrent} only-current, {onlyBaseline} only-baseline, {passBugExcluded} pass-bug excluded)");
         PrintDiffSide("REGRESSED (method gained the violation)", gained);
         PrintDiffSide("IMPROVED (method lost the violation)", lost);
+
+        // The survivor deltas are the load-bearing soundness signal: a newly
+        // surviving assertion (UNSOUND) is a real regression, distinct from a
+        // gained-but-discharged obligation. See #2269.
+        Console.WriteLine();
+        Console.WriteLine("Final-stage survivors (UNSOUND) delta:");
+        PrintDiffSide("  SURVIVOR REGRESSED (method gained a final-stage survivor)", survivorGained);
+        PrintDiffSide("  SURVIVOR IMPROVED (method discharged a former survivor)", survivorLost);
     }
 
     static void PrintDiffSide(string title, SortedDictionary<string, List<string>> byViolation)
@@ -725,7 +792,7 @@ internal static class AssertionScan
     {
         public static AssertionViolationSnapshot FromResult(Result result)
             => new(
-                SchemaVersion: 1,
+                SchemaVersion: 2,
                 GeneratedUtc: DateTimeOffset.UtcNow,
                 Methods: result.Methods
                     .Select(m => new AssertionViolationMethod(
@@ -738,7 +805,7 @@ internal static class AssertionScan
                         m.Key,
                         m.PassBug,
                         m.Violations
-                            .Select(v => new AssertionViolationRecord(v.Pass, v.Predicate, v.Node, v.SinkType, v.Message, v.Ordinal))
+                            .Select(v => new AssertionViolationRecord(v.Pass, v.Predicate, v.Node, v.SinkType, v.Message, v.Ordinal, v.FinalStageSurvivor))
                             .OrderBy(v => v.Identity, StringComparer.Ordinal)
                             .ToArray()))
                     .OrderBy(m => m.Key, StringComparer.Ordinal)
@@ -758,6 +825,10 @@ internal static class AssertionScan
     {
         public SortedSet<string> ViolationIdentities()
             => new(Violations.Select(v => v.Identity), StringComparer.Ordinal);
+
+        /// <summary>Identities of violations still failing at the final stage — the survivor (UNSOUND) set.</summary>
+        public SortedSet<string> SurvivorIdentities()
+            => new(Violations.Where(v => v.FinalStageSurvivor).Select(v => v.Identity), StringComparer.Ordinal);
     }
 
     public sealed record AssertionViolationRecord(
@@ -766,7 +837,8 @@ internal static class AssertionScan
         string Node,
         string SinkType,
         string Message,
-        int Ordinal)
+        int Ordinal,
+        bool FinalStageSurvivor = false)
     {
         public string Identity => $"{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
     }

@@ -245,6 +245,56 @@ public class AssertionScanTests
         Assert.DoesNotContain("OBLIGATION", dump);
     }
 
+    [Fact]
+    public void EvaluateFunction_DischargedViolationIsNotFinalStageSurvivor()
+    {
+        // A LoadArgument(int) at an enum sink is flagged at import, but coercion
+        // insertion wraps it in a Coerce before the final stage — a discharged
+        // OBLIGATION, not a survivor. (#2269)
+        var function = Function(
+            Returning(new LoadArgument(0, "raw", Int32)),
+            Enum32,
+            new Parameter("raw", Int32));
+
+        var result = AssertionScan.EvaluateFunction(
+            "synthetic", "synthetic.dll", "Samples.Holder", "EnumReturn", overload: 0, function);
+
+        var violation = Assert.Single(result.Violations);
+        Assert.False(violation.FinalStageSurvivor);
+        Assert.Contains(nameof(Coerce), result.CoveredNodes);
+    }
+
+    [Fact]
+    public void MarkSurvivors_FlagsOnlyViolationsPresentAtFinalStage()
+    {
+        var discharged = new AssertionScan.ViolationSite(
+            Method: "m", Pass: IrPasses.ImportStageName, Predicate: "SinkDistinguishableFromStack",
+            Node: nameof(LoadArgument), SinkType: "E32", Message: "raw occupies a E32 sink without a Coerce", Ordinal: 0);
+        var survivor = new AssertionScan.ViolationSite(
+            Method: "m", Pass: IrPasses.ImportStageName, Predicate: "SinkDistinguishableFromStack",
+            Node: nameof(Constant), SinkType: "bool", Message: "0 occupies a bool sink without a Coerce", Ordinal: 0);
+
+        // Only the survivor's stage identity is present at the final stage.
+        var finalStage = new HashSet<string>(StringComparer.Ordinal) { survivor.StageIdentity };
+
+        var marked = AssertionScan.MarkSurvivors([discharged, survivor], finalStage);
+
+        Assert.False(marked.Single(v => v.Node == nameof(LoadArgument)).FinalStageSurvivor);
+        Assert.True(marked.Single(v => v.Node == nameof(Constant)).FinalStageSurvivor);
+    }
+
+    [Fact]
+    public void ViolationSite_StageIdentityIsPassIndependent()
+    {
+        var atImport = new AssertionScan.ViolationSite(
+            Method: "m", Pass: IrPasses.ImportStageName, Predicate: "P",
+            Node: nameof(LoadArgument), SinkType: "bool", Message: "msg", Ordinal: 2);
+        var atLaterPass = atImport with { Pass = "some-later-pass" };
+
+        Assert.Equal(atImport.StageIdentity, atLaterPass.StageIdentity);
+        Assert.NotEqual(atImport.Identity, atLaterPass.Identity);
+    }
+
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
         => new(
             "M",
