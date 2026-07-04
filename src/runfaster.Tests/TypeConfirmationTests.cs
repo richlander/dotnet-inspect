@@ -6,6 +6,87 @@ using System.Collections.Generic;
 public class TypeConfirmationTests
 {
     [Fact]
+    public void CanonicalTypeSignature_ReversesArrayRanksOnlyWithinPointerBoundedRuns()
+    {
+        // Array ranks reverse only within a consecutive run; a pointer bounds the run. So
+        // int[][,]*[] (reflection System.Int32[,][]*[]) reconciles, and the distinct int[][]*[,]
+        // (reflection System.Int32[][]*[,]) must not collide with it.
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int[][,]*[]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32[,][]*[]", reflection: true));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int[][]*[,]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32[][]*[,]", reflection: true));
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("System.Int32[,][]*[]", reflection: true),
+            ProgramSupport.CanonicalTypeSignature("int[][]*[,]", reflection: false));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_KeepsPointerPositionWhenReversingArrayRanks()
+    {
+        // Only array ranks reverse between C# and reflection; pointer '*' stays in place. int*[]
+        // (array of pointers) and int[]* (pointer to array) are distinct and must not collide, and
+        // int*[][,] must reconcile across forms.
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int*[]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32*[]", reflection: true));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int*[][,]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32*[,][]", reflection: true));
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("int[]*", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32*[]", reflection: true));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ReconcilesArrayRankOrderingAcrossForms()
+    {
+        // Reflection orders array modifiers inside-out relative to C# (int[][,] is emitted as
+        // System.Int32[,][]). Display and reflection forms of the same type must agree, and the two
+        // genuinely-distinct jagged/multidim shapes must not collide.
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int[][,]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32[,][]", reflection: true));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int[,][]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32[][,]", reflection: true));
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("int[][,]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("int[,][]", reflection: false));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ExpandsTupleShorthandToValueTuple()
+    {
+        // C# tuple shorthand must expand to the runtime ValueTuple form, must not collapse distinct
+        // tuples to an empty string, and must ignore element names.
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("System.ValueTuple`2[System.Int32,System.String][]", reflection: true),
+            ProgramSupport.CanonicalTypeSignature("(int, string)[]", reflection: false));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("(int, string)", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("(int a, string b)", reflection: false));
+        var a = ProgramSupport.CanonicalTypeSignature("(int, string)", reflection: false);
+        var b = ProgramSupport.CanonicalTypeSignature("(double, float)", reflection: false);
+        Assert.NotEqual(a, b);
+        Assert.NotEqual(string.Empty, a);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ExpandsNullableShorthandToNullable()
+    {
+        // C# nullable value-type shorthand (T?) must expand to System.Nullable<T> so it reconciles
+        // with the runtime generic form (e.g. an array of nullable ints).
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("System.Nullable`1[System.Int32][]", reflection: true),
+            ProgramSupport.CanonicalTypeSignature("int?[]", reflection: false));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("System.Nullable`1[System.Int32]", reflection: true),
+            ProgramSupport.CanonicalTypeSignature("int?", reflection: false));
+    }
+
+    [Fact]
     public void CanonicalTypeSignature_ReconcilesStaticAngleAndRuntimeBacktickForms()
     {
         var staticForm = ProgramSupport.CanonicalTypeSignature("System.Func<string, System.Lazy<int>>");
@@ -93,6 +174,123 @@ public class TypeConfirmationTests
         Assert.NotEqual(
             ProgramSupport.CanonicalTypeSignature("A.Foo"),
             ProgramSupport.CanonicalTypeSignature("B.Foo"));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesCompilerGeneratedNames()
+    {
+        // A closure/state-machine name must not collapse to its parent type (previously
+        // Enumerable+<>c__DisplayClass18_0 canonicalized to Enumerable), and two distinct closures
+        // in the same parent must stay distinct.
+        var parent = ProgramSupport.CanonicalTypeSignature("System.Linq.Enumerable");
+        var closure = ProgramSupport.CanonicalTypeSignature("System.Linq.Enumerable+<>c__DisplayClass18_0");
+        var otherClosure = ProgramSupport.CanonicalTypeSignature("System.Linq.Enumerable+<>c__DisplayClass19_0");
+
+        Assert.NotEqual(parent, closure);
+        Assert.NotEqual(closure, otherClosure);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesNestedTypeAfterGenericArguments()
+    {
+        // A nested type on a generic parent must not be dropped. Reflection emits the parent's type
+        // arguments in the trailing bracket after the whole nested chain
+        // (Dictionary`2+KeyCollection[String,Int32]); the nested name must survive and the arguments
+        // must bind to the parent, matching the display form Dictionary<String,Int32>.KeyCollection.
+        var runtime = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2+KeyCollection[System.String,System.Int32]");
+        var display = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary<System.String,System.Int32>.KeyCollection");
+        var parentOnly = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2[System.String,System.Int32]");
+
+        Assert.Equal(display, runtime);       // reflection nested form == display nested form
+        Assert.NotEqual(parentOnly, runtime); // KeyCollection is not dropped
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_DistributesTrailingArgsAcrossNestedGenerics()
+    {
+        // Reflection puts the whole chain's arguments in one trailing bracket, distributed by each
+        // segment's arity (Outer`1+Inner`1[A,B] == Outer<A>.Inner<B>). Previously the arity of the
+        // non-final segment was dropped and the arguments misattributed to the last segment.
+        var runtime = ProgramSupport.CanonicalTypeSignature("Outer`1+Inner`1[System.Int32,System.String]");
+        var display = ProgramSupport.CanonicalTypeSignature("Outer<System.Int32>.Inner<System.String>");
+
+        Assert.Equal(display, runtime);
+        // Swapping the arguments across the two levels must not collide.
+        Assert.NotEqual(
+            runtime,
+            ProgramSupport.CanonicalTypeSignature("Outer`1+Inner`1[System.String,System.Int32]"));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_HandlesAssemblyQualifiedGenericArguments()
+    {
+        // Assembly-qualified reflection long form must not hang and must reconcile with the short
+        // form (the assembly qualifier is stripped).
+        var longForm = ProgramSupport.CanonicalTypeSignature(
+            "System.Func`2[[System.String, System.Private.CoreLib],[System.Int32, System.Private.CoreLib]]");
+        var shortForm = ProgramSupport.CanonicalTypeSignature("System.Func`2[System.String,System.Int32]");
+
+        Assert.Equal(shortForm, longForm);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesBacktickOnlyGenericArity()
+    {
+        // An open generic definition (backtick arity with no argument bracket) must keep its arity so
+        // distinct definitions do not collide (My.Generic`2 != My.Generic`3 != My.Generic).
+        var arity2 = ProgramSupport.CanonicalTypeSignature("My.Generic`2");
+        var arity3 = ProgramSupport.CanonicalTypeSignature("My.Generic`3");
+        var nonGeneric = ProgramSupport.CanonicalTypeSignature("My.Generic");
+
+        Assert.NotEqual(arity2, arity3);
+        Assert.NotEqual(arity2, nonGeneric);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ReconcilesNestedGenericArgumentOrdering()
+    {
+        // A nested generic type must canonicalize the same regardless of whether the parent's
+        // arguments trail the whole chain (reflection's normal form) or precede the nested separator.
+        var trailing = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2+KeyCollection[System.String,System.Int32]");
+        var preSeparator = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2[System.String,System.Int32]+KeyCollection");
+        var display = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary<System.String,System.Int32>.KeyCollection");
+
+        Assert.Equal(display, trailing);
+        Assert.Equal(display, preSeparator);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesGenericArgumentOrderAndSeparators()
+    {
+        // The argument separator must be preserved so different splits do not collide.
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("Func<AB, C>"),
+            ProgramSupport.CanonicalTypeSignature("Func<A, BC>"));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesUnboundGenericArity()
+    {
+        var arity2 = ProgramSupport.CanonicalTypeSignature("System.String<,>");
+        var arity0 = ProgramSupport.CanonicalTypeSignature("System.String<>");
+        var arity3 = ProgramSupport.CanonicalTypeSignature("System.String<,,>");
+
+        Assert.NotEqual(arity2, arity0);
+        Assert.NotEqual(arity2, arity3);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ReconcilesArrayOfGenericAcrossForms()
+    {
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("Entry<System.String,System.Object>[]"),
+            ProgramSupport.CanonicalTypeSignature("Entry`2[System.String,System.Object][]"));
     }
 
     [Fact]
