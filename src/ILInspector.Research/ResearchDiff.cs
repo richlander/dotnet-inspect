@@ -16,7 +16,7 @@ public enum ResearchDiffMechanism
     BodySignals = 2,
     IlBody = 4,
     CSharp = 8,
-    AllAvailable = Api | BodySignals | IlBody,
+    AllAvailable = Api | BodySignals | IlBody | CSharp,
 }
 
 public enum ResearchDiffSubjectKind

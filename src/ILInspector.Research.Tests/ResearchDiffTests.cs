@@ -244,6 +244,18 @@ public class ResearchDiffTests
             member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void CompareAssemblies_DefaultMechanisms_IncludeCSharpChanges()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            DiffFixturePath("DiffFixtures.V1"),
+            DiffFixturePath("DiffFixtures.V2"));
+
+        Assert.Contains(diff.MembersWhere(member => member.ImplementationChanged), member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
+            && member.HasMechanism(ResearchDiffMechanism.CSharp));
+    }
+
     static ApiSurface Surface(string typeName, params ApiMember[] members)
         => new()
         {
