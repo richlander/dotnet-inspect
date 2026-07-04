@@ -409,10 +409,19 @@ public static class FixtureCatalog
 
     static string CurrentConfiguration()
     {
-        var outputDirectory = new DirectoryInfo(
-            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        return outputDirectory.Name;
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (IsConfigurationDirectory(directory.Name))
+                return directory.Name.ToLowerInvariant();
+        }
+
+        throw new InvalidOperationException(
+            $"Could not infer build configuration from '{AppContext.BaseDirectory}'. Run tests from a built dotnet-inspect checkout.");
     }
+
+    static bool IsConfigurationDirectory(string name)
+        => string.Equals(name, "debug", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(name, "release", StringComparison.OrdinalIgnoreCase);
 
     static string RepositoryRoot()
     {
