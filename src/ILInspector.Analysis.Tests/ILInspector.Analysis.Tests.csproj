@@ -37,6 +37,8 @@
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphLookalikeCaller\ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffAsmFixtures.Target\DiffAsmFixtures.Target.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffAsmFixtures.Caller\DiffAsmFixtures.Caller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\tools\AnalysisHarness\AnalysisHarness.csproj" />

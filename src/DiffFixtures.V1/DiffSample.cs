@@ -26,5 +26,8 @@ namespace DiffFixtureSample
 
         // Identical in both versions -> no diff row.
         public static int Stable() => 42;
+
+        // V1: safe body. V2 adds a visible unsafe operation.
+        public static int AddsUnsafe(int value) => value;
     }
 }

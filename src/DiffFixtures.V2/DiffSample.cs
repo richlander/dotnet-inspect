@@ -29,5 +29,13 @@ namespace DiffFixtureSample
 
         // Identical in both versions -> no diff row.
         public static int Stable() => 42;
+
+        // V2: visible unsafe operation added relative to V1.
+        public static unsafe int AddsUnsafe(int value)
+        {
+            int* values = stackalloc int[1];
+            values[0] = value;
+            return values[0];
+        }
     }
 }
