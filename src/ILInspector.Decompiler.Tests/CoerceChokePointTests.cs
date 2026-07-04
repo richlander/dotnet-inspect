@@ -204,6 +204,39 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void Conditional_WithNarrowSignedArmsAtPrimitiveStoreTarget_CastsThroughMergedWidth()
+    {
+        // Clean Gemini review: the target cast is licensed by the conditional's
+        // merged stack width, not the source spelling width of each arm. Two
+        // sbyte arms can be int-merged by the IR and still need uint casts at a
+        // uint store target.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "sb1", sbyteType),
+            new LoadArgument(2, "sb2", sbyteType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, conditional),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("flag", boolType), new Parameter("sb1", sbyteType), new Parameter("sb2", sbyteType)],
+            [uintType]);
+
+        Assert.Contains("flag ? (uint)sb1 : (uint)sb2", body);
+        Assert.DoesNotContain("? sb1 : sb2", body);
+        AssertCompiles("public static uint M(bool flag, sbyte sb1, sbyte sb2)", body);
+    }
+
+    [Fact]
     public void UnnamedHighBitConstantArm_KeepsUncheckedCast()
     {
         // The cast half of the name-or-cast rule at the #2076 conditional-arm
