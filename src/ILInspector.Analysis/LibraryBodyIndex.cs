@@ -737,6 +737,31 @@ public sealed class LibraryBodyIndex
     public static LibraryBodyIndex Open(string path)
         => Open(path, resolver: null);
 
+    internal static LibraryBodyIndex FromEvidence(
+        ImmutableArray<MethodIdentity> methods,
+        ImmutableArray<UnsafeEvidence> unsafeEvidence)
+        => new(
+            path: "",
+            methods,
+            directCalls: [],
+            unsafeEvidence,
+            diagnostics: [],
+            optimizationOpportunities: [],
+            unsafeLeverageMethods: [],
+            memorySafetyRulesEnabled: false,
+            unsafeModes: new UnsafeModeBreakdown(
+                methods.Count(method => method.CallerUnsafeMode == CallerUnsafeMode.None),
+                methods.Count(method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit),
+                methods.Count(method => method.CallerUnsafeMode == CallerUnsafeMode.Explicit)),
+            bodySignals: new Dictionary<int, BodySignals>(),
+            allocationOccurrences: new Dictionary<int, ImmutableArray<AllocationOccurrence>>(),
+            unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>(),
+            inAssemblyTypeIsException: new Dictionary<(string Namespace, string Name), bool>(),
+            suppressedOpportunityTokens: new HashSet<int>(),
+            exceptionTypeNames: new HashSet<string>(StringComparer.Ordinal),
+            nonHeapNewObjOperandTokens: new HashSet<int>(),
+            opportunitiesComputed: false);
+
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
         bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
     {

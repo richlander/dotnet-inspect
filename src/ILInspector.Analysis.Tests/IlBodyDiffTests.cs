@@ -19,7 +19,7 @@ public class IlBodyDiffTests
     }
 
     [Fact]
-    public void Compare_AddedInstruction_ReportsAddedRow()
+    public void Compare_InsertedInstruction_AlignsUnchangedSuffix()
     {
         var left = MethodInstructions.Decode([0x00, 0x2a], 2, []);
         var right = MethodInstructions.Decode([0x00, 0x00, 0x2a], 3, []);
@@ -27,12 +27,27 @@ public class IlBodyDiffTests
         var diff = IlBodyDiff.Compare(left, right);
 
         Assert.False(diff.IsExact);
-        var changed = Assert.Single(diff.Differences, row => row.Kind == IlBodyDiffChangeKind.Changed);
-        Assert.Equal(ILOpCode.Ret, changed.OldOpCode);
-        Assert.Equal(ILOpCode.Nop, changed.NewOpCode);
         var added = Assert.Single(diff.Differences, row => row.Kind == IlBodyDiffChangeKind.Added);
         Assert.Null(added.OldOpCode);
-        Assert.Equal(ILOpCode.Ret, added.NewOpCode);
+        Assert.Equal(ILOpCode.Nop, added.NewOpCode);
+        Assert.DoesNotContain(diff.Differences, row => row.Kind == IlBodyDiffChangeKind.Changed);
+    }
+
+    [Fact]
+    public void Compare_BranchTargetOffsetShift_DoesNotMarkBranchChanged()
+    {
+        // br.s targets the final ret in both bodies. The inserted nop shifts the
+        // absolute target from IL_0003 to IL_0004, but the branch operation itself
+        // is unchanged for this first substrate.
+        var left = MethodInstructions.Decode([0x2b, 0x01, 0x00, 0x2a], 4, []);
+        var right = MethodInstructions.Decode([0x2b, 0x02, 0x00, 0x00, 0x2a], 5, []);
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.False(diff.IsExact);
+        Assert.Single(diff.Differences);
+        Assert.Equal(IlBodyDiffChangeKind.Added, diff.Differences[0].Kind);
+        Assert.Equal(ILOpCode.Nop, diff.Differences[0].NewOpCode);
     }
 
     [Fact]
