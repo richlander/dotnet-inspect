@@ -442,6 +442,89 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(uint u, int x)", body);
     }
 
+    // #2306: an int-MergedType Conditional at a uint sink — the live
+    // SpinThenBlockingWait shape (`uint V_1 = c ? 0 : Environment.TickCount;`
+    // shipped CS0266). The sink target distributes into the arms: the in-range
+    // constant stays bare, the int expression takes the reinterpret cast.
+    [Fact]
+    public void IntConditional_AtUnsignedSink_DistributesTargetIntoArms()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(0, intType),
+            new LoadArgument(1, "x", intType))
+        {
+            MergedType = intType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("x", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? 0 : (uint)x", body);
+        AssertCompiles("public static uint M(bool c, int x)", body);
+    }
+
+    // A target-typed-valid conditional must NOT distribute: C# 9 converts
+    // each arm independently (`sbyte V = c ? 127 : (sbyte)x;` is legal), so
+    // adding casts is churn — and an arm carrying the pipeline's own Coerce
+    // wrapper is judged by its OPERAND (the corpus audit's
+    // `(sbyte)((sbyte)value)` double came from re-casting a stale
+    // Coerce{int, Convert sbyte} at an sbyte sink).
+    [Fact]
+    public void TargetTypedValidConditional_WithStaleCoerceArm_DeclinesDistribution()
+    {
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(127, intType),
+            new Coerce(intType, new Pipeline.Convert(sbyteType, isChecked: false, isUnsigned: false, new LoadArgument(1, "x", intType))))
+        {
+            MergedType = intType,
+        };
+        string body = RenderReturn(
+            conditional,
+            sbyteType,
+            [new Parameter("c", boolType), new Parameter("x", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? 127 : ((sbyte)x)", body);
+        Assert.DoesNotContain("(sbyte)((sbyte)", body);
+        AssertCompiles("public static sbyte M(bool c, int x)", body);
+    }
+
+    // The cross-family refusal: a long-armed conditional at a uint sink must
+    // NOT distribute (the cast would be the place that discovers a wrong
+    // join); it stays on the merge-node bail.
+    [Fact]
+    public void LongConditional_AtUnsignedSink_DeclinesDistribution()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "a", longType),
+            new LoadArgument(2, "b", longType))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("a", longType), new Parameter("b", longType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.DoesNotContain("(uint)a", body);
+        Assert.DoesNotContain("(uint)(c", body);
+    }
+
     static string RenderReturn(
         IrExpression value,
         TypeRef returnType,

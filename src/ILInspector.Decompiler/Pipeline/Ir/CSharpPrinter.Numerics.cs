@@ -1309,6 +1309,14 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? TryCoerceJoinArm(IrExpression arm, TypeRef? target)
     {
+        // An arm carrying the pipeline's own Coerce re-targets: the node means
+        // "render my operand into the position's required type", and under
+        // join distribution the position's requirement IS the join target —
+        // rendering the stale wrapper and re-casting made
+        // `(sbyte)((sbyte)value)` from Coerce{int, Convert sbyte} at an sbyte
+        // sink (#2306 corpus audit).
+        if (target is { } retarget && arm is Coerce staleCoerce && !staleCoerce.Target.Equals(retarget))
+            return CoerceText(staleCoerce.Operand, retarget);
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
             return coerced;
         // Same stack family only: `(int)longBackedEnum` would truncate. The
@@ -1325,8 +1333,12 @@ public sealed partial class CSharpPrinter
         // uint is CS0029 bare (latent post-F1; live in the pre-F1 fold's
         // output). Constants defer to NumericConstant (in-range stays bare,
         // out-of-range reinterprets); implicitly-convertible non-constants
-        // stay bare via the NeedsNumericCast gate.
-        if (target is { } numericTarget && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget))
+        // stay bare via the NeedsNumericCast gate; an arm that is already a
+        // Convert TO the join target spells `(target)op` itself — re-casting
+        // it made `(sbyte)((sbyte)value)` (the #2306 corpus audit's double).
+        if (target is { } numericTarget
+            && !(arm is Convert { Target: { } spelledTarget } && spelledTarget.Equals(numericTarget))
+            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget))
         {
             return arm is Constant { Value: int or long } konst
                 ? NumericConstant(konst, numericTarget)
@@ -1347,6 +1359,7 @@ public sealed partial class CSharpPrinter
             || (IsEnumLikeInteger(target)
                 && IsIntegerArm(conditional.WhenTrue)
                 && IsIntegerArm(conditional.WhenFalse))
+            || CanDistributePrimitiveTarget(target, [conditional.WhenTrue, conditional.WhenFalse])
             || (IsKnownReferenceLike(target)
                 && CanAssignTo(conditional.WhenTrue, target)
                 && CanAssignTo(conditional.WhenFalse, target));
@@ -1354,11 +1367,56 @@ public sealed partial class CSharpPrinter
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
 
+    /// <summary>
+    /// A same-family primitive join target whose arms the one join-arm rule
+    /// can spell, AND that needs the help (#2306 — `uint V_1 = c ? 0 :
+    /// Environment.TickCount;` shipped CS0266: the merge-node bail rendered
+    /// against MergedType, and coercion insertion excludes merge nodes on the
+    /// premise that the printer's targeted branches cover them — this is that
+    /// coverage). "Needs the help" is load-bearing: C# 9 target-types a
+    /// conditional whose every arm converts implicitly (constants in range
+    /// included), so `sbyte V = c ? 127 : (sbyte)x;` is already valid and
+    /// distributing casts into it is pure churn (corpus audit: 40-method
+    /// noise class, `(sbyte)((sbyte)value)` doubles). Cross-family and bool
+    /// arms decline (slice-4 discipline: a cast must not discover a wrong
+    /// join; bool arms keep their dedicated composition path).
+    /// </summary>
+    bool CanDistributePrimitiveTarget(TypeRef target, IReadOnlyList<IrExpression> arms)
+        => TypeFamilies.IsIntegerLike(target)
+            && TypeFamilies.Of(target) is { } family
+            && arms.All(arm => arm.ResultType is { } armType
+                && !TypeFamilies.IsBoolean(armType)
+                && TypeFamilies.IsIntegerLike(armType)
+                && TypeFamilies.Of(armType) == family)
+            && arms.Any(arm => ArmNeedsJoinHelp(arm, target));
+
+    /// <summary>An arm the target-typed conditional cannot absorb: not an in-range constant, not already a Convert spelling the target, and not implicitly convertible. A pipeline Coerce wrapper is judged by its operand — distribution re-targets it.</summary>
+    bool ArmNeedsJoinHelp(IrExpression arm, TypeRef target)
+    {
+        if (arm is Coerce coerce)
+            return !coerce.Target.Equals(target) && ArmNeedsJoinHelp(coerce.Operand, target);
+        if (arm is Constant { Value: int or long } konst
+            && TypeFamilies.ConstantFits(konst.Value is int i ? i : (long)konst.Value!, target))
+        {
+            return false;
+        }
+        if (arm is Convert { Target: { } convTarget } && convTarget.Equals(target))
+            return false;
+        return TypeFamilies.NeedsNumericCast(EffectiveType(arm), target);
+    }
+
     bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
-        => IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value));
+        => (IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value)))
+            || CanDistributePrimitiveTarget(target, [.. expression.Arms.Select(arm => arm.Value)]);
 
     string? TryCoalesceTextForTarget(Coalesce coalesce, TypeRef target)
     {
+        // The primitive-family clause mirrors the conditional/switch gates
+        // (the #2145 one-rule-in-all-three discipline); a plain-primitive
+        // coalesce left cannot be null so it rarely fires, but the rule must
+        // not be width-partial across the three consumers.
+        if (CanDistributePrimitiveTarget(target, [coalesce.Left, coalesce.Right]))
+            return CoalesceText(coalesce, target);
         if (!IsEnumLikeInteger(target))
             return null;
         if (NullableValueType(coalesce.Left.ResultType)?.Equals(target) == true && IsIntegerArm(coalesce.Right))
