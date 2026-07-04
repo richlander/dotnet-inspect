@@ -189,8 +189,17 @@ public class AssertionScanTests
     {
         Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(Lambda)));
         Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(LocalFunctionInvocation)));
+        // The output-shape cluster is raised by passes (tuple-creation,
+        // is-pattern, object-initializer, ...) — a wrong ImporterEmitted
+        // fallback would route its fixture-coverage regressions into the
+        // wrong missing-coverage bucket (B2 review finding).
+        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(TupleExpression)));
+        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(SingleElementListPattern)));
+        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(WithExpression)));
+        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(IncrementDecrement)));
         Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(CallIndirect)));
         Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(Unbox)));
+        Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(Constant)));
     }
 
     [Fact]

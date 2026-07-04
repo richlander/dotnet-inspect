@@ -24,14 +24,33 @@ public static class InverseLedger
     static readonly HashSet<string> s_passRaisedNodes = new(StringComparer.Ordinal)
     {
         "AddressOfMethod",
+        "AnonymousObject",
+        "ArrayLiteral",
+        "Coalesce",
         "Coerce",
+        "CollectionExpression",
+        "CollectionSpreadElement",
+        "Conditional",
         "DelegateCreation",
+        "IncrementDecrement",
+        "InitializerBlock",
+        "InterpolatedStringExpression",
+        "IsPattern",
         "Lambda",
         "LoadProperty",
         "LocalFunctionInvocation",
         "LogicalBinary",
         "NullConditional",
+        "ObjectInitializerExpression",
+        "PositionalPattern",
+        "RecursivePropertyDeclarationPattern",
+        "SingleElementListPattern",
+        "SwitchExpression",
+        "TupleBinaryExpression",
+        "TupleExpression",
         "TypeOf",
+        "UnionSwitchExpression",
+        "WithExpression",
     };
 
     /// <summary>One generated ledger row: the type assertion an inverse node makes.</summary>
