@@ -141,6 +141,69 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void Conditional_AtNativePrimitiveStoreTarget_DistributesCoercionToArms()
+    {
+        // Gemini review: nint/nuint have platform-sized width, so the native
+        // family must use the same slot-width helper as CoerceText instead of
+        // the fixed-width SameWidth table.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intPtrType = TypeRef.CoreLib("System", "IntPtr");
+        var uintPtrType = TypeRef.CoreLib("System", "UIntPtr");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "a", intPtrType),
+            new LoadArgument(2, "b", intPtrType))
+        {
+            MergedType = intPtrType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintPtrType, conditional),
+                new Return(new LoadLocal(0, uintPtrType)),
+            ],
+            uintPtrType,
+            [new Parameter("flag", boolType), new Parameter("a", intPtrType), new Parameter("b", intPtrType)],
+            [uintPtrType]);
+
+        Assert.Contains("flag ? (nuint)a : (nuint)b", body);
+        Assert.DoesNotContain("? a : b", body);
+        AssertCompiles("public static nuint M(bool flag, nint a, nint b)", body);
+    }
+
+    [Fact]
+    public void Conditional_WithBoolArmAtPrimitiveStoreTarget_CastsComposedBoolArm()
+    {
+        // Gemini review: bool remains outside the primitive conditional's
+        // merged type, but an integer-merged conditional can still contain a
+        // bool-typed arm. The arm composes bool->int and then casts to the
+        // unsigned target instead of vetoing target-aware rendering.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "b", boolType),
+            new LoadArgument(2, "tick", intType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, conditional),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("flag", boolType), new Parameter("b", boolType), new Parameter("tick", intType)],
+            [uintType]);
+
+        Assert.Contains("flag ? (uint)(b ? 1 : 0) : (uint)tick", body);
+        Assert.DoesNotContain("? (b ? 1 : 0) : tick", body);
+        AssertCompiles("public static uint M(bool flag, bool b, int tick)", body);
+    }
+
+    [Fact]
     public void UnnamedHighBitConstantArm_KeepsUncheckedCast()
     {
         // The cast half of the name-or-cast rule at the #2076 conditional-arm
