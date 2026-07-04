@@ -43,6 +43,25 @@ public enum ChangeKind
     EnumValueChanged
 }
 
+public enum ApiChangeCategory
+{
+    Signature,
+    Attribute
+}
+
+public enum ApiChangeSubjectKind
+{
+    Type,
+    Member
+}
+
+public sealed record ApiChangeSubject(
+    ApiChangeSubjectKind Kind,
+    string TypeFullName,
+    string? MemberName = null,
+    string? OldIdentity = null,
+    string? NewIdentity = null);
+
 /// <summary>
 /// A single detected API change.
 /// </summary>
@@ -51,7 +70,9 @@ public record ApiChange(
     ChangeClassification Classification,
     string Message,
     string? OldValue = null,
-    string? NewValue = null);
+    string? NewValue = null,
+    ApiChangeCategory Category = ApiChangeCategory.Signature,
+    ApiChangeSubject? Subject = null);
 
 /// <summary>
 /// All changes detected for a single type.
@@ -119,12 +140,14 @@ public static class ApiDiffAnalyzer
             if (inOld && !inNew)
             {
                 changes = [new ApiChange(ChangeKind.TypeRemoved, ChangeClassification.Breaking,
-                    $"Type '{typeName}' was removed")];
+                    $"Type '{typeName}' was removed",
+                    Subject: TypeSubject(typeName))];
             }
             else if (!inOld && inNew)
             {
                 changes = [new ApiChange(ChangeKind.TypeAdded, ChangeClassification.Additive,
-                    $"Type '{typeName}' was added")];
+                    $"Type '{typeName}' was added",
+                    Subject: TypeSubject(typeName))];
             }
             else
             {
@@ -166,7 +189,7 @@ public static class ApiDiffAnalyzer
         CompareTypeMetadata(oldType, newType, changes);
         CompareTypeParameters(oldType, newType, changes);
         CompareMembers(oldType, newType, changes);
-        return changes;
+        return [.. changes.Select(change => change.Subject is null ? change with { Subject = TypeSubject(newType.FullName) } : change)];
     }
 
     private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes)
@@ -350,7 +373,8 @@ public static class ApiDiffAnalyzer
 
                     changes.Add(new ApiChange(ChangeKind.MemberSignatureChanged, ChangeClassification.Breaking,
                         $"Member '{oldMember.Name}' signature changed",
-                        GetMemberKey(oldMember), GetMemberKey(newMember)));
+                        GetMemberKey(oldMember), GetMemberKey(newMember),
+                        Subject: MemberSubject(newType.FullName, oldMember.Name, GetMemberKey(oldMember), GetMemberKey(newMember))));
                     break;
                 }
             }
@@ -362,7 +386,8 @@ public static class ApiDiffAnalyzer
             if (!pairedOld.Contains(oldMember))
             {
                 changes.Add(new ApiChange(ChangeKind.MemberRemoved, ChangeClassification.Breaking,
-                    $"Member '{oldMember.Name}' was removed"));
+                    $"Member '{oldMember.Name}' was removed",
+                    Subject: MemberSubject(oldType.FullName, oldMember.Name, GetMemberKey(oldMember), null)));
             }
         }
 
@@ -376,7 +401,8 @@ public static class ApiDiffAnalyzer
                     : ChangeClassification.Additive;
 
                 changes.Add(new ApiChange(ChangeKind.MemberAdded, classification,
-                    $"Member '{newMember.Name}' was added"));
+                    $"Member '{newMember.Name}' was added",
+                    Subject: MemberSubject(newType.FullName, newMember.Name, null, GetMemberKey(newMember))));
             }
         }
 
@@ -385,24 +411,26 @@ public static class ApiDiffAnalyzer
         {
             var oldMember = oldBySignature[key];
             var newMember = newBySignature[key];
-            CompareMemberModifiers(oldMember, newMember, changes);
+            CompareMemberModifiers(newType.FullName, oldMember, newMember, changes);
         }
     }
 
-    private static void CompareMemberModifiers(ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
+    private static void CompareMemberModifiers(string typeFullName, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
     {
         // Virtual removed
         if (oldMember.IsVirtual && !newMember.IsVirtual)
         {
             changes.Add(new ApiChange(ChangeKind.VirtualRemoved, ChangeClassification.Breaking,
-                $"Member '{oldMember.Name}' is no longer virtual"));
+                $"Member '{oldMember.Name}' is no longer virtual",
+                Subject: MemberSubject(typeFullName, oldMember.Name, GetMemberKey(oldMember), GetMemberKey(newMember))));
         }
 
         // Abstract added
         if (!oldMember.IsAbstract && newMember.IsAbstract)
         {
             changes.Add(new ApiChange(ChangeKind.AbstractMemberAdded, ChangeClassification.Breaking,
-                $"Member '{oldMember.Name}' was made abstract"));
+                $"Member '{oldMember.Name}' was made abstract",
+                Subject: MemberSubject(typeFullName, oldMember.Name, GetMemberKey(oldMember), GetMemberKey(newMember))));
         }
 
         // Enum value changed
@@ -411,7 +439,8 @@ public static class ApiDiffAnalyzer
         {
             changes.Add(new ApiChange(ChangeKind.EnumValueChanged, ChangeClassification.PotentiallyBreaking,
                 $"Enum member '{oldMember.Name}' value changed from {oldMember.EnumValue} to {newMember.EnumValue}",
-                oldMember.EnumValue.Value.ToString(), newMember.EnumValue.Value.ToString()));
+                oldMember.EnumValue.Value.ToString(), newMember.EnumValue.Value.ToString(),
+                Subject: MemberSubject(typeFullName, oldMember.Name, GetMemberKey(oldMember), GetMemberKey(newMember))));
         }
     }
 
@@ -434,4 +463,10 @@ public static class ApiDiffAnalyzer
         // Use signature when available (methods, properties), else fall back to kind + name
         return member.Signature ?? $"{member.Kind}:{member.Name}";
     }
+
+    static ApiChangeSubject TypeSubject(string typeFullName)
+        => new(ApiChangeSubjectKind.Type, typeFullName);
+
+    static ApiChangeSubject MemberSubject(string typeFullName, string memberName, string? oldIdentity, string? newIdentity)
+        => new(ApiChangeSubjectKind.Member, typeFullName, memberName, oldIdentity, newIdentity);
 }

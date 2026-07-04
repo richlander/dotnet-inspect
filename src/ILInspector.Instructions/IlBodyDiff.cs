@@ -33,7 +33,8 @@ public sealed record CanonicalIlOperation(
 public sealed record IlDiffRow(
     int HunkId,
     IlDiffKind Kind,
-    CanonicalIlOperation Operation);
+    CanonicalIlOperation Operation,
+    string Message);
 
 public sealed record IlBodyDiffResult(
     bool IsExact,
@@ -98,8 +99,8 @@ public static class IlBodyDiff
             if (!BranchTargetsMatch(oldInstructions, nextOld, newInstructions, nextNew, oldToNew))
             {
                 int hunk = hunkId++;
-                rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, oldOperations[nextOld]));
-                rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, newOperations[nextNew]));
+                rows.Add(Row(hunk, IlDiffKind.Remove, oldOperations[nextOld]));
+                rows.Add(Row(hunk, IlDiffKind.Add, newOperations[nextNew]));
             }
             oldIndex = nextOld + 1;
             newIndex = nextNew + 1;
@@ -153,9 +154,27 @@ public static class IlBodyDiff
         int oldIndex = oldStart;
         int newIndex = newStart;
         while (oldIndex < oldEnd)
-            rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, oldOperations[oldIndex++]));
+            rows.Add(Row(hunk, IlDiffKind.Remove, oldOperations[oldIndex++]));
         while (newIndex < newEnd)
-            rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, newOperations[newIndex++]));
+            rows.Add(Row(hunk, IlDiffKind.Add, newOperations[newIndex++]));
+    }
+
+    static IlDiffRow Row(int hunkId, IlDiffKind kind, CanonicalIlOperation operation)
+        => new(hunkId, kind, operation, Message(kind, operation));
+
+    static string Message(IlDiffKind kind, CanonicalIlOperation operation)
+    {
+        string action = kind switch
+        {
+            IlDiffKind.Add => "Added",
+            IlDiffKind.Remove => "Removed",
+            IlDiffKind.Context => "Unchanged",
+            _ => kind.ToString(),
+        };
+        string subject = operation.Operand?.Kind is IlOperandIdentityKind.BranchTarget or IlOperandIdentityKind.SwitchTargets
+            ? "IL branch"
+            : "IL operation";
+        return $"{action} {subject} '{operation.Display}'";
     }
 
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(
