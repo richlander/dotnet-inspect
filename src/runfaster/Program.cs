@@ -2328,30 +2328,73 @@ internal static class ProgramSupport
     static void ParseType(string s, ref int pos, StringBuilder sb)
     {
         SkipWhitespace(s, ref pos);
+        ParseNestedName(s, ref pos, sb);
+        ParseSuffixes(s, ref pos, sb);
+    }
 
-        // Qualified name: identifiers joined by '.' or '+' (nested types); normalize '+' to '.'.
-        var name = new StringBuilder();
-        while (pos < s.Length)
+    // A dotted/nested name: Segment (('.'|'+') Segment)*. Nested-type separators '+' are normalized to
+    // '.'. A separator only continues the name when followed by another segment start, so a trailing
+    // '+'/'.' that is not part of the type name is left for the caller.
+    static void ParseNestedName(string s, ref int pos, StringBuilder sb)
+    {
+        bool first = true;
+        while (true)
         {
-            char c = s[pos];
-            if (char.IsLetterOrDigit(c) || c == '_')
+            if (!first)
+                sb.Append('.');
+            first = false;
+            ParseSegment(s, ref pos, sb);
+            if (pos + 1 < s.Length && (s[pos] == '.' || s[pos] == '+') && IsSegmentStart(s[pos + 1]))
             {
-                name.Append(c);
                 pos++;
+                continue;
             }
-            else if ((c == '.' || c == '+') && pos + 1 < s.Length && (char.IsLetter(s[pos + 1]) || s[pos + 1] == '_'))
-            {
-                name.Append('.');
-                pos++;
-            }
-            else
-            {
-                break;
-            }
+            break;
         }
-        sb.Append(ExpandAlias(name.ToString()));
+    }
 
-        // Generic arguments: runtime `N[...] (backtick + arity + brackets) or static <...>.
+    static bool IsSegmentStart(char c) => char.IsLetter(c) || c == '_' || c == '<';
+
+    // One name segment: either a compiler-generated name (a balanced <...> prefix plus trailing
+    // identifier chars, e.g. <>c__DisplayClass18_0 or <Bar>d__5 — reflection uses '<' only here, never
+    // for generic arguments) or a plain identifier (alias-expanded), optionally followed by generic
+    // arguments (backtick `N[...] reflection form or <...> display form).
+    static void ParseSegment(string s, ref int pos, StringBuilder sb)
+    {
+        bool compilerGenerated = false;
+        if (pos < s.Length && s[pos] == '<')
+        {
+            compilerGenerated = true;
+            var seg = new StringBuilder();
+            int depth = 0;
+            while (pos < s.Length)
+            {
+                char c = s[pos];
+                seg.Append(c);
+                pos++;
+                if (c == '<')
+                    depth++;
+                else if (c == '>' && --depth == 0)
+                    break;
+            }
+            while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_'))
+            {
+                seg.Append(s[pos]);
+                pos++;
+            }
+            sb.Append(seg.ToString());
+        }
+        else
+        {
+            var name = new StringBuilder();
+            while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_'))
+            {
+                name.Append(s[pos]);
+                pos++;
+            }
+            sb.Append(ExpandAlias(name.ToString()));
+        }
+
         if (pos < s.Length && s[pos] == '`')
         {
             pos++;
@@ -2360,12 +2403,15 @@ internal static class ProgramSupport
             if (pos < s.Length && s[pos] == '[')
                 ParseGenericArgs(s, ref pos, sb, ']');
         }
-        else if (pos < s.Length && s[pos] == '<')
+        else if (!compilerGenerated && pos < s.Length && s[pos] == '<')
         {
             ParseGenericArgs(s, ref pos, sb, '>');
         }
+    }
 
-        // Suffix modifiers: arrays ([], [,]), pointer (*), byref (&), nullable (?).
+    // Suffix modifiers on a type: arrays ([], [,]), pointer (*), byref (&), nullable (?).
+    static void ParseSuffixes(string s, ref int pos, StringBuilder sb)
+    {
         while (pos < s.Length)
         {
             SkipWhitespace(s, ref pos);
@@ -2412,11 +2458,21 @@ internal static class ProgramSupport
         }
     }
 
+    // Generic argument list. Preserves argument count and separators (so Func<AB,C> and Func<A,BC> do
+    // not collide) and preserves arity for unbound arguments (String<,> is arity 2, distinct from
+    // String<> and String<,,>), rendering an empty argument position as '?'.
     static void ParseGenericArgs(string s, ref int pos, StringBuilder sb, char close)
     {
         pos++; // consume '<' or '['
         sb.Append('<');
-        bool first = true;
+        if (pos < s.Length && s[pos] == close)
+        {
+            pos++;
+            sb.Append('>');
+            return;
+        }
+        var parts = new List<string>();
+        var current = new StringBuilder();
         while (pos < s.Length && s[pos] != close)
         {
             SkipWhitespace(s, ref pos);
@@ -2424,17 +2480,18 @@ internal static class ProgramSupport
                 break;
             if (s[pos] == ',')
             {
+                parts.Add(current.ToString());
+                current.Clear();
                 pos++;
                 continue;
             }
-            if (!first)
-                sb.Append(',');
-            first = false;
-            ParseType(s, ref pos, sb);
+            ParseType(s, ref pos, current);
             SkipWhitespace(s, ref pos);
         }
+        parts.Add(current.ToString());
         if (pos < s.Length && s[pos] == close)
             pos++;
+        sb.Append(string.Join(",", parts.Select(p => p.Length == 0 ? "?" : p)));
         sb.Append('>');
     }
 

@@ -96,6 +96,58 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void CanonicalTypeSignature_PreservesCompilerGeneratedNames()
+    {
+        // A closure/state-machine name must not collapse to its parent type (previously
+        // Enumerable+<>c__DisplayClass18_0 canonicalized to Enumerable), and two distinct closures
+        // in the same parent must stay distinct.
+        var parent = ProgramSupport.CanonicalTypeSignature("System.Linq.Enumerable");
+        var closure = ProgramSupport.CanonicalTypeSignature("System.Linq.Enumerable+<>c__DisplayClass18_0");
+        var otherClosure = ProgramSupport.CanonicalTypeSignature("System.Linq.Enumerable+<>c__DisplayClass19_0");
+
+        Assert.NotEqual(parent, closure);
+        Assert.NotEqual(closure, otherClosure);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesNestedTypeAfterGenericArguments()
+    {
+        // A nested type following a generic parent must not be dropped (previously
+        // Dictionary`2[K,V]+KeyCollection canonicalized to Dictionary<K,V>).
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("System.Collections.Generic.Dictionary`2[K,V]+KeyCollection"),
+            ProgramSupport.CanonicalTypeSignature("System.Collections.Generic.Dictionary`2[K,V]"));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesGenericArgumentOrderAndSeparators()
+    {
+        // The argument separator must be preserved so different splits do not collide.
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("Func<AB, C>"),
+            ProgramSupport.CanonicalTypeSignature("Func<A, BC>"));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesUnboundGenericArity()
+    {
+        var arity2 = ProgramSupport.CanonicalTypeSignature("System.String<,>");
+        var arity0 = ProgramSupport.CanonicalTypeSignature("System.String<>");
+        var arity3 = ProgramSupport.CanonicalTypeSignature("System.String<,,>");
+
+        Assert.NotEqual(arity2, arity0);
+        Assert.NotEqual(arity2, arity3);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ReconcilesArrayOfGenericAcrossForms()
+    {
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("Entry<System.String,System.Object>[]"),
+            ProgramSupport.CanonicalTypeSignature("Entry`2[System.String,System.Object][]"));
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_DoesNotConfirmColdSite_WhenTypeAlreadySiteObserved()
     {
         // A hot site-observed candidate explains the String volume; a cold same-type site must not
