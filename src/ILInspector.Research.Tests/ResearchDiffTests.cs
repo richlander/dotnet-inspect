@@ -261,6 +261,22 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_CSharpAndApiEvidence_GroupOnOverloadAnchorDespiteDisplayDifferences()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            DiffFixturePath("DiffFixtures.V1"),
+            DiffFixturePath("DiffFixtures.V2"),
+            new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
+
+        Assert.Contains(diff.MembersWhere(member =>
+            member.Subject.MemberName == "Removed"
+            && member.HasMechanism(ResearchDiffMechanism.Api)
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)), member =>
+            member.Subject.Id.StartsWith("Removed~", StringComparison.Ordinal)
+            && member.Evidence.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.CSharp && evidence.OldValue?.Contains("method removed", StringComparison.Ordinal) == true));
+    }
+
+    [Fact]
     public void CompareAssemblies_DefaultMechanisms_IncludeCSharpChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(

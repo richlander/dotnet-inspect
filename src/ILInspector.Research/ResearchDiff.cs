@@ -857,7 +857,7 @@ public static class ResearchDiff
 
     sealed class ResultBuilder
     {
-        readonly Dictionary<ResearchSubjectKey, List<ResearchDiffEvidence>> _rows = [];
+        readonly Dictionary<ResearchSubjectKey, List<ResearchDiffEvidence>> _rows = new(ResearchSubjectKeyIdentityComparer.Instance);
 
         public ApiDiff? ApiDiff { get; set; }
 
@@ -882,6 +882,21 @@ public static class ResearchDiff
                     .ThenBy(evidence => evidence.NewIlOffset)]))],
                 ApiDiff,
                 Rows: []);
+    }
+
+    sealed class ResearchSubjectKeyIdentityComparer : IEqualityComparer<ResearchSubjectKey>
+    {
+        public static ResearchSubjectKeyIdentityComparer Instance { get; } = new();
+
+        public bool Equals(ResearchSubjectKey? x, ResearchSubjectKey? y)
+            => ReferenceEquals(x, y)
+               || (x is not null
+                   && y is not null
+                   && x.Kind == y.Kind
+                   && string.Equals(x.Id, y.Id, StringComparison.Ordinal));
+
+        public int GetHashCode(ResearchSubjectKey obj)
+            => HashCode.Combine(obj.Kind, StringComparer.Ordinal.GetHashCode(obj.Id));
     }
 
     sealed class MethodBodyLookup : IDisposable

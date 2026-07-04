@@ -279,7 +279,7 @@ public class CSharpBodyDiffTests
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" });
 
-        var row = Assert.Single(diff.Rows);
+        var row = Assert.Single(diff.Rows, row => row.Member.EndsWith("Removed()", StringComparison.Ordinal));
         Assert.Equal(CSharpDiffKind.Remove, row.Kind);
         Assert.Equal("csharp.method.removed", row.ChangeId);
         Assert.Equal("Removed C# method.", row.Message);

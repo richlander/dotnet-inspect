@@ -280,6 +280,8 @@ namespace DiffFixtureSample
     public class MethodRemovalSample
     {
         public int Removed() => 1;
+
+        public int Removed(int value) => value + 1;
     }
 
     public abstract class BodyStateSample
