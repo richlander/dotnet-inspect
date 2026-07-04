@@ -723,10 +723,10 @@ public static class ResearchDiff
         var typeName = method.DeclaringType.ToQualifiedDisplayString();
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
         var selectorName = ResearchMemberSelector.ForMetadataName(method.Name, method.IsExtension);
-        var parameters = string.Join(",", method.ParameterTypes.Select(CanonicalTypeName));
+        var parameters = string.Join(",", method.ParameterTypes.Select(ApiTypeName));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
-        var methodGeneric = GenericParameterList(method.GenericArity, isMethod: true);
-        var returnSuffix = IsConversionOperator(method.Name) ? $"~{CanonicalTypeName(method.ReturnType)}" : "";
+        var methodGeneric = ApiMethodGenericList(method);
+        var returnSuffix = "";
         var canonical = $"M:{typeName}.{memberName}{methodGeneric}({parameters}){returnSuffix}";
         var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(
@@ -737,29 +737,31 @@ public static class ResearchDiff
             memberName);
     }
 
-    static string CanonicalTypeName(TypeRef type)
+    static string ApiTypeName(TypeRef type)
         => type.Kind switch
         {
             TypeRefKind.Definition => type.Namespace.Length == 0
                 ? type.Name.Replace("+", ".", StringComparison.Ordinal)
                 : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
-            TypeRefKind.GenericInstance => $"{CanonicalTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(CanonicalTypeName))}>",
-            TypeRefKind.SzArray => $"{CanonicalTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{CanonicalTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
-            TypeRefKind.ByRef => $"{CanonicalTypeName(type.ElementType!)}&",
-            TypeRefKind.Pointer => $"{CanonicalTypeName(type.ElementType!)}*",
-            TypeRefKind.Pinned => $"pinned {CanonicalTypeName(type.ElementType!)}",
-            TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
-            TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
+            TypeRefKind.GenericInstance => $"{ApiTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(ApiTypeName))}>",
+            TypeRefKind.SzArray => $"{ApiTypeName(type.ElementType!)}[]",
+            TypeRefKind.Array => $"{ApiTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
+            TypeRefKind.ByRef => $"{ApiTypeName(type.ElementType!)}&",
+            TypeRefKind.Pointer => $"{ApiTypeName(type.ElementType!)}*",
+            TypeRefKind.Pinned => $"pinned {ApiTypeName(type.ElementType!)}",
+            TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+                => type.GenericParameterName.Length == 0 ? $"!{type.GenericParameterIndex}" : type.GenericParameterName,
             _ => type.ToQualifiedDisplayString(),
         };
 
-    static string GenericParameterList(int arity, bool isMethod)
+    static string ApiMethodGenericList(MethodIdentity method)
     {
-        if (arity == 0)
+        if (method.GenericArity == 0)
             return "";
-        var prefix = isMethod ? "!!" : "!";
-        return $"<{string.Join(",", Enumerable.Range(0, arity).Select(index => $"{prefix}{index}"))}>";
+        return $"<{string.Join(",", Enumerable.Range(0, method.GenericArity).Select(index =>
+            index < method.GenericParameterNames.Length && method.GenericParameterNames[index].Length > 0
+                ? method.GenericParameterNames[index]
+                : $"!!{index}"))}>";
     }
 
     static bool IsConversionOperator(string methodName)

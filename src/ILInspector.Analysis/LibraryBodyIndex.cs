@@ -2428,7 +2428,19 @@ public sealed class LibraryBodyIndex
                 (methodDef.Attributes & MethodAttributes.Static) != 0,
                 IsExtensionMethod(typeHandle, methodDef),
                 ComputeCallerUnsafeMode(typeHandle, methodDef, signature.ParameterTypes, signature.ReturnType),
-                methodDef.GetGenericParameters().Count);
+                methodDef.GetGenericParameters().Count,
+                GenericParameterNames(methodDef));
+        }
+
+        ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)
+        {
+            var handles = methodDef.GetGenericParameters();
+            if (handles.Count == 0)
+                return [];
+            var names = ImmutableArray.CreateBuilder<string>(handles.Count);
+            foreach (var handle in handles)
+                names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
+            return names.MoveToImmutable();
         }
 
         bool IsExtensionMethod(TypeDefinitionHandle typeHandle, MethodDefinition methodDef)

@@ -70,7 +70,8 @@ public sealed record MethodIdentity(
     bool IsStatic,
     bool IsExtension = false,
     CallerUnsafeMode CallerUnsafeMode = CallerUnsafeMode.None,
-    int GenericArity = 0);
+    int GenericArity = 0,
+    ImmutableArray<string> GenericParameterNames = default);
 
 public sealed record MemberRef(
     TypeRef DeclaringType,

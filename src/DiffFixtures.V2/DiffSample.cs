@@ -163,7 +163,7 @@ namespace DiffFixtureSample
         // Generic parameter rename from V1 must not break method identity.
         public static TElement GenericIdentity<TElement>(TElement value) => value;
 
-        public static int GenericParamBody<TElement>(TElement value) => 2;
+        public static int GenericParamBody<T>(T value) => 2;
 
         static int TokenTargetB(int value) => value + 2;
 
