@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
+using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -2064,6 +2065,7 @@ internal sealed record GeneratedFixtureReturnToSenderResult(
     string Reason,
     string? Detail,
     IlDiffDisplayResult? IlDiffDiagnostic,
+    MemberAnchor? MemberAnchor,
     bool IsFrontier,
     string? Note)
 {
@@ -2197,6 +2199,7 @@ internal static class GeneratedFixtureRunner
                                 ? $"missing expected target body fragment: {missingTargetBodyFragment}"
                                 : actual.Detail,
                         actual.IlDiffDiagnostic,
+                        actual.MemberAnchor,
                         target.IsFrontier,
                         target.Note));
                 }
@@ -2231,6 +2234,7 @@ internal static class GeneratedFixtureRunner
             reason,
             Detail: null,
             IlDiffDiagnostic: null,
+            MemberAnchor: null,
             target.IsFrontier,
             target.Note);
 
@@ -2391,6 +2395,8 @@ internal static class GeneratedFixtureRunner
                 {
                     string actual = row.ActualStatus?.ToString() ?? "Missing";
                     sb.AppendLine($"      {row.DisplayMember}  rts={actual}  bucket={row.Reason}");
+                    if (row.MemberAnchor is not null)
+                        sb.AppendLine($"      member: {row.MemberAnchor.StableSelector}  canonical={row.MemberAnchor.CanonicalSignature}");
                     if (!string.IsNullOrWhiteSpace(row.Detail))
                         sb.AppendLine($"      detail: {row.Detail}");
                     if (row.IlDiffDiagnostic is not null)
