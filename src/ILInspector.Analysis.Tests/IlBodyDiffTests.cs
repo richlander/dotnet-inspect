@@ -51,6 +51,23 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_BranchTargetRetarget_ReportsChangedBranch()
+    {
+        // Same opcode sequence, but the first branch retargets from IL_0005 to
+        // IL_0003. LCS can align the branch instructions, then target validation
+        // must still report the control-flow change.
+        var left = MethodInstructions.Decode([0x2b, 0x03, 0x00, 0x2a, 0x00, 0x2a], 6, []);
+        var right = MethodInstructions.Decode([0x2b, 0x01, 0x00, 0x2a, 0x00, 0x2a], 6, []);
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        var changed = Assert.Single(diff.Differences);
+        Assert.Equal(IlBodyDiffChangeKind.Changed, changed.Kind);
+        Assert.Equal(ILOpCode.Br_s, changed.OldOpCode);
+        Assert.Equal(ILOpCode.Br_s, changed.NewOpCode);
+    }
+
+    [Fact]
     public void Compare_MalformedBody_ReportsFailure()
     {
         var malformed = MethodInstructions.Decode([0xfe], 1, []);

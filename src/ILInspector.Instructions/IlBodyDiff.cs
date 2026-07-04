@@ -41,6 +41,7 @@ public static class IlBodyDiff
         var oldInstructions = oldBody.Instructions;
         var newInstructions = newBody.Instructions;
         var lcs = LongestCommonSubsequence(oldInstructions, newInstructions);
+        var oldToNew = lcs.ToDictionary(pair => pair.OldIndex, pair => pair.NewIndex);
         var differences = ImmutableArray.CreateBuilder<IlInstructionDiff>();
         int oldIndex = 0;
         int newIndex = 0;
@@ -50,6 +51,21 @@ public static class IlBodyDiff
             AddUnmatched(oldInstructions, oldIndex, nextOld, newInstructions, newIndex, nextNew, differences, ref diffIndex);
             oldIndex = nextOld + 1;
             newIndex = nextNew + 1;
+        }
+
+        foreach (var (mappedOld, mappedNew) in lcs)
+        {
+            if (BranchTargetsMatch(oldInstructions, mappedOld, newInstructions, mappedNew, oldToNew))
+                continue;
+            var oldInstruction = oldInstructions[mappedOld];
+            var newInstruction = newInstructions[mappedNew];
+            differences.Add(new IlInstructionDiff(
+                IlBodyDiffChangeKind.Changed,
+                diffIndex++,
+                oldInstruction.Offset,
+                oldInstruction.OpCode,
+                newInstruction.Offset,
+                newInstruction.OpCode));
         }
 
         AddUnmatched(oldInstructions, oldIndex, oldInstructions.Length, newInstructions, newIndex, newInstructions.Length, differences, ref diffIndex);
@@ -156,5 +172,42 @@ public static class IlBodyDiff
         if (oldInstruction.Operand == OperandKind.InlineSwitch)
             return oldInstruction.BranchTargets.Length == newInstruction.BranchTargets.Length;
         return oldInstruction.OperandValue == newInstruction.OperandValue;
+    }
+
+    static bool BranchTargetsMatch(
+        ImmutableArray<DecodedInstruction> oldInstructions,
+        int oldIndex,
+        ImmutableArray<DecodedInstruction> newInstructions,
+        int newIndex,
+        IReadOnlyDictionary<int, int> oldToNew)
+    {
+        var oldInstruction = oldInstructions[oldIndex];
+        var newInstruction = newInstructions[newIndex];
+        if (oldInstruction.Operand is not (OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget or OperandKind.InlineSwitch))
+            return true;
+        if (oldInstruction.BranchTargets.Length != newInstruction.BranchTargets.Length)
+            return false;
+
+        for (int i = 0; i < oldInstruction.BranchTargets.Length; i++)
+        {
+            int oldTargetIndex = InstructionIndexAt(oldInstructions, oldInstruction.BranchTargets[i]);
+            int newTargetIndex = InstructionIndexAt(newInstructions, newInstruction.BranchTargets[i]);
+            if (oldTargetIndex < 0 || newTargetIndex < 0)
+                return oldInstruction.BranchTargets[i] == newInstruction.BranchTargets[i];
+            if (!oldToNew.TryGetValue(oldTargetIndex, out int mappedNewTarget))
+                return false;
+            if (mappedNewTarget != newTargetIndex)
+                return false;
+        }
+
+        return true;
+    }
+
+    static int InstructionIndexAt(ImmutableArray<DecodedInstruction> instructions, int offset)
+    {
+        for (int i = 0; i < instructions.Length; i++)
+            if (instructions[i].Offset == offset)
+                return i;
+        return -1;
     }
 }
