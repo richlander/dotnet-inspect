@@ -369,13 +369,17 @@ internal static class AssertionScan
             }
         }
 
-        var aggregate = scans.Aggregate(Merge);
         var guarantee = BuildFixtureGuarantee(
             string.Join(", ", declaredFixtureIds.Order(StringComparer.Ordinal)),
             annotatedNodes,
             causeByNode,
             perFixtureCoverage);
-        return aggregate with { FixtureGuarantee = guarantee };
+        // scans is empty only in a broken dev state (every declared fixture id missing
+        // from the catalog and no unbox fixture); report it as zero coverage — every
+        // node regresses — rather than throwing an opaque Aggregate-on-empty exception.
+        if (scans.Count == 0)
+            return new Result([], new SortedDictionary<string, int>(StringComparer.Ordinal), annotatedNodes, causeByNode, guarantee);
+        return scans.Aggregate(Merge) with { FixtureGuarantee = guarantee };
     }
 
     static AssertionFixtureGuaranteeResult BuildFixtureGuarantee(
