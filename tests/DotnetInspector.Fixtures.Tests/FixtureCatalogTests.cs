@@ -50,9 +50,16 @@ public class FixtureCatalogTests
     [Fact]
     public void AssemblyNameAxisFixtures_ResolveIntentionalFileNames()
     {
-        Assert.EndsWith(Path.Combine("ILInspector.Analysis.ProtobufFixtures", "release", "Google.Protobuf.dll"), FixtureCatalog.AnalysisProtobuf.AssemblyPath());
-        Assert.EndsWith(Path.Combine("ILInspector.Analysis.SpoofFixtures", "release", "System.Linq.dll"), FixtureCatalog.AnalysisSpoofSystemLinq.AssemblyPath());
-        Assert.EndsWith(Path.Combine("ILInspector.Analysis.SpoofRuntimeFixtures", "release", "System.Runtime.dll"), FixtureCatalog.AnalysisSpoofSystemRuntime.AssemblyPath());
+        AssertFixtureFileName(FixtureCatalog.AnalysisProtobuf, "Google.Protobuf.dll");
+        AssertFixtureFileName(FixtureCatalog.AnalysisSpoofSystemLinq, "System.Linq.dll");
+        AssertFixtureFileName(FixtureCatalog.AnalysisSpoofSystemRuntime, "System.Runtime.dll");
+    }
+
+    static void AssertFixtureFileName(FixtureDefinition fixture, string expectedFileName)
+    {
+        string path = fixture.AssemblyPath();
+        Assert.Equal(expectedFileName, Path.GetFileName(path));
+        Assert.Equal(fixture.ProjectName, new DirectoryInfo(path).Parent?.Parent?.Name);
     }
 
     static IReadOnlyList<FixtureGroup> Groups() =>
