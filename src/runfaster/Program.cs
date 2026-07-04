@@ -1188,6 +1188,41 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         Console.WriteLine();
     }
 
+    // Multiplicity predict-vs-observe (#2286): disambiguate a hot site's cause using the static
+    // multiplicity prior. The trace confirms the site/type is HOT; the Loop/Once split is a static
+    // prior it does not verify — so this describes the likely cause, it does not prescribe a fix.
+    var loopHot = observed.Where(c => c.MultiplicityCheck == "loop-hot").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
+    var callFrequency = observed.Where(c => c.MultiplicityCheck == "call-frequency").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
+    int loopUnexercised = result.Candidates.Count(c => c.MultiplicityCheck == "loop-unexercised");
+    if (loopHot.Length > 0 || callFrequency.Length > 0 || loopUnexercised > 0)
+    {
+        Console.WriteLine("## Multiplicity read (predict-vs-observe)");
+        Console.WriteLine();
+        Console.WriteLine("Realized volume alone conflates intrinsic per-iteration churn with call-frequency-driven volume. The static multiplicity prior distinguishes the likely cause. Note: the trace confirms each site is hot — it does not verify the iteration count, so the loop/once split is a static prior, not a runtime measurement, and the appropriate fix is workload- and code-specific (a per-iteration allocation may be intrinsic and un-hoistable; an identity-bearing object may not be cacheable).");
+        Console.WriteLine();
+        if (loopHot.Length > 0)
+        {
+            Console.WriteLine("**Loop prior + hot** — static multiplicity is `Loop`; realized hot. The volume is likely intrinsic (per-iteration):");
+            Console.WriteLine();
+            foreach (var c in loopHot.Take(10))
+                Console.WriteLine($"- `{Escape(c.Method)}` ({Escape(c.AllocationKind)}, {FormatBytes(c.EffectiveObservedBytes)})");
+            Console.WriteLine();
+        }
+        if (callFrequency.Length > 0)
+        {
+            Console.WriteLine("**Call-frequency** — static multiplicity is `Once`/`Conditional`; realized hot. The volume is likely call-frequency-driven (the method is hot, not a loop at this site):");
+            Console.WriteLine();
+            foreach (var c in callFrequency.Take(10))
+                Console.WriteLine($"- `{Escape(c.Method)}` ({Escape(c.AllocationKind)}, {Escape(c.Multiplicity ?? "")}, {FormatBytes(c.EffectiveObservedBytes)})");
+            Console.WriteLine();
+        }
+        if (loopUnexercised > 0)
+        {
+            Console.WriteLine($"**Loop prior, not exercised**: {loopUnexercised.ToString(CultureInfo.InvariantCulture)} `Loop`-multiplicity site(s) were not observed in this workload. Some would allocate under a workload that drives their loop; others are cold by design (error-handling or one-shot init loops). This is workload-scoped negative evidence, not a ranking.");
+            Console.WriteLine();
+        }
+    }
+
     Console.WriteLine("## Inputs");
     Console.WriteLine();
     Console.WriteLine("| Kind | Path | Format | Lines | Matches | Observations |");
@@ -1397,6 +1432,10 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteNumber("shapeAllocationBytes", candidate.ShapeAllocationBytes);
     if (candidate.SizeCheck is not null)
         writer.WriteString("sizeCheck", candidate.SizeCheck);
+    if (candidate.Multiplicity is not null)
+        writer.WriteString("multiplicity", candidate.Multiplicity);
+    if (candidate.MultiplicityCheck is not null)
+        writer.WriteString("multiplicityCheck", candidate.MultiplicityCheck);
     if (candidate.IsObserved)
     {
         writer.WriteNumber("promotionFactor", candidate.PromotionFactor);
@@ -1644,7 +1683,8 @@ sealed class AllocationCandidate(
     string? sizeTier = null,
     string? escapeKind = null,
     string? churnedType = null,
-    string? runtimeAllocationType = null)
+    string? runtimeAllocationType = null,
+    string? multiplicity = null)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -1677,6 +1717,12 @@ sealed class AllocationCandidate(
     public string? SizeTier { get; } = string.IsNullOrWhiteSpace(sizeTier) ? null : sizeTier;
     public string? EscapeKind { get; } = string.IsNullOrWhiteSpace(escapeKind) ? null : escapeKind;
     public string? ChurnedType { get; } = string.IsNullOrWhiteSpace(churnedType) ? null : churnedType;
+    // Static per-invocation multiplicity prior (#2166): Once / Conditional / Loop / Unknown — how many
+    // times a call to the declaring method executes this allocation. Consumed as a predict-vs-observe
+    // signal (#2286): it disambiguates realized volume that is intrinsic (loop body) from volume that
+    // is call-frequency-driven (once per call, but the method is hot).
+    public string? Multiplicity { get; } = string.IsNullOrWhiteSpace(multiplicity) || string.Equals(multiplicity, "Unknown", StringComparison.OrdinalIgnoreCase) ? null : multiplicity;
+    public bool IsLoopMultiplicity => string.Equals(Multiplicity, "Loop", StringComparison.OrdinalIgnoreCase);
     public int RuntimeHits { get; set; }
     public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
@@ -1712,6 +1758,25 @@ sealed class AllocationCandidate(
     // cost-shape worth filling. This validates/annotates the objective layer; it is not the expensive judgment.
     public string? SizeCheck
         => EstimatedSizeBytes is null && ShapeMatched && ShapeAllocationBytes > 0 ? "gap" : null;
+    // Multiplicity predict-vs-observe (#2286): the static multiplicity prior disambiguates a hot
+    // site's cause. Observed volume alone conflates intrinsic per-iteration churn (Loop) with
+    // call-frequency-driven volume (Once/Conditional, hot because the method is called a lot).
+    // IMPORTANT: the trace confirms the site/type was HOT, not that the loop iterated many times —
+    // the Loop/Once split is a static prior the trace does not verify. "Seen" here means the site was
+    // observed directly OR its type was realized-hot via type-confirmation (#2264); a type-confirmed
+    // loop site is therefore hot, not cold (it would otherwise be mislabeled "not exercised").
+    bool SeenHot => IsObserved || TypeConfirmed;
+    public string? MultiplicityCheck
+    {
+        get
+        {
+            if (Multiplicity is null)
+                return null;
+            if (SeenHot)
+                return IsLoopMultiplicity ? "loop-hot" : "call-frequency";
+            return IsLoopMultiplicity ? "loop-unexercised" : null;
+        }
+    }
     // Gen-aware expensive judgment: weight observed cost by promotion likelihood, using the static escape
     // verdict as the prior. Raw allocation volume over-weights gen0-cheap churn; a promoting allocation
     // (escapes) is genuinely expensive, a cold/throw-path or provably-local one is cheap. This is the
@@ -1833,7 +1898,8 @@ sealed class AllocationCandidate(
         occurrence.SizeTier == AllocationSizeTier.Unknown ? null : FormatSizeTier(occurrence.SizeTier),
         occurrence.EscapeKind == AllocationEscapeKind.None ? null : occurrence.EscapeKind.ToString(),
         occurrence.ChurnedType,
-        occurrence.RuntimeAllocationType);
+        occurrence.RuntimeAllocationType,
+        occurrence.Multiplicity == AllocationMultiplicity.Unknown ? null : occurrence.Multiplicity.ToString());
 
     static string FormatPathContext(AllocationPathContext context) => context switch
     {
