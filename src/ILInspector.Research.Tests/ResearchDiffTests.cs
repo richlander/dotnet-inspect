@@ -128,8 +128,8 @@ public class ResearchDiffTests
     public void FromCSharpBodyDiff_PreservesProducerMessageAndTypedRow()
     {
         var csharpRow = Assert.Single(CSharpBodyDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
             typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorSample" }).Rows,
             row => row.ChangeId == "csharp.line.removed");
 
@@ -228,8 +228,8 @@ public class ResearchDiffTests
     public void CompareAssemblies_CSharp_QueryImplementationChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
             new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
 
         var changedMembers = diff.MembersWhere(member => member.ImplementationChanged);
@@ -248,8 +248,8 @@ public class ResearchDiffTests
     public void CompareAssemblies_CSharpAndApiEvidence_GroupOnMemberAnchor()
     {
         var diff = ResearchDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
             new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
@@ -264,8 +264,8 @@ public class ResearchDiffTests
     public void CompareAssemblies_CSharpAndApiEvidence_GroupOnOverloadAnchorDespiteDisplayDifferences()
     {
         var diff = ResearchDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
             new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
 
         Assert.Contains(diff.MembersWhere(member =>
@@ -280,8 +280,8 @@ public class ResearchDiffTests
     public void CompareAssemblies_DefaultMechanisms_IncludeCSharpChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"));
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath());
 
         Assert.Contains(diff.MembersWhere(member => member.ImplementationChanged), member =>
             member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
@@ -292,8 +292,8 @@ public class ResearchDiffTests
     public void CompareAssemblies_DefaultMechanisms_GroupCSharpAndIlEvidence()
     {
         var diff = ResearchDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"));
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath());
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "ConstantValue"
