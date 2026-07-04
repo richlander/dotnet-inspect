@@ -205,6 +205,7 @@ public static class ResearchDiff
         ArgumentNullException.ThrowIfNull(results);
         return new ResearchDiffResult(
             [.. results.SelectMany(result => result.Subjects)],
+            results.FirstOrDefault(result => result.ApiDiff is not null)?.ApiDiff,
             Rows: [.. results.SelectMany(result => result.Rows.IsDefault ? [] : result.Rows)]);
     }
 

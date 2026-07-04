@@ -124,6 +124,21 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void Combine_PreservesStructuredApiDiff()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var api = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var apiResult = ResearchDiff.FromApiDiff(api);
+        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(IsExact: true, Failure: null, []));
+
+        var combined = ResearchDiff.Combine(apiResult, ilResult);
+
+        Assert.Same(api, combined.ApiDiff);
+        Assert.Single(combined.Rows);
+    }
+
+    [Fact]
     public void CompareApiSurfaces_AttributeScope_QueriesMemberAttributeChanges()
     {
         var oldSurface = Surface("Widget", Member("Existing", ["A"]));
