@@ -65,10 +65,10 @@ entry gate invalidates every later result, so run it first and report it.
 
 "100% green" means all of the following pass on the changed revision:
 
-1. **Build** the product:
+1. **Build** the product/test/fixture graph:
 
    ```bash
-   dotnet build src/dotnet-inspect -c Release
+   dotnet build dotnet-inspect.slnx -c Release
    ```
 
 2. **Focused tests** for the area you touched, run with `dotnet run --project`,

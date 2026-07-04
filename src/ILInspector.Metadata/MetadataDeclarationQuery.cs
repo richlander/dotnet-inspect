@@ -157,7 +157,7 @@ public static class MetadataDeclarationQuery
         {
             var field = reader.GetFieldDefinition(fieldHandle);
             var fieldName = reader.GetString(field.Name);
-            if (fieldName.StartsWith('<', StringComparison.Ordinal))
+            if (fieldName.StartsWith("<", StringComparison.Ordinal))
                 continue;
 
             var declaration = GetField(reader, typeDef, field);
