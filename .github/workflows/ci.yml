@@ -58,7 +58,7 @@ jobs:
               eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
-              *.props|*.sln) CODE=true ;;
+              *.props|*.sln|*.slnx) CODE=true ;;
               .github/workflows/*) CODE=true ;;
             esac
             case "$file" in
@@ -73,7 +73,7 @@ jobs:
               eng/restore-ilassembler.sh) ILROUNDTRIP=true ;;
               src/ILInspector.Metadata*) ILROUNDTRIP=true ;;
               src/DotnetInspector.Core/*) ILROUNDTRIP=true ;;
-              *.props|*.sln) ILROUNDTRIP=true ;;
+              *.props|*.sln|*.slnx) ILROUNDTRIP=true ;;
             esac
             # Packaging/pack-smoke validation only needs to run when something
             # that affects the *packaged* tool changes. pack/pack-rid only run
@@ -152,12 +152,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
           restore-keys: |
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+        run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Prepare PR decompiler corpus
         run: |

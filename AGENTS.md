@@ -65,11 +65,16 @@ Console.WriteLine($"Found {items.Count} items");
 
 ## Building and Testing
 
-Build the main project:
+Build the normal product/test/fixture graph:
 
 ```bash
-dotnet build src/dotnet-inspect -c Release
+dotnet build dotnet-inspect.slnx -c Release
 ```
+
+Pack and publish flows remain separate and continue to build/pack
+`src/dotnet-inspect` directly. `DotnetInspector.ILRoundtrip.Tests` is not in the
+default solution because it requires the vendored ILAssembler; run
+`eng/restore-ilassembler.sh` before its targeted test command.
 
 **IMPORTANT: Tests use xunit v3 with `OutputType Exe`. You MUST use `dotnet run`, NOT `dotnet test`. Using `dotnet test` will silently produce no output.**
 
