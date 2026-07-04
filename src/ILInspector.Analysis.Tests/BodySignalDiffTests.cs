@@ -92,6 +92,31 @@ public class BodySignalDiffTests
         Assert.Equal(5, added.ILOffset);
     }
 
+    [Fact]
+    public void CompareUnsafe_OffsetShiftWithAddedOperation_DoesNotEmitRemoveAddFlood()
+    {
+        var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [method],
+            [
+                new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 10, null),
+                new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 20, null),
+            ]);
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [method],
+            [
+                new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 5, null),
+                new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 15, null),
+                new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 25, null),
+            ]);
+
+        var diff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
+
+        var added = Assert.Single(diff.Rows);
+        Assert.Equal(BodySignalDiffKind.Added, added.Kind);
+        Assert.Null(added.ILOffset);
+    }
+
     static string DiffFixturePath(string project)
     {
         var outputDirectory = new DirectoryInfo(
