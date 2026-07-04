@@ -57,6 +57,33 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void MetadataApiDiff_MemberChange_CarriesStructuredSubject()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberAdded, change.Kind);
+        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
+        Assert.Equal("Added", change.Subject?.MemberName);
+        Assert.Equal("void Added()", change.Subject?.NewIdentity);
+    }
+
+    [Fact]
+    public void CompareApiSurfaces_UsesStructuredSubjectRatherThanParsingMessage()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Has'Quote"));
+
+        var diff = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+
+        var changed = Assert.Single(diff.MembersWhere(member => member.ApiChanged));
+        Assert.Equal("Has'Quote", changed.Subject.MemberName);
+    }
+
+    [Fact]
     public void CompareApiSurfaces_AttributeScope_QueriesMemberAttributeChanges()
     {
         var oldSurface = Surface("Widget", Member("Existing", ["A"]));

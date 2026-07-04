@@ -59,6 +59,26 @@ public enum ApiChangeCategory
     Attribute,
 }
 
+public enum ApiChangeSubjectKind
+{
+    Type,
+    Member,
+}
+
+public sealed record ApiChangeSubject(
+    ApiChangeSubjectKind Kind,
+    string DisplayName,
+    string? MemberName = null,
+    string? OldIdentity = null,
+    string? NewIdentity = null)
+{
+    public static ApiChangeSubject Type(string typeName)
+        => new(ApiChangeSubjectKind.Type, typeName);
+
+    public static ApiChangeSubject Member(string memberName, string? oldIdentity = null, string? newIdentity = null)
+        => new(ApiChangeSubjectKind.Member, memberName, memberName, oldIdentity, newIdentity);
+}
+
 [Flags]
 public enum ApiDiffScope
 {
@@ -76,7 +96,8 @@ public record ApiChange(
     string Message,
     string? OldValue = null,
     string? NewValue = null,
-    ApiChangeCategory Category = ApiChangeCategory.Signature);
+    ApiChangeCategory Category = ApiChangeCategory.Signature,
+    ApiChangeSubject? Subject = null);
 
 public sealed record ApiDiffOptions(ApiDiffScope Scope = ApiDiffScope.Signature)
 {
@@ -155,14 +176,16 @@ public static class ApiDiffAnalyzer
             {
                 changes = IncludesSignature(options)
                     ? [new ApiChange(ChangeKind.TypeRemoved, ChangeClassification.Breaking,
-                        $"Type '{typeName}' was removed")]
+                        $"Type '{typeName}' was removed",
+                        Subject: ApiChangeSubject.Type(typeName))]
                     : [];
             }
             else if (!inOld && inNew)
             {
                 changes = IncludesSignature(options)
                     ? [new ApiChange(ChangeKind.TypeAdded, ChangeClassification.Additive,
-                        $"Type '{typeName}' was added")]
+                        $"Type '{typeName}' was added",
+                        Subject: ApiChangeSubject.Type(typeName))]
                     : [];
             }
             else
@@ -208,7 +231,14 @@ public static class ApiDiffAnalyzer
             CompareTypeParameters(oldType, newType, changes);
         }
         if (IncludesAttributes(options))
-            CompareAttributes(oldType.Attributes, newType.Attributes, changes, ChangeKind.TypeAttributeAdded, ChangeKind.TypeAttributeRemoved, $"Type '{oldType.FullName}'");
+            CompareAttributes(
+                oldType.Attributes,
+                newType.Attributes,
+                changes,
+                ChangeKind.TypeAttributeAdded,
+                ChangeKind.TypeAttributeRemoved,
+                $"Type '{oldType.FullName}'",
+                ApiChangeSubject.Type(oldType.FullName));
         CompareMembers(oldType, newType, changes, options);
         return changes;
     }
@@ -220,7 +250,8 @@ public static class ApiDiffAnalyzer
         {
             changes.Add(new ApiChange(ChangeKind.TypeKindChanged, ChangeClassification.Breaking,
                 $"Type kind changed from '{oldType.Kind}' to '{newType.Kind}'",
-                oldType.Kind, newType.Kind));
+                oldType.Kind, newType.Kind,
+                Subject: ApiChangeSubject.Type(oldType.FullName)));
         }
 
         // Sealed changes — skip for static types (IsSealed && IsAbstract both true)
@@ -232,23 +263,27 @@ public static class ApiDiffAnalyzer
             if (!oldType.IsSealed && newType.IsSealed)
             {
                 changes.Add(new ApiChange(ChangeKind.SealedAdded, ChangeClassification.Breaking,
-                    "Type was sealed"));
+                    "Type was sealed",
+                    Subject: ApiChangeSubject.Type(oldType.FullName)));
             }
             else if (oldType.IsSealed && !newType.IsSealed)
             {
                 changes.Add(new ApiChange(ChangeKind.SealedRemoved, ChangeClassification.Additive,
-                    "Type was unsealed"));
+                    "Type was unsealed",
+                    Subject: ApiChangeSubject.Type(oldType.FullName)));
             }
 
             if (!oldType.IsAbstract && newType.IsAbstract)
             {
                 changes.Add(new ApiChange(ChangeKind.AbstractAdded, ChangeClassification.Breaking,
-                    "Type was made abstract"));
+                    "Type was made abstract",
+                    Subject: ApiChangeSubject.Type(oldType.FullName)));
             }
             else if (oldType.IsAbstract && !newType.IsAbstract)
             {
                 changes.Add(new ApiChange(ChangeKind.AbstractRemoved, ChangeClassification.Additive,
-                    "Type was made non-abstract"));
+                    "Type was made non-abstract",
+                    Subject: ApiChangeSubject.Type(oldType.FullName)));
             }
         }
 
@@ -257,7 +292,8 @@ public static class ApiDiffAnalyzer
         {
             changes.Add(new ApiChange(ChangeKind.BaseTypeChanged, ChangeClassification.Breaking,
                 $"Base type changed from '{oldType.BaseType ?? "none"}' to '{newType.BaseType ?? "none"}'",
-                oldType.BaseType, newType.BaseType));
+                oldType.BaseType, newType.BaseType,
+                Subject: ApiChangeSubject.Type(oldType.FullName)));
         }
 
         // Interfaces
@@ -267,7 +303,9 @@ public static class ApiDiffAnalyzer
         foreach (var removed in oldInterfaces.Except(newInterfaces).Order())
         {
             changes.Add(new ApiChange(ChangeKind.InterfaceRemoved, ChangeClassification.Breaking,
-                $"Interface '{removed}' was removed"));
+                $"Interface '{removed}' was removed",
+                OldValue: removed,
+                Subject: ApiChangeSubject.Type(oldType.FullName)));
         }
 
         foreach (var added in newInterfaces.Except(oldInterfaces).Order())
@@ -278,7 +316,9 @@ public static class ApiDiffAnalyzer
                 : ChangeClassification.Additive;
 
             changes.Add(new ApiChange(ChangeKind.InterfaceAdded, classification,
-                $"Interface '{added}' was added"));
+                $"Interface '{added}' was added",
+                NewValue: added,
+                Subject: ApiChangeSubject.Type(oldType.FullName)));
         }
     }
 
@@ -291,7 +331,8 @@ public static class ApiDiffAnalyzer
         {
             changes.Add(new ApiChange(ChangeKind.TypeParameterCountChanged, ChangeClassification.Breaking,
                 $"Generic parameter count changed from {oldParams.Count} to {newParams.Count}",
-                oldParams.Count.ToString(), newParams.Count.ToString()));
+                oldParams.Count.ToString(), newParams.Count.ToString(),
+                Subject: ApiChangeSubject.Type(oldType.FullName)));
             return; // No point comparing individual params when count changed
         }
 
@@ -305,7 +346,8 @@ public static class ApiDiffAnalyzer
             {
                 changes.Add(new ApiChange(ChangeKind.TypeParameterVarianceChanged, ChangeClassification.Breaking,
                     $"Generic parameter '{newParam.Name}' variance changed from '{oldParam.Variance ?? "none"}' to '{newParam.Variance ?? "none"}'",
-                    oldParam.Variance, newParam.Variance));
+                    oldParam.Variance, newParam.Variance,
+                    Subject: ApiChangeSubject.Type(oldType.FullName)));
             }
 
             // Constraints changed
@@ -318,13 +360,17 @@ public static class ApiDiffAnalyzer
             if (added.Count > 0)
             {
                 changes.Add(new ApiChange(ChangeKind.TypeParameterConstraintTightened, ChangeClassification.Breaking,
-                    $"Generic parameter '{newParam.Name}' added constraints: {string.Join(", ", added)}"));
+                    $"Generic parameter '{newParam.Name}' added constraints: {string.Join(", ", added)}",
+                    NewValue: string.Join(", ", added),
+                    Subject: ApiChangeSubject.Type(oldType.FullName)));
             }
 
             if (removed.Count > 0)
             {
                 changes.Add(new ApiChange(ChangeKind.TypeParameterConstraintLoosened, ChangeClassification.Additive,
-                    $"Generic parameter '{newParam.Name}' removed constraints: {string.Join(", ", removed)}"));
+                    $"Generic parameter '{newParam.Name}' removed constraints: {string.Join(", ", removed)}",
+                    OldValue: string.Join(", ", removed),
+                    Subject: ApiChangeSubject.Type(oldType.FullName)));
             }
         }
     }
@@ -394,9 +440,12 @@ public static class ApiDiffAnalyzer
                         pairedOld.Add(oldMember);
                         pairedNew.Add(newMember);
 
+                        var oldKey = GetMemberKey(oldMember);
+                        var newKey = GetMemberKey(newMember);
                         changes.Add(new ApiChange(ChangeKind.MemberSignatureChanged, ChangeClassification.Breaking,
                             $"Member '{oldMember.Name}' signature changed",
-                            GetMemberKey(oldMember), GetMemberKey(newMember)));
+                            oldKey, newKey,
+                            Subject: ApiChangeSubject.Member(oldMember.Name, oldKey, newKey)));
                         break;
                     }
                 }
@@ -407,8 +456,11 @@ public static class ApiDiffAnalyzer
             {
                 if (!pairedOld.Contains(oldMember))
                 {
+                    var oldKey = GetMemberKey(oldMember);
                     changes.Add(new ApiChange(ChangeKind.MemberRemoved, ChangeClassification.Breaking,
-                        $"Member '{oldMember.Name}' was removed"));
+                        $"Member '{oldMember.Name}' was removed",
+                        OldValue: oldKey,
+                        Subject: ApiChangeSubject.Member(oldMember.Name, oldIdentity: oldKey)));
                 }
             }
 
@@ -421,8 +473,11 @@ public static class ApiDiffAnalyzer
                         ? ChangeClassification.PotentiallyBreaking
                         : ChangeClassification.Additive;
 
+                    var newKey = GetMemberKey(newMember);
                     changes.Add(new ApiChange(ChangeKind.MemberAdded, classification,
-                        $"Member '{newMember.Name}' was added"));
+                        $"Member '{newMember.Name}' was added",
+                        NewValue: newKey,
+                        Subject: ApiChangeSubject.Member(newMember.Name, newIdentity: newKey)));
                 }
             }
 
@@ -447,7 +502,8 @@ public static class ApiDiffAnalyzer
                     changes,
                     ChangeKind.MemberAttributeAdded,
                     ChangeKind.MemberAttributeRemoved,
-                    $"Member '{oldMember.Name}'");
+                    $"Member '{oldMember.Name}'",
+                    ApiChangeSubject.Member(oldMember.Name, GetMemberKey(oldMember), GetMemberKey(newMember)));
             }
         }
     }
@@ -457,24 +513,36 @@ public static class ApiDiffAnalyzer
         // Virtual removed
         if (oldMember.IsVirtual && !newMember.IsVirtual)
         {
+            var oldKey = GetMemberKey(oldMember);
+            var newKey = GetMemberKey(newMember);
             changes.Add(new ApiChange(ChangeKind.VirtualRemoved, ChangeClassification.Breaking,
-                $"Member '{oldMember.Name}' is no longer virtual"));
+                $"Member '{oldMember.Name}' is no longer virtual",
+                oldKey,
+                newKey,
+                Subject: ApiChangeSubject.Member(oldMember.Name, oldKey, newKey)));
         }
 
         // Abstract added
         if (!oldMember.IsAbstract && newMember.IsAbstract)
         {
+            var oldKey = GetMemberKey(oldMember);
+            var newKey = GetMemberKey(newMember);
             changes.Add(new ApiChange(ChangeKind.AbstractMemberAdded, ChangeClassification.Breaking,
-                $"Member '{oldMember.Name}' was made abstract"));
+                $"Member '{oldMember.Name}' was made abstract",
+                oldKey,
+                newKey,
+                Subject: ApiChangeSubject.Member(oldMember.Name, oldKey, newKey)));
         }
 
         // Enum value changed
         if (oldMember.EnumValue != null && newMember.EnumValue != null &&
             oldMember.EnumValue != newMember.EnumValue)
         {
+            var key = GetMemberKey(oldMember);
             changes.Add(new ApiChange(ChangeKind.EnumValueChanged, ChangeClassification.PotentiallyBreaking,
                 $"Enum member '{oldMember.Name}' value changed from {oldMember.EnumValue} to {newMember.EnumValue}",
-                oldMember.EnumValue.Value.ToString(), newMember.EnumValue.Value.ToString()));
+                oldMember.EnumValue.Value.ToString(), newMember.EnumValue.Value.ToString(),
+                Subject: ApiChangeSubject.Member(oldMember.Name, key, key)));
         }
     }
 
@@ -504,7 +572,8 @@ public static class ApiDiffAnalyzer
         List<ApiChange> changes,
         ChangeKind addedKind,
         ChangeKind removedKind,
-        string subject)
+        string subject,
+        ApiChangeSubject structuredSubject)
     {
         var oldSet = new HashSet<string>(oldAttributes, StringComparer.Ordinal);
         var newSet = new HashSet<string>(newAttributes, StringComparer.Ordinal);
@@ -516,7 +585,8 @@ public static class ApiDiffAnalyzer
                 ChangeClassification.PotentiallyBreaking,
                 $"{subject} attribute '{removed}' was removed",
                 OldValue: removed,
-                Category: ApiChangeCategory.Attribute));
+                Category: ApiChangeCategory.Attribute,
+                Subject: structuredSubject));
         }
 
         foreach (var added in newSet.Except(oldSet).Order(StringComparer.Ordinal))
@@ -526,7 +596,8 @@ public static class ApiDiffAnalyzer
                 ChangeClassification.PotentiallyBreaking,
                 $"{subject} attribute '{added}' was added",
                 NewValue: added,
-                Category: ApiChangeCategory.Attribute));
+                Category: ApiChangeCategory.Attribute,
+                Subject: structuredSubject));
         }
     }
 

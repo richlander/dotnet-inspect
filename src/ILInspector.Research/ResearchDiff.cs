@@ -528,13 +528,13 @@ public static class ResearchDiff
             return new ResearchSubjectKey(ResearchDiffSubjectKind.Type, $"type:{typeName}", typeName, TypeName: typeName);
 
         var direction = Direction(change.Kind);
-        var memberName = ExtractQuotedName(change.Message);
+        var memberName = change.Subject?.MemberName;
         var type = direction == ResearchDiffDirection.Removed
             ? FindType(oldSurface, typeName)
             : FindType(newSurface, typeName) ?? FindType(oldSurface, typeName);
         var member = type is null || memberName is null
             ? null
-            : FindMember(type, memberName, direction == ResearchDiffDirection.Removed ? change.OldValue : change.NewValue);
+            : FindMember(type, memberName, direction == ResearchDiffDirection.Removed ? change.Subject?.OldIdentity : change.Subject?.NewIdentity);
 
         string memberId;
         string display;
@@ -545,7 +545,9 @@ public static class ResearchDiff
         }
         else
         {
-            var value = direction == ResearchDiffDirection.Removed ? change.OldValue : change.NewValue;
+            var value = direction == ResearchDiffDirection.Removed
+                ? change.Subject?.OldIdentity ?? change.OldValue
+                : change.Subject?.NewIdentity ?? change.NewValue;
             memberId = $"member:{typeName}::{value ?? memberName ?? change.Kind.ToString()}";
             display = $"{typeName}.{memberName ?? value ?? change.Kind.ToString()}";
         }
@@ -707,15 +709,6 @@ public static class ResearchDiff
     static string AssemblyKey(LibraryBodyIndex index)
         => index.Methods.Select(method => method.AssemblyName).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
             ?? Path.GetFileNameWithoutExtension(index.Path);
-
-    static string? ExtractQuotedName(string message)
-    {
-        var start = message.IndexOf('\'');
-        if (start < 0)
-            return null;
-        var end = message.IndexOf('\'', start + 1);
-        return end > start ? message[(start + 1)..end] : null;
-    }
 
     static string FormatOperations(IReadOnlyList<IlDiffRow> rows)
         => rows.Count == 0 ? "" : string.Join("; ", rows.Select(row => row.Operation.Display));
