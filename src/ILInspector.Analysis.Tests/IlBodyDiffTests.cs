@@ -116,12 +116,14 @@ public class IlBodyDiffTests
                 Assert.Equal(IlDiffKind.Remove, removed.Kind);
                 Assert.Equal("ldc.i4", removed.Operation.OpcodeFamily);
                 Assert.Equal("1", removed.Operation.Operand?.Value);
+                Assert.Equal("Removed IL operation 'ldc.i4 1'", removed.Message);
             },
             added =>
             {
                 Assert.Equal(IlDiffKind.Add, added.Kind);
                 Assert.Equal("ldc.i4", added.Operation.OpcodeFamily);
                 Assert.Equal("2", added.Operation.Operand?.Value);
+                Assert.Equal("Added IL operation 'ldc.i4 2'", added.Message);
             });
     }
 
@@ -253,6 +255,7 @@ public class IlBodyDiffTests
                 Assert.Equal(0, removedBranch.Operation.Offset);
                 Assert.Equal("br", removedBranch.Operation.OpcodeFamily);
                 Assert.Equal("IL_0005", removedBranch.Operation.Operand?.Value);
+                Assert.Equal("Removed IL branch 'br IL_0005'", removedBranch.Message);
             },
             addedBranch =>
             {
@@ -260,6 +263,7 @@ public class IlBodyDiffTests
                 Assert.Equal(0, addedBranch.Operation.Offset);
                 Assert.Equal("br", addedBranch.Operation.OpcodeFamily);
                 Assert.Equal("IL_0002", addedBranch.Operation.Operand?.Value);
+                Assert.Equal("Added IL branch 'br IL_0002'", addedBranch.Message);
             },
             removedNop =>
             {
