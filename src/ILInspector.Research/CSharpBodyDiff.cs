@@ -180,7 +180,7 @@ public static class CSharpBodyDiff
                 string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
                 string canonicalName = CanonicalMemberName(methodName);
                 string canonicalSignature = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
-                var anchor = CreateMemberAnchor(typeKey, selectorName, canonicalSignature);
+                var anchor = CreateMemberAnchor(typeKey, selectorName, canonicalName, canonicalSignature);
                 string displayName = methodName == ".ctor" ? "#ctor" : methodName;
                 string display = $"{typeDisplay}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
                 yield return new CSharpMethodEntry(
@@ -248,9 +248,9 @@ public static class CSharpBodyDiff
         return $"<{string.Join(",", Enumerable.Range(0, arity).Select(index => $"{prefix}{index}"))}>";
     }
 
-    static MemberAnchor CreateMemberAnchor(string typeFullName, string memberName, string canonicalSignature)
+    static MemberAnchor CreateMemberAnchor(string typeFullName, string selectorName, string memberName, string canonicalSignature)
         => new(
-            $"{memberName}~{MemberAnchor.ComputeFingerprint(canonicalSignature)}",
+            $"{selectorName}~{MemberAnchor.ComputeFingerprint(canonicalSignature)}",
             canonicalSignature,
             MemberAnchor.ComputeFingerprint(canonicalSignature),
             typeFullName,

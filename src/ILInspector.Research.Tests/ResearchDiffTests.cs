@@ -357,6 +357,22 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnExplicitImplementationAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExplicitSurface" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "DiffFixtureSample.IExplicitSurface.Get"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("explicit:DiffFixtureSample.IExplicitSurface.Get~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareAssemblies_DefaultMechanisms_IncludeCSharpChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(

@@ -782,10 +782,10 @@ public static class ResearchDiff
     }
 
     static string BodySignalMethodKey(MethodIdentity method)
-        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
+        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static string MethodMatchKey(MethodIdentity method)
-        => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
+        => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static Dictionary<string, MethodIdentity> MethodLookup(LibraryBodyIndex index)
     {
