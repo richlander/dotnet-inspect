@@ -133,6 +133,9 @@ generic and nested-generic typed `Equals(T)`; run
 generated fixtures run; use `list` to list fixture IDs, `--json` for
 machine-readable list/results, and
 `--keep-generated-fixtures` to preserve the generated project for drill-down.
+The `rts.*` fixtures are focused ReturnToSender parity-burndown probes; for
+example `rts.attribute-shell` protects attribute type shells that must preserve a
+spellable `System.Attribute` base before attribute usages can compile.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape

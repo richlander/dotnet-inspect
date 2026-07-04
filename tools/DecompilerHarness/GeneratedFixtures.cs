@@ -1446,6 +1446,38 @@ internal static class GeneratedFixtureCatalog
         ],
         ["record", "nested", "generic", "equals", "return-to-sender"]);
 
+    public static readonly GeneratedFixtureDefinition RtsAttributeShell = new(
+        "rts.attribute-shell",
+        """
+        namespace System.Diagnostics.CodeAnalysis;
+
+        [System.AttributeUsage(System.AttributeTargets.Property | System.AttributeTargets.Parameter | System.AttributeTargets.ReturnValue)]
+        public sealed class FeatureGuardAttribute : System.Attribute
+        {
+            public FeatureGuardAttribute(System.Type featureType)
+            {
+                FeatureType = featureType;
+            }
+
+            public System.Type FeatureType { get; }
+        }
+        """,
+        [
+            new(
+                "System.Diagnostics.CodeAnalysis.FeatureGuardAttribute",
+                ".ctor",
+                FidelityCheck.CompileBackStatus.Exact),
+            new(
+                "System.Diagnostics.CodeAnalysis.FeatureGuardAttribute",
+                "get_FeatureType",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "return this.FeatureType;",
+                ]),
+        ],
+        ["rts", "attribute", "shell", "return-to-sender"]);
+
     public static readonly GeneratedFixtureDefinition AssertionNodeCoverage = new(
         "assertion.inverse-node-coverage",
         """
@@ -1817,6 +1849,11 @@ internal static class GeneratedFixtureCatalog
         RecordNestedGenericTypedEquals,
     ];
 
+    public static IReadOnlyList<GeneratedFixtureDefinition> ReturnToSenderParity { get; } =
+    [
+        RtsAttributeShell,
+    ];
+
     public static IReadOnlyList<GeneratedFixtureDefinition> AssertionCoverage { get; } =
     [
         AssertionNodeCoverage,
@@ -1828,6 +1865,7 @@ internal static class GeneratedFixtureCatalog
         .. All,
         .. Frontiers,
         .. ReturnToSenderRecords,
+        .. ReturnToSenderParity,
         .. AssertionCoverage,
     ];
 

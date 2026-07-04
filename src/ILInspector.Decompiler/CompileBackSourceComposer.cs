@@ -899,6 +899,7 @@ public static class CompileBackSourceComposer
                 })
                 .ToList(),
             Interfaces = type.Interfaces.Select(type => type.DisplayName).ToList(),
+            BaseType = type.BaseType?.DisplayName,
             Attributes = type.Attributes?.ToList() ?? [],
             IsAbstract = type.IsAbstract,
         };
@@ -1928,7 +1929,7 @@ public static class CompileBackSourceComposer
                 requirement.Type,
                 requirement.RequiredKind,
                 CompileBackAccessibility.Public,
-                BaseType: null,
+                BaseType: BaseTypeSignature(reader, typeDef),
                 PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
                 TypeParameters: TypeParameters(reader, typeDef),
                 Interfaces: InterfaceSignatures(reader, typeDef),
@@ -2007,7 +2008,7 @@ public static class CompileBackSourceComposer
                     identity,
                     kind,
                     CompileBackAccessibility.Public,
-                    BaseType: null,
+                    BaseType: BaseTypeSignature(reader, nestedDef),
                     PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
                     TypeParameters: TypeParameters(reader, nestedDef),
                     Interfaces: InterfaceSignatures(reader, nestedDef),
@@ -2023,6 +2024,19 @@ public static class CompileBackSourceComposer
 
         static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
             => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
+
+        static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef)
+        {
+            if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
+                return null;
+            if (typeDef.BaseType.IsNil)
+                return null;
+
+            string? baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, GenericContext.ForType(reader, typeDef));
+            return baseType is "System.Attribute"
+                ? CompileBackTypeSignature.Display(baseType)
+                : null;
+        }
 
         static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(MetadataReader reader, TypeDefinition typeDef)
         {
