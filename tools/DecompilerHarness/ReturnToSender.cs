@@ -26,7 +26,8 @@ static class ReturnToSender
         FidelityCheck.CompileBackStatus Status,
         string OriginalOpcodes,
         string RecompiledOpcodes,
-        string? Detail);
+        string? Detail,
+        string TargetBody = "");
 
     public sealed record RequestedTarget(string Type, string Method, int Overload);
 
@@ -687,7 +688,8 @@ static class ReturnToSender
                         : FidelityCheck.CompileBackStatus.OpcodeDiff,
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
-                    null);
+                    null,
+                    TargetBody: printed.Output);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -834,7 +836,8 @@ static class ReturnToSender
                         : FidelityCheck.CompileBackStatus.OpcodeDiff,
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
-                    null);
+                    null,
+                    TargetBody: printed.Output);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -982,7 +985,8 @@ static class ReturnToSender
                         : FidelityCheck.CompileBackStatus.OpcodeDiff,
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
-                    null);
+                    null,
+                    TargetBody: printed.Output);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();

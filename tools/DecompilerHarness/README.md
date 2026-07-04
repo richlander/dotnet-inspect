@@ -122,7 +122,9 @@ Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape
 frontier. Shape frontiers record both the accepted current shape and the desired
-frontier shape.
+frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
+expectations; those match only the decompiled target body, not the reconstructed
+type shell, so metadata scaffolding cannot satisfy a target-body assertion.
 
 The generated fixture ladder is intentionally staged:
 

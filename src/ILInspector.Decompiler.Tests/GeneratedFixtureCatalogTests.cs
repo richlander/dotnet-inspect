@@ -1125,6 +1125,37 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderRecordCatalog_TargetBodyFragmentsDoNotMatchShellSource()
+    {
+        var shellOnlyFragment = new GeneratedFixtureDefinition(
+            "test.record-shell-only-fragment",
+            """
+            public record ShellOnlyFragmentRecord(string Name, string Value);
+            """,
+            [
+                new(
+                    "ShellOnlyFragmentRecord",
+                    "GetHashCode",
+                    FidelityCheck.CompileBackStatus.Exact,
+                    ExpectedTargetBodyFragments:
+                    [
+                        "public string Name;",
+                    ]),
+            ],
+            ["test", "record"]);
+
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog([shellOnlyFragment]);
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+        var result = Assert.Single(run.Results);
+
+        Assert.False(run.Passed, report);
+        Assert.Equal(GeneratedFixtureReturnToSenderStatus.Fail, result.Status);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.ActualStatus);
+        Assert.Equal("target-body-fragment-missing", result.Reason);
+        Assert.Contains("missing expected target body fragment: public string Name;", result.Detail);
+    }
+
+    [Fact]
     public void CompilerLoweringFrontier_IsSelectableButNotInDefaultRun()
     {
         var switchRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));

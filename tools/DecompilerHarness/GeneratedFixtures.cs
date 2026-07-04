@@ -1280,7 +1280,11 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordPropertyGetterSnapshot",
                 "get_Assembly",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "return this.Assembly;",
+                ]),
         ],
         ["record", "property", "getter", "return-to-sender"]);
 
@@ -1293,11 +1297,20 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordEqualityOperatorsRow",
                 "op_Equality",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "(object)left == (object)right",
+                    "left.Equals(right)",
+                ]),
             new(
                 "RecordEqualityOperatorsRow",
                 "op_Inequality",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "return !(left == right);",
+                ]),
         ],
         ["record", "operator", "equality", "return-to-sender"]);
 
@@ -1310,11 +1323,21 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordVirtualHelpersRow",
                 "ToString",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "new StringBuilder()",
+                    "PrintMembers(V_0)",
+                    "return V_0.ToString();",
+                ]),
             new(
                 "RecordVirtualHelpersRow",
                 "Equals",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "return Equals(obj as RecordVirtualHelpersRow);",
+                ]),
         ],
         ["record", "virtual", "helper", "return-to-sender"]);
 
@@ -1327,16 +1350,34 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordFieldReadHelpersRow",
                 "GetHashCode",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "EqualityContract",
+                    "this.Name",
+                    "this.Value",
+                ]),
             new(
                 "RecordFieldReadHelpersRow",
                 "ToString",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "RecordFieldReadHelpersRow",
+                    "PrintMembers(V_0)",
+                    "return V_0.ToString();",
+                ]),
             new(
                 "RecordFieldReadHelpersRow",
                 "Equals",
                 FidelityCheck.CompileBackStatus.Exact,
-                Overload: 1),
+                Overload: 1,
+                ExpectedTargetBodyFragments:
+                [
+                    "other.EqualityContract",
+                    "this.Name, other.Name",
+                    "this.Value, other.Value",
+                ]),
         ],
         ["record", "field", "helper", "return-to-sender"]);
 
@@ -1349,12 +1390,22 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordStructFieldReadHelpersRow",
                 "GetHashCode",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "this.Name",
+                    "this.Value",
+                ]),
             new(
                 "RecordStructFieldReadHelpersRow",
                 "Equals",
                 FidelityCheck.CompileBackStatus.Exact,
-                Overload: 1),
+                Overload: 1,
+                ExpectedTargetBodyFragments:
+                [
+                    "this.Name, other.Name",
+                    "this.Value, other.Value",
+                ]),
         ],
         ["record", "struct", "field", "helper", "return-to-sender"]);
 
@@ -1367,7 +1418,11 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordGenericTypedEqualsRow`1",
                 "Equals",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "return Equals(obj as RecordGenericTypedEqualsRow<T>);",
+                ]),
         ],
         ["record", "generic", "equals", "return-to-sender"]);
 
@@ -1383,7 +1438,11 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordNestedGenericTypedEqualsContainer`1.Row`1",
                 "Equals",
-                FidelityCheck.CompileBackStatus.Exact),
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedTargetBodyFragments:
+                [
+                    "return Equals(obj as Row<U>);",
+                ]),
         ],
         ["record", "nested", "generic", "equals", "return-to-sender"]);
 
@@ -1731,7 +1790,8 @@ internal sealed record GeneratedFixtureTarget(
     string? Note = null,
     SyntaxKind? ExpectedShape = null,
     SyntaxKind? FrontierShape = null,
-    IReadOnlyList<string>? ExpectedSourceFragments = null)
+    IReadOnlyList<string>? ExpectedSourceFragments = null,
+    IReadOnlyList<string>? ExpectedTargetBodyFragments = null)
 {
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
@@ -1899,8 +1959,10 @@ internal static class GeneratedFixtureRunner
                     }
 
                     var missingSourceFragment = MissingSourceFragment(actual.Source, target.ExpectedSourceFragments);
+                    var missingTargetBodyFragment = MissingSourceFragment(actual.TargetBody, target.ExpectedTargetBodyFragments);
                     var status = actual.Status == FidelityCheck.CompileBackStatus.Exact
                         && missingSourceFragment is null
+                        && missingTargetBodyFragment is null
                             ? GeneratedFixtureReturnToSenderStatus.Pass
                             : GeneratedFixtureReturnToSenderStatus.Fail;
                     results.Add(new GeneratedFixtureReturnToSenderResult(
@@ -1914,10 +1976,14 @@ internal static class GeneratedFixtureRunner
                             ? "exact"
                             : missingSourceFragment is not null
                                 ? "source-fragment-missing"
+                                : missingTargetBodyFragment is not null
+                                    ? "target-body-fragment-missing"
                                 : FailureReason(actual),
-                        missingSourceFragment is null
-                            ? actual.Detail
-                            : $"missing expected source fragment: {missingSourceFragment}",
+                        missingSourceFragment is not null
+                            ? $"missing expected source fragment: {missingSourceFragment}"
+                            : missingTargetBodyFragment is not null
+                                ? $"missing expected target body fragment: {missingTargetBodyFragment}"
+                                : actual.Detail,
                         target.IsFrontier,
                         target.Note));
                 }
