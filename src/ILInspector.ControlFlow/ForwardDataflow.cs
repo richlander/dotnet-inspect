@@ -173,6 +173,13 @@ public static class ForwardDataflow
     {
         if (merge == DataflowMerge.Union)
         {
+            // Fast path: with no seed and exactly one reachable predecessor, the merged in-set is
+            // that predecessor's out-set. Dataflow sets are immutable once assigned (they are always
+            // replaced by a fresh set, never mutated in place, and MergePredecessors only reads
+            // out-sets), so aliasing it avoids a full HashSet copy on the common straight-line block.
+            if (seed is null && TrySingleReachablePredecessor(predecessors, reachable, out int only))
+                return outSets[only];
+
             var result = seed is null ? new HashSet<int>() : new HashSet<int>(seed);
             foreach (int predecessor in predecessors)
                 if (reachable[predecessor])
@@ -193,8 +200,32 @@ public static class ForwardDataflow
         return intersection ?? [];
     }
 
-    static HashSet<int> Apply(IReadOnlySet<int> input, GenKillSet transfer)
+    static bool TrySingleReachablePredecessor(IReadOnlyList<int> predecessors, IReadOnlyList<bool> reachable, out int only)
     {
+        only = -1;
+        foreach (int predecessor in predecessors)
+        {
+            if (!reachable[predecessor])
+                continue;
+            if (only >= 0)
+            {
+                only = -1;
+                return false;
+            }
+            only = predecessor;
+        }
+        return only >= 0;
+    }
+
+    static HashSet<int> Apply(HashSet<int> input, GenKillSet transfer)
+    {
+        // Fast path: a block with no gen and no kill passes its in-set straight through as its
+        // out-set. Dataflow sets are immutable once assigned (see MergePredecessors), so aliasing the
+        // in-set as the out-set avoids a full HashSet copy for every control-flow-only block on every
+        // fixpoint iteration — the dominant allocation in the solver.
+        if (transfer.Gen.Count == 0 && transfer.Kill.Count == 0)
+            return input;
+
         var output = new HashSet<int>(input);
         output.ExceptWith(transfer.Kill);
         output.UnionWith(transfer.Gen);
