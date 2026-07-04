@@ -105,6 +105,46 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_CompiledFixtureMultipleHunks_AssignsSeparateHunkIds()
+    {
+        var left = DiffFixtureMethod("DiffFixtures.V1", "MultipleHunks");
+        var right = DiffFixtureMethod("DiffFixtures.V2", "MultipleHunks");
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.Collection(
+            diff.Rows,
+            firstRemoved =>
+            {
+                Assert.Equal(0, firstRemoved.HunkId);
+                Assert.Equal(IlDiffKind.Remove, firstRemoved.Kind);
+                Assert.Equal("ldc.i4", firstRemoved.Operation.OpcodeFamily);
+                Assert.Equal("1", firstRemoved.Operation.Operand?.Value);
+            },
+            firstAdded =>
+            {
+                Assert.Equal(0, firstAdded.HunkId);
+                Assert.Equal(IlDiffKind.Add, firstAdded.Kind);
+                Assert.Equal("ldc.i4", firstAdded.Operation.OpcodeFamily);
+                Assert.Equal("2", firstAdded.Operation.Operand?.Value);
+            },
+            secondRemoved =>
+            {
+                Assert.Equal(1, secondRemoved.HunkId);
+                Assert.Equal(IlDiffKind.Remove, secondRemoved.Kind);
+                Assert.Equal("ldc.i4", secondRemoved.Operation.OpcodeFamily);
+                Assert.Equal("3", secondRemoved.Operation.Operand?.Value);
+            },
+            secondAdded =>
+            {
+                Assert.Equal(1, secondAdded.HunkId);
+                Assert.Equal(IlDiffKind.Add, secondAdded.Kind);
+                Assert.Equal("ldc.i4", secondAdded.Operation.OpcodeFamily);
+                Assert.Equal("4", secondAdded.Operation.Operand?.Value);
+            });
+    }
+
+    [Fact]
     public void Compare_CompiledFixtureBranchTargetOffsetShift_DoesNotMarkBranchChanged()
     {
         var left = DiffFixtureMethod("DiffFixtures.V1", "BranchTargetOffsetShift");

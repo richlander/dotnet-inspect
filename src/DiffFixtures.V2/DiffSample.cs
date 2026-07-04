@@ -33,6 +33,14 @@ namespace DiffFixtureSample
         // V1/V2 differ only in the loaded constant value.
         public static int ConstantValue() => 2;
 
+        // V1/V2 have two separated value changes with stable work between them.
+        public static int MultipleHunks(int value)
+        {
+            int first = value + 2;
+            Sink(first);
+            return value + 4;
+        }
+
         // V2 inserts an operation before the label target. The branch target's
         // raw IL offset shifts, but it still targets the same logical return.
         public static int BranchTargetOffsetShift(bool skip)

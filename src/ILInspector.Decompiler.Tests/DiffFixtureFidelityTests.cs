@@ -8,6 +8,7 @@ public class DiffFixtureFidelityTests
     static readonly string[] DiffFocusedMethods =
     [
         "ConstantValue",
+        "MultipleHunks",
         "BranchTargetOffsetShift",
         "BranchRetarget",
         "AddsUnsafe",
