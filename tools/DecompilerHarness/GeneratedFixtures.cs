@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -2062,7 +2063,7 @@ internal sealed record GeneratedFixtureReturnToSenderResult(
     FidelityCheck.CompileBackStatus? ActualStatus,
     string Reason,
     string? Detail,
-    string? IlDiffDiagnostic,
+    IlDiffDisplayResult? IlDiffDiagnostic,
     bool IsFrontier,
     string? Note)
 {
@@ -2392,11 +2393,11 @@ internal static class GeneratedFixtureRunner
                     sb.AppendLine($"      {row.DisplayMember}  rts={actual}  bucket={row.Reason}");
                     if (!string.IsNullOrWhiteSpace(row.Detail))
                         sb.AppendLine($"      detail: {row.Detail}");
-                    if (!string.IsNullOrWhiteSpace(row.IlDiffDiagnostic))
+                    if (row.IlDiffDiagnostic is not null)
                     {
                         sb.AppendLine("      il-diff:");
-                        foreach (string line in row.IlDiffDiagnostic.Split('\n'))
-                            sb.AppendLine($"        {line.TrimEnd('\r')}");
+                        foreach (string line in IlDiffPrinter.ToUnifiedLines(row.IlDiffDiagnostic))
+                            sb.AppendLine($"        {line}");
                     }
                 }
             }

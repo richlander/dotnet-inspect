@@ -58,8 +58,11 @@ public static class IlDiffPrinter
     }
 
     public static ImmutableArray<string> ToUnifiedLines(IlBodyDiffResult result)
+        => ToUnifiedLines(ToDisplayResult(result));
+
+    public static ImmutableArray<string> ToUnifiedLines(IlDiffDisplayResult display)
     {
-        var display = ToDisplayResult(result);
+        ArgumentNullException.ThrowIfNull(display);
         var rows = display.Rows.Select(row => row.UnifiedLine);
         return display.Failure is { } failure
             ? [failure, .. rows]
@@ -67,6 +70,9 @@ public static class IlDiffPrinter
     }
 
     public static string RenderUnified(IlBodyDiffResult result)
+        => RenderUnified(ToDisplayResult(result));
+
+    public static string RenderUnified(IlDiffDisplayResult result)
     {
         var lines = ToUnifiedLines(result);
         if (lines.IsEmpty)

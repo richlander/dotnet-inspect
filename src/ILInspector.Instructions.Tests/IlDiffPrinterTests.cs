@@ -75,6 +75,7 @@ public class IlDiffPrinterTests
         Assert.Equal("IL diff failed: old body decode failed", display.Failure);
         Assert.Empty(display.Rows);
         Assert.Equal(["IL diff failed: old body decode failed"], IlDiffPrinter.ToUnifiedLines(diff));
+        Assert.Equal(["IL diff failed: old body decode failed"], IlDiffPrinter.ToUnifiedLines(display));
     }
 
     [Fact]
