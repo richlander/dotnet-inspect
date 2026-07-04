@@ -1730,6 +1730,103 @@ internal static class GeneratedFixtureCatalog
             public static async System.Threading.Tasks.Task<int> AwaitExpression()
                 => await System.Threading.Tasks.Task.FromResult(42);
         }
+
+        public record RecordPair(int Number, string Text);
+
+        public sealed class Outer
+        {
+            public Holder Inner { get; } = new Holder();
+        }
+
+        public sealed class BoxedSource
+        {
+            public object PropertyValue { get; set; }
+        }
+
+        public sealed class NamedCount
+        {
+            public NamedCount(string name, int count)
+            {
+                Name = name;
+                Count = count;
+            }
+
+            public string Name { get; }
+            public int Count { get; }
+
+            public void Deconstruct(out string name, out int count)
+            {
+                name = Name;
+                count = Count;
+            }
+        }
+
+        // Output-shape node producers (B2 annotation batch, #2213).
+        public class OutputShapes
+        {
+            public static (int, string) Tuple(int number, string text)
+                => (number, text);
+
+            public static bool TupleEquals((int, int) left, (int, int) right)
+                => left == right;
+
+            public static int IsPatternBind(object value)
+            {
+                if (value is string text)
+                {
+                    return text.Length;
+                }
+                return 0;
+            }
+
+            public static int PropertyPattern(BoxedSource value)
+            {
+                if (value is { PropertyValue: string text })
+                {
+                    return text.Length;
+                }
+                return 0;
+            }
+
+            public static int ListPattern(string[] values)
+            {
+                if (values is ["a" or "b"])
+                {
+                    return 1;
+                }
+                return 0;
+            }
+
+            public static bool Positional(NamedCount value)
+                => value is ("ok", > 0);
+
+            public static byte[] ArrayLiteralBytes()
+                => new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+            public static int CollectionExpr(int a, int b)
+            {
+                System.ReadOnlySpan<int> values = [a, b];
+                return values[0];
+            }
+
+            public static int[] SpreadConcat(int[] head, int tail)
+                => [.. head, tail];
+
+            public static Holder ObjectInit(int number, string text)
+                => new Holder { Number = number, Text = text };
+
+            public static Outer NestedInit(int number)
+                => new Outer { Inner = { Number = number } };
+
+            public static object Anonymous(int number, string text)
+                => new { Number = number, Text = text };
+
+            public static RecordPair WithMutation(RecordPair pair, int number)
+                => pair with { Number = number };
+
+            public static string Interpolate(int value, string name)
+                => $"{name}: {value:X4}";
+        }
         """,
         [],
         ["assertion", "inverse-ledger", "coverage", "unsafe"]);

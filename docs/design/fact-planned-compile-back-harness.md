@@ -3,33 +3,42 @@
 ## Summary
 
 The next compile-back harness, working name **ReturnToSender**, should start
-fresh alongside the current
-`DecompilerHarness` and later cherry-pick proven pieces. The design point is not
-"whole-module skeleton, but with a closure bias." It is a new architecture:
-**fact-planned shell reconstruction**.
+fresh alongside the current `DecompilerHarness` and later cherry-pick proven
+pieces. The design point is not "whole-module skeleton, but with a closure
+bias." It is an **artifact round-trip harness** for product-generated source
+artifacts.
 
-The important distinction is closure membership vs shell-shape fidelity:
+The input is a built fixture library. ReturnToSender requests a product C#
+artifact for a target such as `fixture.foo`, optionally with a declared artifact
+shape or closure policy ("type artifact", "include these closure members",
+"include target body"). Product code produces the artifact. ReturnToSender
+compiles that artifact, then compares the original fixture assembly with the
+compiled artifact assembly through product diff primitives. API diff and IL/body
+diff should be first-class product capabilities, with Research eventually
+offering a unified API/IL/C# diff projection. RTS consumes those product diffs as
+an artifact-fidelity oracle.
 
-- closure membership decides which target-assembly roots belong in the compile
-  unit;
-- shell-shape fidelity decides what declarations, interfaces, constraints, and
-  members those roots must expose so the real decompiled method body compiles.
+The important distinction is artifact production vs proof:
+
+- product code owns C# artifact production;
+- ReturnToSender owns artifact requests, compilation, product diff invocation,
+  and failure reporting.
 
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
 membership: compile, read the compiler's missing-symbol diagnostics, add the
 named same-assembly roots, and repeat until the closure stops growing or hits a
-budget. The new harness should preserve that compiler-driven membership loop and
-replace ad hoc skeleton patching with typed shell-shape enrichment.
+budget. The new harness may reuse that algorithm for closure policy feedback,
+but it should not turn RTS into another C# shell generator.
 
 The new harness should:
 
-1. gather typed facts from Metadata, Instructions, Analysis, and Research;
-2. keep compile-driven closure growth as the generic membership algorithm;
-3. turn facts and membership into a structured reconstruction plan;
-4. produce structured module and type shells with typed signatures;
-5. print those shells as C# declarations and assembly/module context;
-6. insert the existing `CSharpPrinter` method body;
-7. compile and compare opcode streams.
+1. build fixture libraries as part of the normal repo build;
+2. select a target artifact from a fixture assembly;
+3. send a typed artifact request to product code;
+4. compile the returned C# artifact;
+5. invoke product API and IL/body diffs between original and artifact assemblies;
+6. optionally consume C# artifact/source diffs when product support exists;
+7. classify artifact production, compile, diff, and opcode failures.
 
 ## Non-goals
 
@@ -37,7 +46,8 @@ The new harness should:
 - Do not put Roslyn, compile-back, or inspected-assembly loading in shipped
   product libraries.
 - Do not make `ILInspector.Research` own compile-back orchestration.
-- Do not make the harness a general source generator for arbitrary assemblies.
+- Do not make the harness a source generator for arbitrary assemblies.
+- Do not let RTS construct C# shells to compensate for missing product artifacts.
 - Do not replace compiler-driven closure membership with speculative static
   closure.
 - Do not let parallel type identity representations drift if a shared substrate
@@ -50,14 +60,16 @@ The new harness should:
 
 | Asset | Role in the new harness |
 | --- | --- |
-| `CSharpPrinter` | Keep rendering target method bodies. |
-| opcode comparison | Keep as the compile-back fidelity oracle. |
+| Product source/artifact pipeline | Source of C# artifacts under test. |
+| `CSharpPrinter` | Product body renderer for artifacts that include method bodies. |
+| API and IL/body diffs | Product diff primitives used as artifact-fidelity oracles. |
+| Research unified diff | Future API/IL/C# evidence join for product UX and RTS proof. |
 | current `CB_CLUSTER` loop | Keep generic compiler-driven closure membership. |
 | `ILInspector.Instructions` | Shared IL decode, block identity, typed stack (`StackType`) substrate. |
 | `ILInspector.Analysis` | Whole-assembly IL facts, direct calls, body indexes, type/member references. |
 | `ILInspector.Research` | Typed fact registry, joins, and projections only. |
 | assembly/package resolution service | Generalize and reuse for CLI and harness reference closure. |
-| generated fixtures | Keep as reduced, reviewable proof cases. |
+| fixture libraries | Built repo artifacts that RTS uses as original metadata witnesses. |
 
 ## Strategic stance
 
@@ -88,43 +100,40 @@ Metadata / Instructions / Analysis / Research facts
                   |
                   v
         +---------------------------+
-        | ReturnToSenderPlanner     |
-        | tools-only reconstruction |
+        | ArtifactRequest           |
+        | target + shape policy     |
         +-------------+-------------+
                       |
                       v
         +---------------------------+
-        | ReconstructionPlan        |
-        | roots + shell requirements|
+        | Product artifact provider |
+        | C# artifact under test    |
         +-------------+-------------+
                       |
                       v
         +---------------------------+
-        | TypeProducer              |
-        | typed TypeShell records   |
+        | Roslyn compile            |
+        | artifact assembly         |
         +-------------+-------------+
                       |
                       v
         +---------------------------+
-        | TypePrinter               |
-        | C# declarations           |
+        | Product diff primitives   |
+        | API + IL/body (+ C# later)|
         +-------------+-------------+
                       |
                       v
         +---------------------------+
-        | ModuleWriter              |
-        | compilation-unit context  |
-        +-------------+-------------+
-                      |
-                      v
-CSharpPrinter body -> compile shell -> Roslyn -> opcode compare
+        | Optional opcode compare   |
+        | selected method bodies    |
+        +---------------------------+
 ```
 
-`ReturnToSenderPlanner`, `ReconstructionPlan`, `TypeProducer`, `TypeShell`, and
-`TypePrinter` should live in a tools-only reconstruction project under `tools/`
-or another non-shipped harness assembly. `ModuleWriter` belongs there too if it
-is harness-specific. They should not live in
-`ILInspector.Research` or `ILInspector.Decompiler`.
+`ArtifactRequest` and oracle reporting should live in tools-only code under
+`tools/` or another non-shipped harness assembly. Product artifact creation and
+the API/IL/C# diff primitives belong in product code because they are the system
+under test and useful CLI features. RTS may define request and comparison scopes,
+but it should not own the C# artifact printer or a bespoke metadata comparator.
 
 Research remains a product library. It can expose generic facts that other
 product consumers also need, but compile-back planning is a harness concern.
@@ -150,8 +159,8 @@ show the risk of divergence. ReturnToSender should consume this service for
 reference closure and metadata identity instead of owning a parallel resolver.
 
 The service should stay SRM-only and should sit below Decompiler, Research, and
-ReturnToSender. Harness-only policy, such as "which closure roots should be
-emitted as C# shells", belongs above this service.
+ReturnToSender. Harness-only policy, such as "which closure roots belong in this
+artifact request", belongs above this service.
 
 ### Instructions
 
@@ -188,7 +197,7 @@ Responsibilities:
 
 Analysis should tell us what the method body actually references before the
 harness asks Roslyn what is missing. It should not decide compile-back bail
-reasons or emit source shells.
+reasons or emit source artifacts.
 
 ### Research
 
@@ -211,67 +220,63 @@ Research should not:
 - decide compile-back closure membership;
 - choose compile-back bail reasons;
 - reference Roslyn;
-- host `TypeProducer`, `TypeShell`, or `TypePrinter`.
+- host artifact request, artifact production, or metadata-compare orchestration.
 
 ### ReturnToSenderPlanner
 
-Own tools-only reconstruction planning.
+Own tools-only artifact requests and oracle planning.
 
 Responsibilities:
 
 1. select the target method;
-2. run or reuse compiler-driven closure membership;
-3. query Metadata, Analysis, and Research facts for the target closure;
-4. build a `ReconstructionPlan`;
+2. choose the requested product artifact kind and closure/body policy;
+3. invoke product artifact creation;
+4. choose metadata and opcode comparison scopes;
 5. record missing facts and bail reasons for harness reports.
 
-The planner is the boundary between reusable facts and compile-back-specific
-decisions. It can use Research facts, but Research should not know that a
-particular fact is required to turn `RecompileFail` into `Exact`.
+The planner is the boundary between product artifacts and compile-back-specific
+proof. It can ask product code for an artifact, but it should not construct C#
+itself. It can use Research facts, but Research should not know that a particular
+fact is required to turn `RecompileFail` into `Exact`.
 
-### TypeProducer
+### Product artifact provider
 
-Own structured type shell construction, but do not become a harness-only C#
-writer.
+Own C# artifact production.
 
-Input: `ReconstructionPlan`.
+Input: `ArtifactRequest`.
 
-Output: typed declarations, not text.
+Output: C# artifact plus structured provenance.
 
-TypeProducer's job is not merely to reshuffle the plan. It must resolve
-requirements into complete shell records:
+The artifact provider is product code. It may use Metadata, Analysis, Research,
+and Decompiler internals, but it must remain SRM-only, NativeAOT-friendly,
+Roslyn-free, and free of inspected-assembly loading. It answers product
+questions such as:
 
-- type kind, nesting, accessibility, generic parameters, and constraints;
-- base type and interfaces;
-- fields, properties, methods, events, constructors, and explicit interface
-  members needed by the target body;
-- typed parameter, return, receiver, and generic argument signatures;
-- namespace usage and declaration grouping facts;
-- constructor and base-chain facts: real constructors, base type, available base
-  constructors, and whether each relationship is spellable;
-- stub needs that are safe for compile-back.
+- What type or member artifact should be emitted for this metadata target?
+- Which closure members belong to the artifact under the requested policy?
+- Which declarations are product-owned source shape rather than RTS scaffolding?
+- Which base/interface/constructor relationships are real and spellable?
+- Which method bodies are included, and which members are declaration-only?
 
-If TypeProducer cannot produce a typed signature, it should fail with a named
-planning reason rather than emit a stringly stub such as `MergeFrom(...)`.
+The artifact provider should return structured diagnostics when it cannot
+produce an artifact. RTS should surface those diagnostics; it should not patch
+the artifact with local C#.
 
 The product/shared side should own truthful declaration facts that are useful
 beyond ReturnToSender: namespaces, type/member signatures, base/interface
-relationships, constructor signatures, generic constraints, and explicit
-interface shapes. ReturnToSender may prototype the data model, but the long-term
-architecture should not leave those capabilities as harness-only code because
-they are also needed by whole-type decompiler output.
+relationships, constructor signatures, generic constraints, explicit interface
+shapes, and generated-family shape evidence. Leaving those capabilities as
+harness-only code means RTS tests the harness, not the product.
 
-### TypePrinter
+### Artifact printer
 
-Own C# declaration rendering for structured shells.
+Own product C# rendering for the requested artifact.
 
-TypePrinter is conceptually paired with `CSharpPrinter`, but the strategic
-destination is a shared C# declaration composition layer, not a second product
-writer hidden in the harness. The harness can carry a prototype while the model
-settles, but reusable rendering should migrate product/shared-side once the
-declaration contract is clear.
+The printer is product code, not RTS code. It is conceptually paired with
+`CSharpPrinter`, but it emits a type/member/module artifact instead of only a
+method body.
 
-TypePrinter prints:
+The artifact printer may render:
 
 - namespaces;
 - type declarations;
@@ -282,14 +287,15 @@ TypePrinter prints:
 - generated-family explicit stubs;
 - nested type declarations.
 
-TypePrinter should be a renderer, not a planner. It should not query Research or
-read Roslyn diagnostics.
+It should be a renderer, not a planner. It should not query Research or read
+Roslyn diagnostics. RTS should not contain a fallback printer.
 
 Namespace handling is the canonical example of why this should be reusable:
-TypeProducer can determine namespace usage from metadata and closure roots, and a
-shared writer can render block-scoped or file-scoped namespace declarations from
-that usage. ReturnToSender needs that for compile-back shells; whole-type
-decompiler output needs the same capability to write coherent type files.
+product artifact creation can determine namespace usage from metadata and closure
+policy, and a shared writer can render block-scoped or file-scoped namespace
+declarations from that usage. ReturnToSender needs that for artifact compilation;
+whole-type decompiler output needs the same capability to write coherent type
+files.
 
 Constructor/base-chain handling has the same split:
 
@@ -298,34 +304,40 @@ Constructor/base-chain handling has the same split:
   type kind, and spellability;
 - the shared writer renders those facts, such as `class C : Base`,
   `public C(int x) : base(x)`, and `static C()`;
-- ReturnToSender owns only **compile-back repair policy**: whether to include a
-  needed base constructor shell, synthesize a parameterless constructor, omit an
-  unsafe base clause, or bail with a named reason. Synthetic constructors must be
-  explicitly marked as scaffolding and ordered so they cannot shift target
-  overload ordinals.
+- ReturnToSender owns only **artifact request policy** and proof: which artifact
+  shape is requested, which product diff scopes are used, and how failures are
+  reported. Synthetic constructors or omitted base clauses, if ever needed, must
+  be product artifact decisions with provenance, not RTS patches.
 
-### ModuleWriter
+### Product diffs
 
-Own compilation-unit rendering above type declarations.
+Own API, IL/body, and eventually C# source/artifact comparison.
 
-ReturnToSender needs a module-level writer if it wants to preserve assembly and
-module context instead of smuggling that context into TypePrinter. This includes:
+RTS should not introduce a private metadata deep-compare engine. Product diff
+capabilities should answer both user-facing questions and RTS artifact-fidelity
+questions:
 
-- assembly attributes;
-- module attributes;
-- file-scoped or block-scoped namespace strategy;
-- usings, aliases, and nullable context if they become necessary for fidelity;
-- unsafe and compiler-option context that affects whether emitted source binds;
-- ordering of generated declarations and the target body.
+| Product diff | Owner | Example question |
+| --- | --- | --- |
+| API diff | Metadata | Did the public/selected callable surface change? |
+| IL/body diff substrate | Instructions | Which canonical IL operations or body coordinates changed? |
+| Body-signal diff | Analysis | Was unsafe code added? Did calls, allocations, or throws change? |
+| C# artifact/source diff | Decompiler/product artifact layer | Did source shape change, such as a new switch case? |
+| Unified diff projection | Research | How do API, IL, and C# evidence line up for one member? |
 
-ModuleWriter should be narrow. It should not become a second source generator or
-own type/member shape decisions. Its job is to assemble a compilable C# unit from
-module facts, TypePrinter output, and the CSharpPrinter method body.
+The first implementation assignment is the low-level/high-level product split:
+Instructions owns canonical IL/body diff plumbing, and Analysis owns the nice
+body-signal UX API. Research can later join API, IL, and C# evidence into unified
+rows such as `switch-case-added`. RTS consumes those product diffs after it
+compiles a product artifact.
 
-Some assembly/module attributes are noise for compile-back and should be omitted.
-Others can affect binding, diagnostics, or generated IL shape. ReturnToSender
-needs an explicit allowlist of preservable attributes, with each attribute traced
-to a metadata fact and a compile-back reason.
+### Module context
+
+Module-level context belongs to the product artifact when it affects the emitted
+C# or compiled metadata. RTS can request module context, but it should not
+assemble it from scratch. Assembly/module attributes should be preserved because
+they affect binding, diagnostics, generated IL, or a named metadata comparison
+scope, not merely because they exist in the fixture assembly.
 
 ### ReturnToSender harness
 
@@ -334,17 +346,16 @@ Own orchestration and proof.
 Responsibilities:
 
 1. select target method;
-2. ask `ReturnToSenderPlanner` for a reconstruction plan;
-3. ask TypeProducer for type shells;
-4. ask TypePrinter for declaration text;
-5. ask ModuleWriter for assembly/module context and final compilation unit;
-6. ask CSharpPrinter for the target method body;
-7. compile;
-8. compare opcodes;
-9. classify failure if compile-back cannot run.
+2. construct an `ArtifactRequest`;
+3. ask product code for a C# artifact;
+4. compile the artifact;
+5. invoke product API and IL/body diffs for original vs artifact assemblies;
+6. optionally invoke product C# artifact/source diffs when available;
+7. classify failure if artifact production, compilation, or product diff
+   comparison cannot run.
 
 Roslyn diagnostics remain useful, but as membership growth and validation
-feedback, not as the primary shell-shape architecture.
+feedback, not as the primary shape architecture.
 
 ## Minimal contracts
 
@@ -352,68 +363,36 @@ These are intentionally conceptual, but they need this level of precision before
 implementation starts.
 
 ```text
-ReconstructionPlan
-  TargetMethod: MethodIdentity
-  AssemblyReferences: IReadOnlyList<AssemblyReference>
-  ModuleRequirements: ModuleRequirement
-  ClosureRoots: IReadOnlyList<TypeIdentity>
-  TypeRequirements: IReadOnlyList<TypeRequirement>
-  Diagnostics: IReadOnlyList<PlanningDiagnostic>
+ArtifactRequest
+  OriginalAssembly: AssemblyIdentity
+  Target: TypeIdentity | MemberIdentity
+  ArtifactKind: type | member | module | source-file
+  ClosurePolicy: explicit-members | referenced-members | product-default
+  BodyPolicy: declarations-only | include-target-body | include-selected-bodies
+  ApiDiffScope: ApiDiffScope
+  IlDiffScope: IlDiffScope
+  CSharpDiffScope: CSharpDiffScope?
 ```
 
 ```text
-ModuleRequirement
-  AssemblyAttributes: IReadOnlyList<AttributeRequirement>
-  ModuleAttributes: IReadOnlyList<AttributeRequirement>
-  NullableContext: NullableContextRequirement?
-  UnsafeContext: UnsafeContextRequirement?
+ProductArtifact
+  Request: ArtifactRequest
+  Source: string
   SourceFacts: IReadOnlyList<FactIdentity>
+  Diagnostics: IReadOnlyList<ProductArtifactDiagnostic>
 ```
 
 ```text
-TypeRequirement
-  Type: TypeIdentity
-  RequiredKind: class | struct | interface | enum | delegate
-  RequiredBaseType: TypeSignature?
-  RequiredInterfaces: IReadOnlyList<TypeSignature>
-  RequiredMembers: IReadOnlyList<MemberRequirement>
-  SourceFacts: IReadOnlyList<FactIdentity>
+ArtifactDiffResult
+  Api: ApiDiff?
+  IL: IlBodyDiff?
+  BodySignals: BodySignalDiff?
+  CSharp: CSharpArtifactDiff?
+  Unified: ResearchUnifiedDiff?
 ```
 
-```text
-TypeShell
-  Identity: TypeIdentity
-  Kind: TypeKind
-  Accessibility: Accessibility
-  GenericParameters: IReadOnlyList<GenericParameterShell>
-  BaseType: TypeSignature?
-  Interfaces: IReadOnlyList<TypeSignature>
-  Members: IReadOnlyList<TypeMemberShell>
-  SourceFacts: IReadOnlyList<FactIdentity>
-```
-
-```text
-TypeMemberShell
-  Identity: MemberIdentity
-  Kind: field | property | method | event | constructor
-  Accessibility: Accessibility
-  IsStatic: bool
-  ExplicitInterface: TypeSignature?
-  ReturnType: TypeSignature?
-  Parameters: IReadOnlyList<ParameterShell>
-  GenericParameters: IReadOnlyList<GenericParameterShell>
-  Constraints: IReadOnlyList<GenericConstraintShell>
-  StubBodyKind: none | throw | default-return | auto-property
-  SourceFacts: IReadOnlyList<FactIdentity>
-```
-
-`TypeShell` and `TypeMemberShell` must carry typed signatures. They should never
-store printable fragments as the source of truth.
-
-`ModuleRequirement` should be just as evidence-backed as type requirements. A
-module or assembly attribute should not be preserved because it existed in the
-input assembly; it should be preserved because it affects compile-back binding,
-diagnostics, generated IL, or a named fidelity experiment.
+`ProductArtifact.Source` is a product output, not an RTS construction. RTS
+compiles it and feeds original/artifact assemblies into product diff APIs.
 
 ## Project-under-test and consumption boundary
 
@@ -440,14 +419,14 @@ dotnet-inspect CLI
 ReturnToSender dependencies:
 
 ```text
-tools/CompileBackReconstruction
+tools/ReturnToSender
   -> ILInspector.Research
   -> ILInspector.Analysis
   -> ILInspector.Decompiler
   -> Roslyn
 ```
 
-No product assembly should reference the tools-only reconstruction project.
+No product assembly should reference the tools-only ReturnToSender project.
 
 ## Type identity and the TypeRef duplication
 
@@ -527,7 +506,7 @@ IL offset IL_0032 calls MessageParser<T>.ParseFrom(...)
 StackType says arg0 is ObjectReference produced at IL_002A.
 Metadata says T is ApplicationInformationRequest.
 Research says ApplicationInformationRequest is protobuf-generated.
-TypeProducer emits IMessage<ApplicationInformationRequest>.
+Product artifact includes IMessage<ApplicationInformationRequest>.
 ```
 
 StackType supplies flow/provenance evidence. Instruction offsets and metadata
@@ -563,9 +542,9 @@ GeneratedFamilyFact
   trustedProtobuf: true
 ```
 
-### Reconstruction requirements
+### Artifact requirements
 
-The harness-side planner translates those facts into requirements:
+The harness-side planner translates those facts into artifact requirements:
 
 ```text
 TypeRequirement
@@ -583,8 +562,8 @@ TypeRequirement
     CalculateSize() : int
 ```
 
-TypeProducer consumes typed requirements and emits structured shells. TypePrinter
-prints declarations.
+Product artifact creation consumes typed requirements and emits C# artifacts.
+ReturnToSender compiles those artifacts and compares metadata.
 
 ## Integrations and issue 2033 pattern
 
@@ -608,11 +587,12 @@ Consumers:
 | CLI Integrations | assembly/member summaries and rollups |
 | Analysis performance triage | amortization and setup-time heuristics |
 | Offset/Facts views | per-offset explanation |
-| ReturnToSender | shell-shape requirements |
+| ReturnToSender | product artifact requests and metadata-compare scopes |
 
 The harness is stricter than display-only consumers. If facts are too vague,
-stringly typed, or incomplete, the shell will not compile. That makes the harness
-a useful stress test for Research facts, but not the owner of Research itself.
+stringly typed, or incomplete, the product artifact will not compile or will not
+match the fixture metadata. That makes the harness a useful stress test for
+Research facts, but not the owner of Research itself.
 
 ## Relationship to PR 2030
 
@@ -627,42 +607,44 @@ The useful parts that carry forward are:
 
 What changes here is the strategic answer. ReturnToSender replaces the older
 "continue the reconstruction path" framing with a fresh, tools-side architecture
-for typed module and type shell reconstruction.
+for requesting product C# artifacts and comparing their compiled metadata back
+to fixture metadata.
 
 ## Whole-module vs closure
 
 Fact planning does not eliminate the scope distinction.
 
-| Scope | Role with fact planning |
+| Scope | Role with artifact round-trip |
 | --- | --- |
-| Whole-module | Cheap smoke pass. Use safe shell facts only; avoid broad speculative surfaces. |
+| Whole-module | Cheap smoke pass. Request product-default artifacts only; avoid broad speculative surfaces. |
 | Current `CB_CLUSTER` | Generic hard-row membership path. Keep compiler-driven root growth. |
-| Fact-planned closure | Hard-row shell-shape enrichment for roots selected by target evidence and compiler diagnostics. |
+| Product artifact closure | Hard-row artifact request for roots selected by target evidence and compiler diagnostics. |
 
-The new design makes shell shape more principled:
+The new design makes artifact shape more principled:
 
 ```text
 Current hard-row loop:
   compile -> Roslyn missing-symbol error -> add root -> emit generic skeleton
 
-Fact-planned loop:
+Artifact round-trip loop:
   compile -> Roslyn missing-symbol error -> add root
-  target evidence + typed facts -> reconstruction plan -> typed shell -> compile
+  target evidence + typed facts -> product artifact request -> product C# artifact
+  -> compile -> product diffs
 ```
 
 Roslyn diagnostics remain feedback:
 
 - if a target-assembly root is missing, add it through the generic closure loop;
-- if a shell-shape fact is missing, add a producer or requirement;
+- if a product artifact fact is missing, add a product producer or requirement;
 - if growth becomes unsafe, emit a named bail reason;
 - if the body itself is invalid, classify as product/source-shape frontier.
 
-During ramp-up, targets without a matching fact producer can route through the
+During ramp-up, targets without a product artifact producer can route through the
 current generic cluster path for continuity rather than straight to
 `RecompileFail`. That is a compatibility bridge, not a strategic endpoint. The
-desired end state is that ReturnToSender has a generic shell-shape baseline plus
-fact-produced enrichment, with the old skeleton path retained only for comparison
-or emergency fallback.
+desired end state is that ReturnToSender requests product artifacts and compares
+compiled metadata, with the old skeleton path retained only for comparison or
+emergency fallback.
 
 ## Performance and budgets
 
@@ -694,48 +676,34 @@ rather than carrying forward the old skeleton shape.
    - one generated protobuf fixture;
    - one Aspire resource/builder fixture;
    - one real Aspire witness method from the cap-25 run.
-2. Define the tools-only `ReconstructionPlan`.
-3. Define `TypeShell`, `TypeMemberShell`, `TypeSignature`, and related identity
-   records.
-4. Define `ModuleRequirement` and a minimal `ModuleWriter`.
-5. Keep current `CB_CLUSTER` membership growth as the closure source.
-6. Prototype TypePrinter for a minimal subset, with the explicit goal of
-   extracting reusable declaration composition once the contract is proven:
-   - class/interface declarations;
-   - namespace nesting;
-   - base/interface clauses;
-   - generic constraints;
-   - constructor declarations and base-chain syntax;
-   - properties;
-   - methods as throwing stubs;
-   - explicit interface property stubs.
-7. Implement ModuleWriter for a minimal subset:
-   - assembly/module attributes from an explicit compile-back allowlist;
-   - nullable/unsafe context only when needed by a witness;
-   - deterministic ordering of declarations and the target body.
-8. Add reusable fact producers where they belong:
+2. Define tools-only `ArtifactRequest` and `ProductArtifact`.
+3. Define the product artifact API that accepts an `ArtifactRequest` and returns
+   C# source plus provenance.
+4. Define the first product diff primitive needed by RTS:
+   - `Instructions`: canonical IL/body diff substrate;
+   - `Analysis`: body-signal diff UX, starting with unsafe added/removed.
+5. Keep current `CB_CLUSTER` membership growth only as request-policy feedback,
+   not as a source generator.
+6. Add reusable fact producers where they belong:
    - protobuf message facts in Research if reusable by CLI/Analysis views;
    - Aspire resource collection/resource annotation facts only if they are useful
      beyond the harness; otherwise keep them harness-local.
-9. Add harness-side shell-shape producers:
-   - protobuf shell producer;
-   - Aspire resource collection/resource annotation shell producer;
-   - generic base/interface constraint producer.
-10. Compile shell + method body.
-11. Compare opcode stream.
-12. Emit plan report.
+7. Request a product artifact for each MVP target.
+8. Compile the product artifact.
+9. Invoke product API and IL/body diffs between original and artifact assemblies.
+10. Compare selected opcode streams through the product IL diff substrate.
+11. Emit artifact-request and product-diff reports.
 
 ### MVP success criteria
 
 The MVP is successful if:
 
-- it matches or beats the current harness on the chosen fixtures;
-- it explains any no-producer target through a named ReturnToSender baseline,
-  current-harness bridge, or missing-producer reason;
-- it converts at least one real Aspire `RecompileFail` into `Exact` or
-  `OpcodeDiff`;
-- every emitted type shell can be traced back to a typed fact, metadata fact, or
-  compiler-requested closure root;
+- it can request a product artifact for the chosen fixtures;
+- it compiles the returned artifact without RTS-side C# construction;
+- product diffs identify matching and mismatching API/IL/body shape;
+- selected bodies compare through the IL/body diff oracle;
+- every emitted product artifact can be traced back to typed metadata, Research,
+  Analysis, or Decompiler facts;
 - every failure has a named layer and reason;
 - no product assembly references Roslyn;
 - no product-path code depends on the new harness.
@@ -747,10 +715,11 @@ the existing compile-back status buckets.
 
 | ReturnToSender detail | Existing status |
 | --- | --- |
-| exact opcode match | `Exact` |
-| opcode stream mismatch after successful compile | `OpcodeDiff` |
-| shell compilation failed | `RecompileFail` |
-| target or references cannot be made compile-ready | `ContextFail` |
+| artifact compiles, product diffs match requested scopes | `Exact` |
+| artifact compiles, IL/body diff mismatches selected bodies | `OpcodeDiff` |
+| artifact compiles, API/body-signal/C# diff mismatches requested scope | `OpcodeDiff` or diff detail under the selected top-level status |
+| product artifact cannot be produced | `ContextFail` |
+| artifact source does not compile | `RecompileFail` |
 | unsupported product body shape before compile | `RecompileFail` or `ContextFail`, with explicit reason |
 
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `RecompileFail`, and
@@ -768,18 +737,21 @@ ReturnToSender over N targets
   ContextFail   : A
 
 Plan layers:
-  closure membership    : resolved / failed
+  artifact request      : resolved / failed
+  product artifact      : resolved / failed
   reference closure     : resolved / failed
-  module context        : resolved / failed
-  type identity         : resolved / failed
-  member surface        : resolved / failed
+  artifact compilation  : resolved / failed
+  API diff              : matched / mismatched / failed / not requested
+  IL/body diff          : matched / mismatched / failed / not requested
+  C# diff               : matched / mismatched / failed / not requested
+  unified Research diff : matched / mismatched / failed / not requested
   generated-family facts: resolved / failed
 
 Examples:
   Target::Method
     status: RecompileFail
-    layer : generated-family
-    reason: protobuf message detected but self-interface fact missing
+    layer : product artifact
+    reason: requested type artifact did not include required generic constraint
 ```
 
 ## Migration plan
@@ -789,28 +761,27 @@ Examples:
 - Land this design.
 - Decide shared TypeIdentity extraction vs explicit adapters with measured
   friction points.
-- Define `ReconstructionPlan`, `TypeShell`, `TypeMemberShell`, `TypeSignature`,
-  `ModuleRequirement`, TypePrinter, and ModuleWriter shape in a tools-only
-  project.
+- Define `ArtifactRequest`, `ProductArtifact`, diff scopes, and the product
+  artifact API.
 - Keep Research scoped to reusable facts.
 
 ### Phase 2: protobuf pilot
 
 - Add protobuf generated-family fact producer if the facts are reusable by
   non-harness consumers.
-- Add harness-side TypeProducer/TypePrinter support for protobuf shells.
+- Add product artifact support for protobuf type artifacts.
 - Prove one fixture and one Aspire witness.
 
 ### Phase 3: Aspire collection/resource pilot
 
 - Add typed Aspire resource facts only where they are reusable.
-- Replace hardcoded collection skeleton surfaces with fact-produced shells in the
-  new harness path.
+- Replace hardcoded collection skeleton surfaces with product artifacts consumed
+  by the new harness path.
 - Measure cap-25 movement against the post-2015 and post-2025 baselines.
 
 ### Phase 4: replacement integration
 
-- Use the fact-planned shell as the hard-row replacement candidate.
+- Use product artifact round-trip as the hard-row replacement candidate.
 - Compare whole-module, current closure, and fact-planned closure on the same
   target set.
 - Promote ReturnToSender to the default hard-row path once it shows better
@@ -870,27 +841,30 @@ Tests should name the oracle they exercise:
 | bind | Can a normal C# consumer resolve the source? |
 | opcode parity | Does compile-back preserve the IL opcode stream? |
 | fact agreement | Do independently produced facts agree on the same IL/member/type evidence? |
-| source-shape validity | Is the reconstructed shell sufficient and not speculative? |
+| product diff parity | Do product API/IL/C# diffs match for the requested artifact scope? |
+| source artifact validity | Does the product artifact compile without RTS-side C# construction? |
 | API/platform resolution | Did package/framework/shared-service resolution select the intended asset? |
 | performance-signal precision | Does a signal identify useful targets without noisy over-reporting? |
 
-This taxonomy should keep product failures separate from harness reconstruction
+This taxonomy should keep product failures separate from harness orchestration
 failures. A body that the decompiler prints incorrectly is a different class of
-bug from a shell that failed to provide the right generic constraint or assembly
-attribute.
+bug from a product artifact that omitted the right generic constraint or assembly
+attribute, and both are different from RTS failing to request the intended
+product diff scope.
 
 ### Typed facts before projection
 
 Analysis and Research tests should validate typed facts before validating text
-views. CLI text, annotated source, and ReturnToSender shells should be consumers
-of the facts, not the only proof that the facts exist.
+views. CLI text, annotated source, and product artifacts consumed by
+ReturnToSender should be consumers of the facts, not the only proof that the
+facts exist.
 
 This suggests a common pattern:
 
 1. prove a fact producer on reduced IL/source;
 2. prove fact joins against metadata and instruction offsets;
 3. prove one or more projections, such as CLI output, source annotations, or
-   ReturnToSender shell requirements.
+   product artifacts consumed by ReturnToSender.
 
 ### Shared service tests
 
@@ -912,8 +886,8 @@ elsewhere:
 
 ```text
 status: RecompileFail
-layer : module context
-reason: required assembly attribute omitted by ModuleWriter
+layer : product artifact
+reason: required assembly attribute omitted from source artifact
 oracle: bind
 ```
 
@@ -945,7 +919,8 @@ Gemini 3.1 Pro, and MAI-Code-1 Flash:
 - Research is fact registry/projection only; the planner is tools-only.
 - Current `CB_CLUSTER` membership growth is preserved as an algorithm, not as the
   long-term architecture.
-- TypeProducer and TypePrinter have explicit contracts and typed signatures.
+- Product artifact requests and metadata comparison have explicit contracts and
+  typed identities.
 - TypeRef de-duplication has stronger transition criteria and identity fields.
 - StackType is bounded to stack-shape/provenance evidence.
 - New reporting reasons map back to existing compile-back status buckets.
@@ -954,7 +929,7 @@ Gemini 3.1 Pro, and MAI-Code-1 Flash:
 
 Build **ReturnToSender** alongside the current DecompilerHarness as the
 replacement track. Keep compiler-driven closure membership as a reusable
-algorithm and make fact producers opt-in shell-shape enrichment. Start with
+algorithm and make fact producers support product artifact requests. Start with
 protobuf and Aspire because they expose structured, metadata-visible
 generated-family problems.
 
