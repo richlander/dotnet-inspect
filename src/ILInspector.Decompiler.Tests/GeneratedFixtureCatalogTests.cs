@@ -1156,6 +1156,52 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderCatalog_NonExactRowsKeepFailureReasonBeforeBodyFragments()
+    {
+        var opcodeDiffWithBodyFragment = new GeneratedFixtureDefinition(
+            "test.non-exact-body-fragment",
+            """
+            public class NonExactBodyFragment
+            {
+                public string Method1(int value)
+                {
+                    switch (value)
+                    {
+                        case 0:
+                            return "zero";
+                        case 1:
+                            return "one";
+                        default:
+                            return "many";
+                    }
+                }
+            }
+            """,
+            [
+                new(
+                    "NonExactBodyFragment",
+                    "Method1",
+                    FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    IsFrontier: true,
+                    ExpectedTargetBodyFragments:
+                    [
+                        "fragment that is absent from the target body",
+                    ]),
+            ],
+            ["test"]);
+
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog([opcodeDiffWithBodyFragment]);
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+        var result = Assert.Single(run.Results);
+
+        Assert.False(run.Passed, report);
+        Assert.Equal(GeneratedFixtureReturnToSenderStatus.Fail, result.Status);
+        Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.ActualStatus);
+        Assert.Equal("opcode-diff", result.Reason);
+        Assert.DoesNotContain("target-body-fragment-missing", report);
+    }
+
+    [Fact]
     public void CompilerLoweringFrontier_IsSelectableButNotInDefaultRun()
     {
         var switchRun = GeneratedFixtureRunner.Run(GeneratedFixtureCatalog.Select("minimal.switch-two-case-lowers-if"));

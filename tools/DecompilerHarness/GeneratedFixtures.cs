@@ -1958,9 +1958,14 @@ internal static class GeneratedFixtureRunner
                         continue;
                     }
 
-                    var missingSourceFragment = MissingSourceFragment(actual.Source, target.ExpectedSourceFragments);
-                    var missingTargetBodyFragment = MissingSourceFragment(actual.TargetBody, target.ExpectedTargetBodyFragments);
-                    var status = actual.Status == FidelityCheck.CompileBackStatus.Exact
+                    bool exact = actual.Status == FidelityCheck.CompileBackStatus.Exact;
+                    var missingSourceFragment = exact
+                        ? MissingSourceFragment(actual.Source, target.ExpectedSourceFragments)
+                        : null;
+                    var missingTargetBodyFragment = exact
+                        ? MissingSourceFragment(actual.TargetBody, target.ExpectedTargetBodyFragments)
+                        : null;
+                    var status = exact
                         && missingSourceFragment is null
                         && missingTargetBodyFragment is null
                             ? GeneratedFixtureReturnToSenderStatus.Pass
