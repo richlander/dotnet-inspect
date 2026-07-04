@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
@@ -232,8 +233,8 @@ public class DiffCommandTests
     [Fact]
     public void BuildAnalysisDiff_VersionPair_SurfacesSeededRegressionAndImprovement()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { ChangedOnly = true });
 
@@ -258,8 +259,8 @@ public class DiffCommandTests
     [Fact]
     public void BuildAnalysisDiff_VersionPair_SurfacesHotnessOnlyAllocationRegression()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { ChangedOnly = true });
 
@@ -294,7 +295,7 @@ public class DiffCommandTests
     [Fact]
     public void BuildAnalysisDiff_Identity_SelfDiffHasNoSpuriousDeltas()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
 
         // Full diff: self-diff must have neither in-place deltas nor spurious
         // added/removed rows.
@@ -306,16 +307,6 @@ public class DiffCommandTests
         var changedOnly = DiffCommand.BuildAnalysisDiff([v1], [v1], new DiffOptions { ChangedOnly = true });
         Assert.Empty(changedOnly.Rows);
         Assert.Equal("No in-place analysis signal changes detected.", changedOnly.Summary);
-    }
-
-    static string DiffFixturePath(string project)
-    {
-        var outputDirectory = new System.IO.DirectoryInfo(
-            System.AppContext.BaseDirectory.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-        string path = System.IO.Path.GetFullPath(System.IO.Path.Combine(
-            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
-        Assert.True(System.IO.File.Exists(path), $"Expected diff fixture assembly at {path}");
-        return path;
     }
 
     static ApiSurface DiffSurface(params ApiMember[] members)

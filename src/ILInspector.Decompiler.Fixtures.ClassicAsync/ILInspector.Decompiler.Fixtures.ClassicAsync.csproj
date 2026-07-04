@@ -6,8 +6,8 @@
     AsyncTaskMethodBuilder state machines — the dominant real-world async form, which
     the runtime-async CoreLib corpus never exercises.
 
-    On-demand only: deliberately NOT referenced by the test project or any CI gate.
-    Build it, then point the harness at the DLL in library-report mode to measure the
+    Built by the normal solution graph and addressable through FixtureCatalog.
+    Point the harness at the built DLL in library-report mode to measure the
     classic-async gap (see tools/DecompilerHarness/README.md).
   -->
   <PropertyGroup>
