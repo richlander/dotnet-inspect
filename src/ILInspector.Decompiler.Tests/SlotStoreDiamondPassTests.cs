@@ -4,6 +4,76 @@ namespace ILInspector.Decompiler.Tests;
 
 public class SlotStoreDiamondPassTests
 {
+    static readonly TypeRef UInt32 = TypeRef.CoreLib("System", "UInt32");
+
+    // F1 (fold migration): arms whose nominal types disagree within one family
+    // (int constant vs uint call) fold when the slot's testified type decides
+    // the join — the goto-region diamonds that previously folded only on a
+    // second pipeline run (the render-A/B sensor's accidental double-pipe) and
+    // never in the shipped output.
+    [Fact]
+    public void FoldsFamilyDisagreeingArmsToTheSlotTestifiedType()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var uintCall = new MethodRef(owner, "U", UInt32, [], HasThis: false);
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "cond", Bool), 8));
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(0, new Constant(0, Int32)));
+        falseArm.Add(new Branch(12));
+        var trueArm = new Block(8);
+        trueArm.Add(new StoreStackSlot(0, new Call(uintCall, isVirtual: false, [])));
+        var merge = new Block(12);
+        merge.Add(new StoreLocal(0, UInt32, new LoadStackSlot(0, type: null)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("cond", Bool)], HasThis: false, GenericParameterCount: 0),
+            [UInt32],
+            body);
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.Equal(UInt32, conditional.MergedType);
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+    }
+
+    // The same shape with a CROSS-family arm (long constant against a uint
+    // testified slot) must not fold: the testified join only licenses arms
+    // already in its family (the TryCoerceJoinArm guard).
+    [Fact]
+    public void DoesNotFoldCrossFamilyArmsThroughTestimony()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var uintCall = new MethodRef(owner, "U", UInt32, [], HasThis: false);
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "cond", Bool), 8));
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(0, new Constant(0L, longType)));
+        falseArm.Add(new Branch(12));
+        var trueArm = new Block(8);
+        trueArm.Add(new StoreStackSlot(0, new Call(uintCall, isVirtual: false, [])));
+        var merge = new Block(12);
+        merge.Add(new StoreLocal(0, UInt32, new LoadStackSlot(0, type: null)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("cond", Bool)], HasThis: false, GenericParameterCount: 0),
+            [UInt32],
+            body);
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+    }
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
 
