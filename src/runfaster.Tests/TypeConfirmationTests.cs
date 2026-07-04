@@ -6,6 +6,53 @@ using System.Collections.Generic;
 public class TypeConfirmationTests
 {
     [Fact]
+    public void CanonicalTypeSignature_ReconcilesArrayRankOrderingAcrossForms()
+    {
+        // Reflection orders array modifiers inside-out relative to C# (int[][,] is emitted as
+        // System.Int32[,][]). Display and reflection forms of the same type must agree, and the two
+        // genuinely-distinct jagged/multidim shapes must not collide.
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int[][,]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32[,][]", reflection: true));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int[,][]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32[][,]", reflection: true));
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("int[][,]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("int[,][]", reflection: false));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ExpandsTupleShorthandToValueTuple()
+    {
+        // C# tuple shorthand must expand to the runtime ValueTuple form, must not collapse distinct
+        // tuples to an empty string, and must ignore element names.
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("System.ValueTuple`2[System.Int32,System.String][]", reflection: true),
+            ProgramSupport.CanonicalTypeSignature("(int, string)[]", reflection: false));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("(int, string)", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("(int a, string b)", reflection: false));
+        var a = ProgramSupport.CanonicalTypeSignature("(int, string)", reflection: false);
+        var b = ProgramSupport.CanonicalTypeSignature("(double, float)", reflection: false);
+        Assert.NotEqual(a, b);
+        Assert.NotEqual(string.Empty, a);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_ExpandsNullableShorthandToNullable()
+    {
+        // C# nullable value-type shorthand (T?) must expand to System.Nullable<T> so it reconciles
+        // with the runtime generic form (e.g. an array of nullable ints).
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("System.Nullable`1[System.Int32][]", reflection: true),
+            ProgramSupport.CanonicalTypeSignature("int?[]", reflection: false));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("System.Nullable`1[System.Int32]", reflection: true),
+            ProgramSupport.CanonicalTypeSignature("int?", reflection: false));
+    }
+
+    [Fact]
     public void CanonicalTypeSignature_ReconcilesStaticAngleAndRuntimeBacktickForms()
     {
         var staticForm = ProgramSupport.CanonicalTypeSignature("System.Func<string, System.Lazy<int>>");

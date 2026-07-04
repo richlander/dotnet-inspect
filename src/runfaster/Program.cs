@@ -2256,7 +2256,7 @@ internal static class ProgramSupport
         var runtimeByCanon = new Dictionary<string, long>(StringComparer.Ordinal);
         foreach (var (type, bytes) in result.RuntimeTypeVolume)
         {
-            var canon = CanonicalTypeSignature(type);
+            var canon = CanonicalTypeSignature(type, reflection: true);
             if (canon.Length == 0)
                 continue;
             runtimeByCanon[canon] = runtimeByCanon.GetValueOrDefault(canon) + bytes;
@@ -2317,25 +2317,44 @@ internal static class ProgramSupport
     // arguments (recursively), and maps C# keyword aliases to CLR names. It reconciles the static
     // form (System.Func<string, System.Lazy<int>>, int[]) with the runtime reflection form
     // (System.Func`2[System.String,System.Lazy`1[System.Int32]], System.Int32[]).
-    public static string CanonicalTypeSignature(string type)
+    public static string CanonicalTypeSignature(string type) => CanonicalTypeSignature(type, reflection: false);
+
+    // reflection=true canonicalizes a runtime reflection type name (where array modifiers are ordered
+    // inside-out relative to C# — int[][,] is emitted as System.Int32[,][]); reflection=false
+    // canonicalizes a C# display name. Both normalize to the display array order so the two forms of
+    // one type agree.
+    public static string CanonicalTypeSignature(string type, bool reflection)
     {
         int pos = 0;
         var sb = new StringBuilder();
-        ParseType(type, ref pos, sb);
+        ParseType(type, ref pos, sb, reflection);
         return sb.ToString();
     }
 
-    static void ParseType(string s, ref int pos, StringBuilder sb)
+    static void ParseType(string s, ref int pos, StringBuilder sb, bool reflection)
     {
         SkipWhitespace(s, ref pos);
-        ParseNestedName(s, ref pos, sb);
-        ParseSuffixes(s, ref pos, sb);
+        var core = new StringBuilder();
+        ParseNestedName(s, ref pos, core, reflection);
+        // Nullable value-type shorthand (T?) binds tighter than array/pointer suffixes and expands to
+        // the runtime generic form System.Nullable<T> (so int?[] matches System.Nullable`1[Int32][]).
+        SkipWhitespace(s, ref pos);
+        if (pos < s.Length && s[pos] == '?')
+        {
+            pos++;
+            sb.Append("System.Nullable<").Append(core).Append('>');
+        }
+        else
+        {
+            sb.Append(core);
+        }
+        ParseSuffixes(s, ref pos, sb, reflection);
     }
 
     // A dotted/nested name: Segment (('.'|'+') Segment)*. Nested-type separators '+' are normalized to
     // '.'. A separator only continues the name when followed by another segment start, so a trailing
     // '+'/'.' that is not part of the type name is left for the caller.
-    static void ParseNestedName(string s, ref int pos, StringBuilder sb)
+    static void ParseNestedName(string s, ref int pos, StringBuilder sb, bool reflection)
     {
         // Collect the nested-name segments (Namespace parts and nested types are all segments),
         // recording each segment's name, its generic arity, and any generic arguments already bound
@@ -2347,7 +2366,7 @@ internal static class ProgramSupport
         var boundArgs = new List<List<string>?>();
         while (true)
         {
-            ParseSegment(s, ref pos, out string name, out int arity, out List<string>? args);
+            ParseSegment(s, ref pos, reflection, out string name, out int arity, out List<string>? args);
             names.Add(name);
             arities.Add(arity);
             boundArgs.Add(args);
@@ -2371,7 +2390,7 @@ internal static class ProgramSupport
         // arguments, distributed left-to-right across the segments with unbound backtick arity.
         if (totalArity > boundArity && pos < s.Length && s[pos] == '[' && HasTypeContent(s, pos))
         {
-            var flat = ParseReflArgList(s, ref pos);
+            var flat = ParseReflArgList(s, ref pos, reflection);
             int idx = 0;
             for (int i = 0; i < arities.Count; i++)
             {
@@ -2405,19 +2424,26 @@ internal static class ProgramSupport
         }
     }
 
-    static bool IsSegmentStart(char c) => char.IsLetter(c) || c == '_' || c == '<';
+    static bool IsSegmentStart(char c) => char.IsLetter(c) || c == '_' || c == '<' || c == '(';
 
     // One name segment. Returns the segment name, its generic arity, and (for the display form only)
     // the bound generic arguments. A compiler-generated name is a balanced <...> prefix plus trailing
     // identifier chars (e.g. <>c__DisplayClass18_0, <Bar>d__5, <Main>$>g__Local|0_0) — reflection uses
-    // '<' at a segment start only here, never for generic arguments. Backtick arity ('N) is recorded
-    // but its arguments are left for trailing distribution by the caller; the display form <...> binds
-    // its arguments inline here.
-    static void ParseSegment(string s, ref int pos, out string name, out int arity, out List<string>? args)
+    // '<' at a segment start only here, never for generic arguments. A C# tuple shorthand (A, B, ...)
+    // expands to System.ValueTuple<A,B,...>. Backtick arity ('N) is recorded but its arguments are
+    // left for trailing distribution by the caller; the display form <...> binds inline here.
+    static void ParseSegment(string s, ref int pos, bool reflection, out string name, out int arity, out List<string>? args)
     {
         arity = 0;
         args = null;
         bool compilerGenerated = false;
+        if (pos < s.Length && s[pos] == '(')
+        {
+            args = ParseTupleArgs(s, ref pos, reflection);
+            name = "System.ValueTuple";
+            arity = args.Count;
+            return;
+        }
         if (pos < s.Length && s[pos] == '<')
         {
             compilerGenerated = true;
@@ -2473,13 +2499,13 @@ internal static class ProgramSupport
                 if (after >= 0 && after + 1 < s.Length
                     && (s[after] == '.' || s[after] == '+') && IsSegmentStart(s[after + 1]))
                 {
-                    args = ParseReflArgList(s, ref pos);
+                    args = ParseReflArgList(s, ref pos, reflection);
                 }
             }
         }
         else if (!compilerGenerated && pos < s.Length && s[pos] == '<')
         {
-            args = ParseDisplayArgs(s, ref pos);
+            args = ParseDisplayArgs(s, ref pos, reflection);
             arity = args.Count;
         }
     }
@@ -2516,9 +2542,14 @@ internal static class ProgramSupport
         return false;
     }
 
-    // Suffix modifiers on a type: arrays ([], [,]), pointer (*), byref (&), nullable (?).
-    static void ParseSuffixes(string s, ref int pos, StringBuilder sb)
+    // Suffix modifiers on a type: arrays ([], [,]), pointer (*), byref (&). A C# nullable-reference
+    // annotation ('?') that trails an array/pointer is erased at runtime, so it is dropped. Reflection
+    // orders array/pointer modifiers inside-out relative to C# display (C# int[][,] is emitted as
+    // System.Int32[,][]); for reflection input the modifier order is reversed to the display order so
+    // the two forms agree without colliding genuinely-distinct array shapes.
+    static void ParseSuffixes(string s, ref int pos, StringBuilder sb, bool reflection)
     {
+        var tokens = new List<string>();
         while (pos < s.Length)
         {
             SkipWhitespace(s, ref pos);
@@ -2545,7 +2576,7 @@ internal static class ProgramSupport
                 if (isArray && pos < s.Length && s[pos] == ']')
                 {
                     pos++;
-                    sb.Append('[').Append(new string(',', commas)).Append(']');
+                    tokens.Add("[" + new string(',', commas) + "]");
                 }
                 else
                 {
@@ -2553,23 +2584,65 @@ internal static class ProgramSupport
                     break;
                 }
             }
-            else if (c == '*' || c == '&' || c == '?')
+            else if (c == '*' || c == '&')
             {
-                sb.Append(c);
+                tokens.Add(c.ToString());
                 pos++;
+            }
+            else if (c == '?')
+            {
+                pos++; // erased nullable-reference annotation
             }
             else
             {
                 break;
             }
         }
+        if (reflection)
+            tokens.Reverse();
+        foreach (var tok in tokens)
+            sb.Append(tok);
+    }
+
+    // C# tuple shorthand (A, B, ...) — with optional element names — expands to the generic arguments
+    // of System.ValueTuple. Returns each element type canonicalized.
+    static List<string> ParseTupleArgs(string s, ref int pos, bool reflection)
+    {
+        pos++; // consume '('
+        var parts = new List<string>();
+        var current = new StringBuilder();
+        while (pos < s.Length && s[pos] != ')')
+        {
+            SkipWhitespace(s, ref pos);
+            if (pos >= s.Length || s[pos] == ')')
+                break;
+            if (s[pos] == ',')
+            {
+                parts.Add(current.ToString());
+                current.Clear();
+                pos++;
+                continue;
+            }
+            int before = pos;
+            ParseType(s, ref pos, current, reflection);
+            SkipWhitespace(s, ref pos);
+            while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_'))
+                pos++; // optional tuple element name
+            SkipWhitespace(s, ref pos);
+            if (pos == before)
+                pos++; // no-progress guard
+        }
+        parts.Add(current.ToString());
+        if (pos < s.Length && s[pos] == ')')
+            pos++;
+        return parts;
     }
 
     // Display-form generic argument list <A,B,...>. Preserves argument count and separators (so
     // Func<AB,C> and Func<A,BC> do not collide) and preserves arity for unbound arguments (String<,>
     // is arity 2, distinct from String<> and String<,,>). Returns each argument canonicalized; an
     // empty position is returned as the empty string and rendered '?' by the caller.
-    static List<string> ParseDisplayArgs(string s, ref int pos)
+    static List<string> ParseDisplayArgs(string s, ref int pos, bool reflection)
     {
         pos++; // consume '<'
         var parts = new List<string>();
@@ -2587,7 +2660,7 @@ internal static class ProgramSupport
                 continue;
             }
             int before = pos;
-            ParseType(s, ref pos, current);
+            ParseType(s, ref pos, current, reflection);
             SkipWhitespace(s, ref pos);
             if (pos == before)
                 pos++; // no-progress guard against malformed input
@@ -2602,7 +2675,7 @@ internal static class ProgramSupport
     // [FullTypeName, AssemblyName]; the assembly qualifier is stripped. Returns each argument
     // canonicalized. A no-progress guard prevents malformed input (e.g. an unparseable argument) from
     // looping forever.
-    static List<string> ParseReflArgList(string s, ref int pos)
+    static List<string> ParseReflArgList(string s, ref int pos, bool reflection)
     {
         pos++; // consume '['
         var parts = new List<string>();
@@ -2624,7 +2697,7 @@ internal static class ProgramSupport
             }
             var current = new StringBuilder();
             int before = pos;
-            ParseType(s, ref pos, current);
+            ParseType(s, ref pos, current, reflection);
             if (pos == before)
                 pos++; // no-progress guard
             if (assemblyQualified)
