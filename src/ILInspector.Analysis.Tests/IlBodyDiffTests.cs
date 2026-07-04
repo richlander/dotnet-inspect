@@ -171,6 +171,90 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_CompiledFixtureFieldTokenChange_ReportsFieldOperandChanges()
+    {
+        var diff = DiffFixtureDiff("FieldToken");
+
+        AssertTokenOperandPair(diff, "stfld", "::InstanceA", "::InstanceB");
+        AssertTokenOperandPair(diff, "ldfld", "::InstanceA", "::InstanceB");
+        AssertTokenOperandPair(diff, "stsfld", "::StaticA", "::StaticB");
+        AssertTokenOperandPair(diff, "ldsfld", "::StaticA", "::StaticB");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureTypeTokenChange_ReportsTypeOperandChanges()
+    {
+        var diff = DiffFixtureDiff("TypeTokenShapes");
+
+        AssertTokenOperandPair(diff, "ldtoken", "TypeTokenA", "TypeTokenB");
+        AssertTokenOperandPair(diff, "isinst", "TypeTokenA", "TypeTokenB");
+        AssertTokenOperandPair(diff, "castclass", "TypeTokenA", "TypeTokenB");
+        AssertTokenOperandPair(diff, "newarr", "TypeTokenA", "TypeTokenB");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureBoxTokenChange_ReportsBoxAndUnboxOperandChanges()
+    {
+        var diff = DiffFixtureDiff("BoxToken");
+
+        AssertTokenOperandPair(diff, "box", "System.Int16", "System.Int64");
+        AssertTokenOperandPair(diff, "unbox.any", "System.Int16", "System.Int64");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureTokenOpcodes_ReportsTokenVariants()
+    {
+        var typeDiff = DiffFixtureDiff("LdTokenType");
+        AssertTokenOperandPair(typeDiff, "ldtoken", "TypeTokenA", "TypeTokenB");
+
+        var fieldDiff = DiffFixtureDiff("LdTokenField");
+        var removedFieldToken = SingleTokenOperand(fieldDiff, IlDiffKind.Remove, "ldtoken", "field ");
+        var addedFieldToken = SingleTokenOperand(fieldDiff, IlDiffKind.Add, "ldtoken", "field ");
+        Assert.Contains("<PrivateImplementationDetails>", removedFieldToken.Value, StringComparison.Ordinal);
+        Assert.Contains("<PrivateImplementationDetails>", addedFieldToken.Value, StringComparison.Ordinal);
+        Assert.NotEqual(removedFieldToken.Value, addedFieldToken.Value);
+
+        var methodDiff = DiffFixtureDiff("MethodToken");
+        AssertTokenOperandPair(methodDiff, "ldftn", "::TokenTargetA(", "::TokenTargetB(");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureSwitchRetarget_ReportsChangedSwitch()
+    {
+        var diff = DiffFixtureDiff("SwitchRetarget");
+
+        var removedSwitchTargets = SingleOperand(diff, IlDiffKind.Remove, "switch", IlOperandIdentityKind.SwitchTargets);
+        var addedSwitchTargets = SingleOperand(diff, IlDiffKind.Add, "switch", IlOperandIdentityKind.SwitchTargets);
+        Assert.Equal(
+            removedSwitchTargets.Value.Split(',').Length,
+            addedSwitchTargets.Value.Split(',').Length);
+        Assert.NotEqual(removedSwitchTargets.Value, addedSwitchTargets.Value);
+    }
+
+    [Fact]
+    public void Printer_CompiledFixtureTokenRows_PreservesTypedOperandDisplay()
+    {
+        var diff = DiffFixtureDiff("FieldToken");
+        var source = diff.Rows.Single(row =>
+            row.Kind == IlDiffKind.Remove
+            && row.Operation.OpcodeFamily == "stfld"
+            && row.Operation.Operand?.Value.Contains("::InstanceA", StringComparison.Ordinal) == true);
+
+        var display = IlDiffPrinter.ToDisplayRow(source);
+
+        Assert.Equal(source.HunkId, display.HunkId);
+        Assert.Equal(source.Kind, display.Kind);
+        Assert.Equal(source.Operation.Offset, display.RawOffset);
+        Assert.Equal(source.Operation.OpcodeFamily, display.OpcodeFamily);
+        Assert.Equal(IlOperandIdentityKind.Token, display.OperandKind);
+        Assert.Equal(source.Operation.Operand?.Value, display.OperandValue);
+        Assert.Equal(source.Operation.Display, display.Operation);
+        Assert.Equal(source.Message, display.Message);
+        Assert.Contains("stfld", display.UnifiedLine, StringComparison.Ordinal);
+        Assert.Contains("::InstanceA", display.UnifiedLine, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Compare_TokenOperandWithoutMetadata_FailsClosed()
     {
         var left = DiffFixtureMethod(FixtureCatalog.DiffPair.Old, "StringToken");
@@ -288,6 +372,38 @@ public class IlBodyDiffTests
 
     static bool IsBranchRow(IlDiffRow row)
         => row.Operation.OpcodeFamily.StartsWith("br", StringComparison.Ordinal);
+
+    static void AssertTokenOperandPair(
+        IlBodyDiffResult diff,
+        string opcodeFamily,
+        string removedOperandFragment,
+        string addedOperandFragment)
+    {
+        _ = SingleTokenOperand(diff, IlDiffKind.Remove, opcodeFamily, removedOperandFragment);
+        _ = SingleTokenOperand(diff, IlDiffKind.Add, opcodeFamily, addedOperandFragment);
+    }
+
+    static IlOperandIdentity SingleTokenOperand(
+        IlBodyDiffResult diff,
+        IlDiffKind kind,
+        string opcodeFamily,
+        string operandFragment)
+        => SingleOperand(diff, kind, opcodeFamily, IlOperandIdentityKind.Token, operandFragment);
+
+    static IlOperandIdentity SingleOperand(
+        IlBodyDiffResult diff,
+        IlDiffKind kind,
+        string opcodeFamily,
+        IlOperandIdentityKind operandKind,
+        string? operandFragment = null)
+    {
+        var row = Assert.Single(diff.Rows, row =>
+            row.Kind == kind
+            && row.Operation.OpcodeFamily == opcodeFamily
+            && row.Operation.Operand?.Kind == operandKind
+            && (operandFragment is null || row.Operation.Operand.Value.Contains(operandFragment, StringComparison.Ordinal)));
+        return Assert.IsType<IlOperandIdentity>(row.Operation.Operand);
+    }
 
     static IlBodyDiffResult DiffFixtureDiff(string name)
     {
