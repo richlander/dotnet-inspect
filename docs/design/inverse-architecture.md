@@ -281,9 +281,11 @@ typed → structured → IR after each pass → C#).
 
 An opt-in assertion lane annotates each IR node in that staged view with its
 `[InverseOf]` forward construct and `assumes:` predicate, evaluates the predicate in
-place (the release-capable `Check()` the load-bearing rule requires), and flags the
-first node whose assertion is unsound. Three properties make this more than a pretty
-print:
+place (the release-capable `Check()` the load-bearing rule requires), and marks each
+undischarged assertion by *where* it is observed — an informational `OBLIGATION` at
+any non-final stage (a downstream pass is contracted to discharge it), and an error
+`UNSOUND` only for a survivor at the final stage. Three properties make this more than
+a pretty print:
 
 - **It is the executable failure map.** A method that `OpcodeDiff`s shows a red
   assertion at the first unsound rewrite — the "violated assumption" of the failure
@@ -295,7 +297,8 @@ print:
   insertion; before that there is nothing to check. So the lane reads as claims coming
   into being and being checked at the moment they are made — the dynamic instantiation
   of the node ledger on one method: the stack of type claims a value accumulates as it
-  is rewritten.
+  is rewritten. This staged structure is an effect system — accrue, discharge, escape —
+  described in [assertion-lane-effects.md](assertion-lane-effects.md).
 
 Guardrails: the lane is opt-in, and it lives in the harness, where attribute reflection
 is fine. The shipped decompiler stays SRM-only and NativeAOT-clean — the product
