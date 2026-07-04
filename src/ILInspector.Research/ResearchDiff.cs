@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Research;
 
@@ -723,9 +724,11 @@ public static class ResearchDiff
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
         var parameters = string.Join(",", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
+        var canonical = $"M:{typeName}.{memberName}({parameters})";
+        var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
-            $"member:M:{typeName}.{memberName}({parameters})",
+            $"{memberName}~{fingerprint}",
             $"{typeName}.{memberName}({displayParameters})",
             typeName,
             memberName);

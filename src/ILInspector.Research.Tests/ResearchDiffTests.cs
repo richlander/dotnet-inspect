@@ -288,6 +288,21 @@ public class ResearchDiffTests
             && member.HasMechanism(ResearchDiffMechanism.CSharp));
     }
 
+    [Fact]
+    public void CompareAssemblies_DefaultMechanisms_GroupCSharpAndIlEvidence()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            DiffFixturePath("DiffFixtures.V1"),
+            DiffFixturePath("DiffFixtures.V2"));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "ConstantValue"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("ConstantValue~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
     static ApiSurface Surface(string typeName, params ApiMember[] members)
         => new()
         {
