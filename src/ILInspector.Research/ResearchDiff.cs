@@ -107,7 +107,9 @@ public sealed record ResearchSubjectDiff(
         => Evidence.Any(evidence => evidence.Category == category);
 }
 
-public sealed record ResearchDiffResult(IReadOnlyList<ResearchSubjectDiff> Subjects)
+public sealed record ResearchDiffResult(
+    IReadOnlyList<ResearchSubjectDiff> Subjects,
+    ApiDiff? ApiDiff = null)
 {
     public IReadOnlyList<ResearchSubjectDiff> MembersWhere(Func<ResearchSubjectDiff, bool> predicate)
         => [.. Subjects.Where(subject => subject.Subject.Kind == ResearchDiffSubjectKind.Member && predicate(subject))];
@@ -150,6 +152,7 @@ public static class ResearchDiff
             return;
 
         var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(apiScope));
+        builder.ApiDiff = diff;
         foreach (var typeDiff in diff.TypeDiffs)
         {
             foreach (var change in typeDiff.Changes)
@@ -464,6 +467,8 @@ public static class ResearchDiff
     {
         readonly Dictionary<ResearchSubjectKey, List<ResearchDiffEvidence>> _rows = [];
 
+        public ApiDiff? ApiDiff { get; set; }
+
         public void Add(ResearchSubjectKey subject, ResearchDiffEvidence evidence)
         {
             if (!_rows.TryGetValue(subject, out var evidenceRows))
@@ -482,7 +487,8 @@ public static class ResearchDiff
                     .OrderBy(evidence => evidence.Mechanism)
                     .ThenBy(evidence => evidence.ChangeId, StringComparer.Ordinal)
                     .ThenBy(evidence => evidence.OldIlOffset)
-                    .ThenBy(evidence => evidence.NewIlOffset)]))]);
+                    .ThenBy(evidence => evidence.NewIlOffset)]))],
+                ApiDiff);
     }
 
     sealed class MethodBodyLookup : IDisposable

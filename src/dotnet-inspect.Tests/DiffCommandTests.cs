@@ -90,6 +90,17 @@ public class DiffCommandTests
         Assert.Contains("IL_0001", markdown);
     }
 
+    [Fact]
+    public void BuildApiDiff_UsesResearchSignatureScopeByDefault()
+    {
+        var oldSurface = DiffSurface(DiffMember("Existing", ["A"]));
+        var newSurface = DiffSurface(DiffMember("Existing", ["B"]));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions());
+
+        Assert.Empty(diff.TypeDiffs);
+    }
+
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
         => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", inLoop ? "in-loop" : null, null), magnitude, direction, inBoth, inLoop);
 
@@ -306,6 +317,30 @@ public class DiffCommandTests
         Assert.True(System.IO.File.Exists(path), $"Expected diff fixture assembly at {path}");
         return path;
     }
+
+    static ApiSurface DiffSurface(params ApiMember[] members)
+        => new()
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "Sample",
+                    Name = "Widget",
+                    Kind = "class",
+                    Members = [.. members],
+                }
+            ],
+        };
+
+    static ApiMember DiffMember(string name, IReadOnlyList<string>? attributes = null)
+        => new()
+        {
+            Name = name,
+            Kind = "method",
+            Signature = $"void {name}()",
+            Attributes = attributes?.ToList() ?? [],
+        };
 
     // Key-path audit: the analysis-diff member key must distinguish members that
     // TypeRef.Equals distinguishes but display strings do not — same-name/different-arity

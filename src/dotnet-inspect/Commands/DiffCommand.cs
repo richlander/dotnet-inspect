@@ -8,6 +8,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
+using ILInspector.Research;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -119,7 +120,7 @@ public class DiffCommand
                     return 0;
                 }
 
-                var diff = ApiDiffAnalyzer.Compare(inputs.FromSurface, inputs.ToSurface);
+                var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
 
                 if (options.OneLine)
                 {
@@ -719,6 +720,16 @@ public class DiffCommand
         var markdown = DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
         return OutputFormatter.ApplyRowLimit(markdown, options.Rows);
     }
+
+    internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
+        => ResearchDiff.Compare(
+            ResearchDiffInput.FromApiSurface(fromSurface),
+            ResearchDiffInput.FromApiSurface(toSurface),
+            new ResearchDiffOptions(
+                ResearchDiffMechanism.Api,
+                IncludeAllApi: options.IncludeAll,
+                ApiScope: ApiDiffScope.Signature)).ApiDiff
+            ?? new ApiDiff();
 
     private static IReadOnlyList<TypeDiff> FilterByClassification(IReadOnlyList<TypeDiff> typeDiffs, DiffOptions options)
     {
