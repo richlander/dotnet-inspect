@@ -56,7 +56,9 @@ public static class IlBodyDiff
 
         var oldInstructions = oldBody.Instructions;
         var newInstructions = newBody.Instructions;
-        var lcs = LongestCommonSubsequence(oldInstructions, newInstructions);
+        var oldOperations = oldInstructions.Select(ToOperation).ToImmutableArray();
+        var newOperations = newInstructions.Select(ToOperation).ToImmutableArray();
+        var lcs = LongestCommonSubsequence(oldOperations, newOperations);
         var oldToNew = lcs.ToDictionary(pair => pair.OldIndex, pair => pair.NewIndex);
         var rows = ImmutableArray.CreateBuilder<IlDiffRow>();
         int oldIndex = 0;
@@ -64,28 +66,28 @@ public static class IlBodyDiff
         int hunkId = 0;
         foreach (var (nextOld, nextNew) in lcs)
         {
-            AddUnmatched(oldInstructions, oldIndex, nextOld, newInstructions, newIndex, nextNew, rows, ref hunkId);
+            AddUnmatched(oldOperations, oldIndex, nextOld, newOperations, newIndex, nextNew, rows, ref hunkId);
             if (!BranchTargetsMatch(oldInstructions, nextOld, newInstructions, nextNew, oldToNew))
             {
                 int hunk = hunkId++;
-                rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, ToOperation(oldInstructions[nextOld])));
-                rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, ToOperation(newInstructions[nextNew])));
+                rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, oldOperations[nextOld]));
+                rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, newOperations[nextNew]));
             }
             oldIndex = nextOld + 1;
             newIndex = nextNew + 1;
         }
 
-        AddUnmatched(oldInstructions, oldIndex, oldInstructions.Length, newInstructions, newIndex, newInstructions.Length, rows, ref hunkId);
+        AddUnmatched(oldOperations, oldIndex, oldOperations.Length, newOperations, newIndex, newOperations.Length, rows, ref hunkId);
 
         var diffRows = rows.ToImmutable();
         return new IlBodyDiffResult(diffRows.Length == 0, Failure: null, diffRows);
     }
 
     static void AddUnmatched(
-        ImmutableArray<DecodedInstruction> oldInstructions,
+        ImmutableArray<CanonicalIlOperation> oldOperations,
         int oldStart,
         int oldEnd,
-        ImmutableArray<DecodedInstruction> newInstructions,
+        ImmutableArray<CanonicalIlOperation> newOperations,
         int newStart,
         int newEnd,
         ImmutableArray<IlDiffRow>.Builder rows,
@@ -98,21 +100,21 @@ public static class IlBodyDiff
         int oldIndex = oldStart;
         int newIndex = newStart;
         while (oldIndex < oldEnd)
-            rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, ToOperation(oldInstructions[oldIndex++])));
+            rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, oldOperations[oldIndex++]));
         while (newIndex < newEnd)
-            rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, ToOperation(newInstructions[newIndex++])));
+            rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, newOperations[newIndex++]));
     }
 
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(
-        ImmutableArray<DecodedInstruction> oldInstructions,
-        ImmutableArray<DecodedInstruction> newInstructions)
+        ImmutableArray<CanonicalIlOperation> oldOperations,
+        ImmutableArray<CanonicalIlOperation> newOperations)
     {
-        var lengths = new int[oldInstructions.Length + 1, newInstructions.Length + 1];
-        for (int oldIndex = oldInstructions.Length - 1; oldIndex >= 0; oldIndex--)
+        var lengths = new int[oldOperations.Length + 1, newOperations.Length + 1];
+        for (int oldIndex = oldOperations.Length - 1; oldIndex >= 0; oldIndex--)
         {
-            for (int newIndex = newInstructions.Length - 1; newIndex >= 0; newIndex--)
+            for (int newIndex = newOperations.Length - 1; newIndex >= 0; newIndex--)
             {
-                lengths[oldIndex, newIndex] = CanonicalEquals(oldInstructions[oldIndex], newInstructions[newIndex])
+                lengths[oldIndex, newIndex] = CanonicalEquals(oldOperations[oldIndex], newOperations[newIndex])
                     ? lengths[oldIndex + 1, newIndex + 1] + 1
                     : Math.Max(lengths[oldIndex + 1, newIndex], lengths[oldIndex, newIndex + 1]);
             }
@@ -121,9 +123,9 @@ public static class IlBodyDiff
         var pairs = new List<(int OldIndex, int NewIndex)>();
         int i = 0;
         int j = 0;
-        while (i < oldInstructions.Length && j < newInstructions.Length)
+        while (i < oldOperations.Length && j < newOperations.Length)
         {
-            if (CanonicalEquals(oldInstructions[i], newInstructions[j]))
+            if (CanonicalEquals(oldOperations[i], newOperations[j]))
             {
                 pairs.Add((i, j));
                 i++;
@@ -142,16 +144,14 @@ public static class IlBodyDiff
         return pairs;
     }
 
-    static bool CanonicalEquals(DecodedInstruction oldInstruction, DecodedInstruction newInstruction)
+    static bool CanonicalEquals(CanonicalIlOperation oldOperation, CanonicalIlOperation newOperation)
     {
-        var oldOperation = ToOperation(oldInstruction);
-        var newOperation = ToOperation(newInstruction);
         if (oldOperation.OpcodeFamily != newOperation.OpcodeFamily)
             return false;
-        if (oldInstruction.Operand is OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget)
+        if (oldOperation.Operand?.Kind is IlOperandIdentityKind.BranchTarget)
             return true;
-        if (oldInstruction.Operand == OperandKind.InlineSwitch)
-            return oldInstruction.BranchTargets.Length == newInstruction.BranchTargets.Length;
+        if (oldOperation.Operand?.Kind is IlOperandIdentityKind.SwitchTargets)
+            return oldOperation.Operand.Value.Split(',').Length == newOperation.Operand?.Value.Split(',').Length;
         return oldOperation.Operand == newOperation.Operand;
     }
 
