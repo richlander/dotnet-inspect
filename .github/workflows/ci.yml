@@ -53,6 +53,7 @@ jobs:
           while IFS= read -r file; do
             case "$file" in
               src/*) CODE=true ;;
+              tests/*) CODE=true ;;
               tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
               tools/DecompilerHarness/*) CODE=true ;;
               eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
