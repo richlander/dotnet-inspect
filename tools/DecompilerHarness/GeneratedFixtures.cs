@@ -1771,7 +1771,13 @@ internal static class GeneratedFixtureCatalog
                 => left == right;
 
             public static int IsPatternBind(object value)
-                => value is string text ? text.Length : 0;
+            {
+                if (value is string text)
+                {
+                    return text.Length;
+                }
+                return 0;
+            }
 
             public static int PropertyPattern(BoxedSource value)
             {
