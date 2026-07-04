@@ -126,7 +126,7 @@ internal static class IdempotenceSensor
                 Console.WriteLine($"  {example.Key}  [{string.Join(", ", example.Passes)}]");
         }
 
-        if (unstable == 0)
+        if (unstable == 0 && crashes == 0)
         {
             Console.WriteLine("\nPipeline is idempotent: the second run rewrote nothing.");
             return 0;
