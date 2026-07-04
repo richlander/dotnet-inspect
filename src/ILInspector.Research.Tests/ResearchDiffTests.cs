@@ -78,9 +78,9 @@ public class ResearchDiffTests
     {
         var signal = new BodySignalDiffRow(
             BodySignalDiffKind.Added,
-            Signal: "unsafe",
+            Signal: "stackalloc",
             Member: "Asm|Ns.UnsafeApi|Use||System.Void",
-            Operation: "stackalloc",
+            Operation: "byte*",
             ILOffset: 2,
             Evidence: "stackalloc");
         var diff = new BodySignalDiffResult([signal]);
@@ -93,6 +93,21 @@ public class ResearchDiffTests
         var signalRow = Assert.IsType<BodySignalDiffRow>(row.BodySignalRow);
         Assert.Same(signal, signalRow);
         Assert.Equal(2, signalRow.ILOffset);
+    }
+
+    [Fact]
+    public void FromBodySignalDiff_UsesActualUnsafeSignalForChangeId()
+    {
+        var oldIndex = LibraryBodyIndex.Open(DiffFixturePath("DiffFixtures.V1"));
+        var newIndex = LibraryBodyIndex.Open(DiffFixturePath("DiffFixtures.V2"));
+        var signalDiff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
+
+        var result = ResearchDiff.FromBodySignalDiff(signalDiff);
+
+        Assert.Contains(result.Rows, row =>
+            row.ChangeId == "unsafe.stackalloc.added"
+            && row.BodySignalRow is { Signal: "stackalloc", Operation: "byte*" });
+        Assert.DoesNotContain(result.Rows, row => row.ChangeId == "stackalloc.byte.added");
     }
 
     [Fact]
@@ -117,5 +132,15 @@ public class ResearchDiffTests
 
         Assert.Single(combined.Rows);
         Assert.Equal("api.type-added", combined.Rows[0].ChangeId);
+    }
+
+    static string DiffFixturePath(string project)
+    {
+        var outputDirectory = new DirectoryInfo(
+            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
+        Assert.True(File.Exists(path), $"Expected diff fixture assembly at {path}");
+        return path;
     }
 }

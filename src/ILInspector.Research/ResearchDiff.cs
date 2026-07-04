@@ -74,7 +74,7 @@ public static class ResearchDiff
         ArgumentNullException.ThrowIfNull(diff);
         return new ResearchDiffResult([
             .. diff.Rows.Select(row => new ResearchDiffRow(
-                $"{Kebab(row.Signal)}.{Kebab(row.Operation)}.{Kebab(row.Kind.ToString())}",
+                $"unsafe.{Kebab(row.Signal)}.{Kebab(row.Kind.ToString())}",
                 ResearchDiffEvidenceKind.BodySignal,
                 $"{row.Kind} {row.Signal}: {row.Operation}",
                 BodySignalRow: row))
