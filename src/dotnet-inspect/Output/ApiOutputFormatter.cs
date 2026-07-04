@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using System.Text;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -922,18 +923,16 @@ public static class ApiOutputFormatter
             index++;
             overloadIndices[selectorName] = index;
 
-            var canonicalSignature = GetCanonicalSignature(type, member);
-            var digest = GetMemberDigest(canonicalSignature);
+            var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
             var selector = overloadCounts[selectorName] > 1
                 ? $"{selectorName}:{index}"
                 : selectorName;
-            var stableSelector = $"{selectorName}~{digest}";
 
             rows.Add(new MemberIndexRow(
                 MarkoutInline.Code(selector),
-                MarkoutInline.Code(stableSelector),
-                MarkoutInline.Code(canonicalSignature),
-                digest));
+                MarkoutInline.Code(anchor.Format(MemberAnchorFormat.StableSelector)),
+                MarkoutInline.Code(anchor.Format(MemberAnchorFormat.CanonicalSignature)),
+                anchor.Fingerprint));
         }
 
         return rows;
@@ -2256,80 +2255,7 @@ public static class ApiOutputFormatter
         => ApiMemberIdentity.GetMemberDigest(canonicalSignature);
 
     internal static string GetCanonicalSignature(ApiType type, ApiMember member)
-    {
-        if (ApiMemberIdentity.TryGetCanonicalSignature(type, member, out var structuredCanonicalSignature))
-            return structuredCanonicalSignature;
-
-        var declaringType = member.DeclaringType;
-        if (string.IsNullOrWhiteSpace(declaringType))
-            declaringType = FormatGenericFullName(type);
-
-        var kindCode = member.Kind switch
-        {
-            "property" => "P",
-            "field" => "F",
-            "event" => "E",
-            _ => "M"
-        };
-
-        if (member.Kind is "property" or "field" or "event")
-        {
-            return $"{kindCode}:{declaringType}.{member.Name}";
-        }
-
-        var signature = member.Signature ?? member.ReturnType ?? member.Name;
-        var memberName = member.Kind == "constructor"
-            ? "#ctor"
-            : ExtractMemberNameWithGeneric(signature, member.Name);
-        var parameters = ExtractCanonicalParameterList(signature);
-        var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
-        return canonical;
-    }
-
-    private static string ExtractMemberNameWithGeneric(string signature, string memberName)
-    {
-        var parenStart = signature.IndexOf('(');
-        if (parenStart < 0)
-            return memberName;
-
-        var nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return memberName;
-
-        var end = nameIndex + memberName.Length;
-        if (end < parenStart && signature[end] == '<')
-        {
-            var depth = 0;
-            for (var i = end; i < parenStart; i++)
-            {
-                if (signature[i] == '<')
-                    depth++;
-                else if (signature[i] == '>')
-                {
-                    depth--;
-                    if (depth == 0)
-                        return NormalizeCanonicalWhitespace(signature[nameIndex..(i + 1)]);
-                }
-            }
-        }
-
-        return memberName;
-    }
-
-    private static string ExtractCanonicalParameterList(string signature)
-    {
-        var abbreviated = SignatureParser.AbbreviateSignature(signature);
-        var parenStart = abbreviated.IndexOf('(');
-        var parenEnd = abbreviated.LastIndexOf(')');
-        if (parenStart < 0 || parenEnd < parenStart)
-            return "()";
-
-        var parameters = abbreviated[parenStart..(parenEnd + 1)];
-        return NormalizeCanonicalWhitespace(parameters);
-    }
-
-    private static string NormalizeCanonicalWhitespace(string value)
-        => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
+        => ApiMemberIdentity.GetCanonicalSignature(type, member);
 
     private static string PluralizeKind(string kind) => kind switch
     {

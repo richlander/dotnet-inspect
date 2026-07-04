@@ -1,5 +1,6 @@
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -113,6 +114,12 @@ public sealed class ApiSignatureModelTests
         Assert.Equal(
             "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.MethodWithRefKinds(ref int,out string,in long,int,params byte[])",
             canonical);
+
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+        Assert.Equal(canonical, anchor.Format(MemberAnchorFormat.CanonicalSignature));
+        Assert.Equal(anchor.StableSelector, anchor.Format(MemberAnchorFormat.StableSelector));
+        Assert.Equal(anchor.Fingerprint, anchor.Format(MemberAnchorFormat.Fingerprint));
+        Assert.Equal($"{anchor.TypeFullName}.{anchor.StableSelector}", anchor.Format(MemberAnchorFormat.Qualified));
     }
 
     [Fact]

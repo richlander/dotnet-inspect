@@ -3,6 +3,14 @@ using System.Text;
 
 namespace ILInspector.MetadataPrimitives;
 
+public enum MemberAnchorFormat
+{
+    StableSelector,
+    CanonicalSignature,
+    Fingerprint,
+    Qualified,
+}
+
 public sealed record MemberAnchor(
     string StableSelector,
     string CanonicalSignature,
@@ -11,6 +19,15 @@ public sealed record MemberAnchor(
     string MemberName)
 {
     public const string FingerprintPrefix = "dotnet-inspect.member-index.v1\n";
+
+    public string Format(MemberAnchorFormat format)
+        => format switch
+        {
+            MemberAnchorFormat.CanonicalSignature => CanonicalSignature,
+            MemberAnchorFormat.Fingerprint => Fingerprint,
+            MemberAnchorFormat.Qualified => $"{TypeFullName}.{StableSelector}",
+            _ => StableSelector,
+        };
 
     public static string ComputeFingerprint(string canonicalSignature)
     {
