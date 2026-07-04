@@ -2599,21 +2599,27 @@ internal static class ProgramSupport
             }
         }
         // Reflection orders array RANKS inside-out relative to C# (C# int[][,] is emitted as
-        // System.Int32[,][]), but pointer '*' / byref '&' keep the same position in both. Reverse only
-        // the array tokens among their own positions, leaving '*'/'&' fixed, so both forms of one type
-        // agree without mangling pointer/array combinations.
+        // System.Int32[,][]), but only within a consecutive run of array modifiers — pointer '*' and
+        // byref '&' keep their position and act as run boundaries (C# int[][,]*[] is emitted as
+        // System.Int32[,][]*[]). Reverse each maximal consecutive array run in place for reflection
+        // input so both forms of one type agree without mangling pointer/array combinations.
         if (reflection)
         {
-            var arrayPositions = new List<int>();
-            for (int i = 0; i < tokens.Count; i++)
+            int runStart = -1;
+            for (int i = 0; i <= tokens.Count; i++)
             {
-                if (tokens[i][0] == '[')
-                    arrayPositions.Add(i);
-            }
-            for (int lo = 0, hi = arrayPositions.Count - 1; lo < hi; lo++, hi--)
-            {
-                (tokens[arrayPositions[lo]], tokens[arrayPositions[hi]]) =
-                    (tokens[arrayPositions[hi]], tokens[arrayPositions[lo]]);
+                bool isArray = i < tokens.Count && tokens[i][0] == '[';
+                if (isArray)
+                {
+                    if (runStart < 0)
+                        runStart = i;
+                }
+                else if (runStart >= 0)
+                {
+                    for (int lo = runStart, hi = i - 1; lo < hi; lo++, hi--)
+                        (tokens[lo], tokens[hi]) = (tokens[hi], tokens[lo]);
+                    runStart = -1;
+                }
             }
         }
         foreach (var tok in tokens)
