@@ -1,138 +1,238 @@
-using ILInspector.Analysis;
-using ILInspector.Instructions;
 using ILInspector.Metadata;
-using ILInspector.Research;
-using System.Collections.Immutable;
+using ILInspector.Instructions;
 
 namespace ILInspector.Research.Tests;
 
 public class ResearchDiffTests
 {
     [Fact]
-    public void FromApiDiff_PreservesApiChangeMessageAndStructuredSubject()
+    public void MetadataApiDiff_DefaultScope_IgnoresAttributeOnlyChanges()
     {
-        var subject = new ApiChangeSubject(
-            ApiChangeSubjectKind.Member,
-            "Ns.Widget",
-            "Parse",
-            OldIdentity: "method:Parse(System.String)",
-            NewIdentity: "method:Parse(System.ReadOnlySpan<System.Char>)");
-        var change = new ApiChange(
-            ChangeKind.MemberSignatureChanged,
-            ChangeClassification.Breaking,
-            "Member 'Parse' signature changed",
-            OldValue: subject.OldIdentity,
-            NewValue: subject.NewIdentity,
-            Subject: subject);
-        var api = new ApiDiff { TypeDiffs = [new TypeDiff("Ns.Widget", [change])] };
+        var oldSurface = Surface("Widget", Member("Existing", ["A"]));
+        var newSurface = Surface("Widget", Member("Existing", ["B"]));
 
-        var result = ResearchDiff.FromApiDiff(api);
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
 
-        var row = Assert.Single(result.Rows);
-        Assert.Equal("api.member-signature-changed", row.ChangeId);
-        Assert.Equal(ResearchDiffEvidenceKind.MetadataApi, row.EvidenceKind);
-        Assert.Equal(change.Message, row.Message);
-        var apiChange = Assert.IsType<ApiChange>(row.ApiChange);
-        Assert.Same(change, apiChange);
-        Assert.Equal(ApiChangeSubjectKind.Member, apiChange.Subject?.Kind);
-        Assert.Equal("Parse", apiChange.Subject?.MemberName);
+        Assert.Empty(diff.TypeDiffs);
     }
 
     [Fact]
-    public void FromIlBodyDiff_PreservesIlRowMessageAndOperationIdentity()
+    public void MetadataApiDiff_AttributeScope_ReportsAttributeOnlyChanges()
+    {
+        var oldSurface = Surface("Widget", Member("Existing", ["A"]));
+        var newSurface = Surface("Widget", Member("Existing", ["B"]));
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(ApiDiffScope.Attributes));
+
+        var type = Assert.Single(diff.TypeDiffs);
+        Assert.Collection(
+            type.Changes,
+            removed =>
+            {
+                Assert.Equal(ChangeKind.MemberAttributeRemoved, removed.Kind);
+                Assert.Equal(ApiChangeCategory.Attribute, removed.Category);
+                Assert.Equal("A", removed.OldValue);
+            },
+            added =>
+            {
+                Assert.Equal(ChangeKind.MemberAttributeAdded, added.Kind);
+                Assert.Equal(ApiChangeCategory.Attribute, added.Category);
+                Assert.Equal("B", added.NewValue);
+            });
+    }
+
+    [Fact]
+    public void CompareApiSurfaces_QueriesMemberApiChanges()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+
+        var diff = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+
+        var changed = Assert.Single(diff.MembersWhere(member => member.ApiChanged));
+        Assert.Equal("Added", changed.Subject.MemberName);
+        Assert.True(changed.HasChange("api.member-added"));
+        Assert.True(changed.ApiSignatureChanged);
+        Assert.False(changed.ApiAttributeChanged);
+        Assert.False(changed.ImplementationChanged);
+    }
+
+    [Fact]
+    public void MetadataApiDiff_MemberChange_CarriesStructuredSubject()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberAdded, change.Kind);
+        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
+        Assert.Equal("Added", change.Subject?.MemberName);
+        Assert.Same(newSurface.Types[0], change.Subject?.NewMember?.Type);
+        Assert.Same(newSurface.Types[0].Members[1], change.Subject?.NewMember?.Member);
+        Assert.Equal("M:Sample.Widget.Added()", change.Subject?.NewMember?.Anchor?.CanonicalSignature);
+        Assert.Equal("953f7c0720", change.Subject?.NewMember?.Anchor?.Fingerprint);
+        Assert.Equal("Added~953f7c0720", change.Subject?.NewMember?.Anchor?.StableSelector);
+        Assert.Equal("Added~953f7c0720", change.Subject?.NewIdentity);
+    }
+
+    [Fact]
+    public void CompareApiSurfaces_UsesStructuredSubjectRatherThanParsingMessage()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Has'Quote"));
+
+        var diff = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+
+        var changed = Assert.Single(diff.MembersWhere(member => member.ApiChanged));
+        Assert.Equal("Has'Quote", changed.Subject.MemberName);
+    }
+
+    [Fact]
+    public void FromApiDiff_PreservesProducerMessageAndTypedChange()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var api = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        var diff = ResearchDiff.FromApiDiff(api);
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal("api.member-added", row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.MetadataApi, row.EvidenceKind);
+        Assert.Equal("Member 'Added' was added", row.Message);
+        Assert.Same(Assert.Single(Assert.Single(api.TypeDiffs).Changes), row.ApiChange);
+    }
+
+    [Fact]
+    public void FromIlBodyDiff_PreservesProducerMessageAndTypedRow()
     {
         var operation = new CanonicalIlOperation(
             Offset: 0,
             OpcodeFamily: "ldc.i4",
             Operand: new IlOperandIdentity(IlOperandIdentityKind.Immediate, "2"));
         var ilRow = new IlDiffRow(3, IlDiffKind.Add, operation, "Added IL operation 'ldc.i4 2'");
-        var diff = new IlBodyDiffResult(IsExact: false, Failure: null, [ilRow]);
+        var il = new IlBodyDiffResult(IsExact: false, Failure: null, [ilRow]);
 
-        var result = ResearchDiff.FromIlBodyDiff(diff);
+        var diff = ResearchDiff.FromIlBodyDiff(il);
 
-        var row = Assert.Single(result.Rows);
+        var row = Assert.Single(diff.Rows);
         Assert.Equal("il.operation.added", row.ChangeId);
-        Assert.Equal(ResearchDiffEvidenceKind.IlBody, row.EvidenceKind);
         Assert.Equal(ilRow.Message, row.Message);
-        var projectedIlRow = Assert.IsType<IlDiffRow>(row.IlRow);
-        Assert.Same(ilRow, projectedIlRow);
-        Assert.Equal("ldc.i4", projectedIlRow.Operation.OpcodeFamily);
-        Assert.Equal("2", projectedIlRow.Operation.Operand?.Value);
+        Assert.Same(ilRow, row.IlRow);
     }
 
     [Fact]
-    public void FromIlBodyDiff_PreservesFailureMessageWithoutInventingRowIdentity()
+    public void Combine_PreservesStructuredApiDiff()
     {
-        var diff = new IlBodyDiffResult(IsExact: false, Failure: "old body decode failed", []);
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var api = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var apiResult = ResearchDiff.FromApiDiff(api);
+        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(IsExact: true, Failure: null, []));
 
-        var result = ResearchDiff.FromIlBodyDiff(diff);
+        var combined = ResearchDiff.Combine(apiResult, ilResult);
 
-        var row = Assert.Single(result.Rows);
-        Assert.Equal("il.diff.failed", row.ChangeId);
-        Assert.Equal("old body decode failed", row.Message);
-        Assert.Null(row.IlRow);
-    }
-
-    [Fact]
-    public void FromBodySignalDiff_PreservesSignalRowAsTypedEvidence()
-    {
-        var signal = new BodySignalDiffRow(
-            BodySignalDiffKind.Added,
-            Signal: "stackalloc",
-            Member: "Asm|Ns.UnsafeApi|Use||System.Void",
-            Operation: "byte*",
-            ILOffset: 2,
-            Evidence: "stackalloc");
-        var diff = new BodySignalDiffResult([signal]);
-
-        var result = ResearchDiff.FromBodySignalDiff(diff);
-
-        var row = Assert.Single(result.Rows);
-        Assert.Equal("unsafe.stackalloc.added", row.ChangeId);
-        Assert.Equal(ResearchDiffEvidenceKind.BodySignal, row.EvidenceKind);
-        var signalRow = Assert.IsType<BodySignalDiffRow>(row.BodySignalRow);
-        Assert.Same(signal, signalRow);
-        Assert.Equal(2, signalRow.ILOffset);
-    }
-
-    [Fact]
-    public void FromBodySignalDiff_UsesActualUnsafeSignalForChangeId()
-    {
-        var oldIndex = LibraryBodyIndex.Open(DiffFixturePath("DiffFixtures.V1"));
-        var newIndex = LibraryBodyIndex.Open(DiffFixturePath("DiffFixtures.V2"));
-        var signalDiff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
-
-        var result = ResearchDiff.FromBodySignalDiff(signalDiff);
-
-        Assert.Contains(result.Rows, row =>
-            row.ChangeId == "unsafe.stackalloc.added"
-            && row.BodySignalRow is { Signal: "stackalloc", Operation: "byte*" });
-        Assert.DoesNotContain(result.Rows, row => row.ChangeId == "stackalloc.byte.added");
-    }
-
-    [Fact]
-    public void Combine_AppendsRowsFromAllLowerLayers()
-    {
-        var api = ResearchDiff.FromApiDiff(new ApiDiff
-        {
-            TypeDiffs =
-            [
-                new TypeDiff("Ns.Widget", [
-                    new ApiChange(
-                        ChangeKind.TypeAdded,
-                        ChangeClassification.Additive,
-                        "Type 'Ns.Widget' was added",
-                        Subject: new ApiChangeSubject(ApiChangeSubjectKind.Type, "Ns.Widget"))
-                ])
-            ]
-        });
-        var il = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(IsExact: true, Failure: null, []));
-
-        var combined = ResearchDiff.Combine(api, il);
-
+        Assert.Same(api, combined.ApiDiff);
         Assert.Single(combined.Rows);
-        Assert.Equal("api.type-added", combined.Rows[0].ChangeId);
     }
+
+    [Fact]
+    public void CompareApiSurfaces_AttributeScope_QueriesMemberAttributeChanges()
+    {
+        var oldSurface = Surface("Widget", Member("Existing", ["A"]));
+        var newSurface = Surface("Widget", Member("Existing", ["B"]));
+
+        var diff = ResearchDiff.Compare(
+            ResearchDiffInput.FromApiSurface(oldSurface),
+            ResearchDiffInput.FromApiSurface(newSurface),
+            new ResearchDiffOptions(ResearchDiffMechanism.Api, ApiScope: ApiDiffScope.Attributes));
+
+        var changed = Assert.Single(diff.MembersWhere(member => member.ApiAttributeChanged));
+        Assert.Equal("Existing", changed.Subject.MemberName);
+        Assert.True(changed.ApiChanged);
+        Assert.False(changed.ApiSignatureChanged);
+        Assert.True(changed.HasChange("api.member-attribute-added"));
+        Assert.True(changed.HasChange("api.member-attribute-removed"));
+    }
+
+    [Fact]
+    public void CompareApiSurfaces_AllApiScope_SeparatesSignatureAndAttributeChanges()
+    {
+        var oldSurface = Surface("Widget", Member("Existing", ["A"]));
+        var newSurface = Surface("Widget", Member("Existing", ["B"]), Member("Added"));
+
+        var diff = ResearchDiff.Compare(
+            ResearchDiffInput.FromApiSurface(oldSurface),
+            ResearchDiffInput.FromApiSurface(newSurface),
+            new ResearchDiffOptions(ResearchDiffMechanism.Api, ApiScope: ApiDiffScope.All));
+
+        Assert.Single(diff.MembersWhere(member => member.ApiSignatureChanged && member.Subject.MemberName == "Added"));
+        Assert.Single(diff.MembersWhere(member => member.ApiAttributeChanged && member.Subject.MemberName == "Existing"));
+    }
+
+    [Fact]
+    public void CompareAssemblies_BodySignals_QueryUnsafeAddedChange()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            DiffFixturePath("DiffFixtures.V1"),
+            DiffFixturePath("DiffFixtures.V2"),
+            new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
+
+        var unsafeMembers = diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added"));
+
+        var changed = Assert.Single(unsafeMembers);
+        Assert.Contains("AddsUnsafe", changed.Subject.Display);
+        Assert.True(changed.ImplementationChanged);
+        Assert.False(changed.ApiChanged);
+    }
+
+    [Fact]
+    public void CompareAssemblies_IlBody_QueryImplementationChanges()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            DiffFixturePath("DiffFixtures.V1"),
+            DiffFixturePath("DiffFixtures.V2"),
+            new ResearchDiffOptions(ResearchDiffMechanism.IlBody));
+
+        var changedMembers = diff.MembersWhere(member => member.ImplementationChanged);
+
+        Assert.Contains(changedMembers, member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
+            && member.HasChange("il.hunk.changed"));
+        Assert.DoesNotContain(changedMembers, member =>
+            member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
+    }
+
+    static ApiSurface Surface(string typeName, params ApiMember[] members)
+        => new()
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "Sample",
+                    Name = typeName,
+                    Kind = "class",
+                    Members = [.. members],
+                }
+            ],
+        };
+
+    static ApiMember Member(string name, IReadOnlyList<string>? attributes = null)
+        => new()
+        {
+            Name = name,
+            Kind = "method",
+            Signature = $"void {name}()",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = name,
+            },
+            Attributes = attributes?.ToList() ?? [],
+        };
 
     static string DiffFixturePath(string project)
     {

@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -8,6 +6,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
+using ILInspector.Research;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -119,7 +118,7 @@ public class DiffCommand
                     return 0;
                 }
 
-                var diff = ApiDiffAnalyzer.Compare(inputs.FromSurface, inputs.ToSurface);
+                var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
 
                 if (options.OneLine)
                 {
@@ -349,19 +348,31 @@ public class DiffCommand
 
     internal static AnalysisDiffResult BuildAnalysisDiff(IReadOnlyList<string> fromPaths, IReadOnlyList<string> toPaths, DiffOptions options)
     {
-        var oldSnapshot = BuildAnalysisSnapshot(fromPaths, options);
-        var newSnapshot = BuildAnalysisSnapshot(toPaths, options);
-        var ranked = new List<RankedAnalysisRow>();
-        foreach (var key in oldSnapshot.Keys.Union(newSnapshot.Keys))
-        {
-            oldSnapshot.TryGetValue(key, out var oldMethod);
-            newSnapshot.TryGetValue(key, out var newMethod);
-            var display = newMethod?.Display ?? oldMethod?.Display ?? key;
-            var inBoth = oldMethod is not null && newMethod is not null;
-            AddCountRows(ranked, display, inBoth, oldMethod?.Signals, newMethod?.Signals);
-            AddExceptionRow(ranked, display, inBoth, oldMethod?.Signals, newMethod?.Signals);
-            AddOptimizationRows(ranked, display, inBoth, oldMethod?.Opportunities, newMethod?.Opportunities);
-        }
+        var research = ResearchDiff.Compare(
+            ResearchDiffInput.FromAssemblies(fromPaths),
+            ResearchDiffInput.FromAssemblies(toPaths),
+            new ResearchDiffOptions(
+                ResearchDiffMechanism.BodySignals,
+                TypeFilters: options.TypeFilter));
+        var ranked = research.Subjects
+            .SelectMany(subject => subject.Evidence.Select(evidence => (subject, evidence)))
+            .Where(entry => entry.evidence.Category == ResearchDiffChangeCategory.BodySignal
+                && entry.evidence.ChangeId.StartsWith("analysis.", StringComparison.Ordinal)
+                && entry.evidence.Signal is { Length: > 0 })
+            .Select(entry => new RankedAnalysisRow(
+                new AnalysisDiffRow(
+                    MarkoutInline.Code(entry.subject.Subject.Display),
+                    entry.evidence.Signal!,
+                    entry.evidence.OldValue ?? "",
+                    entry.evidence.NewValue ?? "",
+                    entry.evidence.Delta ?? "changed",
+                    entry.evidence.Shape,
+                    entry.evidence.Detail),
+                entry.evidence.Magnitude ?? 1,
+                entry.evidence.DirectionScore,
+                entry.evidence.SubjectInBoth,
+                entry.evidence.InLoop))
+            .ToList();
 
         return RankAnalysisRows(ranked, options.ChangedOnly, options.AllocRegressionsOnly);
     }
@@ -421,207 +432,8 @@ public class DiffCommand
         return $"{detail} ({total} signal{(total == 1 ? "" : "s")})";
     }
 
-    private sealed record AnalysisMethod(string Display, MethodSignals Signals, List<OptimizationOpportunity> Opportunities);
-
-    private static Dictionary<string, AnalysisMethod> BuildAnalysisSnapshot(IReadOnlyList<string> paths, DiffOptions options)
-    {
-        var methods = new Dictionary<string, AnalysisMethod>(StringComparer.Ordinal);
-        foreach (var path in paths)
-        {
-            var index = MethodBodyInspectionSession.Open(path);
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
-            var signalsByToken = index.MethodSignalsByToken;
-            foreach (var method in index.Methods)
-            {
-                if (LibraryMetadataService.IsGeneratedMethod(method, generatedFrameworkTypes))
-                    continue;
-                if (!MatchesTypeFilters(method.DeclaringType.ToQualifiedDisplayString(), options.TypeFilter))
-                    continue;
-                signalsByToken.TryGetValue(method.MetadataToken, out var signals);
-                var key = MethodKey(method);
-                if (!methods.TryGetValue(key, out var entry))
-                {
-                    entry = new AnalysisMethod(FormatMethod(method), signals ?? MethodSignals.None, []);
-                    methods[key] = entry;
-                }
-                else
-                {
-                    methods[key] = entry with { Signals = signals ?? MethodSignals.None };
-                }
-            }
-
-            foreach (var opportunity in index.OptimizationOpportunities)
-            {
-                if (LibraryMetadataService.IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes))
-                    continue;
-                if (!MatchesTypeFilters(opportunity.Method.DeclaringType.ToQualifiedDisplayString(), options.TypeFilter))
-                    continue;
-                var key = MethodKey(opportunity.Method);
-                if (!methods.TryGetValue(key, out var entry))
-                {
-                    entry = new AnalysisMethod(FormatMethod(opportunity.Method), MethodSignals.None, []);
-                    methods[key] = entry;
-                }
-                entry.Opportunities.Add(opportunity);
-            }
-        }
-        return methods;
-    }
-
-    private static bool MatchesTypeFilters(string typeFullName, HashSet<string> filters)
-        => filters.Count == 0 || filters.Any(filter => MatchesDiffTypeFilter(typeFullName, filter));
-
     internal static string MethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
-
-    private static string FormatMethod(MethodIdentity method)
-        => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
-
-    private static void AddCountRows(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
-    {
-        AddCountRow(rows, display, inBoth, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals), oldSignals?.AllocInLoop ?? false, newSignals?.AllocInLoop ?? false);
-        AddCountRow(rows, display, inBoth, "copies", oldSignals?.Copies ?? 0, newSignals?.Copies ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, inBoth, "reflection", oldSignals?.Reflection ?? 0, newSignals?.Reflection ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, inBoth, "throws", oldSignals?.Throws ?? 0, newSignals?.Throws ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, inBoth, "catches", oldSignals?.Catches ?? 0, newSignals?.Catches ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, inBoth, "finallys", oldSignals?.Finallys ?? 0, newSignals?.Finallys ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, inBoth, "unsafe", oldSignals?.Unsafe == true ? 1 : 0, newSignals?.Unsafe == true ? 1 : 0, Evidence(oldSignals, newSignals));
-    }
-
-    private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool oldAllocInLoop = false, bool newAllocInLoop = false)
-    {
-        var delta = newValue - oldValue;
-        if (delta == 0)
-        {
-            // #1736: hotness-only allocation change. The raw count is unchanged but an
-            // allocation moved into or out of a loop, which a count delta alone misses.
-            // Only the allocations signal carries loop hotness, and only when at least one
-            // allocation remains to be hot. false->true is a regression (became hot);
-            // true->false is an improvement (left the loop).
-            if (newValue > 0 && oldAllocInLoop != newAllocInLoop)
-            {
-                bool becameHot = newAllocInLoop;
-                // The allocation that changed hotness is in a loop on its cost-bearing side
-                // (the new method when it became hot, the old method when it left the loop),
-                // so annotate "in-loop" either way — matching the count-change path, which
-                // also annotates improvements from the old (cost-bearing) version. Direction
-                // (+1 regression / -1 improvement) carries the hot-vs-cold meaning.
-                rows.Add(new RankedAnalysisRow(
-                    new AnalysisDiffRow(
-                        MarkoutInline.Code(display),
-                        signal,
-                        oldValue.ToString(),
-                        newValue.ToString(),
-                        becameHot ? "hot" : "cold",
-                        "in-loop",
-                        evidence),
-                    1,
-                    becameHot ? 1 : -1,
-                    inBoth,
-                    true));
-            }
-            return;
-        }
-        // Annotate from the version that bears the cost: the new method for a
-        // regression (allocations up), the old method for an improvement. A loop
-        // allocation is repeated/hot; one-time or error-path allocations are not.
-        var inLoop = delta > 0 ? newAllocInLoop : oldAllocInLoop;
-        rows.Add(new RankedAnalysisRow(
-            new AnalysisDiffRow(
-                MarkoutInline.Code(display),
-                signal,
-                oldValue.ToString(),
-                newValue.ToString(),
-                FormatDelta(delta),
-                inLoop ? "in-loop" : null,
-                evidence),
-            Math.Abs(delta),
-            Math.Sign(delta),
-            inBoth,
-            inLoop));
-    }
-
-    private static void AddExceptionRow(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
-    {
-        var oldTypes = oldSignals?.ExceptionTypes ?? [];
-        var newTypes = newSignals?.ExceptionTypes ?? [];
-        if (oldTypes.SequenceEqual(newTypes))
-            return;
-        var delta = newTypes.Length - oldTypes.Length;
-        rows.Add(new RankedAnalysisRow(
-            new AnalysisDiffRow(
-                MarkoutInline.Code(display),
-                "constructed-exceptions",
-                FormatList(oldTypes),
-                FormatList(newTypes),
-                "changed",
-                null,
-                Evidence(oldSignals, newSignals)),
-            Math.Max(1, Math.Abs(delta)),
-            Math.Sign(delta),
-            inBoth));
-    }
-
-    private static void AddOptimizationRows(List<RankedAnalysisRow> rows, string display, bool inBoth, List<OptimizationOpportunity>? oldOps, List<OptimizationOpportunity>? newOps)
-    {
-        var oldCounts = CountShapes(oldOps);
-        var newCounts = CountShapes(newOps);
-        foreach (var shape in oldCounts.Keys.Union(newCounts.Keys).OrderBy(shape => shape, StringComparer.Ordinal))
-        {
-            var oldValue = oldCounts.GetValueOrDefault(shape);
-            var newValue = newCounts.GetValueOrDefault(shape);
-            if (oldValue == newValue)
-                continue;
-            var delta = newValue - oldValue;
-            rows.Add(new RankedAnalysisRow(
-                new AnalysisDiffRow(
-                    MarkoutInline.Code(display),
-                    "optimization",
-                    oldValue.ToString(),
-                    newValue.ToString(),
-                    FormatDelta(delta),
-                    shape,
-                    FormatOptimizationEvidence(oldOps, newOps, shape)),
-                Math.Abs(delta),
-                Math.Sign(delta),
-                inBoth));
-        }
-    }
-
-    private static Dictionary<string, int> CountShapes(List<OptimizationOpportunity>? opportunities)
-        => opportunities is null
-            ? []
-            : opportunities.GroupBy(opportunity => opportunity.Shape, StringComparer.Ordinal)
-                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
-
-    private static string FormatDelta(int delta) => delta > 0 ? $"+{delta}" : delta.ToString();
-
-    private static string FormatList(ImmutableArray<string> values)
-        => values.IsDefaultOrEmpty ? "-" : string.Join(", ", values);
-
-    private static string? Evidence(MethodSignals? oldSignals, MethodSignals? newSignals)
-    {
-        var oldEvidence = FormatOffsets(oldSignals?.Evidence ?? []);
-        var newEvidence = FormatOffsets(newSignals?.Evidence ?? []);
-        if (oldEvidence is null && newEvidence is null)
-            return null;
-        return $"old {oldEvidence ?? "-"}; new {newEvidence ?? "-"}";
-    }
-
-    private static string? FormatOptimizationEvidence(List<OptimizationOpportunity>? oldOps, List<OptimizationOpportunity>? newOps, string shape)
-    {
-        var oldOffsets = FormatOffsets(Offsets(oldOps, shape));
-        var newOffsets = FormatOffsets(Offsets(newOps, shape));
-        if (oldOffsets is null && newOffsets is null)
-            return null;
-        return $"old {oldOffsets ?? "-"}; new {newOffsets ?? "-"}";
-    }
-
-    private static ImmutableArray<int> Offsets(List<OptimizationOpportunity>? ops, string shape)
-        => ops is null ? [] : [.. ops.Where(op => op.Shape == shape && op.ILOffset is not null).Select(op => op.ILOffset!.Value).Distinct().Order()];
-
-    private static string? FormatOffsets(ImmutableArray<int> offsets)
-        => offsets.IsDefaultOrEmpty ? null : string.Join(",", offsets.Select(offset => $"IL_{offset:X4}"));
 
     private static void DeleteTempDir(string? tempDir)
     {
@@ -719,6 +531,16 @@ public class DiffCommand
         var markdown = DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
         return OutputFormatter.ApplyRowLimit(markdown, options.Rows);
     }
+
+    internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
+        => ResearchDiff.Compare(
+            ResearchDiffInput.FromApiSurface(fromSurface),
+            ResearchDiffInput.FromApiSurface(toSurface),
+            new ResearchDiffOptions(
+                ResearchDiffMechanism.Api,
+                IncludeAllApi: options.IncludeAll,
+                ApiScope: ApiDiffScope.Signature)).ApiDiff
+            ?? new ApiDiff();
 
     private static IReadOnlyList<TypeDiff> FilterByClassification(IReadOnlyList<TypeDiff> typeDiffs, DiffOptions options)
     {
