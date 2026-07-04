@@ -42,6 +42,65 @@ public class SlotStoreDiamondPassTests
         Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
     }
 
+    // F1 review canary (both reviewers): a NEGATIVE int constant at a uint
+    // testified join. C#'s implicit constant conversion masks 0 (the original
+    // test's blind spot) but rejects -1 — the arm must be wrapped in a Coerce
+    // at fold time so CoerceText spells unchecked((uint)(-1)), never a bare
+    // int arm under a uint conditional (CS0029).
+    [Fact]
+    public void WrapsNegativeConstantArmInCoerceAtTestifiedJoin()
+    {
+        var function = BuildTestifiedJoinDiamond(new Constant(-1, Int32));
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.Equal(UInt32, conditional.MergedType);
+        var coerce = Assert.IsType<Coerce>(conditional.WhenFalse);
+        Assert.Equal(UInt32, coerce.Target);
+        Assert.Equal(-1, Assert.IsType<Constant>(coerce.Operand).Value);
+        Assert.Contains("unchecked((uint)(-1))", CSharpPrinter.Print(function).Output);
+    }
+
+    // F1 review canary: a NON-constant int arm (no implicit conversion exists
+    // at all) — must render through the Coerce spelling (uint)x.
+    [Fact]
+    public void WrapsNonConstantArmInCoerceAtTestifiedJoin()
+    {
+        var function = BuildTestifiedJoinDiamond(new LoadArgument(1, "x", Int32));
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
+        var coerce = Assert.IsType<Coerce>(conditional.WhenFalse);
+        Assert.Equal(UInt32, coerce.Target);
+        Assert.Contains("(uint)x", CSharpPrinter.Print(function).Output);
+    }
+
+    static IrFunction BuildTestifiedJoinDiamond(IrExpression falseArmValue)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var uintCall = new MethodRef(owner, "U", UInt32, [], HasThis: false);
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "cond", Bool), 8));
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(0, falseArmValue));
+        falseArm.Add(new Branch(12));
+        var trueArm = new Block(8);
+        trueArm.Add(new StoreStackSlot(0, new Call(uintCall, isVirtual: false, [])));
+        var merge = new Block(12);
+        merge.Add(new StoreLocal(0, UInt32, new LoadStackSlot(0, type: null)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+        return new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("cond", Bool), new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [UInt32],
+            body);
+    }
+
     // The same shape with a CROSS-family arm (long constant against a uint
     // testified slot) must not fold: the testified join only licenses arms
     // already in its family (the TryCoerceJoinArm guard).

@@ -110,9 +110,11 @@ public sealed class SlotStoreDiamondPass : IIrPass
         TypeRef? testifiedResult = null;
         if (!NormalizeArmTypes(ref whenTrue, ref whenFalse))
         {
-            testifiedResult = TestifiedFamilyJoin(slotTypes, falseStore.Slot, whenTrue, whenFalse);
+            testifiedResult = TestifiedFamilyJoin(function, slotTypes, falseStore.Slot, whenTrue, whenFalse);
             if (testifiedResult is null)
                 return null;
+            whenTrue = CoerceArmToTestified(whenTrue, testifiedResult);
+            whenFalse = CoerceArmToTestified(whenFalse, testifiedResult);
         }
         var resultType = testifiedResult ?? whenTrue.ResultType ?? whenFalse.ResultType;
         if (HasNullArmForNonNullableValue(function, whenTrue, whenFalse, resultType))
@@ -171,13 +173,19 @@ public sealed class SlotStoreDiamondPass : IIrPass
     /// insertion used to reconcile only after this pass had already run, so
     /// they folded on a second pipeline run and never in the shipped one).
     /// The 5b exactness duality applies: never invent a join — adopt the
-    /// slot's already-decided all-loads-testify type, and only when both arms
-    /// sit in that type's family, so the printer's one join-arm rule
-    /// (TryCoerceJoinArm, family-guarded) spells the arms value-preservingly.
-    /// Bool stays with the dedicated constant path; enum-typed arms have no
-    /// family and keep the importer's width-exact join as their only door.
+    /// slot's already-decided all-loads-testify type — and each arm is gated
+    /// by <see cref="CoercionRendering.CanSpellSlotCoercion"/>, the shared
+    /// gate/renderer contract: an accepted arm is wrapped in a
+    /// <see cref="Coerce"/> at fold time so CoerceText owns its spelling
+    /// (`unchecked((uint)(-1))`, `(uint)x`). A raw family check without the
+    /// wrap printed bare int arms at a uint join — CS0029, masked in testing
+    /// by C#'s implicit constant-zero conversion (F1 review, both reviewers).
+    /// Bool stays with the dedicated constant path; enum-typed testimony has
+    /// no primitive family and keeps the importer's width-exact join as its
+    /// only door.
     /// </summary>
     static TypeRef? TestifiedFamilyJoin(
+        IrFunction function,
         IReadOnlyDictionary<int, TypeRef>? slotTypes,
         int slot,
         IrExpression whenTrue,
@@ -185,14 +193,21 @@ public sealed class SlotStoreDiamondPass : IIrPass
     {
         if (slotTypes is null || !slotTypes.TryGetValue(slot, out var testified))
             return null;
-        if (TypeFamilies.Of(testified) is not { } family || IsBool(testified))
+        if (TypeFamilies.Of(testified) is null || IsBool(testified))
             return null;
-        return whenTrue.ResultType is { } trueType && whenFalse.ResultType is { } falseType
-            && !IsBool(trueType) && !IsBool(falseType)
-            && TypeFamilies.Of(trueType) == family && TypeFamilies.Of(falseType) == family
+        return ArmSpellableAt(function, whenTrue, testified) && ArmSpellableAt(function, whenFalse, testified)
             ? testified
             : null;
     }
+
+    static bool ArmSpellableAt(IrFunction function, IrExpression arm, TypeRef testified)
+        => arm.ResultType is { } armType
+            && !IsBool(armType)
+            && (armType.Equals(testified)
+                || CoercionRendering.CanSpellSlotCoercion(armType, testified, function.TypeShapes, function.EnumUnderlyingTypes));
+
+    static IrExpression CoerceArmToTestified(IrExpression arm, TypeRef testified)
+        => arm.ResultType?.Equals(testified) == true ? arm : new Coerce(testified, arm);
 
 
     static bool TryBoolConstant(IrExpression expression, out IrExpression normalized)
