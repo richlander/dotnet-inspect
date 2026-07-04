@@ -904,6 +904,10 @@ public class GeneratedFixtureCatalogTests
             GeneratedFixtureCatalog.Select("minimal.property.literal").Select(fixture => fixture.Id).ToArray());
 
         Assert.Equal(
+            ["rts.attribute-shell"],
+            GeneratedFixtureCatalog.Select("rts").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
+
+        Assert.Equal(
             [
                 "record.equality-operators",
                 "record.field-read-helpers",
@@ -1023,6 +1027,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.struct-field-read-helpers");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.generic-typed-equals");
         Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "record.nested-generic-typed-equals");
+        Assert.Contains(fixtures, fixture => fixture.GetProperty("Id").GetString() == "rts.attribute-shell");
 
         var primaryCtor = Assert.Single(fixtures,
             fixture => fixture.GetProperty("Id").GetString() == "minimal.primary-ctor.field-init");
@@ -1122,6 +1127,29 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("record.nested-generic-typed-equals", report);
         Assert.DoesNotContain("Skipped target reasons", report);
         Assert.DoesNotContain("Failed target buckets", report);
+    }
+
+    [Fact]
+    public void ReturnToSenderRtsCatalog_CoversAttributeShellBaseType()
+    {
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+            GeneratedFixtureCatalog.Select("rts.attribute-shell"));
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+
+        Assert.True(run.Passed, report);
+        Assert.Equal(2, run.Results.Count);
+        Assert.All(run.Results, result =>
+        {
+            Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.ActualStatus);
+        });
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "rts.attribute-shell" &&
+            result.Method == ".ctor");
+        Assert.Contains(run.Results, result =>
+            result.FixtureId == "rts.attribute-shell" &&
+            result.Method == "get_FeatureType");
+        Assert.DoesNotContain("CS0641", report);
     }
 
     [Fact]
