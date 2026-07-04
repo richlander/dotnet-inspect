@@ -38,6 +38,12 @@ namespace DiffFixtureSample
             return value + 3;
         }
 
+        // V1/V2 differ only in a user-string token operand.
+        public static string StringToken() => "alpha";
+
+        // V1/V2 differ only in a member-reference token operand.
+        public static int CallToken(int value) => System.Math.Abs(value);
+
         // V2 inserts an operation before the label target. The branch target's
         // raw IL offset shifts, but it still targets the same logical return.
         public static int BranchTargetOffsetShift(bool skip)

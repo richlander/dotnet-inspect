@@ -9,6 +9,8 @@ public class DiffFixtureFidelityTests
     [
         "ConstantValue",
         "MultipleHunks",
+        "StringToken",
+        "CallToken",
         "BranchTargetOffsetShift",
         "BranchRetarget",
         "AddsUnsafe",
