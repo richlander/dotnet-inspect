@@ -152,6 +152,66 @@ namespace DiffFixtureSample
             return 3;
         }
 
+        // V2 wraps equivalent work in a catch region.
+        public static int TryCatchAvailability(int value)
+        {
+            try
+            {
+                MaybeThrow(value);
+                return value + 1;
+            }
+            catch (System.InvalidOperationException)
+            {
+                return -1;
+            }
+        }
+
+        // V2 wraps equivalent work in a finally region.
+        public static int FinallyAvailability(int value)
+        {
+            try
+            {
+                Sink(value);
+                return value;
+            }
+            finally
+            {
+                Sink(-value);
+            }
+        }
+
+        // V1/V2 both have a catch region, but V2 extends the protected range.
+        public static int TryCatchRegionShape(int value)
+        {
+            try
+            {
+                MaybeThrow(value);
+                Sink(value + 1);
+            }
+            catch (System.InvalidOperationException)
+            {
+                return -1;
+            }
+
+            return value;
+        }
+
+        // V1/V2 have repeated calls where only the second occurrence changes.
+        public static int RepeatedCallOneOccurrence(int first, int second)
+        {
+            return System.Math.Abs(first) + System.Math.Sign(second);
+        }
+
+        // V1/V2 are a slot/local near-miss: raw slot identity is still surfaced.
+        public static int SlotLocalShapeNearMiss(int value)
+        {
+            int second;
+            int first;
+            Assign(out second, value + 2);
+            Assign(out first, value + 1);
+            return first + second;
+        }
+
         // V2: visible unsafe operation added relative to V1.
         public static unsafe int AddsUnsafe(int value)
         {
@@ -161,6 +221,14 @@ namespace DiffFixtureSample
         }
 
         static int TokenTargetB(int value) => value + 2;
+
+        static void Assign(out int target, int value) => target = value;
+
+        static void MaybeThrow(int value)
+        {
+            if (value == int.MinValue)
+                throw new System.InvalidOperationException();
+        }
 
         static void Sink(int value)
         {
