@@ -42,6 +42,21 @@ public enum ResearchDiffChangeCategory
     CSharp,
 }
 
+public enum ResearchDiffEvidenceKind
+{
+    MetadataApi,
+    IlBody,
+    BodySignal,
+}
+
+public sealed record ResearchDiffRow(
+    string ChangeId,
+    ResearchDiffEvidenceKind EvidenceKind,
+    string Message,
+    ApiChange? ApiChange = null,
+    IlDiffRow? IlRow = null,
+    BodySignalDiffRow? BodySignalRow = null);
+
 public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
     bool IncludeAllApi = false,
@@ -118,14 +133,81 @@ public sealed record ResearchSubjectDiff(
 
 public sealed record ResearchDiffResult(
     IReadOnlyList<ResearchSubjectDiff> Subjects,
-    ApiDiff? ApiDiff = null)
+    ApiDiff? ApiDiff = null,
+    ImmutableArray<ResearchDiffRow> Rows = default)
 {
+    public bool IsEmpty => Subjects.Count == 0 && Rows.IsDefaultOrEmpty;
+
     public IReadOnlyList<ResearchSubjectDiff> MembersWhere(Func<ResearchSubjectDiff, bool> predicate)
         => [.. Subjects.Where(subject => subject.Subject.Kind == ResearchDiffSubjectKind.Member && predicate(subject))];
 }
 
 public static class ResearchDiff
 {
+    public static ResearchDiffResult FromApiDiff(ApiDiff diff)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        var rows = ImmutableArray.CreateBuilder<ResearchDiffRow>();
+        foreach (var typeDiff in diff.TypeDiffs)
+        {
+            foreach (var change in typeDiff.Changes)
+            {
+                rows.Add(new ResearchDiffRow(
+                    $"api.{ToKebabCase(change.Kind.ToString())}",
+                    ResearchDiffEvidenceKind.MetadataApi,
+                    change.Message,
+                    ApiChange: change));
+            }
+        }
+
+        return new ResearchDiffResult([], diff, rows.ToImmutable());
+    }
+
+    public static ResearchDiffResult FromIlBodyDiff(IlBodyDiffResult diff)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        if (diff.Failure is { Length: > 0 } failure)
+        {
+            return new ResearchDiffResult(
+                [],
+                Rows: [new ResearchDiffRow("il.diff.failed", ResearchDiffEvidenceKind.IlBody, failure)]);
+        }
+
+        return new ResearchDiffResult(
+            [],
+            Rows:
+            [
+                .. diff.Rows.Select(row => new ResearchDiffRow(
+                    $"il.operation.{ChangeIdSuffix(row.Kind)}",
+                    ResearchDiffEvidenceKind.IlBody,
+                    row.Message,
+                    IlRow: row))
+            ]);
+    }
+
+    public static ResearchDiffResult FromBodySignalDiff(BodySignalDiffResult diff)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        return new ResearchDiffResult(
+            [],
+            Rows:
+            [
+                .. diff.Rows.Select(row => new ResearchDiffRow(
+                    $"unsafe.{ToKebabCase(row.Signal)}.{ToKebabCase(row.Kind.ToString())}",
+                    ResearchDiffEvidenceKind.BodySignal,
+                    $"{row.Kind} {row.Signal}: {row.Operation}",
+                    BodySignalRow: row))
+            ]);
+    }
+
+    public static ResearchDiffResult Combine(params ResearchDiffResult[] results)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        return new ResearchDiffResult(
+            [.. results.SelectMany(result => result.Subjects)],
+            Rows: [.. results.SelectMany(result => result.Rows.IsDefault ? [] : result.Rows)]);
+    }
+
     public static ResearchDiffResult CompareAssemblies(string oldAssemblyPath, string newAssemblyPath, ResearchDiffOptions? options = null)
         => Compare(ResearchDiffInput.FromAssembly(oldAssemblyPath), ResearchDiffInput.FromAssembly(newAssemblyPath), options);
 
@@ -714,6 +796,15 @@ public static class ResearchDiff
         return builder.ToString();
     }
 
+    static string ChangeIdSuffix(IlDiffKind kind)
+        => kind switch
+        {
+            IlDiffKind.Add => "added",
+            IlDiffKind.Remove => "removed",
+            IlDiffKind.Context => "context",
+            _ => ToKebabCase(kind.ToString()),
+        };
+
     sealed record BodyIndexEntry(string Key, string Path, LibraryBodyIndex Index);
 
     sealed record ResearchAnalysisMethod(ResearchSubjectKey Subject, MethodSignals Signals, List<OptimizationOpportunity> Opportunities);
@@ -743,7 +834,8 @@ public static class ResearchDiff
                     .ThenBy(evidence => evidence.ChangeId, StringComparer.Ordinal)
                     .ThenBy(evidence => evidence.OldIlOffset)
                     .ThenBy(evidence => evidence.NewIlOffset)]))],
-                ApiDiff);
+                ApiDiff,
+                Rows: []);
     }
 
     sealed class MethodBodyLookup : IDisposable

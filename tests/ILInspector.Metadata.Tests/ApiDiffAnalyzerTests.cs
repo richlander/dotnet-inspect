@@ -95,6 +95,10 @@ public class ApiDiffAnalyzerTests
         var typeDiff = diff.TypeDiffs[0];
         Assert.True(typeDiff.IsAdded);
         Assert.False(typeDiff.IsRemoved);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ApiChangeCategory.Signature, change.Category);
+        Assert.Equal(ApiChangeSubjectKind.Type, change.Subject?.Kind);
+        Assert.Equal("TestNamespace.Foo", change.Subject?.TypeFullName);
         Assert.Equal(1, diff.TotalAdditive);
         Assert.Equal(0, diff.TotalBreaking);
     }
@@ -321,6 +325,11 @@ public class ApiDiffAnalyzerTests
             .Single(c => c.Kind == ChangeKind.MemberAdded);
         Assert.Equal(ChangeClassification.Additive, change.Classification);
         Assert.Contains("Baz", change.Message);
+        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
+        Assert.Equal("TestNamespace.Foo", change.Subject?.TypeFullName);
+        Assert.Equal("Baz", change.Subject?.MemberName);
+        Assert.Null(change.Subject?.OldIdentity);
+        Assert.Equal("void Baz()", change.Subject?.NewIdentity);
     }
 
     [Fact]
@@ -368,6 +377,10 @@ public class ApiDiffAnalyzerTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
         Assert.Equal("void Bar(int x)", change.OldValue);
         Assert.Equal("void Bar(string x)", change.NewValue);
+        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
+        Assert.Equal("Bar", change.Subject?.MemberName);
+        Assert.Equal("void Bar(int x)", change.Subject?.OldIdentity);
+        Assert.Equal("void Bar(string x)", change.Subject?.NewIdentity);
     }
 
     [Fact]

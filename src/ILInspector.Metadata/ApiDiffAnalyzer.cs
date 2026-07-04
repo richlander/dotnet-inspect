@@ -79,6 +79,7 @@ public sealed record ApiMemberHandle(
 {
     public string TypeFullName => Type.FullName;
     public string MemberName => Member.Name;
+    public string Identity => StableSelector ?? CanonicalSignature ?? Member.Signature ?? $"{Member.Kind}:{Member.Name}";
 }
 
 public sealed record ApiChangeSubject(
@@ -90,8 +91,8 @@ public sealed record ApiChangeSubject(
 {
     public string? TypeFullName => NewType?.TypeFullName ?? OldType?.TypeFullName ?? NewMember?.TypeFullName ?? OldMember?.TypeFullName;
     public string? MemberName => NewMember?.MemberName ?? OldMember?.MemberName;
-    public string? OldIdentity => OldMember?.StableSelector ?? OldMember?.CanonicalSignature;
-    public string? NewIdentity => NewMember?.StableSelector ?? NewMember?.CanonicalSignature;
+    public string? OldIdentity => OldMember?.Identity;
+    public string? NewIdentity => NewMember?.Identity;
 
     public static ApiChangeSubject Type(ApiType? oldType, ApiType? newType)
         => new(

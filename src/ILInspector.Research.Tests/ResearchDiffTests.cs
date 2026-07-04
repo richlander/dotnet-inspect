@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using ILInspector.Instructions;
 
 namespace ILInspector.Research.Tests;
 
@@ -85,6 +86,40 @@ public class ResearchDiffTests
 
         var changed = Assert.Single(diff.MembersWhere(member => member.ApiChanged));
         Assert.Equal("Has'Quote", changed.Subject.MemberName);
+    }
+
+    [Fact]
+    public void FromApiDiff_PreservesProducerMessageAndTypedChange()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var api = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        var diff = ResearchDiff.FromApiDiff(api);
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal("api.member-added", row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.MetadataApi, row.EvidenceKind);
+        Assert.Equal("Member 'Added' was added", row.Message);
+        Assert.Same(Assert.Single(Assert.Single(api.TypeDiffs).Changes), row.ApiChange);
+    }
+
+    [Fact]
+    public void FromIlBodyDiff_PreservesProducerMessageAndTypedRow()
+    {
+        var operation = new CanonicalIlOperation(
+            Offset: 0,
+            OpcodeFamily: "ldc.i4",
+            Operand: new IlOperandIdentity(IlOperandIdentityKind.Immediate, "2"));
+        var ilRow = new IlDiffRow(3, IlDiffKind.Add, operation, "Added IL operation 'ldc.i4 2'");
+        var il = new IlBodyDiffResult(IsExact: false, Failure: null, [ilRow]);
+
+        var diff = ResearchDiff.FromIlBodyDiff(il);
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal("il.operation.added", row.ChangeId);
+        Assert.Equal(ilRow.Message, row.Message);
+        Assert.Same(ilRow, row.IlRow);
     }
 
     [Fact]
