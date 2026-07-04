@@ -27,7 +27,44 @@ namespace DiffFixtureSample
         // Identical in both versions -> no diff row.
         public static int Stable() => 42;
 
+        // V1/V2 differ only in the loaded constant value.
+        public static int ConstantValue() => 1;
+
+        // V2 inserts an operation before the label target. The branch target's
+        // raw IL offset shifts, but it still targets the same logical return.
+        public static int BranchTargetOffsetShift(bool skip)
+        {
+            if (skip)
+                goto Target;
+
+            Sink(1);
+
+        Target:
+            return 3;
+        }
+
+        // V2 retargets the branch to a different return.
+        public static int BranchRetarget(bool skip)
+        {
+            if (skip)
+                goto First;
+
+            goto Second;
+
+        First:
+            return 1;
+
+        Second:
+            return 2;
+        }
+
         // V1: safe body. V2 adds a visible unsafe operation.
         public static int AddsUnsafe(int value) => value;
+
+        static void Sink(int value)
+        {
+            if (value == int.MinValue)
+                throw new System.InvalidOperationException();
+        }
     }
 }

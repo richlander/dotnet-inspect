@@ -1,5 +1,6 @@
 using ILInspector.Instructions;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -80,6 +81,55 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_CompiledFixtureConstantValueChange_ReportsImmediateChange()
+    {
+        var left = DiffFixtureMethod("DiffFixtures.V1", "ConstantValue");
+        var right = DiffFixtureMethod("DiffFixtures.V2", "ConstantValue");
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.Collection(
+            diff.Rows,
+            removed =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removed.Kind);
+                Assert.Equal("ldc.i4", removed.Operation.OpcodeFamily);
+                Assert.Equal("1", removed.Operation.Operand?.Value);
+            },
+            added =>
+            {
+                Assert.Equal(IlDiffKind.Add, added.Kind);
+                Assert.Equal("ldc.i4", added.Operation.OpcodeFamily);
+                Assert.Equal("2", added.Operation.Operand?.Value);
+            });
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureBranchTargetOffsetShift_DoesNotMarkBranchChanged()
+    {
+        var left = DiffFixtureMethod("DiffFixtures.V1", "BranchTargetOffsetShift");
+        var right = DiffFixtureMethod("DiffFixtures.V2", "BranchTargetOffsetShift");
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.NotEmpty(diff.Rows);
+        Assert.Contains(diff.Rows, row => row.Kind == IlDiffKind.Add && row.Operation.OpcodeFamily == "call");
+        Assert.DoesNotContain(diff.Rows, IsBranchRow);
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureBranchRetarget_ReportsChangedBranch()
+    {
+        var left = DiffFixtureMethod("DiffFixtures.V1", "BranchRetarget");
+        var right = DiffFixtureMethod("DiffFixtures.V2", "BranchRetarget");
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.Contains(diff.Rows, row => row.Kind == IlDiffKind.Remove && IsBranchRow(row));
+        Assert.Contains(diff.Rows, row => row.Kind == IlDiffKind.Add && IsBranchRow(row));
+    }
+
+    [Fact]
     public void Compare_RetargetedBranchAndRemovedInstruction_ReportsInProgramOrder()
     {
         var left = MethodInstructions.Decode([0x2b, 0x03, 0x00, 0x16, 0x2a, 0x17, 0x2a], 7, []);
@@ -121,5 +171,33 @@ public class IlBodyDiffTests
 
         Assert.False(diff.IsExact);
         Assert.NotNull(diff.Failure);
+    }
+
+    static bool IsBranchRow(IlDiffRow row)
+        => row.Operation.OpcodeFamily.StartsWith("br", StringComparison.Ordinal);
+
+    static MethodInstructions DiffFixtureMethod(string project, string name)
+    {
+        using var stream = File.OpenRead(DiffFixturePath(project));
+        using var peReader = new PEReader(stream);
+        var metadataReader = peReader.GetMetadataReader();
+        foreach (var handle in metadataReader.MethodDefinitions)
+        {
+            var method = metadataReader.GetMethodDefinition(handle);
+            if (metadataReader.GetString(method.Name) == name)
+                return MethodInstructions.Decode(peReader.GetMethodBody(method.RelativeVirtualAddress));
+        }
+
+        throw new InvalidOperationException($"Could not find method '{name}' in {project}.");
+    }
+
+    static string DiffFixturePath(string project)
+    {
+        var outputDirectory = new DirectoryInfo(
+            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
+        Assert.True(File.Exists(path), $"Expected diff fixture assembly at {path}");
+        return path;
     }
 }
