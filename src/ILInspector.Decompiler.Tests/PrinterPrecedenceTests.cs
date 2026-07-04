@@ -101,6 +101,53 @@ public class PrinterPrecedenceTests
         Assert.DoesNotContain(": u;", output);
     }
 
+    // Issue #2302: a same-width cross-signedness *constant* arm keeps the
+    // target-aware spelling — in-range bare, out-of-range unchecked reinterpret —
+    // so a negative int constant at a uint join is `unchecked((uint)(-1))`, not
+    // the bare `-1` that is CS0173.
+    [Fact]
+    public void Conditional_OutOfRangeConstantArm_UncheckedReinterpretsToJoin()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "u", s_uint),
+            new Constant(-1, s_int))
+        {
+            MergedType = s_uint,
+        };
+
+        var output = PrintReturn(
+            conditional,
+            s_uint,
+            [new Parameter("flag", s_bool), new Parameter("u", s_uint)]);
+
+        Assert.Contains("unchecked((uint)(-1))", output);
+        Assert.DoesNotContain(": -1", output);
+    }
+
+    // Issue #2302 (Gemini review): the cast is only spelled for a *same-width*
+    // sibling. A differing-width join (int arm at a short join) is a narrowing the
+    // printer must not silently introduce, so no truncating `(short)` cast appears.
+    [Fact]
+    public void Conditional_DifferingWidthArm_DoesNotEmitNarrowingCast()
+    {
+        var s_short = TypeRef.CoreLib("System", "Int16");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "s", s_short),
+            new LoadArgument(2, "i", s_int))
+        {
+            MergedType = s_short,
+        };
+
+        var output = PrintReturn(
+            conditional,
+            s_short,
+            [new Parameter("flag", s_bool), new Parameter("s", s_short), new Parameter("i", s_int)]);
+
+        Assert.DoesNotContain("(short)i", output);
+    }
+
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
     {
         var block = new Block();

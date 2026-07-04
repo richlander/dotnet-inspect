@@ -1279,17 +1279,19 @@ public sealed partial class CSharpPrinter
             && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
             && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget))
             return $"({TypeText(integerTarget)}){Operand(arm)}";
-        // A non-constant same-stack-family arm whose signedness or width disagrees
-        // with the numeric join is CS0266 bare (a `uint` arm at an `int` join, or a
-        // narrowing sibling). Reinterpret its bits with the join cast — unchecked
-        // inside a checked region so the faithful reinterpretation cannot become a
-        // runtime overflow (#2302, #2301). NeedsNumericCast gates to exactly the
-        // same-family casts that are not implicit widenings; a constant keeps its own
-        // in-range/unchecked spelling and converts to the join implicitly when in range.
-        if (arm is not Constant
-            && target is { } numericTarget
-            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget))
-            return CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
+        // A same-WIDTH cross-signedness arm at a numeric join is CS0266 bare (a `uint`
+        // arm at an `int` join). Reinterpret its bits with the join cast — unchecked
+        // inside a checked region so the value-preserving reinterpretation cannot become
+        // a runtime overflow (#2302, #2301). SameWidth keeps this to the genuinely
+        // lossless sibling casts (int/uint, short/ushort, byte/sbyte, long/ulong,
+        // ushort/char); a differing-width join is a narrowing the printer must not
+        // silently introduce, so it is left to a real Convert node in the IL.
+        if (target is { } numericTarget
+            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget)
+            && TypeFamilies.SameWidth(EffectiveType(arm), numericTarget))
+            return arm is Constant { Value: int or long } constArm
+                ? NumericConstant(constArm, numericTarget)
+                : CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
         return null;
     }
 
