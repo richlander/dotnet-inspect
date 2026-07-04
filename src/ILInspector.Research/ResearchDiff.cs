@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Research;
 
@@ -55,6 +56,7 @@ public sealed record ResearchDiffRow(
     string Message,
     ApiChange? ApiChange = null,
     IlDiffRow? IlRow = null,
+    IlDiffDisplayRow? IlDisplayRow = null,
     BodySignalDiffRow? BodySignalRow = null);
 
 public sealed record ResearchDiffOptions(
@@ -83,7 +85,8 @@ public sealed record ResearchSubjectKey(
     string Id,
     string Display,
     string? TypeName = null,
-    string? MemberName = null);
+    string? MemberName = null,
+    MemberAnchor? Anchor = null);
 
 public sealed record ResearchDiffEvidence(
     ResearchDiffMechanism Mechanism,
@@ -96,6 +99,9 @@ public sealed record ResearchDiffEvidence(
     int? NewIlOffset = null,
     string? Detail = null,
     ResearchDiffChangeCategory Category = ResearchDiffChangeCategory.Unknown,
+    MemberAnchor? Anchor = null,
+    IlDiffRow? IlRow = null,
+    IReadOnlyList<IlDiffDisplayRow>? IlDisplayRows = null,
     string? Signal = null,
     string? Shape = null,
     int? Magnitude = null,
@@ -177,11 +183,16 @@ public static class ResearchDiff
             [],
             Rows:
             [
-                .. diff.Rows.Select(row => new ResearchDiffRow(
-                    $"il.operation.{ChangeIdSuffix(row.Kind)}",
-                    ResearchDiffEvidenceKind.IlBody,
-                    row.Message,
-                    IlRow: row))
+                .. diff.Rows.Select(row =>
+                {
+                    var display = IlDiffPrinter.ToDisplayRow(row);
+                    return new ResearchDiffRow(
+                        $"il.operation.{ChangeIdSuffix(row.Kind)}",
+                        ResearchDiffEvidenceKind.IlBody,
+                        display.Message,
+                        IlRow: row,
+                        IlDisplayRow: display);
+                })
             ]);
     }
 
@@ -485,6 +496,8 @@ public static class ResearchDiff
         {
             var oldMethods = MethodLookup(pair.Old.Index);
             var newMethods = MethodLookup(pair.New.Index);
+            var oldAnchors = MemberAnchorsByToken(pair.Old.Path);
+            var newAnchors = MemberAnchorsByToken(pair.New.Path);
             var keys = oldMethods.Keys.Intersect(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             using var oldBodies = new MethodBodyLookup(pair.Old.Path);
             using var newBodies = new MethodBodyLookup(pair.New.Path);
@@ -493,7 +506,9 @@ public static class ResearchDiff
             {
                 var oldMethod = oldMethods[key];
                 var newMethod = newMethods[key];
-                var subject = SubjectFromMethod(newMethod);
+                var oldAnchor = oldAnchors.GetValueOrDefault(oldMethod.MetadataToken);
+                var newAnchor = newAnchors.GetValueOrDefault(newMethod.MetadataToken);
+                var subject = SubjectFromMethod(newMethod, newAnchor ?? oldAnchor);
                 var oldAvailable = oldBodies.TryDecode(oldMethod.MetadataToken, out var oldBody, out var oldReason);
                 var newAvailable = newBodies.TryDecode(newMethod.MetadataToken, out var newBody, out var newReason);
 
@@ -501,13 +516,18 @@ public static class ResearchDiff
                 {
                     if (!oldAvailable && !newAvailable)
                         continue;
-                    builder.Add(subject, new ResearchDiffEvidence(
+                    var activeAnchor = !oldAvailable ? newAnchor : oldAnchor;
+                    var activeSubject = !oldAvailable
+                        ? SubjectFromMethod(newMethod, activeAnchor)
+                        : SubjectFromMethod(oldMethod, activeAnchor);
+                    builder.Add(activeSubject, new ResearchDiffEvidence(
                         ResearchDiffMechanism.IlBody,
                         !oldAvailable ? "il.body.added" : "il.body.removed",
                         !oldAvailable ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed,
                         OldValue: oldReason,
                         NewValue: newReason,
-                        Category: ResearchDiffChangeCategory.IlBody));
+                        Category: ResearchDiffChangeCategory.IlBody,
+                        Anchor: activeAnchor));
                     continue;
                 }
 
@@ -521,7 +541,8 @@ public static class ResearchDiff
                         "il.body.decode-failed",
                         ResearchDiffDirection.Changed,
                         Detail: diff.Failure,
-                        Category: ResearchDiffChangeCategory.IlBody));
+                        Category: ResearchDiffChangeCategory.IlBody,
+                        Anchor: newAnchor ?? oldAnchor));
                     continue;
                 }
 
@@ -529,6 +550,7 @@ public static class ResearchDiff
                 {
                     var removed = hunk.Where(row => row.Kind == IlDiffKind.Remove).ToArray();
                     var added = hunk.Where(row => row.Kind == IlDiffKind.Add).ToArray();
+                    var displayRows = IlDiffPrinter.ToDisplayRows(hunk);
                     var direction = removed.Length == 0
                         ? ResearchDiffDirection.Added
                         : added.Length == 0
@@ -543,14 +565,41 @@ public static class ResearchDiff
                             _ => "il.hunk.changed",
                         },
                         direction,
-                        OldValue: FormatOperations(removed),
-                        NewValue: FormatOperations(added),
+                        OldValue: FormatDisplayLines(displayRows.Where(row => row.Kind == IlDiffKind.Remove)),
+                        NewValue: FormatDisplayLines(displayRows.Where(row => row.Kind == IlDiffKind.Add)),
                         OldIlOffset: removed.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
                         NewIlOffset: added.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
-                        Category: ResearchDiffChangeCategory.IlBody));
+                        Detail: FormatDisplayLines(displayRows),
+                        Category: ResearchDiffChangeCategory.IlBody,
+                        Anchor: newAnchor ?? oldAnchor,
+                        IlDisplayRows: displayRows));
                 }
             }
         }
+    }
+
+    static IReadOnlyDictionary<int, MemberAnchor> MemberAnchorsByToken(string path)
+    {
+        var surface = AssemblyReader.ExtractApiSurface(path, includeAll: true);
+        if (surface is null)
+            return new Dictionary<int, MemberAnchor>();
+
+        var anchors = new Dictionary<int, MemberAnchor>();
+        foreach (var type in surface.Types)
+        {
+            foreach (var member in type.Members)
+            {
+                var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+                if (member.MetadataToken is { } token)
+                    anchors.TryAdd(token, anchor);
+                if (member.GetterToken is { } getter)
+                    anchors.TryAdd(getter, anchor);
+                if (member.SetterToken is { } setter)
+                    anchors.TryAdd(setter, anchor);
+            }
+        }
+
+        return anchors;
     }
 
     static ApiSurface? ResolveApiSurface(ResearchDiffInput input, bool includeAll)
@@ -672,7 +721,7 @@ public static class ResearchDiff
             _ => ResearchDiffChangeCategory.Signature,
         };
 
-    static ResearchSubjectKey SubjectFromMethod(MethodIdentity method)
+    static ResearchSubjectKey SubjectFromMethod(MethodIdentity method, MemberAnchor? anchor = null)
     {
         var typeName = method.DeclaringType.ToQualifiedDisplayString();
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
@@ -680,10 +729,11 @@ public static class ResearchDiff
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
-            $"member:M:{typeName}.{memberName}({parameters})",
+            anchor?.StableSelector ?? $"member:M:{typeName}.{memberName}({parameters})",
             $"{typeName}.{memberName}({displayParameters})",
             typeName,
-            memberName);
+            memberName,
+            anchor);
     }
 
     static ResearchSubjectKey UnknownMemberSubject(string key)
@@ -778,8 +828,8 @@ public static class ResearchDiff
         => index.Methods.Select(method => method.AssemblyName).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
             ?? Path.GetFileNameWithoutExtension(index.Path);
 
-    static string FormatOperations(IReadOnlyList<IlDiffRow> rows)
-        => rows.Count == 0 ? "" : string.Join("; ", rows.Select(row => row.Operation.Display));
+    static string FormatDisplayLines(IEnumerable<IlDiffDisplayRow> rows)
+        => string.Join("; ", rows.Select(row => row.UnifiedLine));
 
     static string NormalizeChangePart(string value)
         => value.Replace(' ', '-').Replace('_', '-').ToLowerInvariant();
