@@ -1,3 +1,5 @@
+using DotnetInspector.Fixtures;
+
 namespace ILInspector.Research.Tests;
 
 public class CSharpBodyDiffTests
@@ -239,6 +241,34 @@ public class CSharpBodyDiffTests
         Assert.StartsWith("operator:op_Implicit~", row.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.EndsWith("~System.Int32", row.Anchor.CanonicalSignature, StringComparison.Ordinal);
         Assert.DoesNotContain(diff.Rows, row => row.Anchor.CanonicalSignature.EndsWith("~System.String", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompareAssemblies_OperatorsUseMemberIndexSelectorPrefix()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OperatorSample" });
+
+        var row = Assert.Single(diff.Rows, row =>
+            row.Anchor.CanonicalSignature.Contains("op_Addition", StringComparison.Ordinal)
+            && row.Kind == CSharpDiffKind.Remove);
+        Assert.StartsWith("operator:op_Addition~", row.Anchor.StableSelector, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_ExplicitImplementationsUseMemberIndexSelectorPrefix()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExplicitSurface" });
+
+        var row = Assert.Single(diff.Rows, row =>
+            row.Anchor.CanonicalSignature.Contains("IExplicitSurface.Get", StringComparison.Ordinal)
+            && row.Kind == CSharpDiffKind.Remove);
+        Assert.StartsWith("explicit:DiffFixtureSample.IExplicitSurface.Get~", row.Anchor.StableSelector, StringComparison.Ordinal);
     }
 
     [Fact]

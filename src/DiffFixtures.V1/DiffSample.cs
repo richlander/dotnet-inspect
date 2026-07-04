@@ -268,6 +268,19 @@ namespace DiffFixtureSample
         public static implicit operator string(ConversionSample value) => "stable";
     }
 
+    public readonly struct OperatorSample
+    {
+        readonly int _value;
+
+        public OperatorSample(int value)
+        {
+            _value = value;
+        }
+
+        public static OperatorSample operator +(OperatorSample left, OperatorSample right)
+            => new(left._value + right._value + 1);
+    }
+
     public readonly struct CheckedConversionSample
     {
         readonly int _value;

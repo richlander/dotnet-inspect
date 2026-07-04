@@ -176,7 +176,7 @@ public static class CSharpBodyDiff
                 var parameters = signature.ParameterTypes.Select(CanonicalTypeName).ToImmutableArray();
                 int genericArity = method.GetGenericParameters().Count;
                 string methodGeneric = GenericParameterList(genericArity, isMethod: true);
-                string selectorName = MemberSelectorName(methodName);
+                string selectorName = ResearchDiff.ResearchMemberSelector.ForMetadataName(methodName, IsExtensionMethod(reader, type, method));
                 string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
                 string canonicalName = CanonicalMemberName(methodName);
                 string canonicalSignature = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
@@ -206,14 +206,12 @@ public static class CSharpBodyDiff
     static string CanonicalMemberName(string methodName)
         => methodName == ".ctor" ? "#ctor" : methodName;
 
-    static string MemberSelectorName(string methodName)
-        => methodName switch
-        {
-            ".ctor" => ".ctor",
-            "op_Implicit" or "op_Explicit" or "op_CheckedExplicit" => $"operator:{methodName}",
-            _ when methodName.Contains('.') => $"explicit:{methodName}",
-            _ => methodName,
-        };
+    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition type, MethodDefinition method)
+        => type.Attributes.HasFlag(TypeAttributes.Abstract)
+           && type.Attributes.HasFlag(TypeAttributes.Sealed)
+           && method.Attributes.HasFlag(MethodAttributes.Static)
+           && AttributeReader.HasExtensionAttribute(reader, type.GetCustomAttributes())
+           && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 
     static bool IsConversionOperator(string methodName)
         => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";

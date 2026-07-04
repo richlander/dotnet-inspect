@@ -722,7 +722,7 @@ public static class ResearchDiff
     {
         var typeName = method.DeclaringType.ToQualifiedDisplayString();
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
-        var selectorName = method.Name == ".ctor" ? ".ctor" : memberName;
+        var selectorName = ResearchMemberSelector.ForMetadataName(method.Name);
         var parameters = string.Join(",", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var canonical = $"M:{typeName}.{memberName}({parameters})";
@@ -737,6 +737,19 @@ public static class ResearchDiff
 
     static ResearchSubjectKey UnknownMemberSubject(string key)
         => new(ResearchDiffSubjectKind.Member, $"member:{key}", key);
+
+    internal static class ResearchMemberSelector
+    {
+        public static string ForMetadataName(string methodName, bool isExtensionMethod = false)
+            => methodName switch
+            {
+                ".ctor" => ".ctor",
+                _ when isExtensionMethod => $"extension:{methodName}",
+                _ when methodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{methodName}",
+                _ when methodName.Contains('.') => $"explicit:{methodName}",
+                _ => methodName,
+            };
+    }
 
     static string BodySignalMethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
