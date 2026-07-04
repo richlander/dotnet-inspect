@@ -11,6 +11,7 @@
     <AssemblyName>DiffFixtureSample</AssemblyName>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
