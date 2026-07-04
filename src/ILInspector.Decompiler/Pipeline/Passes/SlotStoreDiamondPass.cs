@@ -30,8 +30,13 @@ public sealed class SlotStoreDiamondPass : IIrPass
         var leaveTargets = function.Descendants.OfType<Leave>()
             .Select(leave => leave.TargetOffset)
             .ToHashSet();
+        // Slot testimony for the family-join fallback (slot ids are per body
+        // scope, so nested Lambda/LocalFunctionStatement containers must not
+        // consult the function-body map).
+        var slotTypes = CoercionSinks.TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes);
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
+            var scopedSlotTypes = ReferenceOwnership.IsInsideNestedFunctionBody(container) ? null : slotTypes;
             var blocks = container.Blocks;
             var offsetToIndex = new Dictionary<int, int>();
             for (int i = 0; i < blocks.Count; i++)
@@ -39,7 +44,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
 
             for (int p = 0; p + 2 < blocks.Count; p++)
             {
-                if (Match(function, blocks, offsetToIndex, leaveTargets, p) is { } shape)
+                if (Match(function, blocks, offsetToIndex, leaveTargets, p, scopedSlotTypes) is { } shape)
                 {
                     Fold(container, blocks, p, shape, stepper);
                     return true;
@@ -65,7 +70,8 @@ public sealed class SlotStoreDiamondPass : IIrPass
         IReadOnlyList<Block> blocks,
         Dictionary<int, int> offsetToIndex,
         HashSet<int> leaveTargets,
-        int p)
+        int p,
+        IReadOnlyDictionary<int, TypeRef>? slotTypes)
     {
         var head = blocks[p];
         if (head.Children.Count == 0 || head.Children[^1] is not ConditionalBranch branch)
@@ -101,9 +107,16 @@ public sealed class SlotStoreDiamondPass : IIrPass
             return null;
         var whenFalse = (IrExpression)falseStore.Value.Clone();
         var condition = (IrExpression)branch.Condition.Clone();
+        TypeRef? testifiedResult = null;
         if (!NormalizeArmTypes(ref whenTrue, ref whenFalse))
-            return null;
-        var resultType = whenTrue.ResultType ?? whenFalse.ResultType;
+        {
+            testifiedResult = TestifiedFamilyJoin(function, slotTypes, falseStore.Slot, whenTrue, whenFalse);
+            if (testifiedResult is null)
+                return null;
+            whenTrue = CoerceArmToTestified(whenTrue, testifiedResult);
+            whenFalse = CoerceArmToTestified(whenFalse, testifiedResult);
+        }
+        var resultType = testifiedResult ?? whenTrue.ResultType ?? whenFalse.ResultType;
         if (HasNullArmForNonNullableValue(function, whenTrue, whenFalse, resultType))
             return null;
 
@@ -153,6 +166,49 @@ public sealed class SlotStoreDiamondPass : IIrPass
     }
 
     static bool IsBool(TypeRef type) => type.Equals(TypeRef.CoreLib("System", "Boolean"));
+
+    /// <summary>
+    /// The family-join fallback for arms whose nominal types disagree (an int
+    /// constant against a uint call — the goto-region diamonds coercion
+    /// insertion used to reconcile only after this pass had already run, so
+    /// they folded on a second pipeline run and never in the shipped one).
+    /// The 5b exactness duality applies: never invent a join — adopt the
+    /// slot's already-decided all-loads-testify type — and each arm is gated
+    /// by <see cref="CoercionRendering.CanSpellSlotCoercion"/>, the shared
+    /// gate/renderer contract: an accepted arm is wrapped in a
+    /// <see cref="Coerce"/> at fold time so CoerceText owns its spelling
+    /// (`unchecked((uint)(-1))`, `(uint)x`). A raw family check without the
+    /// wrap printed bare int arms at a uint join — CS0029, masked in testing
+    /// by C#'s implicit constant-zero conversion (F1 review, both reviewers).
+    /// Bool stays with the dedicated constant path; enum-typed testimony has
+    /// no primitive family and keeps the importer's width-exact join as its
+    /// only door.
+    /// </summary>
+    static TypeRef? TestifiedFamilyJoin(
+        IrFunction function,
+        IReadOnlyDictionary<int, TypeRef>? slotTypes,
+        int slot,
+        IrExpression whenTrue,
+        IrExpression whenFalse)
+    {
+        if (slotTypes is null || !slotTypes.TryGetValue(slot, out var testified))
+            return null;
+        if (TypeFamilies.Of(testified) is null || IsBool(testified))
+            return null;
+        return ArmSpellableAt(function, whenTrue, testified) && ArmSpellableAt(function, whenFalse, testified)
+            ? testified
+            : null;
+    }
+
+    static bool ArmSpellableAt(IrFunction function, IrExpression arm, TypeRef testified)
+        => arm.ResultType is { } armType
+            && !IsBool(armType)
+            && (armType.Equals(testified)
+                || CoercionRendering.CanSpellSlotCoercion(armType, testified, function.TypeShapes, function.EnumUnderlyingTypes));
+
+    static IrExpression CoerceArmToTestified(IrExpression arm, TypeRef testified)
+        => arm.ResultType?.Equals(testified) == true ? arm : new Coerce(testified, arm);
+
 
     static bool TryBoolConstant(IrExpression expression, out IrExpression normalized)
     {

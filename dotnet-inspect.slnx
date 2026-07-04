@@ -1,0 +1,68 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DiffAsmFixtures.Caller/DiffAsmFixtures.Caller.csproj" />
+    <Project Path="src/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj" />
+    <Project Path="src/DiffAsmFixtures.LibB/DiffAsmFixtures.LibB.csproj" />
+    <Project Path="src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
+    <Project Path="src/DiffFixtures.V1/DiffFixtures.V1.csproj" />
+    <Project Path="src/DiffFixtures.V2/DiffFixtures.V2.csproj" />
+    <Project Path="src/dotnet-inspect.Tests/dotnet-inspect.Tests.csproj" />
+    <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
+    <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
+    <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
+    <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
+    <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
+    <Project Path="src/ILInspector.Analysis.CallerGraphCaller/ILInspector.Analysis.CallerGraphCaller.csproj" />
+    <Project Path="src/ILInspector.Analysis.CallerGraphCallerTwin/ILInspector.Analysis.CallerGraphCallerTwin.csproj" />
+    <Project Path="src/ILInspector.Analysis.CallerGraphLookalikeCaller/ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" />
+    <Project Path="src/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" />
+    <Project Path="src/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.CrossAsmShapeFixtures/ILInspector.Analysis.CrossAsmShapeFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.ExceptionBaseFixtures/ILInspector.Analysis.ExceptionBaseFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.LookalikeFixtures/ILInspector.Analysis.LookalikeFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.ProtobufFixtures/ILInspector.Analysis.ProtobufFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.SpoofFixtures/ILInspector.Analysis.SpoofFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
+    <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderIterator/ILInspector.Decompiler.Fixtures.LadderIterator.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung1/ILInspector.Decompiler.Fixtures.LadderRung1.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung2/ILInspector.Decompiler.Fixtures.LadderRung2.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung3/ILInspector.Decompiler.Fixtures.LadderRung3.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung4/ILInspector.Decompiler.Fixtures.LadderRung4.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung5/ILInspector.Decompiler.Fixtures.LadderRung5.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung9/ILInspector.Decompiler.Fixtures.LadderRung9.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainA/ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainB/ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainC/ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
+    <Project Path="src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
+    <Project Path="src/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
+    <Project Path="src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
+    <Project Path="src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
+    <Project Path="src/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
+    <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
+    <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
+    <Project Path="src/runfaster/runfaster.csproj" />
+  </Folder>
+  <Folder Name="/src/runfaster.Tests/Fixtures/">
+    <Project Path="src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture/RunFaster.AllocationFixture.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
+    <Project Path="tests/TestExtensions/TestExtensions.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
+    <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
+  </Folder>
+</Solution>

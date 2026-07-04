@@ -2062,6 +2062,7 @@ internal sealed record GeneratedFixtureReturnToSenderResult(
     FidelityCheck.CompileBackStatus? ActualStatus,
     string Reason,
     string? Detail,
+    string? IlDiffDiagnostic,
     bool IsFrontier,
     string? Note)
 {
@@ -2194,6 +2195,7 @@ internal static class GeneratedFixtureRunner
                             : missingTargetBodyFragment is not null
                                 ? $"missing expected target body fragment: {missingTargetBodyFragment}"
                                 : actual.Detail,
+                        actual.IlDiffDiagnostic,
                         target.IsFrontier,
                         target.Note));
                 }
@@ -2227,6 +2229,7 @@ internal static class GeneratedFixtureRunner
             ActualStatus: null,
             reason,
             Detail: null,
+            IlDiffDiagnostic: null,
             target.IsFrontier,
             target.Note);
 
@@ -2389,6 +2392,12 @@ internal static class GeneratedFixtureRunner
                     sb.AppendLine($"      {row.DisplayMember}  rts={actual}  bucket={row.Reason}");
                     if (!string.IsNullOrWhiteSpace(row.Detail))
                         sb.AppendLine($"      detail: {row.Detail}");
+                    if (!string.IsNullOrWhiteSpace(row.IlDiffDiagnostic))
+                    {
+                        sb.AppendLine("      il-diff:");
+                        foreach (string line in row.IlDiffDiagnostic.Split('\n'))
+                            sb.AppendLine($"        {line.TrimEnd('\r')}");
+                    }
                 }
             }
         }
