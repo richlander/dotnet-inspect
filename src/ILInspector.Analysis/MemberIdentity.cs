@@ -68,7 +68,9 @@ public sealed record MethodIdentity(
     TypeRef ReturnType,
     int MetadataToken,
     bool IsStatic,
-    CallerUnsafeMode CallerUnsafeMode = CallerUnsafeMode.None);
+    bool IsExtension = false,
+    CallerUnsafeMode CallerUnsafeMode = CallerUnsafeMode.None,
+    int GenericArity = 0);
 
 public sealed record MemberRef(
     TypeRef DeclaringType,

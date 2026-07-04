@@ -309,6 +309,54 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnConversionOperatorAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConversionSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "op_Implicit"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("operator:op_Implicit~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnGenericMethodAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "GenericParamBody"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("GenericParamBody~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnExtensionAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExtensionSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "Twice"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("extension:Twice~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareAssemblies_DefaultMechanisms_IncludeCSharpChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(

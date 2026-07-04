@@ -183,6 +183,11 @@ namespace DiffFixtureSample
         }
     }
 
+    public static class ExtensionSample
+    {
+        public static int Twice(this int value) => value * 2;
+    }
+
     public class ProtectedSample
     {
         protected int ProtectedConstant() => 1;

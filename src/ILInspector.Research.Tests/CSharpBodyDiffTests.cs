@@ -272,6 +272,20 @@ public class CSharpBodyDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_ExtensionMethodsUseMemberIndexSelectorPrefix()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExtensionSample" });
+
+        var row = Assert.Single(diff.Rows, row =>
+            row.Anchor.CanonicalSignature.Contains("Twice", StringComparison.Ordinal)
+            && row.Kind == CSharpDiffKind.Remove);
+        Assert.StartsWith("extension:Twice~", row.Anchor.StableSelector, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareAssemblies_CheckedConversionOperatorsIncludeReturnTypeInCanonicalSignature()
     {
         var v1 = DiffFixturePath("DiffFixtures.V1");

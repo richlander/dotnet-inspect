@@ -722,10 +722,12 @@ public static class ResearchDiff
     {
         var typeName = method.DeclaringType.ToQualifiedDisplayString();
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
-        var selectorName = ResearchMemberSelector.ForMetadataName(method.Name);
-        var parameters = string.Join(",", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
+        var selectorName = ResearchMemberSelector.ForMetadataName(method.Name, method.IsExtension);
+        var parameters = string.Join(",", method.ParameterTypes.Select(CanonicalTypeName));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
-        var canonical = $"M:{typeName}.{memberName}({parameters})";
+        var methodGeneric = GenericParameterList(method.GenericArity, isMethod: true);
+        var returnSuffix = IsConversionOperator(method.Name) ? $"~{CanonicalTypeName(method.ReturnType)}" : "";
+        var canonical = $"M:{typeName}.{memberName}{methodGeneric}({parameters}){returnSuffix}";
         var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
@@ -734,6 +736,34 @@ public static class ResearchDiff
             typeName,
             memberName);
     }
+
+    static string CanonicalTypeName(TypeRef type)
+        => type.Kind switch
+        {
+            TypeRefKind.Definition => type.Namespace.Length == 0
+                ? type.Name.Replace("+", ".", StringComparison.Ordinal)
+                : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
+            TypeRefKind.GenericInstance => $"{CanonicalTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(CanonicalTypeName))}>",
+            TypeRefKind.SzArray => $"{CanonicalTypeName(type.ElementType!)}[]",
+            TypeRefKind.Array => $"{CanonicalTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
+            TypeRefKind.ByRef => $"{CanonicalTypeName(type.ElementType!)}&",
+            TypeRefKind.Pointer => $"{CanonicalTypeName(type.ElementType!)}*",
+            TypeRefKind.Pinned => $"pinned {CanonicalTypeName(type.ElementType!)}",
+            TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
+            TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
+            _ => type.ToQualifiedDisplayString(),
+        };
+
+    static string GenericParameterList(int arity, bool isMethod)
+    {
+        if (arity == 0)
+            return "";
+        var prefix = isMethod ? "!!" : "!";
+        return $"<{string.Join(",", Enumerable.Range(0, arity).Select(index => $"{prefix}{index}"))}>";
+    }
+
+    static bool IsConversionOperator(string methodName)
+        => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 
     static ResearchSubjectKey UnknownMemberSubject(string key)
         => new(ResearchDiffSubjectKind.Member, $"member:{key}", key);
