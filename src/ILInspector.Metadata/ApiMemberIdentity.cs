@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -7,10 +10,35 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ApiMemberIdentity
 {
+    public const string DigestPrefix = "dotnet-inspect.member-index.v1\n";
+
     public sealed record XmlDocMemberIdentity(
         string LookupKey,
         IReadOnlyList<string> NormalizedParameters,
         string? NormalizedReturnType = null);
+
+    public static string GetMemberDigest(string canonicalSignature)
+    {
+        var input = Encoding.UTF8.GetBytes(DigestPrefix + canonicalSignature);
+        var hash = SHA256.HashData(input);
+        return Convert.ToHexString(hash).ToLowerInvariant()[..10];
+    }
+
+    public static string GetMemberSelectorName(ApiMember member) => member.Kind switch
+    {
+        "operator" => $"operator:{member.Name}",
+        "explicit-interface-implementation" => $"explicit:{member.Name}",
+        "extension-method" => $"extension:{member.Name}",
+        _ => member.Name
+    };
+
+    public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
+    {
+        string? canonical = TryGetCanonicalSignature(type, member, out var value) ? value : null;
+        string? digest = canonical is null ? null : GetMemberDigest(canonical);
+        string? stableSelector = digest is null ? null : $"{GetMemberSelectorName(member)}~{digest}";
+        return new ApiMemberHandle(type, member, canonical, digest, stableSelector);
+    }
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {

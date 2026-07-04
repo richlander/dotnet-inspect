@@ -528,20 +528,17 @@ public static class ResearchDiff
             return new ResearchSubjectKey(ResearchDiffSubjectKind.Type, $"type:{typeName}", typeName, TypeName: typeName);
 
         var direction = Direction(change.Kind);
-        var memberName = change.Subject?.MemberName;
-        var type = direction == ResearchDiffDirection.Removed
-            ? FindType(oldSurface, typeName)
-            : FindType(newSurface, typeName) ?? FindType(oldSurface, typeName);
-        var member = type is null || memberName is null
-            ? null
-            : FindMember(type, memberName, direction == ResearchDiffDirection.Removed ? change.Subject?.OldIdentity : change.Subject?.NewIdentity);
+        var handle = direction == ResearchDiffDirection.Removed
+            ? change.Subject?.OldMember
+            : change.Subject?.NewMember ?? change.Subject?.OldMember;
+        var memberName = handle?.MemberName ?? change.Subject?.MemberName;
 
         string memberId;
         string display;
-        if (type is not null && member is not null)
+        if (handle is not null)
         {
-            memberId = ApiMemberId(type, member);
-            display = ApiMemberDisplay(type, member);
+            memberId = handle.StableSelector ?? handle.CanonicalSignature ?? ApiMemberId(handle.Type, handle.Member);
+            display = ApiMemberDisplay(handle.Type, handle.Member);
         }
         else
         {
@@ -558,22 +555,10 @@ public static class ResearchDiff
     static ApiType? FindType(ApiSurface surface, string typeName)
         => surface.Types.FirstOrDefault(type => type.FullName == typeName);
 
-    static ApiMember? FindMember(ApiType type, string memberName, string? signature)
-    {
-        var candidates = type.Members.Where(candidate => candidate.Name == memberName).ToArray();
-        if (!string.IsNullOrWhiteSpace(signature))
-        {
-            var exact = candidates.FirstOrDefault(candidate => candidate.Signature == signature);
-            if (exact is not null)
-                return exact;
-        }
-        return candidates.Length == 1 ? candidates[0] : null;
-    }
-
     static string ApiMemberId(ApiType type, ApiMember member)
     {
         if (ApiMemberIdentity.TryGetCanonicalSignature(type, member, out var canonical))
-            return $"member:{canonical}";
+            return ApiMemberIdentity.CreateHandle(type, member).StableSelector ?? $"member:{canonical}";
         return $"member:{type.FullName}::{member.Signature ?? $"{member.Kind}:{member.Name}"}";
     }
 

@@ -2,7 +2,6 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
-using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -2250,20 +2249,11 @@ public static class ApiOutputFormatter
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
         => member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}";
 
-    private static string GetMemberSelectorName(ApiMember member) => member.Kind switch
-    {
-        "operator" => $"operator:{member.Name}",
-        "explicit-interface-implementation" => $"explicit:{member.Name}",
-        "extension-method" => $"extension:{member.Name}",
-        _ => member.Name
-    };
+    private static string GetMemberSelectorName(ApiMember member)
+        => ApiMemberIdentity.GetMemberSelectorName(member);
 
     internal static string GetMemberDigest(string canonicalSignature)
-    {
-        var input = Encoding.UTF8.GetBytes("dotnet-inspect.member-index.v1\n" + canonicalSignature);
-        var hash = SHA256.HashData(input);
-        return Convert.ToHexString(hash).ToLowerInvariant()[..10];
-    }
+        => ApiMemberIdentity.GetMemberDigest(canonicalSignature);
 
     internal static string GetCanonicalSignature(ApiType type, ApiMember member)
     {

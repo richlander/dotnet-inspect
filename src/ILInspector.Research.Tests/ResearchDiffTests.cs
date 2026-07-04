@@ -68,7 +68,11 @@ public class ResearchDiffTests
         Assert.Equal(ChangeKind.MemberAdded, change.Kind);
         Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
         Assert.Equal("Added", change.Subject?.MemberName);
-        Assert.Equal("void Added()", change.Subject?.NewIdentity);
+        Assert.Same(newSurface.Types[0], change.Subject?.NewMember?.Type);
+        Assert.Same(newSurface.Types[0].Members[1], change.Subject?.NewMember?.Member);
+        Assert.Equal("M:Sample.Widget.Added()", change.Subject?.NewMember?.CanonicalSignature);
+        Assert.Equal("Added~953f7c0720", change.Subject?.NewMember?.StableSelector);
+        Assert.Equal("Added~953f7c0720", change.Subject?.NewIdentity);
     }
 
     [Fact]
@@ -171,6 +175,11 @@ public class ResearchDiffTests
             Name = name,
             Kind = "method",
             Signature = $"void {name}()",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = name,
+            },
             Attributes = attributes?.ToList() ?? [],
         };
 
