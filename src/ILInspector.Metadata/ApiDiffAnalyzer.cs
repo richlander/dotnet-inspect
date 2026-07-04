@@ -70,6 +70,7 @@ public enum ApiChangeSubjectKind
 public sealed record ApiTypeHandle(ApiType Type)
 {
     public string TypeFullName => Type.FullName;
+    public TypeAnchor Anchor => new(Type.FullName);
 }
 
 public sealed record ApiMemberHandle(
@@ -93,6 +94,11 @@ public sealed record ApiChangeSubject(
     ApiMemberHandle? NewMember = null)
 {
     public string? TypeFullName => NewType?.TypeFullName ?? OldType?.TypeFullName ?? NewMember?.TypeFullName ?? OldMember?.TypeFullName;
+    public TypeAnchor? TypeAnchor
+        => NewType?.Anchor
+           ?? OldType?.Anchor
+           ?? (NewMember?.Anchor is { } newMemberAnchor ? new TypeAnchor(newMemberAnchor.TypeFullName) : null)
+           ?? (OldMember?.Anchor is { } oldMemberAnchor ? new TypeAnchor(oldMemberAnchor.TypeFullName) : null);
     public string? MemberName => NewMember?.MemberName ?? OldMember?.MemberName;
     public string? OldIdentity => OldMember?.Identity;
     public string? NewIdentity => NewMember?.Identity;

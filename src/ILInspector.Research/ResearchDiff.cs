@@ -86,6 +86,7 @@ public sealed record ResearchSubjectKey(
     string Display,
     string? TypeName = null,
     string? MemberName = null,
+    TypeAnchor? TypeAnchor = null,
     MemberAnchor? Anchor = null);
 
 public sealed record ResearchDiffEvidence(
@@ -657,7 +658,15 @@ public static class ResearchDiff
     static ResearchSubjectKey ApiSubject(ApiSurface oldSurface, ApiSurface newSurface, string typeName, ApiChange change)
     {
         if (!IsMemberChange(change.Kind))
-            return new ResearchSubjectKey(ResearchDiffSubjectKind.Type, $"type:{typeName}", typeName, TypeName: typeName);
+        {
+            var typeAnchor = change.Subject?.TypeAnchor ?? new TypeAnchor(typeName);
+            return new ResearchSubjectKey(
+                ResearchDiffSubjectKind.Type,
+                $"type:{typeAnchor.TypeFullName}",
+                typeAnchor.TypeFullName,
+                TypeName: typeAnchor.TypeFullName,
+                TypeAnchor: typeAnchor);
+        }
 
         var direction = Direction(change.Kind);
         var handle = direction == ResearchDiffDirection.Removed
@@ -681,7 +690,14 @@ public static class ResearchDiff
             display = $"{typeName}.{memberName ?? value ?? change.Kind.ToString()}";
         }
 
-        return new ResearchSubjectKey(ResearchDiffSubjectKind.Member, memberId, display, typeName, memberName);
+        return new ResearchSubjectKey(
+            ResearchDiffSubjectKind.Member,
+            memberId,
+            display,
+            typeName,
+            memberName,
+            handle?.Anchor is { } memberAnchor ? new TypeAnchor(memberAnchor.TypeFullName) : change.Subject?.TypeAnchor,
+            handle?.Anchor);
     }
 
     static ApiType? FindType(ApiSurface surface, string typeName)
@@ -733,6 +749,7 @@ public static class ResearchDiff
             $"{typeName}.{memberName}({displayParameters})",
             typeName,
             memberName,
+            anchor is null ? null : new TypeAnchor(anchor.TypeFullName),
             anchor);
     }
 

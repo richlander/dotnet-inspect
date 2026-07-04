@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Instructions;
 
 namespace ILInspector.Research.Tests;
@@ -76,6 +77,35 @@ public class ResearchDiffTests
         Assert.Equal("953f7c0720", change.Subject?.NewMember?.Anchor?.Fingerprint);
         Assert.Equal("Added~953f7c0720", change.Subject?.NewMember?.Anchor?.StableSelector);
         Assert.Equal("Added~953f7c0720", change.Subject?.NewIdentity);
+    }
+
+    [Fact]
+    public void MetadataApiDiff_TypeChange_CarriesTypeAnchor()
+    {
+        var oldSurface = EmptySurface();
+        var newSurface = Surface("Widget");
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.TypeAdded, change.Kind);
+        Assert.Equal(ApiChangeSubjectKind.Type, change.Subject?.Kind);
+        Assert.Equal("Sample.Widget", change.Subject?.TypeAnchor?.TypeFullName);
+        Assert.Equal("Sample.Widget", change.Subject?.TypeAnchor?.Format(TypeAnchorFormat.FullName));
+    }
+
+    [Fact]
+    public void CompareApiSurfaces_TypeRowsExposeTypeAnchor()
+    {
+        var oldSurface = EmptySurface();
+        var newSurface = Surface("Widget");
+
+        var diff = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+
+        var subject = Assert.Single(diff.Subjects);
+        Assert.Equal(ResearchDiffSubjectKind.Type, subject.Subject.Kind);
+        Assert.Equal("Sample.Widget", subject.Subject.TypeAnchor?.TypeFullName);
+        Assert.True(subject.ApiChanged);
     }
 
     [Fact]
@@ -230,6 +260,9 @@ public class ResearchDiffTests
                 }
             ],
         };
+
+    static ApiSurface EmptySurface()
+        => new();
 
     static ApiMember Member(string name, IReadOnlyList<string>? attributes = null)
         => new()
