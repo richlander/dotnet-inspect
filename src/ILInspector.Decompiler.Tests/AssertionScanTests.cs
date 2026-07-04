@@ -188,18 +188,41 @@ public class AssertionScanTests
     public void InverseLedger_ClassifiesPassRaisedNodesSeparatelyFromImporterNodes()
     {
         Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(Lambda)));
-        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(LocalFunctionInvocation)));
-        // The output-shape cluster is raised by passes (tuple-creation,
-        // is-pattern, object-initializer, ...) — a wrong ImporterEmitted
-        // fallback would route its fixture-coverage regressions into the
-        // wrong missing-coverage bucket (B2 review finding).
         Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(TupleExpression)));
-        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(SingleElementListPattern)));
-        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(WithExpression)));
-        Assert.Equal(InverseLedger.NodeCause.PassRaised, InverseLedger.CauseFor(nameof(IncrementDecrement)));
         Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(CallIndirect)));
-        Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(Unbox)));
         Assert.Equal(InverseLedger.NodeCause.ImporterEmitted, InverseLedger.CauseFor(nameof(Constant)));
+    }
+
+    // The nodes the IMPORTER constructs (grep `new X(` in IrImporter.cs is the
+    // ground truth); every other annotated node is pass-raised. Exhaustive so a
+    // newly annotated node FORCES a classification decision — the spot-check
+    // form could not catch an omission in CauseFor's fallback (B2 review,
+    // two rounds: first the output-shape cluster, then seven older nodes).
+    static readonly HashSet<string> ImporterEmittedNodes =
+    [
+        "ArrayLength", "Binary", "Box", "Call", "CallIndirect", "CastClass",
+        "CaughtException", "Comparison", "Constant", "Convert", "IsInstance",
+        "LoadArgument", "LoadArgumentAddress", "LoadElement", "LoadElementAddress",
+        "LoadField", "LoadFieldAddress", "LoadFunctionPointer", "LoadIndirect",
+        "LoadLocal", "LoadLocalAddress", "LoadStackSlot", "LoadToken", "LogicalNot",
+        "NewArray", "NewObject", "SizeOf", "StackAllocate", "Unary", "Unbox",
+        "UnboxAny",
+    ];
+
+    [Fact]
+    public void InverseLedger_ClassifiesEveryAnnotatedNode()
+    {
+        foreach (var row in InverseLedger.Rows(typeof(IrFunction).Assembly))
+        {
+            var expected = ImporterEmittedNodes.Contains(row.Node)
+                ? InverseLedger.NodeCause.ImporterEmitted
+                : InverseLedger.NodeCause.PassRaised;
+            Assert.True(
+                expected == InverseLedger.CauseFor(row.Node),
+                $"{row.Node}: CauseFor says {InverseLedger.CauseFor(row.Node)}, test expects {expected}. " +
+                "New node? Decide its cause: add it to InverseLedger.s_passRaisedNodes (pass-constructed) " +
+                "or to this test's ImporterEmittedNodes (constructed in IrImporter.cs).");
+        }
     }
 
     [Fact]
