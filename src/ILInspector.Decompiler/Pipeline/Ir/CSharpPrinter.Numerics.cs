@@ -1288,7 +1288,7 @@ public sealed partial class CSharpPrinter
         // silently introduce, so it is left to a real Convert node in the IL.
         if (target is { } numericTarget
             && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget)
-            && TypeFamilies.SameWidth(EffectiveType(arm), numericTarget))
+            && CanCoercePrimitiveJoinArm(arm, numericTarget))
             return arm is Constant { Value: int or long } constArm
                 ? NumericConstant(constArm, numericTarget)
                 : CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
@@ -1307,12 +1307,41 @@ public sealed partial class CSharpPrinter
             || (IsEnumLikeInteger(target)
                 && IsIntegerArm(conditional.WhenTrue)
                 && IsIntegerArm(conditional.WhenFalse))
+            || CanRenderPrimitiveConditionalForTarget(conditional, target)
             || (IsKnownReferenceLike(target)
                 && CanAssignTo(conditional.WhenTrue, target)
                 && CanAssignTo(conditional.WhenFalse, target));
 
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
+
+    bool CanRenderPrimitiveConditionalForTarget(Conditional conditional, TypeRef target)
+        => EffectiveType(conditional) is { } conditionalType
+            && TypeFamilies.IsIntegerLike(conditionalType)
+            && TypeFamilies.IsIntegerLike(target)
+            && CoercionRendering.CanSpellSlotCoercion(
+                conditionalType,
+                target,
+                _function.TypeShapes,
+                _function.EnumUnderlyingTypes)
+            && CanRenderPrimitiveJoinArm(conditional.WhenTrue, target)
+            && CanRenderPrimitiveJoinArm(conditional.WhenFalse, target);
+
+    bool CanRenderPrimitiveJoinArm(IrExpression arm, TypeRef target)
+        => EffectiveType(arm) is { } armType
+            && TypeFamilies.IsIntegerLike(armType)
+            && (!TypeFamilies.NeedsNumericCast(armType, target)
+                || CanCoercePrimitiveJoinArm(arm, target));
+
+    bool CanCoercePrimitiveJoinArm(IrExpression arm, TypeRef target)
+        => EffectiveType(arm) is { } armType
+            && TypeFamilies.IsIntegerLike(target)
+            && CoercionRendering.CanSpellSlotCoercion(
+                armType,
+                target,
+                _function.TypeShapes,
+                _function.EnumUnderlyingTypes)
+            && TypeFamilies.SameWidth(armType, target);
 
     bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
         => IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value));

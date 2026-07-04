@@ -109,6 +109,38 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void Conditional_AtPrimitiveStoreTarget_DistributesCoercionToArms()
+    {
+        // Issue #2306: the conditional's own join is int, but the store target
+        // is uint. The arms agree with each other, so join-arm typing does not
+        // intervene; the target-aware merge renderer must still route through
+        // the shared slot-coercion contract and cast the non-constant arm.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new Constant(0, intType),
+            new LoadArgument(1, "tick", intType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, conditional),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("flag", boolType), new Parameter("tick", intType)],
+            [uintType]);
+
+        Assert.Contains("flag ? 0 : (uint)tick", body);
+        Assert.DoesNotContain("? 0 : tick", body);
+        AssertCompiles("public static uint M(bool flag, int tick)", body);
+    }
+
+    [Fact]
     public void UnnamedHighBitConstantArm_KeepsUncheckedCast()
     {
         // The cast half of the name-or-cast rule at the #2076 conditional-arm
@@ -207,6 +239,22 @@ public class CoerceChokePointTests
                 : new Dictionary<TypeRef, IReadOnlyDictionary<long, string>> { [enumType] = members },
         };
 
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    static string RenderBody(
+        IReadOnlyList<IrNode> statements,
+        TypeRef returnType,
+        IReadOnlyList<Parameter> parameters,
+        IReadOnlyList<TypeRef> locals)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(returnType, [.. parameters], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [.. locals], container);
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 
