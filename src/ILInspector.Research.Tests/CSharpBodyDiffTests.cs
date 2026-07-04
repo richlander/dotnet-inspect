@@ -236,6 +236,7 @@ public class CSharpBodyDiffTests
         var row = Assert.Single(diff.Rows, row =>
             row.Anchor.CanonicalSignature.Contains("op_Implicit", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
+        Assert.StartsWith("operator:op_Implicit~", row.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.EndsWith("~System.Int32", row.Anchor.CanonicalSignature, StringComparison.Ordinal);
         Assert.DoesNotContain(diff.Rows, row => row.Anchor.CanonicalSignature.EndsWith("~System.String", StringComparison.Ordinal));
     }
@@ -251,6 +252,7 @@ public class CSharpBodyDiffTests
         var row = Assert.Single(diff.Rows, row =>
             row.Anchor.CanonicalSignature.Contains("op_CheckedExplicit", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
+        Assert.StartsWith("operator:op_CheckedExplicit~", row.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.EndsWith("~System.Int32", row.Anchor.CanonicalSignature, StringComparison.Ordinal);
     }
 

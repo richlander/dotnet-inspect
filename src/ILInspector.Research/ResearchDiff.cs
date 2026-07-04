@@ -582,8 +582,8 @@ public static class ResearchDiff
         {
             var subject = new ResearchSubjectKey(
                 ResearchDiffSubjectKind.Member,
-                row.StableMemberKey,
-                row.Member,
+                row.Anchor.StableSelector,
+                $"{row.Anchor.TypeFullName}.{row.Anchor.MemberName}",
                 row.Anchor.TypeFullName,
                 row.Anchor.MemberName);
             var direction = row.Kind == CSharpDiffKind.Add ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
