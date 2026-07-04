@@ -2337,13 +2337,20 @@ internal static class ProgramSupport
     // '+'/'.' that is not part of the type name is left for the caller.
     static void ParseNestedName(string s, ref int pos, StringBuilder sb)
     {
-        bool first = true;
+        // Collect the nested-name segments (Namespace parts and nested types are all segments),
+        // recording each segment's name, its generic arity, and any generic arguments already bound
+        // inline via the display form <...>. Backtick arity ('N) is deferred: reflection emits the
+        // whole nested chain's type arguments in a single trailing bracket after the last segment
+        // (Outer`1+Inner`1[A,B] means Outer<A>.Inner<B>), so binding them here would misattribute.
+        var names = new List<string>();
+        var arities = new List<int>();
+        var boundArgs = new List<List<string>?>();
         while (true)
         {
-            if (!first)
-                sb.Append('.');
-            first = false;
-            ParseSegment(s, ref pos, sb);
+            ParseSegment(s, ref pos, out string name, out int arity, out List<string>? args);
+            names.Add(name);
+            arities.Add(arity);
+            boundArgs.Add(args);
             if (pos + 1 < s.Length && (s[pos] == '.' || s[pos] == '+') && IsSegmentStart(s[pos + 1]))
             {
                 pos++;
@@ -2351,16 +2358,65 @@ internal static class ProgramSupport
             }
             break;
         }
+
+        int totalArity = 0, boundArity = 0;
+        for (int i = 0; i < arities.Count; i++)
+        {
+            totalArity += arities[i];
+            if (boundArgs[i] is not null)
+                boundArity += arities[i];
+        }
+
+        // A trailing reflection argument list [A,B,...] (not an array suffix) supplies the deferred
+        // arguments, distributed left-to-right across the segments with unbound backtick arity.
+        if (totalArity > boundArity && pos < s.Length && s[pos] == '[' && HasTypeContent(s, pos))
+        {
+            var flat = ParseReflArgList(s, ref pos);
+            int idx = 0;
+            for (int i = 0; i < arities.Count; i++)
+            {
+                if (arities[i] > 0 && boundArgs[i] is null)
+                {
+                    var a = new List<string>();
+                    for (int k = 0; k < arities[i] && idx < flat.Count; k++)
+                        a.Add(flat[idx++]);
+                    boundArgs[i] = a;
+                }
+            }
+        }
+
+        for (int i = 0; i < names.Count; i++)
+        {
+            if (i > 0)
+                sb.Append('.');
+            sb.Append(names[i]);
+            if (arities[i] > 0)
+            {
+                sb.Append('<');
+                var a = boundArgs[i];
+                for (int k = 0; k < arities[i]; k++)
+                {
+                    if (k > 0)
+                        sb.Append(',');
+                    sb.Append(a is not null && k < a.Count && a[k].Length > 0 ? a[k] : "?");
+                }
+                sb.Append('>');
+            }
+        }
     }
 
     static bool IsSegmentStart(char c) => char.IsLetter(c) || c == '_' || c == '<';
 
-    // One name segment: either a compiler-generated name (a balanced <...> prefix plus trailing
-    // identifier chars, e.g. <>c__DisplayClass18_0 or <Bar>d__5 — reflection uses '<' only here, never
-    // for generic arguments) or a plain identifier (alias-expanded), optionally followed by generic
-    // arguments (backtick `N[...] reflection form or <...> display form).
-    static void ParseSegment(string s, ref int pos, StringBuilder sb)
+    // One name segment. Returns the segment name, its generic arity, and (for the display form only)
+    // the bound generic arguments. A compiler-generated name is a balanced <...> prefix plus trailing
+    // identifier chars (e.g. <>c__DisplayClass18_0, <Bar>d__5, <Main>$>g__Local|0_0) — reflection uses
+    // '<' at a segment start only here, never for generic arguments. Backtick arity ('N) is recorded
+    // but its arguments are left for trailing distribution by the caller; the display form <...> binds
+    // its arguments inline here.
+    static void ParseSegment(string s, ref int pos, out string name, out int arity, out List<string>? args)
     {
+        arity = 0;
+        args = null;
         bool compilerGenerated = false;
         if (pos < s.Length && s[pos] == '<')
         {
@@ -2377,36 +2433,52 @@ internal static class ProgramSupport
                 else if (c == '>' && --depth == 0)
                     break;
             }
-            while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_'))
+            while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_' || s[pos] == '|'))
             {
                 seg.Append(s[pos]);
                 pos++;
             }
-            sb.Append(seg.ToString());
+            name = seg.ToString();
         }
         else
         {
-            var name = new StringBuilder();
+            var nm = new StringBuilder();
             while (pos < s.Length && (char.IsLetterOrDigit(s[pos]) || s[pos] == '_'))
             {
-                name.Append(s[pos]);
+                nm.Append(s[pos]);
                 pos++;
             }
-            sb.Append(ExpandAlias(name.ToString()));
+            name = ExpandAlias(nm.ToString());
         }
 
         if (pos < s.Length && s[pos] == '`')
         {
             pos++;
+            int n = 0;
             while (pos < s.Length && char.IsDigit(s[pos]))
+            {
+                n = (n * 10) + (s[pos] - '0');
                 pos++;
-            if (pos < s.Length && s[pos] == '[')
-                ParseGenericArgs(s, ref pos, sb, ']');
+            }
+            arity = n;
         }
         else if (!compilerGenerated && pos < s.Length && s[pos] == '<')
         {
-            ParseGenericArgs(s, ref pos, sb, '>');
+            args = ParseDisplayArgs(s, ref pos);
+            arity = args.Count;
         }
+    }
+
+    // True when the bracket at pos holds a type argument list ([A,B]) rather than an array-rank
+    // suffix ([], [,]): any non-comma, non-whitespace char before the closing ']'.
+    static bool HasTypeContent(string s, int pos)
+    {
+        for (int i = pos + 1; i < s.Length && s[i] != ']'; i++)
+        {
+            if (s[i] != ',' && !char.IsWhiteSpace(s[i]))
+                return true;
+        }
+        return false;
     }
 
     // Suffix modifiers on a type: arrays ([], [,]), pointer (*), byref (&), nullable (?).
@@ -2458,25 +2530,19 @@ internal static class ProgramSupport
         }
     }
 
-    // Generic argument list. Preserves argument count and separators (so Func<AB,C> and Func<A,BC> do
-    // not collide) and preserves arity for unbound arguments (String<,> is arity 2, distinct from
-    // String<> and String<,,>), rendering an empty argument position as '?'.
-    static void ParseGenericArgs(string s, ref int pos, StringBuilder sb, char close)
+    // Display-form generic argument list <A,B,...>. Preserves argument count and separators (so
+    // Func<AB,C> and Func<A,BC> do not collide) and preserves arity for unbound arguments (String<,>
+    // is arity 2, distinct from String<> and String<,,>). Returns each argument canonicalized; an
+    // empty position is returned as the empty string and rendered '?' by the caller.
+    static List<string> ParseDisplayArgs(string s, ref int pos)
     {
-        pos++; // consume '<' or '['
-        sb.Append('<');
-        if (pos < s.Length && s[pos] == close)
-        {
-            pos++;
-            sb.Append('>');
-            return;
-        }
+        pos++; // consume '<'
         var parts = new List<string>();
         var current = new StringBuilder();
-        while (pos < s.Length && s[pos] != close)
+        while (pos < s.Length && s[pos] != '>')
         {
             SkipWhitespace(s, ref pos);
-            if (pos >= s.Length || s[pos] == close)
+            if (pos >= s.Length || s[pos] == '>')
                 break;
             if (s[pos] == ',')
             {
@@ -2485,14 +2551,67 @@ internal static class ProgramSupport
                 pos++;
                 continue;
             }
+            int before = pos;
             ParseType(s, ref pos, current);
             SkipWhitespace(s, ref pos);
+            if (pos == before)
+                pos++; // no-progress guard against malformed input
         }
         parts.Add(current.ToString());
-        if (pos < s.Length && s[pos] == close)
+        if (pos < s.Length && s[pos] == '>')
             pos++;
-        sb.Append(string.Join(",", parts.Select(p => p.Length == 0 ? "?" : p)));
-        sb.Append('>');
+        return parts;
+    }
+
+    // Reflection-form generic argument list [A,B,...]. Each argument may be assembly-qualified as
+    // [FullTypeName, AssemblyName]; the assembly qualifier is stripped. Returns each argument
+    // canonicalized. A no-progress guard prevents malformed input (e.g. an unparseable argument) from
+    // looping forever.
+    static List<string> ParseReflArgList(string s, ref int pos)
+    {
+        pos++; // consume '['
+        var parts = new List<string>();
+        while (pos < s.Length && s[pos] != ']')
+        {
+            SkipWhitespace(s, ref pos);
+            if (pos >= s.Length || s[pos] == ']')
+                break;
+            if (s[pos] == ',')
+            {
+                pos++;
+                continue;
+            }
+            bool assemblyQualified = false;
+            if (s[pos] == '[')
+            {
+                assemblyQualified = true;
+                pos++; // consume the inner '[' of [Type, Assembly]
+            }
+            var current = new StringBuilder();
+            int before = pos;
+            ParseType(s, ref pos, current);
+            if (pos == before)
+                pos++; // no-progress guard
+            if (assemblyQualified)
+            {
+                int depth = 1;
+                while (pos < s.Length && depth > 0)
+                {
+                    if (s[pos] == '[')
+                        depth++;
+                    else if (s[pos] == ']')
+                        depth--;
+                    pos++;
+                }
+            }
+            parts.Add(current.ToString());
+            SkipWhitespace(s, ref pos);
+            if (pos < s.Length && s[pos] == ',')
+                pos++;
+        }
+        if (pos < s.Length && s[pos] == ']')
+            pos++;
+        return parts;
     }
 
     static void SkipWhitespace(string s, ref int pos)

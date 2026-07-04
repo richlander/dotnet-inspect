@@ -112,11 +112,60 @@ public class TypeConfirmationTests
     [Fact]
     public void CanonicalTypeSignature_PreservesNestedTypeAfterGenericArguments()
     {
-        // A nested type following a generic parent must not be dropped (previously
-        // Dictionary`2[K,V]+KeyCollection canonicalized to Dictionary<K,V>).
+        // A nested type on a generic parent must not be dropped. Reflection emits the parent's type
+        // arguments in the trailing bracket after the whole nested chain
+        // (Dictionary`2+KeyCollection[String,Int32]); the nested name must survive and the arguments
+        // must bind to the parent, matching the display form Dictionary<String,Int32>.KeyCollection.
+        var runtime = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2+KeyCollection[System.String,System.Int32]");
+        var display = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary<System.String,System.Int32>.KeyCollection");
+        var parentOnly = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2[System.String,System.Int32]");
+
+        Assert.Equal(display, runtime);       // reflection nested form == display nested form
+        Assert.NotEqual(parentOnly, runtime); // KeyCollection is not dropped
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_DistributesTrailingArgsAcrossNestedGenerics()
+    {
+        // Reflection puts the whole chain's arguments in one trailing bracket, distributed by each
+        // segment's arity (Outer`1+Inner`1[A,B] == Outer<A>.Inner<B>). Previously the arity of the
+        // non-final segment was dropped and the arguments misattributed to the last segment.
+        var runtime = ProgramSupport.CanonicalTypeSignature("Outer`1+Inner`1[System.Int32,System.String]");
+        var display = ProgramSupport.CanonicalTypeSignature("Outer<System.Int32>.Inner<System.String>");
+
+        Assert.Equal(display, runtime);
+        // Swapping the arguments across the two levels must not collide.
         Assert.NotEqual(
-            ProgramSupport.CanonicalTypeSignature("System.Collections.Generic.Dictionary`2[K,V]+KeyCollection"),
-            ProgramSupport.CanonicalTypeSignature("System.Collections.Generic.Dictionary`2[K,V]"));
+            runtime,
+            ProgramSupport.CanonicalTypeSignature("Outer`1+Inner`1[System.String,System.Int32]"));
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_HandlesAssemblyQualifiedGenericArguments()
+    {
+        // Assembly-qualified reflection long form must not hang and must reconcile with the short
+        // form (the assembly qualifier is stripped).
+        var longForm = ProgramSupport.CanonicalTypeSignature(
+            "System.Func`2[[System.String, System.Private.CoreLib],[System.Int32, System.Private.CoreLib]]");
+        var shortForm = ProgramSupport.CanonicalTypeSignature("System.Func`2[System.String,System.Int32]");
+
+        Assert.Equal(shortForm, longForm);
+    }
+
+    [Fact]
+    public void CanonicalTypeSignature_PreservesBacktickOnlyGenericArity()
+    {
+        // An open generic definition (backtick arity with no argument bracket) must keep its arity so
+        // distinct definitions do not collide (My.Generic`2 != My.Generic`3 != My.Generic).
+        var arity2 = ProgramSupport.CanonicalTypeSignature("My.Generic`2");
+        var arity3 = ProgramSupport.CanonicalTypeSignature("My.Generic`3");
+        var nonGeneric = ProgramSupport.CanonicalTypeSignature("My.Generic");
+
+        Assert.NotEqual(arity2, arity3);
+        Assert.NotEqual(arity2, nonGeneric);
     }
 
     [Fact]
