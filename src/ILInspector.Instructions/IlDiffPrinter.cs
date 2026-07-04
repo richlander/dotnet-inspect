@@ -22,7 +22,7 @@ public sealed record IlDiffDisplayResult(
     string? Failure,
     ImmutableArray<IlDiffDisplayRow> Rows)
 {
-    public bool IsEmpty => Failure is null && Rows.IsEmpty;
+    public bool IsEmpty => Failure is null && Rows.IsDefaultOrEmpty;
 }
 
 /// <summary>
@@ -63,7 +63,9 @@ public static class IlDiffPrinter
     public static ImmutableArray<string> ToUnifiedLines(IlDiffDisplayResult display)
     {
         ArgumentNullException.ThrowIfNull(display);
-        var rows = display.Rows.Select(row => row.UnifiedLine);
+        var rows = display.Rows.IsDefault
+            ? []
+            : display.Rows.Select(row => row.UnifiedLine);
         return display.Failure is { } failure
             ? [failure, .. rows]
             : [.. rows];

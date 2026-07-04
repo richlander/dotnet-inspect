@@ -100,4 +100,23 @@ public class IlDiffPrinterTests
             ],
             lines);
     }
+
+    [Fact]
+    public void ToUnifiedLines_TreatsDefaultRowsAsEmpty()
+    {
+        var display = new IlDiffDisplayResult(Failure: null, Rows: default);
+
+        Assert.True(display.IsEmpty);
+        Assert.Empty(IlDiffPrinter.ToUnifiedLines(display));
+        Assert.Equal("", IlDiffPrinter.RenderUnified(display));
+    }
+
+    [Fact]
+    public void ToUnifiedLines_PreservesFailureWhenRowsAreDefault()
+    {
+        var display = new IlDiffDisplayResult(Failure: "IL diff failed: old body decode failed", Rows: default);
+
+        Assert.False(display.IsEmpty);
+        Assert.Equal(["IL diff failed: old body decode failed"], IlDiffPrinter.ToUnifiedLines(display));
+    }
 }
