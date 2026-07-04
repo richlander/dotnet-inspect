@@ -15,7 +15,7 @@ public class IlBodyDiffTests
 
         Assert.True(diff.IsExact);
         Assert.Null(diff.Failure);
-        Assert.Empty(diff.Differences);
+        Assert.Empty(diff.Rows);
     }
 
     [Fact]
@@ -27,10 +27,10 @@ public class IlBodyDiffTests
         var diff = IlBodyDiff.Compare(left, right);
 
         Assert.False(diff.IsExact);
-        var added = Assert.Single(diff.Differences, row => row.Kind == IlBodyDiffChangeKind.Added);
-        Assert.Null(added.OldOpCode);
-        Assert.Equal(ILOpCode.Nop, added.NewOpCode);
-        Assert.DoesNotContain(diff.Differences, row => row.Kind == IlBodyDiffChangeKind.Changed);
+        var added = Assert.Single(diff.Rows, row => row.Kind == IlDiffKind.Add);
+        Assert.Equal(0x0001, added.Operation.Offset);
+        Assert.Equal("nop", added.Operation.OpcodeFamily);
+        Assert.DoesNotContain(diff.Rows, row => row.Kind == IlDiffKind.Remove);
     }
 
     [Fact]
@@ -45,9 +45,9 @@ public class IlBodyDiffTests
         var diff = IlBodyDiff.Compare(left, right);
 
         Assert.False(diff.IsExact);
-        Assert.Single(diff.Differences);
-        Assert.Equal(IlBodyDiffChangeKind.Added, diff.Differences[0].Kind);
-        Assert.Equal(ILOpCode.Nop, diff.Differences[0].NewOpCode);
+        Assert.Single(diff.Rows);
+        Assert.Equal(IlDiffKind.Add, diff.Rows[0].Kind);
+        Assert.Equal("nop", diff.Rows[0].Operation.OpcodeFamily);
     }
 
     [Fact]
@@ -61,10 +61,22 @@ public class IlBodyDiffTests
 
         var diff = IlBodyDiff.Compare(left, right);
 
-        var changed = Assert.Single(diff.Differences);
-        Assert.Equal(IlBodyDiffChangeKind.Changed, changed.Kind);
-        Assert.Equal(ILOpCode.Br_s, changed.OldOpCode);
-        Assert.Equal(ILOpCode.Br_s, changed.NewOpCode);
+        Assert.Collection(
+            diff.Rows,
+            removed =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removed.Kind);
+                Assert.Equal(0, removed.Operation.Offset);
+                Assert.Equal("br", removed.Operation.OpcodeFamily);
+                Assert.Equal("IL_0005", removed.Operation.Operand?.Value);
+            },
+            added =>
+            {
+                Assert.Equal(IlDiffKind.Add, added.Kind);
+                Assert.Equal(0, added.Operation.Offset);
+                Assert.Equal("br", added.Operation.OpcodeFamily);
+                Assert.Equal("IL_0003", added.Operation.Operand?.Value);
+            });
     }
 
     [Fact]
@@ -76,17 +88,26 @@ public class IlBodyDiffTests
         var diff = IlBodyDiff.Compare(left, right);
 
         Assert.Collection(
-            diff.Differences,
-            changed =>
+            diff.Rows,
+            removedBranch =>
             {
-                Assert.Equal(IlBodyDiffChangeKind.Changed, changed.Kind);
-                Assert.Equal(0, changed.OldOffset);
-                Assert.Equal(0, changed.NewOffset);
+                Assert.Equal(IlDiffKind.Remove, removedBranch.Kind);
+                Assert.Equal(0, removedBranch.Operation.Offset);
+                Assert.Equal("br", removedBranch.Operation.OpcodeFamily);
+                Assert.Equal("IL_0005", removedBranch.Operation.Operand?.Value);
             },
-            removed =>
+            addedBranch =>
             {
-                Assert.Equal(IlBodyDiffChangeKind.Removed, removed.Kind);
-                Assert.Equal(2, removed.OldOffset);
+                Assert.Equal(IlDiffKind.Add, addedBranch.Kind);
+                Assert.Equal(0, addedBranch.Operation.Offset);
+                Assert.Equal("br", addedBranch.Operation.OpcodeFamily);
+                Assert.Equal("IL_0002", addedBranch.Operation.Operand?.Value);
+            },
+            removedNop =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removedNop.Kind);
+                Assert.Equal(2, removedNop.Operation.Offset);
+                Assert.Equal("nop", removedNop.Operation.OpcodeFamily);
             });
     }
 

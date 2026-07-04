@@ -3,25 +3,41 @@ using System.Reflection.Metadata;
 
 namespace ILInspector.Instructions;
 
-public enum IlBodyDiffChangeKind
+public enum IlDiffKind
 {
-    Changed,
-    Added,
-    Removed,
+    Context,
+    Remove,
+    Add,
 }
 
-public sealed record IlInstructionDiff(
-    IlBodyDiffChangeKind Kind,
-    int InstructionIndex,
-    int? OldOffset,
-    ILOpCode? OldOpCode,
-    int? NewOffset,
-    ILOpCode? NewOpCode);
+public enum IlOperandIdentityKind
+{
+    Immediate,
+    Token,
+    Slot,
+    BranchTarget,
+    SwitchTargets,
+}
+
+public sealed record IlOperandIdentity(IlOperandIdentityKind Kind, string Value);
+
+public sealed record CanonicalIlOperation(
+    int Offset,
+    string OpcodeFamily,
+    IlOperandIdentity? Operand)
+{
+    public string Display => Operand is null ? OpcodeFamily : $"{OpcodeFamily} {Operand.Value}";
+}
+
+public sealed record IlDiffRow(
+    int HunkId,
+    IlDiffKind Kind,
+    CanonicalIlOperation Operation);
 
 public sealed record IlBodyDiffResult(
     bool IsExact,
     string? Failure,
-    ImmutableArray<IlInstructionDiff> Differences);
+    ImmutableArray<IlDiffRow> Rows);
 
 /// <summary>
 /// Low-level IL body diff substrate over decoded instruction streams.
@@ -42,33 +58,27 @@ public static class IlBodyDiff
         var newInstructions = newBody.Instructions;
         var lcs = LongestCommonSubsequence(oldInstructions, newInstructions);
         var oldToNew = lcs.ToDictionary(pair => pair.OldIndex, pair => pair.NewIndex);
-        var differences = ImmutableArray.CreateBuilder<IlInstructionDiff>();
+        var rows = ImmutableArray.CreateBuilder<IlDiffRow>();
         int oldIndex = 0;
         int newIndex = 0;
-        int diffIndex = 0;
+        int hunkId = 0;
         foreach (var (nextOld, nextNew) in lcs)
         {
-            AddUnmatched(oldInstructions, oldIndex, nextOld, newInstructions, newIndex, nextNew, differences, ref diffIndex);
+            AddUnmatched(oldInstructions, oldIndex, nextOld, newInstructions, newIndex, nextNew, rows, ref hunkId);
             if (!BranchTargetsMatch(oldInstructions, nextOld, newInstructions, nextNew, oldToNew))
             {
-                var oldInstruction = oldInstructions[nextOld];
-                var newInstruction = newInstructions[nextNew];
-                differences.Add(new IlInstructionDiff(
-                    IlBodyDiffChangeKind.Changed,
-                    diffIndex++,
-                    oldInstruction.Offset,
-                    oldInstruction.OpCode,
-                    newInstruction.Offset,
-                    newInstruction.OpCode));
+                int hunk = hunkId++;
+                rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, ToOperation(oldInstructions[nextOld])));
+                rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, ToOperation(newInstructions[nextNew])));
             }
             oldIndex = nextOld + 1;
             newIndex = nextNew + 1;
         }
 
-        AddUnmatched(oldInstructions, oldIndex, oldInstructions.Length, newInstructions, newIndex, newInstructions.Length, differences, ref diffIndex);
+        AddUnmatched(oldInstructions, oldIndex, oldInstructions.Length, newInstructions, newIndex, newInstructions.Length, rows, ref hunkId);
 
-        var rows = differences.ToImmutable();
-        return new IlBodyDiffResult(rows.Length == 0, Failure: null, rows);
+        var diffRows = rows.ToImmutable();
+        return new IlBodyDiffResult(diffRows.Length == 0, Failure: null, diffRows);
     }
 
     static void AddUnmatched(
@@ -78,47 +88,19 @@ public static class IlBodyDiff
         ImmutableArray<DecodedInstruction> newInstructions,
         int newStart,
         int newEnd,
-        ImmutableArray<IlInstructionDiff>.Builder differences,
-        ref int diffIndex)
+        ImmutableArray<IlDiffRow>.Builder rows,
+        ref int hunkId)
     {
+        if (oldStart == oldEnd && newStart == newEnd)
+            return;
+
+        int hunk = hunkId++;
         int oldIndex = oldStart;
         int newIndex = newStart;
-        while (oldIndex < oldEnd && newIndex < newEnd)
-        {
-            differences.Add(new IlInstructionDiff(
-                IlBodyDiffChangeKind.Changed,
-                diffIndex++,
-                oldInstructions[oldIndex].Offset,
-                oldInstructions[oldIndex].OpCode,
-                newInstructions[newIndex].Offset,
-                newInstructions[newIndex].OpCode));
-            oldIndex++;
-            newIndex++;
-        }
-
         while (oldIndex < oldEnd)
-        {
-            var oldInstruction = oldInstructions[oldIndex++];
-            differences.Add(new IlInstructionDiff(
-                IlBodyDiffChangeKind.Removed,
-                diffIndex++,
-                oldInstruction.Offset,
-                oldInstruction.OpCode,
-                NewOffset: null,
-                NewOpCode: null));
-        }
-
+            rows.Add(new IlDiffRow(hunk, IlDiffKind.Remove, ToOperation(oldInstructions[oldIndex++])));
         while (newIndex < newEnd)
-        {
-            var newInstruction = newInstructions[newIndex++];
-            differences.Add(new IlInstructionDiff(
-                IlBodyDiffChangeKind.Added,
-                diffIndex++,
-                OldOffset: null,
-                OldOpCode: null,
-                newInstruction.Offset,
-                newInstruction.OpCode));
-        }
+            rows.Add(new IlDiffRow(hunk, IlDiffKind.Add, ToOperation(newInstructions[newIndex++])));
     }
 
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(
@@ -162,14 +144,72 @@ public static class IlBodyDiff
 
     static bool CanonicalEquals(DecodedInstruction oldInstruction, DecodedInstruction newInstruction)
     {
-        if (oldInstruction.OpCode != newInstruction.OpCode || oldInstruction.Operand != newInstruction.Operand)
+        var oldOperation = ToOperation(oldInstruction);
+        var newOperation = ToOperation(newInstruction);
+        if (oldOperation.OpcodeFamily != newOperation.OpcodeFamily)
             return false;
         if (oldInstruction.Operand is OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget)
             return true;
         if (oldInstruction.Operand == OperandKind.InlineSwitch)
             return oldInstruction.BranchTargets.Length == newInstruction.BranchTargets.Length;
-        return oldInstruction.OperandValue == newInstruction.OperandValue;
+        return oldOperation.Operand == newOperation.Operand;
     }
+
+    static CanonicalIlOperation ToOperation(DecodedInstruction instruction)
+        => new(
+            instruction.Offset,
+            OpcodeFamily(instruction),
+            OperandIdentity(instruction));
+
+    static string OpcodeFamily(DecodedInstruction instruction)
+    {
+        var opcode = instruction.OpCode;
+        if (opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1
+            or ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4
+            or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6 or ILOpCode.Ldc_i4_7
+            or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4)
+        {
+            return "ldc.i4";
+        }
+
+        return opcode.IsShortBranch()
+            ? opcode.ToString()[..^"_s".Length].Replace('_', '.').ToLowerInvariant()
+            : opcode.ToString().Replace('_', '.').ToLowerInvariant();
+    }
+
+    static IlOperandIdentity? OperandIdentity(DecodedInstruction instruction)
+        => instruction.OpCode switch
+        {
+            ILOpCode.Ldc_i4_m1 => new(IlOperandIdentityKind.Immediate, "-1"),
+            ILOpCode.Ldc_i4_0 => new(IlOperandIdentityKind.Immediate, "0"),
+            ILOpCode.Ldc_i4_1 => new(IlOperandIdentityKind.Immediate, "1"),
+            ILOpCode.Ldc_i4_2 => new(IlOperandIdentityKind.Immediate, "2"),
+            ILOpCode.Ldc_i4_3 => new(IlOperandIdentityKind.Immediate, "3"),
+            ILOpCode.Ldc_i4_4 => new(IlOperandIdentityKind.Immediate, "4"),
+            ILOpCode.Ldc_i4_5 => new(IlOperandIdentityKind.Immediate, "5"),
+            ILOpCode.Ldc_i4_6 => new(IlOperandIdentityKind.Immediate, "6"),
+            ILOpCode.Ldc_i4_7 => new(IlOperandIdentityKind.Immediate, "7"),
+            ILOpCode.Ldc_i4_8 => new(IlOperandIdentityKind.Immediate, "8"),
+            _ => OperandIdentityByKind(instruction),
+        };
+
+    static IlOperandIdentity? OperandIdentityByKind(DecodedInstruction instruction)
+        => instruction.Operand switch
+        {
+            OperandKind.ShortInlineI or OperandKind.InlineI or OperandKind.InlineI8
+                or OperandKind.ShortInlineR or OperandKind.InlineR
+                => new(IlOperandIdentityKind.Immediate, instruction.OperandValue.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            OperandKind.ShortInlineVar or OperandKind.InlineVar
+                => new(IlOperandIdentityKind.Slot, instruction.OperandValue.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget
+                => new(IlOperandIdentityKind.BranchTarget, $"IL_{instruction.BranchTargets[0]:X4}"),
+            OperandKind.InlineSwitch
+                => new(IlOperandIdentityKind.SwitchTargets, string.Join(", ", instruction.BranchTargets.Select(target => $"IL_{target:X4}"))),
+            OperandKind.InlineString or OperandKind.InlineMethod or OperandKind.InlineField
+                or OperandKind.InlineType or OperandKind.InlineSig or OperandKind.InlineTok
+                => new(IlOperandIdentityKind.Token, $"0x{instruction.OperandValue:X8}"),
+            _ => null,
+        };
 
     static bool BranchTargetsMatch(
         ImmutableArray<DecodedInstruction> oldInstructions,
