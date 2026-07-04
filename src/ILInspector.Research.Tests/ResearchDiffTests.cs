@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 using ILInspector.Instructions;
 
@@ -176,8 +177,8 @@ public class ResearchDiffTests
     public void CompareAssemblies_BodySignals_QueryUnsafeAddedChange()
     {
         var diff = ResearchDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
             new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
 
         var unsafeMembers = diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added"));
@@ -192,8 +193,8 @@ public class ResearchDiffTests
     public void CompareAssemblies_IlBody_QueryImplementationChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(
-            DiffFixturePath("DiffFixtures.V1"),
-            DiffFixturePath("DiffFixtures.V2"),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
             new ResearchDiffOptions(ResearchDiffMechanism.IlBody));
 
         var changedMembers = diff.MembersWhere(member => member.ImplementationChanged);
@@ -234,13 +235,4 @@ public class ResearchDiffTests
             Attributes = attributes?.ToList() ?? [],
         };
 
-    static string DiffFixturePath(string project)
-    {
-        var outputDirectory = new DirectoryInfo(
-            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
-        Assert.True(File.Exists(path), $"Expected diff fixture assembly at {path}");
-        return path;
-    }
 }
