@@ -31,9 +31,20 @@ public enum ResearchDiffDirection
     Changed,
 }
 
+public enum ResearchDiffChangeCategory
+{
+    Unknown,
+    Signature,
+    Attribute,
+    BodySignal,
+    IlBody,
+    CSharp,
+}
+
 public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
-    bool IncludeAllApi = false);
+    bool IncludeAllApi = false,
+    ApiDiffScope ApiScope = ApiDiffScope.Signature);
 
 public sealed record ResearchDiffInput(
     IReadOnlyList<string> AssemblyPaths,
@@ -65,13 +76,20 @@ public sealed record ResearchDiffEvidence(
     string? NewValue = null,
     int? OldIlOffset = null,
     int? NewIlOffset = null,
-    string? Detail = null);
+    string? Detail = null,
+    ResearchDiffChangeCategory Category = ResearchDiffChangeCategory.Unknown);
 
 public sealed record ResearchSubjectDiff(
     ResearchSubjectKey Subject,
     IReadOnlyList<ResearchDiffEvidence> Evidence)
 {
     public bool ApiChanged => Evidence.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.Api);
+
+    public bool ApiSignatureChanged
+        => Evidence.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.Api && evidence.Category == ResearchDiffChangeCategory.Signature);
+
+    public bool ApiAttributeChanged
+        => Evidence.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.Api && evidence.Category == ResearchDiffChangeCategory.Attribute);
 
     public bool ImplementationChanged
         => Evidence.Any(evidence => evidence.Mechanism is ResearchDiffMechanism.BodySignals or ResearchDiffMechanism.IlBody or ResearchDiffMechanism.CSharp);
@@ -84,6 +102,9 @@ public sealed record ResearchSubjectDiff(
 
     public bool HasChangePrefix(string changeIdPrefix)
         => Evidence.Any(evidence => evidence.ChangeId.StartsWith(changeIdPrefix, StringComparison.Ordinal));
+
+    public bool HasChangeCategory(ResearchDiffChangeCategory category)
+        => Evidence.Any(evidence => evidence.Category == category);
 }
 
 public sealed record ResearchDiffResult(IReadOnlyList<ResearchSubjectDiff> Subjects)
@@ -110,7 +131,7 @@ public static class ResearchDiff
         var builder = new ResultBuilder();
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.Api))
-            AddApiDiff(builder, oldInput, newInput, options.IncludeAllApi);
+            AddApiDiff(builder, oldInput, newInput, options.IncludeAllApi, options.ApiScope);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.BodySignals))
             AddBodySignalDiff(builder, oldInput, newInput);
@@ -121,14 +142,14 @@ public static class ResearchDiff
         return builder.ToResult();
     }
 
-    static void AddApiDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, bool includeAll)
+    static void AddApiDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, bool includeAll, ApiDiffScope apiScope)
     {
         var oldSurface = ResolveApiSurface(oldInput, includeAll);
         var newSurface = ResolveApiSurface(newInput, includeAll);
         if (oldSurface is null || newSurface is null)
             return;
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(apiScope));
         foreach (var typeDiff in diff.TypeDiffs)
         {
             foreach (var change in typeDiff.Changes)
@@ -140,7 +161,8 @@ public static class ResearchDiff
                     Direction(change.Kind),
                     change.OldValue,
                     change.NewValue,
-                    Detail: $"{change.Classification}: {change.Message}"));
+                    Detail: $"{change.Classification}: {change.Message}",
+                    Category: ToResearchCategory(change.Category)));
             }
         }
     }
@@ -161,7 +183,8 @@ public static class ResearchDiff
                     direction,
                     OldIlOffset: direction == ResearchDiffDirection.Removed ? row.ILOffset : null,
                     NewIlOffset: direction == ResearchDiffDirection.Added ? row.ILOffset : null,
-                    Detail: $"{row.Operation}: {row.Evidence}"));
+                    Detail: $"{row.Operation}: {row.Evidence}",
+                    Category: ResearchDiffChangeCategory.BodySignal));
             }
         }
     }
@@ -193,7 +216,8 @@ public static class ResearchDiff
                         !oldAvailable ? "il.body.added" : "il.body.removed",
                         !oldAvailable ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed,
                         OldValue: oldReason,
-                        NewValue: newReason));
+                        NewValue: newReason,
+                        Category: ResearchDiffChangeCategory.IlBody));
                     continue;
                 }
 
@@ -206,7 +230,8 @@ public static class ResearchDiff
                         ResearchDiffMechanism.IlBody,
                         "il.body.decode-failed",
                         ResearchDiffDirection.Changed,
-                        Detail: diff.Failure));
+                        Detail: diff.Failure,
+                        Category: ResearchDiffChangeCategory.IlBody));
                     continue;
                 }
 
@@ -231,7 +256,8 @@ public static class ResearchDiff
                         OldValue: FormatOperations(removed),
                         NewValue: FormatOperations(added),
                         OldIlOffset: removed.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
-                        NewIlOffset: added.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null)));
+                        NewIlOffset: added.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
+                        Category: ResearchDiffChangeCategory.IlBody));
                 }
             }
         }
@@ -349,14 +375,24 @@ public static class ResearchDiff
 
     static bool IsMemberChange(ChangeKind kind)
         => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
-            or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged;
+            or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged
+            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved;
 
     static ResearchDiffDirection Direction(ChangeKind kind)
         => kind switch
         {
-            ChangeKind.TypeAdded or ChangeKind.MemberAdded or ChangeKind.InterfaceAdded => ResearchDiffDirection.Added,
-            ChangeKind.TypeRemoved or ChangeKind.MemberRemoved or ChangeKind.InterfaceRemoved => ResearchDiffDirection.Removed,
+            ChangeKind.TypeAdded or ChangeKind.MemberAdded or ChangeKind.InterfaceAdded
+                or ChangeKind.TypeAttributeAdded or ChangeKind.MemberAttributeAdded => ResearchDiffDirection.Added,
+            ChangeKind.TypeRemoved or ChangeKind.MemberRemoved or ChangeKind.InterfaceRemoved
+                or ChangeKind.TypeAttributeRemoved or ChangeKind.MemberAttributeRemoved => ResearchDiffDirection.Removed,
             _ => ResearchDiffDirection.Changed,
+        };
+
+    static ResearchDiffChangeCategory ToResearchCategory(ApiChangeCategory category)
+        => category switch
+        {
+            ApiChangeCategory.Attribute => ResearchDiffChangeCategory.Attribute,
+            _ => ResearchDiffChangeCategory.Signature,
         };
 
     static ResearchSubjectKey SubjectFromMethod(MethodIdentity method)
