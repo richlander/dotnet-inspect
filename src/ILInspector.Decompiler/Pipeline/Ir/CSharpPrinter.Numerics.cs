@@ -1275,11 +1275,22 @@ public sealed partial class CSharpPrinter
         // Same stack family only: `(int)longBackedEnum` would truncate. The
         // importer's family merge should never build such a join, but the cast
         // must not be the place that finds out (slice-4 review's verify item).
-        return target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
+        if (target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
             && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
-            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget)
-            ? $"({TypeText(integerTarget)}){Operand(arm)}"
-            : null;
+            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget))
+            return $"({TypeText(integerTarget)}){Operand(arm)}";
+        // A non-constant same-stack-family arm whose signedness or width disagrees
+        // with the numeric join is CS0266 bare (a `uint` arm at an `int` join, or a
+        // narrowing sibling). Reinterpret its bits with the join cast — unchecked
+        // inside a checked region so the faithful reinterpretation cannot become a
+        // runtime overflow (#2302, #2301). NeedsNumericCast gates to exactly the
+        // same-family casts that are not implicit widenings; a constant keeps its own
+        // in-range/unchecked spelling and converts to the join implicitly when in range.
+        if (arm is not Constant
+            && target is { } numericTarget
+            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget))
+            return CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
+        return null;
     }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)

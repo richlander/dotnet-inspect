@@ -10,6 +10,7 @@ public class PrinterPrecedenceTests
 {
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
 
     static IrFunction Raised(string methodName)
     {
@@ -73,6 +74,31 @@ public class PrinterPrecedenceTests
 
         Assert.Contains("(a ? b : c) ? d : e", output);
         Assert.DoesNotContain("a ? b : c ? d", output);
+    }
+
+    // Issue #2302: an arm whose signedness (or width) disagrees with the numeric
+    // join renders CS0266 bare (`flag ? s : u` with `u` a uint at an int join).
+    // The join spells the faithful same-stack-family reinterpretation cast on the
+    // disagreeing arm; the agreeing arm and implicit widenings stay bare.
+    [Fact]
+    public void Conditional_CrossSignednessArm_CastsToJoinType()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "s", s_int),
+            new LoadArgument(2, "u", s_uint))
+        {
+            MergedType = s_int,
+        };
+
+        var output = PrintReturn(
+            conditional,
+            s_int,
+            [new Parameter("flag", s_bool), new Parameter("s", s_int), new Parameter("u", s_uint)]);
+
+        // The int arm stays bare; the uint arm takes the reinterpretation cast.
+        Assert.Contains("flag ? s : (int)u", output);
+        Assert.DoesNotContain(": u;", output);
     }
 
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
