@@ -12,16 +12,17 @@ The input is a built fixture library. ReturnToSender requests a product C#
 artifact for a target such as `fixture.foo`, optionally with a declared artifact
 shape or closure policy ("type artifact", "include these closure members",
 "include target body"). Product code produces the artifact. ReturnToSender
-compiles that artifact, then compares metadata from the original fixture assembly
-with metadata from the compiled artifact assembly. Opcode comparison remains a
-body-level oracle for selected methods, but the deep shape oracle is
-metadata-to-metadata, not source-string-to-source-string.
+compiles that artifact, then compares the original fixture assembly with the
+compiled artifact assembly through product diff primitives. API diff and IL/body
+diff should be first-class product capabilities, with Research eventually
+offering a unified API/IL/C# diff projection. RTS consumes those product diffs as
+an artifact-fidelity oracle.
 
 The important distinction is artifact production vs proof:
 
 - product code owns C# artifact production;
-- ReturnToSender owns artifact requests, compilation, metadata comparison, opcode
-  comparison, and failure reporting.
+- ReturnToSender owns artifact requests, compilation, product diff invocation,
+  and failure reporting.
 
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
 membership: compile, read the compiler's missing-symbol diagnostics, add the
@@ -35,9 +36,9 @@ The new harness should:
 2. select a target artifact from a fixture assembly;
 3. send a typed artifact request to product code;
 4. compile the returned C# artifact;
-5. compare original fixture metadata with compiled-artifact metadata;
-6. optionally compare opcode streams for included target bodies;
-7. classify artifact production, compile, metadata-compare, and opcode failures.
+5. invoke product API and IL/body diffs between original and artifact assemblies;
+6. optionally consume C# artifact/source diffs when product support exists;
+7. classify artifact production, compile, diff, and opcode failures.
 
 ## Non-goals
 
@@ -61,8 +62,8 @@ The new harness should:
 | --- | --- |
 | Product source/artifact pipeline | Source of C# artifacts under test. |
 | `CSharpPrinter` | Product body renderer for artifacts that include method bodies. |
-| metadata comparison | Primary deep shape oracle for type/member artifacts. |
-| opcode comparison | Body-level fidelity oracle for selected included methods. |
+| API and IL/body diffs | Product diff primitives used as artifact-fidelity oracles. |
+| Research unified diff | Future API/IL/C# evidence join for product UX and RTS proof. |
 | current `CB_CLUSTER` loop | Keep generic compiler-driven closure membership. |
 | `ILInspector.Instructions` | Shared IL decode, block identity, typed stack (`StackType`) substrate. |
 | `ILInspector.Analysis` | Whole-assembly IL facts, direct calls, body indexes, type/member references. |
@@ -117,8 +118,8 @@ Metadata / Instructions / Analysis / Research facts
                       |
                       v
         +---------------------------+
-        | MetadataDeepCompare       |
-        | original vs artifact      |
+        | Product diff primitives   |
+        | API + IL/body (+ C# later)|
         +-------------+-------------+
                       |
                       v
@@ -128,11 +129,11 @@ Metadata / Instructions / Analysis / Research facts
         +---------------------------+
 ```
 
-`ArtifactRequest`, metadata comparison, and oracle reporting should live in
-tools-only code under `tools/` or another non-shipped harness assembly. Product
-artifact creation belongs in product code because it is the system under test.
-RTS may define request and comparison contracts, but it should not own the C#
-artifact printer.
+`ArtifactRequest` and oracle reporting should live in tools-only code under
+`tools/` or another non-shipped harness assembly. Product artifact creation and
+the API/IL/C# diff primitives belong in product code because they are the system
+under test and useful CLI features. RTS may define request and comparison scopes,
+but it should not own the C# artifact printer or a bespoke metadata comparator.
 
 Research remains a product library. It can expose generic facts that other
 product consumers also need, but compile-back planning is a harness concern.
@@ -304,27 +305,31 @@ Constructor/base-chain handling has the same split:
 - the shared writer renders those facts, such as `class C : Base`,
   `public C(int x) : base(x)`, and `static C()`;
 - ReturnToSender owns only **artifact request policy** and proof: which artifact
-  shape is requested, which comparison scopes are used, and how failures are
+  shape is requested, which product diff scopes are used, and how failures are
   reported. Synthetic constructors or omitted base clauses, if ever needed, must
   be product artifact decisions with provenance, not RTS patches.
 
-### MetadataDeepCompare
+### Product diffs
 
-Own original-vs-artifact shape comparison.
+Own API, IL/body, and eventually C# source/artifact comparison.
 
-RTS should compare metadata from the original fixture assembly with metadata from
-the compiled product artifact assembly. The comparison scope is part of the
-request and should be explicit:
+RTS should not introduce a private metadata deep-compare engine. Product diff
+capabilities should answer both user-facing questions and RTS artifact-fidelity
+questions:
 
-- type identity, kind, nesting, and generic parameters;
-- base type, interfaces, and constraints;
-- member identities, signatures, accessibility, and modifiers;
-- field/property/event/method/constructor shape;
-- attributes, return attributes, parameter attributes, and defaults;
-- selected method IL/opcode streams when a body is included.
+| Product diff | Owner | Example question |
+| --- | --- | --- |
+| API diff | Metadata | Did the public/selected callable surface change? |
+| IL/body diff substrate | Instructions | Which canonical IL operations or body coordinates changed? |
+| Body-signal diff | Analysis | Was unsafe code added? Did calls, allocations, or throws change? |
+| C# artifact/source diff | Decompiler/product artifact layer | Did source shape change, such as a new switch case? |
+| Unified diff projection | Research | How do API, IL, and C# evidence line up for one member? |
 
-This comparison is the deep shape oracle. It should compare typed metadata facts,
-not C# text fragments.
+The first implementation assignment is the low-level/high-level product split:
+Instructions owns canonical IL/body diff plumbing, and Analysis owns the nice
+body-signal UX API. Research can later join API, IL, and C# evidence into unified
+rows such as `switch-case-added`. RTS consumes those product diffs after it
+compiles a product artifact.
 
 ### Module context
 
@@ -344,10 +349,10 @@ Responsibilities:
 2. construct an `ArtifactRequest`;
 3. ask product code for a C# artifact;
 4. compile the artifact;
-5. compare original and compiled metadata;
-6. optionally compare opcodes for selected target bodies;
-7. classify failure if artifact production, compilation, metadata comparison, or
-   opcode comparison cannot run.
+5. invoke product API and IL/body diffs for original vs artifact assemblies;
+6. optionally invoke product C# artifact/source diffs when available;
+7. classify failure if artifact production, compilation, or product diff
+   comparison cannot run.
 
 Roslyn diagnostics remain useful, but as membership growth and validation
 feedback, not as the primary shape architecture.
@@ -364,33 +369,30 @@ ArtifactRequest
   ArtifactKind: type | member | module | source-file
   ClosurePolicy: explicit-members | referenced-members | product-default
   BodyPolicy: declarations-only | include-target-body | include-selected-bodies
-  MetadataCompareScope: MetadataCompareScope
-  OpcodeCompareScope: IReadOnlyList<MemberIdentity>
+  ApiDiffScope: ApiDiffScope
+  IlDiffScope: IlDiffScope
+  CSharpDiffScope: CSharpDiffScope?
 ```
 
 ```text
 ProductArtifact
   Request: ArtifactRequest
   Source: string
-  DeclaredTypes: IReadOnlyList<TypeIdentity>
-  DeclaredMembers: IReadOnlyList<MemberIdentity>
   SourceFacts: IReadOnlyList<FactIdentity>
   Diagnostics: IReadOnlyList<ProductArtifactDiagnostic>
 ```
 
 ```text
-MetadataCompareScope
-  Types: type identity, kind, nesting, generic parameters
-  TypeRelationships: base type, interfaces, constraints
-  Members: fields, properties, events, methods, constructors
-  Signatures: return, parameters, generic parameters, defaults
-  Attributes: type, member, return, parameter, module, assembly
-  Bodies: selected IL/opcode streams
+ArtifactDiffResult
+  Api: ApiDiff?
+  IL: IlBodyDiff?
+  BodySignals: BodySignalDiff?
+  CSharp: CSharpArtifactDiff?
+  Unified: ResearchUnifiedDiff?
 ```
 
-`ProductArtifact.Source` is a product output, not an RTS construction. Structured
-identity and fact lists explain what the product intended to emit, but the deep
-oracle compares original metadata with compiled artifact metadata.
+`ProductArtifact.Source` is a product output, not an RTS construction. RTS
+compiles it and feeds original/artifact assemblies into product diff APIs.
 
 ## Project-under-test and consumption boundary
 
@@ -627,7 +629,7 @@ Current hard-row loop:
 Artifact round-trip loop:
   compile -> Roslyn missing-symbol error -> add root
   target evidence + typed facts -> product artifact request -> product C# artifact
-  -> compile -> metadata compare
+  -> compile -> product diffs
 ```
 
 Roslyn diagnostics remain feedback:
@@ -674,16 +676,12 @@ rather than carrying forward the old skeleton shape.
    - one generated protobuf fixture;
    - one Aspire resource/builder fixture;
    - one real Aspire witness method from the cap-25 run.
-2. Define tools-only `ArtifactRequest`, `ProductArtifact`, and
-   `MetadataCompareScope`.
+2. Define tools-only `ArtifactRequest` and `ProductArtifact`.
 3. Define the product artifact API that accepts an `ArtifactRequest` and returns
    C# source plus provenance.
-4. Define metadata-to-metadata comparison for a minimal type artifact:
-   - type identity/kind/nesting;
-   - generic parameters and constraints;
-   - base/interface clauses;
-   - fields/properties/methods/constructors;
-   - selected attributes and defaults.
+4. Define the first product diff primitive needed by RTS:
+   - `Instructions`: canonical IL/body diff substrate;
+   - `Analysis`: body-signal diff UX, starting with unsafe added/removed.
 5. Keep current `CB_CLUSTER` membership growth only as request-policy feedback,
    not as a source generator.
 6. Add reusable fact producers where they belong:
@@ -692,9 +690,9 @@ rather than carrying forward the old skeleton shape.
      beyond the harness; otherwise keep them harness-local.
 7. Request a product artifact for each MVP target.
 8. Compile the product artifact.
-9. Compare original fixture metadata with compiled artifact metadata.
-10. Compare selected opcode streams when the artifact includes bodies.
-11. Emit artifact-request, metadata-compare, and opcode-compare reports.
+9. Invoke product API and IL/body diffs between original and artifact assemblies.
+10. Compare selected opcode streams through the product IL diff substrate.
+11. Emit artifact-request and product-diff reports.
 
 ### MVP success criteria
 
@@ -702,8 +700,8 @@ The MVP is successful if:
 
 - it can request a product artifact for the chosen fixtures;
 - it compiles the returned artifact without RTS-side C# construction;
-- metadata comparison identifies matching and mismatching type/member shape;
-- selected bodies still compare through the opcode oracle;
+- product diffs identify matching and mismatching API/IL/body shape;
+- selected bodies compare through the IL/body diff oracle;
 - every emitted product artifact can be traced back to typed metadata, Research,
   Analysis, or Decompiler facts;
 - every failure has a named layer and reason;
@@ -717,9 +715,9 @@ the existing compile-back status buckets.
 
 | ReturnToSender detail | Existing status |
 | --- | --- |
-| artifact compiles, metadata matches, selected opcodes match | `Exact` |
-| artifact compiles, metadata matches, selected opcodes differ | `OpcodeDiff` |
-| artifact compiles, metadata shape differs | `OpcodeDiff` or metadata-diff detail under the selected top-level status |
+| artifact compiles, product diffs match requested scopes | `Exact` |
+| artifact compiles, IL/body diff mismatches selected bodies | `OpcodeDiff` |
+| artifact compiles, API/body-signal/C# diff mismatches requested scope | `OpcodeDiff` or diff detail under the selected top-level status |
 | product artifact cannot be produced | `ContextFail` |
 | artifact source does not compile | `RecompileFail` |
 | unsupported product body shape before compile | `RecompileFail` or `ContextFail`, with explicit reason |
@@ -743,8 +741,10 @@ Plan layers:
   product artifact      : resolved / failed
   reference closure     : resolved / failed
   artifact compilation  : resolved / failed
-  metadata compare      : matched / mismatched / failed
-  opcode compare        : matched / mismatched / not requested
+  API diff              : matched / mismatched / failed / not requested
+  IL/body diff          : matched / mismatched / failed / not requested
+  C# diff               : matched / mismatched / failed / not requested
+  unified Research diff : matched / mismatched / failed / not requested
   generated-family facts: resolved / failed
 
 Examples:
@@ -761,8 +761,8 @@ Examples:
 - Land this design.
 - Decide shared TypeIdentity extraction vs explicit adapters with measured
   friction points.
-- Define `ArtifactRequest`, `ProductArtifact`, `MetadataCompareScope`, and the
-  product artifact API.
+- Define `ArtifactRequest`, `ProductArtifact`, diff scopes, and the product
+  artifact API.
 - Keep Research scoped to reusable facts.
 
 ### Phase 2: protobuf pilot
@@ -841,7 +841,7 @@ Tests should name the oracle they exercise:
 | bind | Can a normal C# consumer resolve the source? |
 | opcode parity | Does compile-back preserve the IL opcode stream? |
 | fact agreement | Do independently produced facts agree on the same IL/member/type evidence? |
-| metadata shape parity | Does compiled artifact metadata match the original fixture metadata for the requested scope? |
+| product diff parity | Do product API/IL/C# diffs match for the requested artifact scope? |
 | source artifact validity | Does the product artifact compile without RTS-side C# construction? |
 | API/platform resolution | Did package/framework/shared-service resolution select the intended asset? |
 | performance-signal precision | Does a signal identify useful targets without noisy over-reporting? |
@@ -850,7 +850,7 @@ This taxonomy should keep product failures separate from harness orchestration
 failures. A body that the decompiler prints incorrectly is a different class of
 bug from a product artifact that omitted the right generic constraint or assembly
 attribute, and both are different from RTS failing to request the intended
-metadata comparison scope.
+product diff scope.
 
 ### Typed facts before projection
 
