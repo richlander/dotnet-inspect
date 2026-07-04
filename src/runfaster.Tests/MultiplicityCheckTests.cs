@@ -6,13 +6,13 @@ using System.Collections.Generic;
 public class MultiplicityCheckTests
 {
     [Fact]
-    public void LoopMultiplicity_Observed_IsLoopConfirmed()
+    public void LoopMultiplicity_Observed_IsLoopHot()
     {
         var c = Candidate(multiplicity: "Loop");
         c.AllocationHits = 3;
         c.AllocationBytes = 5_000_000;
 
-        Assert.Equal("loop-confirmed", c.MultiplicityCheck);
+        Assert.Equal("loop-hot", c.MultiplicityCheck);
     }
 
     [Fact]
@@ -36,11 +36,25 @@ public class MultiplicityCheckTests
     }
 
     [Fact]
-    public void LoopMultiplicity_NotObserved_IsLoopCold()
+    public void LoopMultiplicity_NotObserved_IsLoopUnexercised()
     {
         var c = Candidate(multiplicity: "Loop"); // no runtime hits
 
-        Assert.Equal("loop-cold", c.MultiplicityCheck);
+        Assert.Equal("loop-unexercised", c.MultiplicityCheck);
+    }
+
+    [Fact]
+    public void LoopMultiplicity_TypeConfirmed_IsLoopHotNotUnexercised()
+    {
+        // A type-confirmed loop site (its type realized-hot, exact site inlined) is HOT, not cold —
+        // labeling it "loop-unexercised" would contradict the type-confirmation. It must read loop-hot.
+        var c = Candidate(multiplicity: "Loop");
+        c.TypeConfirmedBytes = 700_000_000;
+        c.TypeConfirmedSiteCount = 1;
+
+        Assert.True(c.TypeConfirmed);
+        Assert.False(c.IsObserved);
+        Assert.Equal("loop-hot", c.MultiplicityCheck);
     }
 
     [Fact]

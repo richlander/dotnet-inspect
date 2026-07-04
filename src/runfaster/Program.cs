@@ -1189,35 +1189,36 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     }
 
     // Multiplicity predict-vs-observe (#2286): disambiguate a hot site's cause using the static
-    // multiplicity prior, and surface loop sites that were predicted per-iteration but not exercised.
-    var loopConfirmed = observed.Where(c => c.MultiplicityCheck == "loop-confirmed").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
+    // multiplicity prior. The trace confirms the site/type is HOT; the Loop/Once split is a static
+    // prior it does not verify — so this describes the likely cause, it does not prescribe a fix.
+    var loopHot = observed.Where(c => c.MultiplicityCheck == "loop-hot").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
     var callFrequency = observed.Where(c => c.MultiplicityCheck == "call-frequency").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
-    var loopCold = result.Candidates.Where(c => c.MultiplicityCheck == "loop-cold").ToArray();
-    if (loopConfirmed.Length > 0 || callFrequency.Length > 0 || loopCold.Length > 0)
+    int loopUnexercised = result.Candidates.Count(c => c.MultiplicityCheck == "loop-unexercised");
+    if (loopHot.Length > 0 || callFrequency.Length > 0 || loopUnexercised > 0)
     {
         Console.WriteLine("## Multiplicity read (predict-vs-observe)");
         Console.WriteLine();
-        Console.WriteLine("Observed volume alone conflates intrinsic per-iteration churn with call-frequency-driven volume. The static multiplicity prior disambiguates them, and the fix differs: hoist/pool out of the loop vs reduce call frequency / cache.");
+        Console.WriteLine("Realized volume alone conflates intrinsic per-iteration churn with call-frequency-driven volume. The static multiplicity prior distinguishes the likely cause. Note: the trace confirms each site is hot — it does not verify the iteration count, so the loop/once split is a static prior, not a runtime measurement, and the appropriate fix is workload- and code-specific (a per-iteration allocation may be intrinsic and un-hoistable; an identity-bearing object may not be cacheable).");
         Console.WriteLine();
-        if (loopConfirmed.Length > 0)
+        if (loopHot.Length > 0)
         {
-            Console.WriteLine("**Loop-confirmed** (predicted per-iteration, realized hot -> hoist/pool out of the loop):");
+            Console.WriteLine("**Loop prior + hot** — static multiplicity is `Loop`; realized hot. The volume is likely intrinsic (per-iteration):");
             Console.WriteLine();
-            foreach (var c in loopConfirmed.Take(10))
+            foreach (var c in loopHot.Take(10))
                 Console.WriteLine($"- `{Escape(c.Method)}` ({Escape(c.AllocationKind)}, {FormatBytes(c.EffectiveObservedBytes)})");
             Console.WriteLine();
         }
         if (callFrequency.Length > 0)
         {
-            Console.WriteLine("**Call-frequency** (allocates once per call, but the method is hot -> reduce call frequency / cache):");
+            Console.WriteLine("**Call-frequency** — static multiplicity is `Once`/`Conditional`; realized hot. The volume is likely call-frequency-driven (the method is hot, not a loop at this site):");
             Console.WriteLine();
             foreach (var c in callFrequency.Take(10))
                 Console.WriteLine($"- `{Escape(c.Method)}` ({Escape(c.AllocationKind)}, {Escape(c.Multiplicity ?? "")}, {FormatBytes(c.EffectiveObservedBytes)})");
             Console.WriteLine();
         }
-        if (loopCold.Length > 0)
+        if (loopUnexercised > 0)
         {
-            Console.WriteLine($"**Predicted per-iteration, not exercised**: {loopCold.Length.ToString(CultureInfo.InvariantCulture)} loop-multiplicity site(s) allocated nothing in this workload. These are the highest-value cold rows — they would be hot under a workload that drives their loop; not a global dismissal.");
+            Console.WriteLine($"**Loop prior, not exercised**: {loopUnexercised.ToString(CultureInfo.InvariantCulture)} `Loop`-multiplicity site(s) were not observed in this workload. Some would allocate under a workload that drives their loop; others are cold by design (error-handling or one-shot init loops). This is workload-scoped negative evidence, not a ranking.");
             Console.WriteLine();
         }
     }
@@ -1759,18 +1760,21 @@ sealed class AllocationCandidate(
         => EstimatedSizeBytes is null && ShapeMatched && ShapeAllocationBytes > 0 ? "gap" : null;
     // Multiplicity predict-vs-observe (#2286): the static multiplicity prior disambiguates a hot
     // site's cause. Observed volume alone conflates intrinsic per-iteration churn (Loop) with
-    // call-frequency-driven volume (Once/Conditional, hot because the method is called a lot). The
-    // fix differs: hoist/pool out of the loop vs reduce call frequency / cache. A Loop site that is
-    // NOT observed is the highest-value cold row — predicted per-iteration, just not exercised here.
+    // call-frequency-driven volume (Once/Conditional, hot because the method is called a lot).
+    // IMPORTANT: the trace confirms the site/type was HOT, not that the loop iterated many times —
+    // the Loop/Once split is a static prior the trace does not verify. "Seen" here means the site was
+    // observed directly OR its type was realized-hot via type-confirmation (#2264); a type-confirmed
+    // loop site is therefore hot, not cold (it would otherwise be mislabeled "not exercised").
+    bool SeenHot => IsObserved || TypeConfirmed;
     public string? MultiplicityCheck
     {
         get
         {
             if (Multiplicity is null)
                 return null;
-            if (IsObserved)
-                return IsLoopMultiplicity ? "loop-confirmed" : "call-frequency";
-            return IsLoopMultiplicity ? "loop-cold" : null;
+            if (SeenHot)
+                return IsLoopMultiplicity ? "loop-hot" : "call-frequency";
+            return IsLoopMultiplicity ? "loop-unexercised" : null;
         }
     }
     // Gen-aware expensive judgment: weight observed cost by promotion likelihood, using the static escape
