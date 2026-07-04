@@ -90,8 +90,13 @@ corpus but has no pass contracted to discharge it — a latent escape.
 Tracked on [#2269](https://github.com/richlander/dotnet-inspect/issues/2269),
 in rough dependency order:
 
-1. Gate `--assertion-scan` on **final-stage survivors** corpus-wide (today "final
-   stage is zero" is eyeballed from `--dump --assertions` exemplars).
+1. **Landed ([#2281](https://github.com/richlander/dotnet-inspect/pull/2281)):**
+   `--assertion-scan` counts **final-stage survivors** corpus-wide — the survivor
+   number, distinct from discharged obligations, is reported and diffable
+   (snapshot schema v2 + survivor delta) instead of eyeballed from
+   `--dump --assertions`. Still open: promote it from a report/diff signal to a
+   hard zero-gate, which needs an allowlist of the known `PrinterOwned` residuals
+   so only *new* survivors fail.
 2. Track **obligation lifetime** — stages between accrual and discharge — as a
    construction-quality metric. Lifetime trending down means passes decide early
    rather than retrofitting a claim late.
