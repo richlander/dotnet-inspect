@@ -7,7 +7,11 @@ public sealed record IlDiffDisplayRow(
     int HunkId,
     IlDiffKind Kind,
     string Marker,
+    int RawOffset,
     string Offset,
+    string OpcodeFamily,
+    IlOperandIdentityKind? OperandKind,
+    string? OperandValue,
     string Operation,
     string Message)
 {
@@ -31,7 +35,11 @@ public static class IlDiffPrinter
             row.HunkId,
             row.Kind,
             Marker(row.Kind),
+            row.Operation.Offset,
             $"IL_{row.Operation.Offset:X4}",
+            row.Operation.OpcodeFamily,
+            row.Operation.Operand?.Kind,
+            row.Operation.Operand?.Value,
             row.Operation.Display,
             row.Message);
 
@@ -52,9 +60,10 @@ public static class IlDiffPrinter
     public static ImmutableArray<string> ToUnifiedLines(IlBodyDiffResult result)
     {
         var display = ToDisplayResult(result);
-        if (display.Failure is { } failure)
-            return [failure];
-        return [.. display.Rows.Select(row => row.UnifiedLine)];
+        var rows = display.Rows.Select(row => row.UnifiedLine);
+        return display.Failure is { } failure
+            ? [failure, .. rows]
+            : [.. rows];
     }
 
     public static string RenderUnified(IlBodyDiffResult result)

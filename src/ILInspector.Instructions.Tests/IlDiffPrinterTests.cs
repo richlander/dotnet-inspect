@@ -18,7 +18,11 @@ public class IlDiffPrinterTests
         Assert.Equal(7, display.HunkId);
         Assert.Equal(IlDiffKind.Add, display.Kind);
         Assert.Equal("+", display.Marker);
+        Assert.Equal(10, display.RawOffset);
         Assert.Equal("IL_000A", display.Offset);
+        Assert.Equal("call", display.OpcodeFamily);
+        Assert.Equal(IlOperandIdentityKind.Token, display.OperandKind);
+        Assert.Equal("int32 [System.Runtime]System.Math::Abs(int32)", display.OperandValue);
         Assert.Equal("call int32 [System.Runtime]System.Math::Abs(int32)", display.Operation);
         Assert.Equal(row.Message, display.Message);
         Assert.Equal("h7 + IL_000A call int32 [System.Runtime]System.Math::Abs(int32)", display.UnifiedLine);
@@ -71,5 +75,28 @@ public class IlDiffPrinterTests
         Assert.Equal("IL diff failed: old body decode failed", display.Failure);
         Assert.Empty(display.Rows);
         Assert.Equal(["IL diff failed: old body decode failed"], IlDiffPrinter.ToUnifiedLines(diff));
+    }
+
+    [Fact]
+    public void ToUnifiedLines_PreservesRowsWhenFailureCarriesPartialEvidence()
+    {
+        var row = new IlDiffRow(
+            0,
+            IlDiffKind.Remove,
+            new CanonicalIlOperation(0, "nop", Operand: null),
+            "Removed IL operation 'nop'");
+        var diff = new IlBodyDiffResult(
+            IsExact: false,
+            Failure: "partial decode failed",
+            Rows: [row]);
+
+        var lines = IlDiffPrinter.ToUnifiedLines(diff);
+
+        Assert.Equal(
+            [
+                "IL diff failed: partial decode failed",
+                "h0 - IL_0000 nop",
+            ],
+            lines);
     }
 }
