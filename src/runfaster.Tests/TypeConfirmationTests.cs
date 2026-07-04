@@ -6,6 +6,23 @@ using System.Collections.Generic;
 public class TypeConfirmationTests
 {
     [Fact]
+    public void CanonicalTypeSignature_KeepsPointerPositionWhenReversingArrayRanks()
+    {
+        // Only array ranks reverse between C# and reflection; pointer '*' stays in place. int*[]
+        // (array of pointers) and int[]* (pointer to array) are distinct and must not collide, and
+        // int*[][,] must reconcile across forms.
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int*[]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32*[]", reflection: true));
+        Assert.Equal(
+            ProgramSupport.CanonicalTypeSignature("int*[][,]", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32*[,][]", reflection: true));
+        Assert.NotEqual(
+            ProgramSupport.CanonicalTypeSignature("int[]*", reflection: false),
+            ProgramSupport.CanonicalTypeSignature("System.Int32*[]", reflection: true));
+    }
+
+    [Fact]
     public void CanonicalTypeSignature_ReconcilesArrayRankOrderingAcrossForms()
     {
         // Reflection orders array modifiers inside-out relative to C# (int[][,] is emitted as

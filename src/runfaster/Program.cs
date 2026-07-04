@@ -2598,8 +2598,24 @@ internal static class ProgramSupport
                 break;
             }
         }
+        // Reflection orders array RANKS inside-out relative to C# (C# int[][,] is emitted as
+        // System.Int32[,][]), but pointer '*' / byref '&' keep the same position in both. Reverse only
+        // the array tokens among their own positions, leaving '*'/'&' fixed, so both forms of one type
+        // agree without mangling pointer/array combinations.
         if (reflection)
-            tokens.Reverse();
+        {
+            var arrayPositions = new List<int>();
+            for (int i = 0; i < tokens.Count; i++)
+            {
+                if (tokens[i][0] == '[')
+                    arrayPositions.Add(i);
+            }
+            for (int lo = 0, hi = arrayPositions.Count - 1; lo < hi; lo++, hi--)
+            {
+                (tokens[arrayPositions[lo]], tokens[arrayPositions[hi]]) =
+                    (tokens[arrayPositions[hi]], tokens[arrayPositions[lo]]);
+            }
+        }
         foreach (var tok in tokens)
             sb.Append(tok);
     }
