@@ -10,6 +10,7 @@ public class PrinterPrecedenceTests
 {
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
 
     static IrFunction Raised(string methodName)
     {
@@ -73,6 +74,78 @@ public class PrinterPrecedenceTests
 
         Assert.Contains("(a ? b : c) ? d : e", output);
         Assert.DoesNotContain("a ? b : c ? d", output);
+    }
+
+    // Issue #2302: an arm whose signedness (or width) disagrees with the numeric
+    // join renders CS0266 bare (`flag ? s : u` with `u` a uint at an int join).
+    // The join spells the faithful same-stack-family reinterpretation cast on the
+    // disagreeing arm; the agreeing arm and implicit widenings stay bare.
+    [Fact]
+    public void Conditional_CrossSignednessArm_CastsToJoinType()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "s", s_int),
+            new LoadArgument(2, "u", s_uint))
+        {
+            MergedType = s_int,
+        };
+
+        var output = PrintReturn(
+            conditional,
+            s_int,
+            [new Parameter("flag", s_bool), new Parameter("s", s_int), new Parameter("u", s_uint)]);
+
+        // The int arm stays bare; the uint arm takes the reinterpretation cast.
+        Assert.Contains("flag ? s : (int)u", output);
+        Assert.DoesNotContain(": u;", output);
+    }
+
+    // Issue #2302: a same-width cross-signedness *constant* arm keeps the
+    // target-aware spelling — in-range bare, out-of-range unchecked reinterpret —
+    // so a negative int constant at a uint join is `unchecked((uint)(-1))`, not
+    // the bare `-1` that is CS0173.
+    [Fact]
+    public void Conditional_OutOfRangeConstantArm_UncheckedReinterpretsToJoin()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "u", s_uint),
+            new Constant(-1, s_int))
+        {
+            MergedType = s_uint,
+        };
+
+        var output = PrintReturn(
+            conditional,
+            s_uint,
+            [new Parameter("flag", s_bool), new Parameter("u", s_uint)]);
+
+        Assert.Contains("unchecked((uint)(-1))", output);
+        Assert.DoesNotContain(": -1", output);
+    }
+
+    // Issue #2302 (Gemini review): the cast is only spelled for a *same-width*
+    // sibling. A differing-width join (int arm at a short join) is a narrowing the
+    // printer must not silently introduce, so no truncating `(short)` cast appears.
+    [Fact]
+    public void Conditional_DifferingWidthArm_DoesNotEmitNarrowingCast()
+    {
+        var s_short = TypeRef.CoreLib("System", "Int16");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "s", s_short),
+            new LoadArgument(2, "i", s_int))
+        {
+            MergedType = s_short,
+        };
+
+        var output = PrintReturn(
+            conditional,
+            s_short,
+            [new Parameter("flag", s_bool), new Parameter("s", s_short), new Parameter("i", s_int)]);
+
+        Assert.DoesNotContain("(short)i", output);
     }
 
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)

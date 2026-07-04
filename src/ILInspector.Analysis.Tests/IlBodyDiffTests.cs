@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using ILInspector.Instructions;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -172,8 +173,8 @@ public class IlBodyDiffTests
     [Fact]
     public void Compare_TokenOperandWithoutMetadata_FailsClosed()
     {
-        var left = DiffFixtureMethod("DiffFixtures.V1", "StringToken");
-        var right = DiffFixtureMethod("DiffFixtures.V2", "StringToken");
+        var left = DiffFixtureMethod(FixtureCatalog.DiffPair.Old, "StringToken");
+        var right = DiffFixtureMethod(FixtureCatalog.DiffPair.New, "StringToken");
 
         var diff = IlBodyDiff.Compare(left, right);
 
@@ -290,8 +291,8 @@ public class IlBodyDiffTests
 
     static IlBodyDiffResult DiffFixtureDiff(string name)
     {
-        using var oldStream = File.OpenRead(DiffFixturePath("DiffFixtures.V1"));
-        using var newStream = File.OpenRead(DiffFixturePath("DiffFixtures.V2"));
+        using var oldStream = File.OpenRead(FixtureCatalog.DiffPair.OldAssemblyPath());
+        using var newStream = File.OpenRead(FixtureCatalog.DiffPair.NewAssemblyPath());
         using var oldPe = new PEReader(oldStream);
         using var newPe = new PEReader(newStream);
         var oldReader = oldPe.GetMetadataReader();
@@ -303,9 +304,9 @@ public class IlBodyDiffTests
             DiffFixtureMethodBody(newPe, newReader, name));
     }
 
-    static MethodInstructions DiffFixtureMethod(string project, string name)
+    static MethodInstructions DiffFixtureMethod(FixtureDefinition fixture, string name)
     {
-        using var stream = File.OpenRead(DiffFixturePath(project));
+        using var stream = File.OpenRead(fixture.AssemblyPath());
         using var peReader = new PEReader(stream);
         var metadataReader = peReader.GetMetadataReader();
         return MethodInstructions.Decode(DiffFixtureMethodBody(peReader, metadataReader, name));
@@ -323,13 +324,4 @@ public class IlBodyDiffTests
         throw new InvalidOperationException($"Could not find method '{name}'.");
     }
 
-    static string DiffFixturePath(string project)
-    {
-        var outputDirectory = new DirectoryInfo(
-            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
-        Assert.True(File.Exists(path), $"Expected diff fixture assembly at {path}");
-        return path;
-    }
 }

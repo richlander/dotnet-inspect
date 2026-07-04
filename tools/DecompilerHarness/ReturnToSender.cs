@@ -29,7 +29,7 @@ static class ReturnToSender
         string RecompiledOpcodes,
         string? Detail,
         string TargetBody = "",
-        string? IlDiffDiagnostic = null);
+        IlDiffDisplayResult? IlDiffDiagnostic = null);
 
     public sealed record RequestedTarget(string Type, string Method, int Overload);
 
@@ -1242,7 +1242,7 @@ static class ReturnToSender
         return null;
     }
 
-    static string? BuildIlDiffDiagnostic(
+    static IlDiffDisplayResult? BuildIlDiffDiagnostic(
         MetadataReader originalReader,
         PEReader originalPe,
         MethodDefinition originalMethod,
@@ -1263,8 +1263,8 @@ static class ReturnToSender
             originalPe.GetMethodBody(originalMethod.RelativeVirtualAddress),
             recompiled.Reader,
             recompiledPe.GetMethodBody(recompiled.Method.RelativeVirtualAddress));
-        string rendered = IlDiffPrinter.RenderUnified(diff);
-        return string.IsNullOrWhiteSpace(rendered) ? null : rendered;
+        var display = IlDiffPrinter.ToDisplayResult(diff);
+        return display.IsEmpty ? null : display;
     }
 
     static IEnumerable<MetadataReference> CompilationReferences(string targetPath)

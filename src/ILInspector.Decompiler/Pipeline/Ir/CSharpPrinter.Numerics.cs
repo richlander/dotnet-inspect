@@ -1320,16 +1320,22 @@ public sealed partial class CSharpPrinter
         {
             return $"({TypeText(integerTarget)}){Operand(arm)}";
         }
-        // Third direction (#2302): a primitive arm at a same-family primitive
-        // join it cannot reach implicitly — `c ? uintValue : -1` merged as
-        // uint is CS0029 bare (latent post-F1; live in the pre-F1 fold's
-        // output). Constants defer to NumericConstant (in-range stays bare,
-        // out-of-range reinterprets); implicitly-convertible non-constants
-        // stay bare via the NeedsNumericCast gate.
-        if (target is { } numericTarget && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget))
+        // A same-WIDTH cross-signedness arm at a numeric join is CS0266 bare (a `uint`
+        // arm at an `int` join). Reinterpret its bits with the join cast — unchecked
+        // inside a checked region so the value-preserving reinterpretation cannot become
+        // a runtime overflow (#2302, #2301; #2310's SameWidth scope merged with this
+        // branch's thunk-form CheckedSafeCast, whose operand renders outside the
+        // checked context so nested checked nodes keep their own wrappers). SameWidth
+        // keeps this to the genuinely lossless sibling casts (int/uint, short/ushort,
+        // byte/sbyte, long/ulong, ushort/char); a differing-width join is a narrowing
+        // the printer must not silently introduce, so it is left to a real Convert
+        // node in the IL.
+        if (target is { } numericTarget
+            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget)
+            && TypeFamilies.SameWidth(EffectiveType(arm), numericTarget))
         {
-            return arm is Constant { Value: int or long } konst
-                ? NumericConstant(konst, numericTarget)
+            return arm is Constant { Value: int or long } constArm
+                ? NumericConstant(constArm, numericTarget)
                 : CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
         }
         return null;

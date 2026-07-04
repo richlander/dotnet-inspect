@@ -1,3 +1,5 @@
+using ILInspector.MetadataPrimitives;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -11,6 +13,63 @@ public static class ApiMemberIdentity
         string LookupKey,
         IReadOnlyList<string> NormalizedParameters,
         string? NormalizedReturnType = null);
+
+    public static string GetMemberDigest(string canonicalSignature)
+        => MemberAnchor.ComputeFingerprint(canonicalSignature);
+
+    public static string GetMemberSelectorName(ApiMember member) => member.Kind switch
+    {
+        "operator" => $"operator:{member.Name}",
+        "explicit-interface-implementation" => $"explicit:{member.Name}",
+        "extension-method" => $"extension:{member.Name}",
+        _ => member.Name
+    };
+
+    public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
+        => new(type, member, GetMemberAnchor(type, member));
+
+    public static MemberAnchor GetMemberAnchor(ApiType type, ApiMember member)
+        => CreateAnchor(type, member, GetCanonicalSignature(type, member));
+
+    public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)
+    {
+        var fingerprint = MemberAnchor.ComputeFingerprint(canonicalSignature);
+        var stableSelector = $"{GetMemberSelectorName(member)}~{fingerprint}";
+        return new MemberAnchor(
+            stableSelector,
+            canonicalSignature,
+            fingerprint,
+            MetadataTypeNameFormatter.FormatFullName(type),
+            member.Name);
+    }
+
+    public static string GetCanonicalSignature(ApiType type, ApiMember member)
+    {
+        if (TryGetCanonicalSignature(type, member, out var canonicalSignature))
+            return canonicalSignature;
+
+        var declaringType = string.IsNullOrWhiteSpace(member.DeclaringType)
+            ? MetadataTypeNameFormatter.FormatFullName(type)
+            : member.DeclaringType!;
+
+        var kindCode = member.Kind switch
+        {
+            "property" => "P",
+            "field" => "F",
+            "event" => "E",
+            _ => "M"
+        };
+
+        if (member.Kind is "property" or "field" or "event")
+            return $"{kindCode}:{declaringType}.{member.Name}";
+
+        var signature = member.Signature ?? member.ReturnType ?? member.Name;
+        var memberName = member.Kind == "constructor"
+            ? "#ctor"
+            : ExtractMemberNameWithGeneric(signature, member.Name);
+        var parameters = ExtractCanonicalParameterList(signature);
+        return $"{kindCode}:{declaringType}.{memberName}{parameters}";
+    }
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
@@ -93,6 +152,106 @@ public static class ApiMemberIdentity
 
     static string NormalizeCanonicalCommas(string value)
         => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
+
+    static string ExtractMemberNameWithGeneric(string signature, string memberName)
+    {
+        var parenStart = signature.IndexOf('(');
+        if (parenStart < 0)
+            return memberName;
+
+        var nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return memberName;
+
+        var end = nameIndex + memberName.Length;
+        if (end < parenStart && signature[end] == '<')
+        {
+            var depth = 0;
+            for (var i = end; i < parenStart; i++)
+            {
+                if (signature[i] == '<')
+                    depth++;
+                else if (signature[i] == '>')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return NormalizeCanonicalCommas(signature[nameIndex..(i + 1)]);
+                }
+            }
+        }
+
+        return memberName;
+    }
+
+    static string ExtractCanonicalParameterList(string signature)
+    {
+        var abbreviated = AbbreviateSignature(signature);
+        var parenStart = abbreviated.IndexOf('(');
+        var parenEnd = abbreviated.LastIndexOf(')');
+        if (parenStart < 0 || parenEnd < parenStart)
+            return "()";
+
+        var parameters = abbreviated[parenStart..(parenEnd + 1)];
+        return NormalizeCanonicalCommas(parameters);
+    }
+
+    static string AbbreviateSignature(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return "";
+
+        int parenStart = signature.IndexOf('(');
+        if (parenStart < 0)
+            return signature;
+
+        int parenEnd = signature.LastIndexOf(')');
+        if (parenEnd < 0)
+            return signature;
+
+        string prefix = signature[..(parenStart + 1)];
+        string suffix = signature[parenEnd..];
+        string paramSection = signature[(parenStart + 1)..parenEnd].Trim();
+        if (string.IsNullOrEmpty(paramSection))
+            return signature;
+
+        List<string> paramTypes = [];
+        int depth = 0;
+        int lastSplit = 0;
+        for (int i = 0; i < paramSection.Length; i++)
+        {
+            char c = paramSection[i];
+            if (c == '<' || c == '(') depth++;
+            else if (c == '>' || c == ')') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
+                lastSplit = i + 1;
+            }
+        }
+        paramTypes.Add(ExtractParamType(paramSection[lastSplit..].Trim()));
+
+        return prefix + string.Join(", ", paramTypes) + suffix;
+    }
+
+    static string ExtractParamType(string param)
+    {
+        int eqIndex = param.IndexOf('=');
+        if (eqIndex >= 0)
+            param = param[..eqIndex].Trim();
+
+        int depth = 0;
+        int lastSpace = -1;
+        for (int i = 0; i < param.Length; i++)
+        {
+            char c = param[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ' ' && depth == 0)
+                lastSpace = i;
+        }
+
+        return lastSpace > 0 ? param[..lastSpace] : param;
+    }
 
     public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
     {

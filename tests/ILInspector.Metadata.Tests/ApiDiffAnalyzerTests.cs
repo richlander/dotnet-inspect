@@ -329,7 +329,9 @@ public class ApiDiffAnalyzerTests
         Assert.Equal("TestNamespace.Foo", change.Subject?.TypeFullName);
         Assert.Equal("Baz", change.Subject?.MemberName);
         Assert.Null(change.Subject?.OldIdentity);
-        Assert.Equal("void Baz()", change.Subject?.NewIdentity);
+        Assert.Equal("Baz~1baf89a970", change.Subject?.NewIdentity);
+        Assert.Equal("M:TestNamespace.Foo.Baz()", change.Subject?.NewMember?.Anchor?.CanonicalSignature);
+        Assert.Equal("1baf89a970", change.Subject?.NewMember?.Anchor?.Fingerprint);
     }
 
     [Fact]
@@ -379,8 +381,10 @@ public class ApiDiffAnalyzerTests
         Assert.Equal("void Bar(string x)", change.NewValue);
         Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
         Assert.Equal("Bar", change.Subject?.MemberName);
-        Assert.Equal("void Bar(int x)", change.Subject?.OldIdentity);
-        Assert.Equal("void Bar(string x)", change.Subject?.NewIdentity);
+        Assert.Equal("Bar~ea48d737b9", change.Subject?.OldIdentity);
+        Assert.Equal("Bar~081bea7f62", change.Subject?.NewIdentity);
+        Assert.Equal("M:TestNamespace.Foo.Bar(int)", change.Subject?.OldMember?.Anchor?.CanonicalSignature);
+        Assert.Equal("M:TestNamespace.Foo.Bar(string)", change.Subject?.NewMember?.Anchor?.CanonicalSignature);
     }
 
     [Fact]
