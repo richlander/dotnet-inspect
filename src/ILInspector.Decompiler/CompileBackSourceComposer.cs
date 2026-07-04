@@ -8,93 +8,6 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler;
 
-static class CompileBackCSharpNames
-{
-    public static string Clean(string type)
-    {
-        if (type.Contains('!'))
-            return "object";
-
-        type = type.Replace("modreq(", "", StringComparison.Ordinal)
-            .Replace("modopt(", "", StringComparison.Ordinal)
-            .Replace(")", "", StringComparison.Ordinal)
-            .Trim();
-
-        type = type switch
-        {
-            "System.String" => "string",
-            "System.Int32" => "int",
-            "System.Void" => "void",
-            _ => type,
-        };
-
-        return EscapeTypeKeywords(type);
-    }
-
-    public static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick >= 0 ? name[..tick] : name;
-    }
-
-    public static string Identifier(string name) => IsCSharpKeyword(name) ? "@" + name : name;
-
-    public static string EscapeNamespace(string ns)
-        => string.Join(".", ns.Split('.').Select(Identifier));
-
-    static string EscapeTypeKeywords(string type)
-    {
-        var sb = new StringBuilder(type.Length);
-        int i = 0;
-        while (i < type.Length)
-        {
-            char c = type[i];
-            if (char.IsLetter(c) || c == '_')
-            {
-                int start = i;
-                while (i < type.Length && (char.IsLetterOrDigit(type[i]) || type[i] == '_'))
-                    i++;
-
-                string word = type[start..i];
-                bool alreadyEscaped = start > 0 && type[start - 1] == '@';
-                bool qualifiedSegment = start > 0 && type[start - 1] == '.';
-                bool bareSpelling = (word is "void" or "ref" || IsPrimitiveTypeName(word)) && !qualifiedSegment;
-                if (!alreadyEscaped && !bareSpelling && IsCSharpKeyword(word))
-                    sb.Append('@');
-                sb.Append(word);
-            }
-            else
-            {
-                sb.Append(c);
-                i++;
-            }
-        }
-
-        return sb.ToString();
-    }
-
-    static bool IsPrimitiveTypeName(string name)
-        => name is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
-            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
-            or "object" or "short" or "ushort" or "string";
-
-    static bool IsCSharpKeyword(string word)
-        => word is "abstract" or "as" or "base" or "bool" or "break" or "byte"
-            or "case" or "catch" or "char" or "checked" or "class" or "const"
-            or "continue" or "decimal" or "default" or "delegate" or "do"
-            or "double" or "else" or "enum" or "event" or "explicit" or "extern"
-            or "false" or "finally" or "fixed" or "float" or "for" or "foreach"
-            or "goto" or "if" or "implicit" or "in" or "int" or "interface"
-            or "internal" or "is" or "lock" or "long" or "namespace" or "new"
-            or "null" or "object" or "operator" or "out" or "override" or "params"
-            or "private" or "protected" or "public" or "readonly" or "ref"
-            or "return" or "sbyte" or "sealed" or "short" or "sizeof" or "stackalloc"
-            or "static" or "string" or "struct" or "switch" or "this" or "throw"
-            or "true" or "try" or "typeof" or "uint" or "ulong" or "unchecked"
-            or "unsafe" or "ushort" or "using" or "virtual" or "void" or "volatile"
-            or "while" or "record" or "required" or "init" or "file" or "scoped";
-}
-
 public sealed record CompileBackSourceResult(CompileBackReconstructionPlan Plan, string Source);
 
 public sealed record CompileBackReconstructionPlan(
@@ -193,7 +106,7 @@ public sealed record CompileBackTypeIdentity(string Namespace, string MetadataNa
     public static CompileBackTypeIdentity FromDefinition(MetadataReader reader, TypeDefinition typeDef)
     {
         string metadataName = reader.GetString(typeDef.Name);
-        string displayName = CompileBackCSharpNames.Identifier(CompileBackCSharpNames.StripArity(metadataName));
+        string displayName = CSharpNameFormatter.EscapeIdentifier(CSharpNameFormatter.StripArity(metadataName));
         if (!typeDef.GetDeclaringType().IsNil)
         {
             var declaring = FromDefinition(reader, reader.GetTypeDefinition(typeDef.GetDeclaringType()));
@@ -206,7 +119,7 @@ public sealed record CompileBackTypeIdentity(string Namespace, string MetadataNa
         }
 
         string ns = reader.GetString(typeDef.Namespace);
-        string displayNamespace = CompileBackCSharpNames.EscapeNamespace(ns);
+        string displayNamespace = CSharpNameFormatter.EscapeNamespace(ns);
         string fullName = displayNamespace.Length == 0 ? displayName : $"{displayNamespace}.{displayName}";
         string metadataFullName = ns.Length == 0 ? metadataName : $"{ns}.{metadataName}";
         return new CompileBackTypeIdentity(ns, metadataName, displayName, fullName, metadataFullName);
@@ -216,7 +129,7 @@ public sealed record CompileBackTypeIdentity(string Namespace, string MetadataNa
 public sealed record CompileBackTypeSignature(CompileBackTypeSignatureKind Kind, string DisplayName, CompileBackTypeIdentity? Identity)
 {
     public static CompileBackTypeSignature Display(string text)
-        => new(CompileBackTypeSignatureKind.Display, CompileBackCSharpNames.Clean(text), null);
+        => new(CompileBackTypeSignatureKind.Display, CSharpNameFormatter.CleanTypeName(text), null);
 
     public static CompileBackTypeSignature Definition(CompileBackTypeIdentity identity)
         => new(CompileBackTypeSignatureKind.Definition, identity.FullName, identity);
@@ -372,7 +285,7 @@ public static class CompileBackSourceComposer
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CompileBackCSharpNames.EscapeNamespace)
+                .Select(CSharpNameFormatter.EscapeNamespace)
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)
                 .ToArray(),
@@ -478,7 +391,7 @@ public static class CompileBackSourceComposer
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CompileBackCSharpNames.EscapeNamespace)
+                .Select(CSharpNameFormatter.EscapeNamespace)
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)
                 .ToArray(),
@@ -594,7 +507,7 @@ public static class CompileBackSourceComposer
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CompileBackCSharpNames.EscapeNamespace)
+                .Select(CSharpNameFormatter.EscapeNamespace)
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)
                 .ToArray(),
@@ -618,14 +531,14 @@ public static class CompileBackSourceComposer
             sb.AppendLine($"[assembly: {attribute.Text}]");
         foreach (var attribute in plan.Module.ModuleAttributes)
             sb.AppendLine($"[module: {attribute.Text}]");
-        foreach (var ns in plan.Module.Usings.Select(CompileBackCSharpNames.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+        foreach (var ns in plan.Module.Usings.Select(CSharpNameFormatter.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
             sb.AppendLine($"using {ns};");
 
         foreach (var group in plan.Types.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
             if (group.Key.Length > 0)
             {
-                sb.AppendLine($"namespace {CompileBackCSharpNames.EscapeNamespace(group.Key)}");
+                sb.AppendLine($"namespace {CSharpNameFormatter.EscapeNamespace(group.Key)}");
                 sb.AppendLine("{");
                 foreach (var type in group)
                     WriteType(sb, type, indent: 1);
@@ -1862,11 +1775,7 @@ public static class CompileBackSourceComposer
         return namespaces;
     }
 
-    static string Clean(string type) => CompileBackCSharpNames.Clean(type);
-
-    static string StripArity(string name) => CompileBackCSharpNames.StripArity(name);
-
-    static string Identifier(string name) => CompileBackCSharpNames.Identifier(name);
+    static string Identifier(string name) => CSharpNameFormatter.EscapeIdentifier(name);
 
     sealed class TypeProducer
     {

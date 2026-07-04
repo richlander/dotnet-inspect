@@ -874,7 +874,7 @@ public static class CSharpDeclarationWriter
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
     internal static string EscapeIdentifier(string name)
-        => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
+        => CSharpNameFormatter.EscapeIdentifier(name);
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
@@ -1192,31 +1192,12 @@ public static class CSharpDeclarationWriter
             if (lastDot <= 0 || lastDot == value.Length - 1)
                 return null;
             var ns = value[..lastDot];
-            var simple = StripArity(value[(lastDot + 1)..]);
-            if (s_csharpReservedKeywords.Contains(simple))
+            var simple = CSharpNameFormatter.StripArity(value[(lastDot + 1)..]);
+            if (CSharpNameFormatter.IsReservedKeyword(simple))
                 return null;
             return new TypeRef(value, ns, simple);
-        }
-
-        static string StripArity(string name)
-        {
-            var tick = name.IndexOf('`');
-            return tick < 0 ? name : name[..tick];
         }
     }
 
     static readonly string[] s_parameterModifiers = ["this", "params", "ref", "out", "in", "scoped"];
-
-    static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
-    };
 }
