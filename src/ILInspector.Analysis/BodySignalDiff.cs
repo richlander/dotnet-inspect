@@ -43,21 +43,50 @@ public static class BodySignalDiff
             oldGroup ??= [];
             newGroup ??= [];
 
-            foreach (var fact in Difference(newGroup, oldGroup))
-                rows.Add(ToRow(BodySignalDiffKind.Added, fact));
-            foreach (var fact in Difference(oldGroup, newGroup))
-                rows.Add(ToRow(BodySignalDiffKind.Removed, fact));
+            AddDifferenceRows(rows, oldGroup, newGroup);
         }
 
         return new BodySignalDiffResult(rows.ToImmutable());
     }
 
-    static IEnumerable<UnsafeFact> Difference(UnsafeFact[] candidate, UnsafeFact[] baseline)
+    static void AddDifferenceRows(
+        ImmutableArray<BodySignalDiffRow>.Builder rows,
+        UnsafeFact[] oldGroup,
+        UnsafeFact[] newGroup)
+    {
+        int addedCount = newGroup.Length - oldGroup.Length;
+        int removedCount = oldGroup.Length - newGroup.Length;
+        if (addedCount > 0)
+            AddDeltaRows(rows, BodySignalDiffKind.Added, UnmatchedByOffset(newGroup, oldGroup), UnmatchedByOffset(oldGroup, newGroup), addedCount);
+        if (removedCount > 0)
+            AddDeltaRows(rows, BodySignalDiffKind.Removed, UnmatchedByOffset(oldGroup, newGroup), UnmatchedByOffset(newGroup, oldGroup), removedCount);
+    }
+
+    static void AddDeltaRows(
+        ImmutableArray<BodySignalDiffRow>.Builder rows,
+        BodySignalDiffKind kind,
+        UnsafeFact[] candidate,
+        UnsafeFact[] opposite,
+        int count)
+    {
+        if (candidate.Length == count && opposite.Length == 0)
+        {
+            foreach (var fact in candidate)
+                rows.Add(ToRow(kind, fact));
+            return;
+        }
+
+        for (int i = 0; i < count; i++)
+            rows.Add(ToRow(kind, candidate[Math.Min(i, candidate.Length - 1)] with { ILOffset = null }));
+    }
+
+    static UnsafeFact[] UnmatchedByOffset(UnsafeFact[] candidate, UnsafeFact[] baseline)
     {
         var baselineOffsets = baseline
             .GroupBy(fact => fact.ILOffset)
             .ToDictionary(group => OffsetKey(group.Key), group => group.Count(), StringComparer.Ordinal);
 
+        var result = ImmutableArray.CreateBuilder<UnsafeFact>();
         foreach (var fact in candidate)
         {
             string offsetKey = OffsetKey(fact.ILOffset);
@@ -67,8 +96,10 @@ public static class BodySignalDiff
                 continue;
             }
 
-            yield return fact;
+            result.Add(fact);
         }
+
+        return result.ToArray();
     }
 
     static string OffsetKey(int? offset)

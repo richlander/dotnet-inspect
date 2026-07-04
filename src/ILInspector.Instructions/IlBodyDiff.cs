@@ -87,7 +87,7 @@ public static class IlBodyDiff
         if (!TryBuildOperations(newInstructions, newResolver, "new", out var newOperations, out var newFailure))
             return new IlBodyDiffResult(false, newFailure, []);
         var lcs = LongestCommonSubsequence(oldOperations, newOperations);
-        var oldToNew = lcs.ToDictionary(pair => pair.OldIndex, pair => pair.NewIndex);
+        var oldToNew = BuildAlignmentMap(lcs, oldOperations.Length, newOperations.Length);
         var rows = ImmutableArray.CreateBuilder<IlDiffRow>();
         int oldIndex = 0;
         int newIndex = 0;
@@ -195,6 +195,42 @@ public static class IlBodyDiff
         }
 
         return pairs;
+    }
+
+    static IReadOnlyDictionary<int, int> BuildAlignmentMap(
+        IReadOnlyList<(int OldIndex, int NewIndex)> lcs,
+        int oldLength,
+        int newLength)
+    {
+        var map = new Dictionary<int, int>();
+        int oldIndex = 0;
+        int newIndex = 0;
+        foreach (var (nextOld, nextNew) in lcs)
+        {
+            AddGapPairs(map, oldIndex, nextOld, newIndex, nextNew);
+            map[nextOld] = nextNew;
+            oldIndex = nextOld + 1;
+            newIndex = nextNew + 1;
+        }
+
+        AddGapPairs(map, oldIndex, oldLength, newIndex, newLength);
+        return map;
+    }
+
+    static void AddGapPairs(
+        Dictionary<int, int> map,
+        int oldStart,
+        int oldEnd,
+        int newStart,
+        int newEnd)
+    {
+        int oldCount = oldEnd - oldStart;
+        int newCount = newEnd - newStart;
+        if (oldCount != newCount)
+            return;
+
+        for (int i = 0; i < oldCount; i++)
+            map[oldStart + i] = newStart + i;
     }
 
     static bool CanonicalEquals(CanonicalIlOperation oldOperation, CanonicalIlOperation newOperation)

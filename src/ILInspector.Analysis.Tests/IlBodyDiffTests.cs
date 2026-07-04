@@ -81,6 +81,30 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_BranchTargetInstructionChanged_DoesNotCascadeToBranch()
+    {
+        var left = MethodInstructions.Decode([0x2b, 0x00, 0x16, 0x2a], 4, []);
+        var right = MethodInstructions.Decode([0x2b, 0x00, 0x17, 0x2a], 4, []);
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.Collection(
+            diff.Rows,
+            removed =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removed.Kind);
+                Assert.Equal("ldc.i4", removed.Operation.OpcodeFamily);
+                Assert.Equal("0", removed.Operation.Operand?.Value);
+            },
+            added =>
+            {
+                Assert.Equal(IlDiffKind.Add, added.Kind);
+                Assert.Equal("ldc.i4", added.Operation.OpcodeFamily);
+                Assert.Equal("1", added.Operation.Operand?.Value);
+            });
+    }
+
+    [Fact]
     public void Compare_CompiledFixtureConstantValueChange_ReportsImmediateChange()
     {
         var diff = DiffFixtureDiff("ConstantValue");
