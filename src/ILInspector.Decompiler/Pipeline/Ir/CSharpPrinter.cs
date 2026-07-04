@@ -1850,6 +1850,10 @@ public sealed partial class CSharpPrinter
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {
         TypeRef? coalesceTarget = target ?? NullableValueType(co.Left.ResultType) ?? co.ResultType;
+        // Single-arm join decision for the right side (the #2306 sibling rule):
+        // a bare-safe right renders untouched, a non-safe one is spelled.
+        if (coalesceTarget is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget))
+            coalesceTarget = EffectiveJoinTarget(coalesceTarget, [co.Right]);
         return $"{CoalesceOperand(co.Left)} ?? {CoalesceRightText(co.Right, coalesceTarget)}";
     }
 

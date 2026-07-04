@@ -167,7 +167,8 @@ public sealed partial class CSharpPrinter
     string SwitchExpressionInline(SwitchExpression node, TypeRef? target = null)
     {
         var labelEnum = SwitchLabelEnumType(node.Value);
-        return $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => SwitchArmText(arm, target, labelEnum)))} }}";
+        var armTarget = EffectiveJoinTarget(target, [.. node.Arms.Select(arm => arm.Value)]);
+        return $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => SwitchArmText(arm, armTarget, labelEnum)))} }}";
     }
 
     string UnionSwitchExpressionInline(UnionSwitchExpression node, TypeRef? target = null)

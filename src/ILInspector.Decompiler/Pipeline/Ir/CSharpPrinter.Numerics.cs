@@ -1271,7 +1271,58 @@ public sealed partial class CSharpPrinter
         var condition = conditional.Condition is Conditional
             ? $"({Condition(conditional.Condition)})"
             : Condition(conditional.Condition);
-        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, target)} : {ConditionalArm(conditional.WhenFalse, target)}";
+        var armTarget = EffectiveJoinTarget(target, [conditional.WhenTrue, conditional.WhenFalse]);
+        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, armTarget)} : {ConditionalArm(conditional.WhenFalse, armTarget)}";
+    }
+
+    /// <summary>
+    /// The join-level bare-vs-spell decision for a primitive integer target
+    /// (#2306). C# validates a conditional at T in two ways: the natural type
+    /// (computed TYPE-level over the arm types — a constant contributes
+    /// int/long regardless of value) widens into T, or there is NO natural
+    /// type and every arm converts to T independently (the C# 9 target-typed
+    /// rescue — `uint u = c ? 0 : (uint)x;` is valid precisely because
+    /// int/uint have no common type, while `sbyte s = c ? 127 : (sbyte)x;`
+    /// has natural type int and fails). When either holds the target is
+    /// neutralized so the arms render bare (zero churn); otherwise the target
+    /// distributes and the join-arm rule spells every non-exact arm, making
+    /// the join uniformly T-typed by construction. Non-primitive targets
+    /// (enum/char/reference) keep their dedicated paths untouched.
+    /// </summary>
+    TypeRef? EffectiveJoinTarget(TypeRef? target, IReadOnlyList<IrExpression> arms)
+        => target is { } t && TypeFamilies.IsIntegerLike(t) && PrimitiveJoinArmsRenderBare(arms, t)
+            ? null
+            : target;
+
+    bool PrimitiveJoinArmsRenderBare(IReadOnlyList<IrExpression> arms, TypeRef target)
+    {
+        if (arms.All(arm => ArmRendersBareSafelyAt(arm, target)))
+            return true;
+        var bareTypes = arms.Select(BareJoinType).ToList();
+        if (bareTypes.Any(t => t is null))
+            return false;
+        bool hasNatural = bareTypes.Any(candidate => bareTypes.All(other =>
+            other!.Equals(candidate!) || TypeFamilies.IsImplicitIntegerWidening(other!, candidate!)));
+        return !hasNatural && arms.All(arm => ArmConvertsImplicitlyAt(arm, target));
+    }
+
+    /// <summary>The type an arm's bare rendering contributes to C#'s natural-type computation.</summary>
+    TypeRef? BareJoinType(IrExpression arm) => arm switch
+    {
+        Constant { Value: int } => TypeRef.CoreLib("System", "Int32"),
+        Constant { Value: long } => TypeRef.CoreLib("System", "Int64"),
+        Coerce coerce => coerce.Target,
+        Convert { Target: { } convTarget } => convTarget,
+        _ => EffectiveType(arm),
+    };
+
+    /// <summary>Whether the arm expression converts implicitly to the target on its own — the per-arm half of the C# 9 rescue (constant conversions included).</summary>
+    bool ArmConvertsImplicitlyAt(IrExpression arm, TypeRef target)
+    {
+        if (ArmRendersBareSafelyAt(arm, target))
+            return true;
+        return arm is Constant { Value: int or long } konst
+            && TypeFamilies.ConstantFits(konst.Value is int i ? i : (long)konst.Value!, target);
     }
 
     static bool IsFalseConstant(IrExpression expression)
@@ -1328,27 +1379,68 @@ public sealed partial class CSharpPrinter
         {
             return $"({TypeText(integerTarget)}){Operand(arm)}";
         }
-        // A same-WIDTH cross-signedness arm at a numeric join is CS0266 bare (a `uint`
-        // arm at an `int` join). Reinterpret its bits with the join cast — unchecked
-        // inside a checked region so the value-preserving reinterpretation cannot become
-        // a runtime overflow (#2302, #2301; #2310's SameWidth scope merged with this
-        // branch's thunk-form CheckedSafeCast, whose operand renders outside the
-        // checked context so nested checked nodes keep their own wrappers). SameWidth
-        // keeps this to the genuinely lossless sibling casts (int/uint, short/ushort,
-        // byte/sbyte, long/ulong, ushort/char); a differing-width join is a narrowing
-        // the printer must not silently introduce, so it is left to a real Convert
-        // node in the IL. An arm already a Convert TO the join target spells
-        // `(target)op` itself (re-casting made `(sbyte)((sbyte)value)` doubles).
-        if (target is { } numericTarget
-            && !(arm is Convert { Target: { } spelledTarget } && spelledTarget.Equals(numericTarget))
-            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget)
-            && TypeFamilies.SameWidth(EffectiveType(arm), numericTarget))
+        // Third direction (#2302/#2306, scope per #2310): a primitive arm at
+        // a primitive join that cannot render bare (ArmRendersBareSafelyAt —
+        // the type-level natural-type rule). In-range constants take the
+        // explicit cast (`(sbyte)127` — bare 127 poisons the natural type to
+        // int); out-of-range constants reinterpret via NumericConstant
+        // (value-aware, so no width guard needed); a non-constant arm takes
+        // the CheckedSafeCast reinterpret only at SAME width — a
+        // differing-width non-constant cast is a narrowing the printer must
+        // not silently introduce (left to a real Convert node in the IL).
+        // The thunk-form CheckedSafeCast renders the operand outside the
+        // checked context so nested checked nodes keep their own wrappers.
+        if (target is { } numericTarget && TypeFamilies.IsIntegerLike(numericTarget)
+            && !ArmRendersBareSafelyAt(arm, numericTarget))
         {
-            return arm is Constant { Value: int or long } constArm
-                ? NumericConstant(constArm, numericTarget)
-                : CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
+            if (arm is Constant { Value: int or long } konst)
+            {
+                long payload = konst.Value is int ci ? ci : (long)konst.Value!;
+                if (!TypeFamilies.ConstantFits(payload, numericTarget))
+                    return NumericConstant(konst, numericTarget);
+                // After the mandatory arms are spelled exactly-T, an in-range
+                // constant stays bare when no natural type re-forms around it
+                // (the C# 9 rescue: `c ? 0 : (uint)x`). Only a target that
+                // widens back into the constant's bare int/long re-poisons
+                // the natural type (`c ? (sbyte)127 : (sbyte)x` — bare 127
+                // would drag the join to int), so only there it is cast.
+                var bareType = TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64");
+                return TypeFamilies.IsImplicitIntegerWidening(numericTarget, bareType)
+                    ? $"({TypeText(numericTarget)}){(payload < 0 ? $"({Expression(konst)})" : Expression(konst))}"
+                    : null;
+            }
+            if (EffectiveType(arm) is { } armType && TypeFamilies.Of(armType) == TypeFamilies.Of(numericTarget)
+                && !TypeFamilies.IsBoolean(armType)
+                && TypeFamilies.SameWidth(armType, numericTarget))
+            {
+                return CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
+            }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Whether an arm's bare rendering keeps the surrounding join valid at
+    /// <paramref name="target"/> — C#'s conditional natural type is computed
+    /// TYPE-level (a constant contributes int/long regardless of its value:
+    /// `sbyte s = c ? 1 : 2;` is CS0266, and target-typing never rescues a
+    /// conditional that has a natural type — the AssertCompiles canary refuted
+    /// the value-aware theory twice). Safe exactly when the arm's rendered
+    /// type IS the target or widens implicitly into it: widening is a strict
+    /// partial order, so any mix of bare-safe arms yields a natural type that
+    /// itself widens to the target, and the join is valid by construction.
+    /// </summary>
+    bool ArmRendersBareSafelyAt(IrExpression arm, TypeRef target)
+    {
+        if (arm is Coerce coerce)
+            return coerce.Target.Equals(target);
+        if (arm is Convert { Target: { } convTarget } && convTarget.Equals(target))
+            return true;
+        var armType = arm is Constant { Value: int or long } konst
+            ? TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64")
+            : EffectiveType(arm);
+        return armType is not null
+            && (armType.Equals(target) || TypeFamilies.IsImplicitIntegerWidening(armType, target));
     }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
@@ -1391,23 +1483,22 @@ public sealed partial class CSharpPrinter
             && arms.All(arm => arm.ResultType is { } armType
                 && !TypeFamilies.IsBoolean(armType)
                 && TypeFamilies.IsIntegerLike(armType)
-                && TypeFamilies.Of(armType) == family)
-            && arms.Any(arm => ArmNeedsJoinHelp(arm, target));
+                && TypeFamilies.Of(armType) == family
+                && JoinArmSpellableAt(arm, target))
+            && !PrimitiveJoinArmsRenderBare(arms, target);
 
-    /// <summary>An arm the target-typed conditional cannot absorb: not an in-range constant, not already a Convert spelling the target, and not implicitly convertible. A pipeline Coerce wrapper is judged by its operand — distribution re-targets it.</summary>
-    bool ArmNeedsJoinHelp(IrExpression arm, TypeRef target)
-    {
-        if (arm is Coerce coerce)
-            return !coerce.Target.Equals(target) && ArmNeedsJoinHelp(coerce.Operand, target);
-        if (arm is Constant { Value: int or long } konst
-            && TypeFamilies.ConstantFits(konst.Value is int i ? i : (long)konst.Value!, target))
-        {
-            return false;
-        }
-        if (arm is Convert { Target: { } convTarget } && convTarget.Equals(target))
-            return false;
-        return TypeFamilies.NeedsNumericCast(EffectiveType(arm), target);
-    }
+    /// <summary>
+    /// Whether distribution can make this arm exactly target-typed: bare-safe
+    /// arms stay bare, constants are value-aware, and non-constant reinterprets
+    /// are limited to same-width siblings (#2310 — a differing-width
+    /// non-constant cast would be a silently-introduced narrowing, so a join
+    /// containing one declines distribution entirely rather than half-spell).
+    /// </summary>
+    bool JoinArmSpellableAt(IrExpression arm, TypeRef target)
+        => ArmRendersBareSafelyAt(arm, target)
+            || arm is Constant { Value: int or long }
+            || arm is Coerce
+            || (EffectiveType(arm) is { } armType && TypeFamilies.SameWidth(armType, target));
 
     bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
         => (IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value)))

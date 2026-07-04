@@ -469,14 +469,15 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool c, int x)", body);
     }
 
-    // A target-typed-valid conditional must NOT distribute: C# 9 converts
-    // each arm independently (`sbyte V = c ? 127 : (sbyte)x;` is legal), so
-    // adding casts is churn — and an arm carrying the pipeline's own Coerce
-    // wrapper is judged by its OPERAND (the corpus audit's
-    // `(sbyte)((sbyte)value)` double came from re-casting a stale
-    // Coerce{int, Convert sbyte} at an sbyte sink).
+    // C#'s natural type is computed TYPE-level: `sbyte s = c ? 127 : (sbyte)x;`
+    // is CS0266 (127 contributes int; sbyte -> int gives the join a natural
+    // type of int, and target-typing never rescues a conditional that HAS a
+    // natural type — AssertCompiles refuted the value-aware theory). So this
+    // join distributes: the in-range constant takes `(sbyte)127`, and the
+    // stale pipeline Coerce{int} arm re-targets its OPERAND — a single cast,
+    // never the `(sbyte)((sbyte)value)` double of the corpus audit.
     [Fact]
-    public void TargetTypedValidConditional_WithStaleCoerceArm_DeclinesDistribution()
+    public void NaturalTypePoisonedConditional_DistributesSingleCastPerArm()
     {
         var sbyteType = TypeRef.CoreLib("System", "SByte");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -494,7 +495,7 @@ public class CoerceChokePointTests
             [new Parameter("c", boolType), new Parameter("x", intType)],
             TypeRef.Definition("synthetic", "", "UnusedEnum"));
 
-        Assert.Contains("c ? 127 : ((sbyte)x)", body);
+        Assert.Contains("c ? (sbyte)127 : (sbyte)x", body);
         Assert.DoesNotContain("(sbyte)((sbyte)", body);
         AssertCompiles("public static sbyte M(bool c, int x)", body);
     }
