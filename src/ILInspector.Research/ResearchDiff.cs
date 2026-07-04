@@ -619,7 +619,7 @@ public static class ResearchDiff
         string display;
         if (handle is not null)
         {
-            memberId = handle.StableSelector ?? handle.CanonicalSignature ?? ApiMemberId(handle.Type, handle.Member);
+            memberId = handle.Anchor?.StableSelector ?? handle.Anchor?.CanonicalSignature ?? ApiMemberId(handle.Type, handle.Member);
             display = ApiMemberDisplay(handle.Type, handle.Member);
         }
         else
@@ -640,7 +640,7 @@ public static class ResearchDiff
     static string ApiMemberId(ApiType type, ApiMember member)
     {
         if (ApiMemberIdentity.TryGetCanonicalSignature(type, member, out var canonical))
-            return ApiMemberIdentity.CreateHandle(type, member).StableSelector ?? $"member:{canonical}";
+            return ApiMemberIdentity.CreateHandle(type, member).Anchor?.StableSelector ?? $"member:{canonical}";
         return $"member:{type.FullName}::{member.Signature ?? $"{member.Kind}:{member.Name}"}";
     }
 

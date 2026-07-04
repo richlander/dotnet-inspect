@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -10,19 +9,13 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ApiMemberIdentity
 {
-    public const string DigestPrefix = "dotnet-inspect.member-index.v1\n";
-
     public sealed record XmlDocMemberIdentity(
         string LookupKey,
         IReadOnlyList<string> NormalizedParameters,
         string? NormalizedReturnType = null);
 
     public static string GetMemberDigest(string canonicalSignature)
-    {
-        var input = Encoding.UTF8.GetBytes(DigestPrefix + canonicalSignature);
-        var hash = SHA256.HashData(input);
-        return Convert.ToHexString(hash).ToLowerInvariant()[..10];
-    }
+        => MemberAnchor.ComputeFingerprint(canonicalSignature);
 
     public static string GetMemberSelectorName(ApiMember member) => member.Kind switch
     {
@@ -35,9 +28,20 @@ public static class ApiMemberIdentity
     public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
     {
         string? canonical = TryGetCanonicalSignature(type, member, out var value) ? value : null;
-        string? digest = canonical is null ? null : GetMemberDigest(canonical);
-        string? stableSelector = digest is null ? null : $"{GetMemberSelectorName(member)}~{digest}";
-        return new ApiMemberHandle(type, member, canonical, digest, stableSelector);
+        MemberAnchor? anchor = canonical is null ? null : CreateAnchor(type, member, canonical);
+        return new ApiMemberHandle(type, member, anchor);
+    }
+
+    public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)
+    {
+        var fingerprint = MemberAnchor.ComputeFingerprint(canonicalSignature);
+        var stableSelector = $"{GetMemberSelectorName(member)}~{fingerprint}";
+        return new MemberAnchor(
+            stableSelector,
+            canonicalSignature,
+            fingerprint,
+            MetadataTypeNameFormatter.FormatFullName(type),
+            member.Name);
     }
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)

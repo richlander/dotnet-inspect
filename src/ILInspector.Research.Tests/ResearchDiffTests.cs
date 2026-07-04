@@ -71,8 +71,9 @@ public class ResearchDiffTests
         Assert.Equal("Added", change.Subject?.MemberName);
         Assert.Same(newSurface.Types[0], change.Subject?.NewMember?.Type);
         Assert.Same(newSurface.Types[0].Members[1], change.Subject?.NewMember?.Member);
-        Assert.Equal("M:Sample.Widget.Added()", change.Subject?.NewMember?.CanonicalSignature);
-        Assert.Equal("Added~953f7c0720", change.Subject?.NewMember?.StableSelector);
+        Assert.Equal("M:Sample.Widget.Added()", change.Subject?.NewMember?.Anchor?.CanonicalSignature);
+        Assert.Equal("953f7c0720", change.Subject?.NewMember?.Anchor?.Fingerprint);
+        Assert.Equal("Added~953f7c0720", change.Subject?.NewMember?.Anchor?.StableSelector);
         Assert.Equal("Added~953f7c0720", change.Subject?.NewIdentity);
     }
 

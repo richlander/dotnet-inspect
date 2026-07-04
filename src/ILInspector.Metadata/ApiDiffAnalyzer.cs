@@ -1,3 +1,5 @@
+using ILInspector.MetadataPrimitives;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -73,12 +75,13 @@ public sealed record ApiTypeHandle(ApiType Type)
 public sealed record ApiMemberHandle(
     ApiType Type,
     ApiMember Member,
-    string? CanonicalSignature,
-    string? Digest,
-    string? StableSelector)
+    MemberAnchor? Anchor)
 {
     public string TypeFullName => Type.FullName;
     public string MemberName => Member.Name;
+    public string? CanonicalSignature => Anchor?.CanonicalSignature;
+    public string? Fingerprint => Anchor?.Fingerprint;
+    public string? StableSelector => Anchor?.StableSelector;
     public string Identity => StableSelector ?? CanonicalSignature ?? Member.Signature ?? $"{Member.Kind}:{Member.Name}";
 }
 
