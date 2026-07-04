@@ -251,6 +251,11 @@ namespace DiffFixtureSample
         public int Value => _value;
     }
 
+    public class ConstructorRemovalSample
+    {
+        public int Value => 0;
+    }
+
     public readonly struct ConversionSample
     {
         readonly int _value;

@@ -722,13 +722,14 @@ public static class ResearchDiff
     {
         var typeName = method.DeclaringType.ToQualifiedDisplayString();
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
+        var selectorName = method.Name == ".ctor" ? ".ctor" : memberName;
         var parameters = string.Join(",", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var canonical = $"M:{typeName}.{memberName}({parameters})";
         var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
-            $"{memberName}~{fingerprint}",
+            $"{selectorName}~{fingerprint}",
             $"{typeName}.{memberName}({displayParameters})",
             typeName,
             memberName);

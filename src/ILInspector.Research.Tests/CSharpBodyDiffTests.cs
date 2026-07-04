@@ -221,7 +221,7 @@ public class CSharpBodyDiffTests
         var row = Assert.Single(diff.Rows, row =>
             row.Member.Contains("ConstructorSample.#ctor()", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
-        Assert.StartsWith("#ctor~", row.Anchor.StableSelector, StringComparison.Ordinal);
+        Assert.StartsWith(".ctor~", row.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.Equal("M:DiffFixtureSample.ConstructorSample.#ctor()", row.Anchor.CanonicalSignature);
     }
 

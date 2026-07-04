@@ -209,7 +209,7 @@ public static class CSharpBodyDiff
     static string MemberSelectorName(string methodName)
         => methodName switch
         {
-            ".ctor" => "#ctor",
+            ".ctor" => ".ctor",
             "op_Implicit" or "op_Explicit" or "op_CheckedExplicit" => $"operator:{methodName}",
             _ when methodName.Contains('.') => $"explicit:{methodName}",
             _ => methodName,
