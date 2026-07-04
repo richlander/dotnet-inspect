@@ -183,6 +183,132 @@ public class CoerceChokePointTests
         AssertCompiles("public static LEnum M()", body, "public enum LEnum : long { Low = 0, High = 2 }");
     }
 
+    // #2302 canaries: the join-arm rule's third direction — a primitive arm at
+    // a same-family primitive MergedType it cannot reach implicitly. The
+    // pre-F1 fold shipped these bare (CS0029/CS0266); the latent class needs
+    // synthetic fixtures because F1 cleared the live corpus population.
+    [Fact]
+    public void NegativeConstantArm_AtUnsignedMergedType_ReintepretsUnchecked()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "u", uintType),
+            new Constant(-1, intType))
+        {
+            MergedType = uintType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("u", uintType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? u : unchecked((uint)(-1))", body);
+        AssertCompiles("public static uint M(bool c, uint u)", body);
+    }
+
+    [Fact]
+    public void NonConstantIntArm_AtUnsignedMergedType_TakesReinterpretCast()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "u", uintType),
+            new LoadArgument(2, "x", intType))
+        {
+            MergedType = uintType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("u", uintType), new Parameter("x", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? u : (uint)x", body);
+        AssertCompiles("public static uint M(bool c, uint u, int x)", body);
+    }
+
+    [Fact]
+    public void InRangeConstantArm_AtUnsignedMergedType_StaysBare()
+    {
+        // C#'s implicit constant conversion covers in-range constants — the
+        // masked case the F1 review exposed. It must stay bare (no cast churn).
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "u", uintType),
+            new Constant(0, intType))
+        {
+            MergedType = uintType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("u", uintType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? u : 0", body);
+        Assert.DoesNotContain("(uint)0", body);
+        AssertCompiles("public static uint M(bool c, uint u)", body);
+    }
+
+    [Fact]
+    public void ImplicitlyWideningArm_AtLongMergedType_StaysBare()
+    {
+        // int -> long is an implicit conversion; NeedsNumericCast gates the
+        // third direction so implicitly-reachable arms never gain cast churn.
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "l", longType),
+            new LoadArgument(2, "x", intType))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            longType,
+            [new Parameter("c", boolType), new Parameter("l", longType), new Parameter("x", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? l : x", body);
+        Assert.DoesNotContain("(long)x", body);
+        AssertCompiles("public static long M(bool c, long l, int x)", body);
+    }
+
+    // #2301: a cross-signedness reinterpret cast rendered inside a lexical
+    // checked region must wrap in unchecked(...) — bare `(uint)x` there
+    // recompiles to a conv.ovf.u4 the IL never had (and throws on negative x).
+    [Fact]
+    public void CrossSignednessCoerce_InsideCheckedBinary_WrapsUnchecked()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(0, "u", uintType),
+            new Coerce(uintType, new LoadArgument(1, "x", intType)));
+        string body = RenderReturn(
+            checkedAdd,
+            uintType,
+            [new Parameter("u", uintType), new Parameter("x", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("unchecked((uint)x)", body);
+        AssertCompiles("public static uint M(uint u, int x)", body);
+    }
+
     static string RenderReturn(
         IrExpression value,
         TypeRef returnType,

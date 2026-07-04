@@ -1100,7 +1100,7 @@ public sealed partial class CSharpPrinter
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes))
         {
-            return $"({TypeText(primitiveTarget)}){Operand(value)}";
+            return CheckedSafeCast($"({TypeText(primitiveTarget)}){Operand(value)}");
         }
         // Enum → enum: C# permits the explicit conversion between any two enum
         // types directly. Reached when a slot join carries one enum and a
@@ -1188,11 +1188,15 @@ public sealed partial class CSharpPrinter
         // char slot) is subsumed by the boundary cast: emit one cast to the
         // target on the conversion's operand, not (char)((ushort)x). An
         // out-of-range constant operand still needs the unchecked spelling.
+        // The remaining casts are same-width reinterprets (cross-signedness or
+        // sibling-width): inside a lexical checked region a bare spelling
+        // recompiles to a conv.ovf the IL never had (#2301), so they route
+        // through CheckedSafeCast like the enum reinterprets above.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && SameNumericSlotWidth(conv.Target, target))
             return conv.Operand is Constant { Value: int or long } convConst
                 ? NumericConstant(convConst, target!)
-                : $"({TypeText(target!)}){Operand(conv.Operand)}";
-        return $"({TypeText(target!)}){Operand(value)}";
+                : CheckedSafeCast($"({TypeText(target!)}){Operand(conv.Operand)}");
+        return CheckedSafeCast($"({TypeText(target!)}){Operand(value)}");
     }
 
     static IrExpression? AddressOfValue(IrExpression value)
@@ -1260,13 +1264,14 @@ public sealed partial class CSharpPrinter
                 : Operand(arm);
 
     /// <summary>
-    /// The one join-arm coercion, both directions: an integer-family arm at an
-    /// enum-typed join takes the enum cast/name (<see cref="TryCoerceEnumOperand"/>),
-    /// and an enum arm at an integer-typed join takes the underlying cast —
+    /// The one join-arm coercion, all three directions: an integer-family arm
+    /// at an enum-typed join takes the enum cast/name (<see cref="TryCoerceEnumOperand"/>),
+    /// an enum arm at an integer-typed join takes the underlying cast —
     /// `c ? E.One : e` merged as int is CS0266 bare, in a conditional arm, a
     /// switch-expression arm, or a coalesce right side alike (#2145; slice-4
-    /// second-family review found the rule present in only one of the three).
-    /// Null when the arm needs no join coercion.
+    /// second-family review found the rule present in only one of the three) —
+    /// and a primitive arm at a same-family primitive join takes the
+    /// reinterpret cast (#2302). Null when the arm needs no join coercion.
     /// </summary>
     string? TryCoerceJoinArm(IrExpression arm, TypeRef? target)
     {
@@ -1275,11 +1280,25 @@ public sealed partial class CSharpPrinter
         // Same stack family only: `(int)longBackedEnum` would truncate. The
         // importer's family merge should never build such a join, but the cast
         // must not be the place that finds out (slice-4 review's verify item).
-        return target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
+        if (target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
             && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
-            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget)
-            ? $"({TypeText(integerTarget)}){Operand(arm)}"
-            : null;
+            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget))
+        {
+            return $"({TypeText(integerTarget)}){Operand(arm)}";
+        }
+        // Third direction (#2302): a primitive arm at a same-family primitive
+        // join it cannot reach implicitly — `c ? uintValue : -1` merged as
+        // uint is CS0029 bare (latent post-F1; live in the pre-F1 fold's
+        // output). Constants defer to NumericConstant (in-range stays bare,
+        // out-of-range reinterprets); implicitly-convertible non-constants
+        // stay bare via the NeedsNumericCast gate.
+        if (target is { } numericTarget && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget))
+        {
+            return arm is Constant { Value: int or long } konst
+                ? NumericConstant(konst, numericTarget)
+                : CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
+        }
+        return null;
     }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
