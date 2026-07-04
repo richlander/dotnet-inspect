@@ -7,6 +7,7 @@ using System.Text;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -27,7 +28,8 @@ static class ReturnToSender
         string OriginalOpcodes,
         string RecompiledOpcodes,
         string? Detail,
-        string TargetBody = "");
+        string TargetBody = "",
+        string? IlDiffDiagnostic = null);
 
     public sealed record RequestedTarget(string Type, string Method, int Overload);
 
@@ -668,6 +670,7 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
+                var ilDiffDiagnostic = BuildIlDiffDiagnostic(reader, pe, getter, recompiled, fullType, methodName, overload: 0);
 
                 if (recompiledOps is null)
                 {
@@ -689,7 +692,8 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
                     null,
-                    TargetBody: printed.Output);
+                    TargetBody: printed.Output,
+                    IlDiffDiagnostic: ilDiffDiagnostic);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -816,6 +820,7 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
+                var ilDiffDiagnostic = BuildIlDiffDiagnostic(reader, pe, method, recompiled, fullType, methodName, overload: 0);
 
                 if (recompiledOps is null)
                 {
@@ -837,7 +842,8 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
                     null,
-                    TargetBody: printed.Output);
+                    TargetBody: printed.Output,
+                    IlDiffDiagnostic: ilDiffDiagnostic);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -965,6 +971,7 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
+                var ilDiffDiagnostic = BuildIlDiffDiagnostic(reader, pe, setter, recompiled, fullType, methodName, overload: 0);
 
                 if (recompiledOps is null)
                 {
@@ -986,7 +993,8 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
                     null,
-                    TargetBody: printed.Output);
+                    TargetBody: printed.Output,
+                    IlDiffDiagnostic: ilDiffDiagnostic);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -1199,6 +1207,15 @@ static class ReturnToSender
         string fullType,
         string methodName,
         int overload)
+        => FindMethodDefinition(pe, fullType, methodName, overload) is { } found
+            ? ILDisassembler.Disassemble(pe, found.Reader, found.Method)
+            : null;
+
+    static (MetadataReader Reader, MethodDefinition Method)? FindMethodDefinition(
+        PEReader pe,
+        string fullType,
+        string methodName,
+        int overload)
     {
         if (!pe.HasMetadata)
             return null;
@@ -1218,11 +1235,36 @@ static class ReturnToSender
                     continue;
                 if (seen++ != overload)
                     continue;
-                return ILDisassembler.Disassemble(pe, reader, method);
+                return (reader, method);
             }
         }
 
         return null;
+    }
+
+    static string? BuildIlDiffDiagnostic(
+        MetadataReader originalReader,
+        PEReader originalPe,
+        MethodDefinition originalMethod,
+        PEReader recompiledPe,
+        string fullType,
+        string methodName,
+        int overload)
+    {
+        if (originalMethod.RelativeVirtualAddress == 0)
+            return null;
+        if (FindMethodDefinition(recompiledPe, fullType, methodName, overload) is not { } recompiled)
+            return null;
+        if (recompiled.Method.RelativeVirtualAddress == 0)
+            return null;
+
+        var diff = IlBodyDiff.Compare(
+            originalReader,
+            originalPe.GetMethodBody(originalMethod.RelativeVirtualAddress),
+            recompiled.Reader,
+            recompiledPe.GetMethodBody(recompiled.Method.RelativeVirtualAddress));
+        string rendered = IlDiffPrinter.RenderUnified(diff);
+        return string.IsNullOrWhiteSpace(rendered) ? null : rendered;
     }
 
     static IEnumerable<MetadataReference> CompilationReferences(string targetPath)

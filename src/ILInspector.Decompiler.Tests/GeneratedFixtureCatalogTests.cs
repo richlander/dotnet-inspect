@@ -1073,6 +1073,7 @@ public class GeneratedFixtureCatalogTests
             && result.Method == "get_Method1");
         Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, propertyGetter.Status);
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, propertyGetter.ActualStatus);
+        Assert.Null(propertyGetter.IlDiffDiagnostic);
 
         Assert.Contains(run.Results, result =>
             result.FixtureId == "minimal.method-call.same-type"
@@ -1090,6 +1091,39 @@ public class GeneratedFixtureCatalogTests
             result => result.GetProperty("Status").GetString() == "Pass");
         Assert.DoesNotContain(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Reason").GetString() == "constructor-target");
+    }
+
+    [Fact]
+    public void ReturnToSenderCatalogReport_IncludesIlDiffDiagnosticsWhenPresent()
+    {
+        var run = new GeneratedFixtureReturnToSenderRunResult(
+            ProjectDirectory: "",
+            AssemblyPath: "",
+            Results:
+            [
+                new GeneratedFixtureReturnToSenderResult(
+                    "test.il-diff-diagnostic",
+                    "TestType",
+                    "Method1",
+                    Overload: 0,
+                    GeneratedFixtureReturnToSenderStatus.Fail,
+                    FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    "opcode-diff",
+                    Detail: null,
+                    IlDiffDiagnostic:
+                    """
+                    h0 - IL_0000 ldc.i4 1
+                    h0 + IL_0000 ldc.i4 2
+                    """,
+                    IsFrontier: false,
+                    Note: null),
+            ]);
+
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+
+        Assert.Contains("il-diff:", report);
+        Assert.Contains("h0 - IL_0000 ldc.i4 1", report);
+        Assert.Contains("h0 + IL_0000 ldc.i4 2", report);
     }
 
     [Fact]
@@ -1226,6 +1260,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(GeneratedFixtureReturnToSenderStatus.Fail, result.Status);
         Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.ActualStatus);
         Assert.Equal("opcode-diff", result.Reason);
+        Assert.NotNull(result.IlDiffDiagnostic);
+        Assert.Contains("IL_", result.IlDiffDiagnostic);
         Assert.DoesNotContain("target-body-fragment-missing", report);
     }
 
