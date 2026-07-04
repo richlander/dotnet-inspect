@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Instructions;
 
@@ -45,6 +46,31 @@ public sealed record IlBodyDiffResult(
 public static class IlBodyDiff
 {
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
+        => Compare(oldBody, newBody, oldResolver: null, newResolver: null);
+
+    public static IlBodyDiffResult Compare(
+        MetadataReader oldReader,
+        MethodBodyBlock oldBody,
+        MetadataReader newReader,
+        MethodBodyBlock newBody)
+    {
+        ArgumentNullException.ThrowIfNull(oldReader);
+        ArgumentNullException.ThrowIfNull(oldBody);
+        ArgumentNullException.ThrowIfNull(newReader);
+        ArgumentNullException.ThrowIfNull(newBody);
+
+        return Compare(
+            MethodInstructions.Decode(oldBody),
+            MethodInstructions.Decode(newBody),
+            new MetadataOperandResolver(oldReader),
+            new MetadataOperandResolver(newReader));
+    }
+
+    static IlBodyDiffResult Compare(
+        MethodInstructions oldBody,
+        MethodInstructions newBody,
+        MetadataOperandResolver? oldResolver,
+        MetadataOperandResolver? newResolver)
     {
         ArgumentNullException.ThrowIfNull(oldBody);
         ArgumentNullException.ThrowIfNull(newBody);
@@ -56,8 +82,10 @@ public static class IlBodyDiff
 
         var oldInstructions = oldBody.Instructions;
         var newInstructions = newBody.Instructions;
-        var oldOperations = oldInstructions.Select(ToOperation).ToImmutableArray();
-        var newOperations = newInstructions.Select(ToOperation).ToImmutableArray();
+        if (!TryBuildOperations(oldInstructions, oldResolver, "old", out var oldOperations, out var oldFailure))
+            return new IlBodyDiffResult(false, oldFailure, []);
+        if (!TryBuildOperations(newInstructions, newResolver, "new", out var newOperations, out var newFailure))
+            return new IlBodyDiffResult(false, newFailure, []);
         var lcs = LongestCommonSubsequence(oldOperations, newOperations);
         var oldToNew = lcs.ToDictionary(pair => pair.OldIndex, pair => pair.NewIndex);
         var rows = ImmutableArray.CreateBuilder<IlDiffRow>();
@@ -81,6 +109,31 @@ public static class IlBodyDiff
 
         var diffRows = rows.ToImmutable();
         return new IlBodyDiffResult(diffRows.Length == 0, Failure: null, diffRows);
+    }
+
+    static bool TryBuildOperations(
+        ImmutableArray<DecodedInstruction> instructions,
+        MetadataOperandResolver? resolver,
+        string side,
+        out ImmutableArray<CanonicalIlOperation> operations,
+        out string? failure)
+    {
+        var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(instructions.Length);
+        foreach (var instruction in instructions)
+        {
+            if (!TryToOperation(instruction, resolver, out var operation, out var operationFailure))
+            {
+                operations = [];
+                failure = $"{side} body {operationFailure}";
+                return false;
+            }
+
+            builder.Add(operation);
+        }
+
+        operations = builder.MoveToImmutable();
+        failure = null;
+        return true;
     }
 
     static void AddUnmatched(
@@ -155,11 +208,24 @@ public static class IlBodyDiff
         return oldOperation.Operand == newOperation.Operand;
     }
 
-    static CanonicalIlOperation ToOperation(DecodedInstruction instruction)
-        => new(
+    static bool TryToOperation(
+        DecodedInstruction instruction,
+        MetadataOperandResolver? resolver,
+        out CanonicalIlOperation operation,
+        out string? failure)
+    {
+        if (!TryOperandIdentity(instruction, resolver, out var operand, out failure))
+        {
+            operation = new CanonicalIlOperation(instruction.Offset, OpcodeFamily(instruction), Operand: null);
+            return false;
+        }
+
+        operation = new CanonicalIlOperation(
             instruction.Offset,
             OpcodeFamily(instruction),
-            OperandIdentity(instruction));
+            operand);
+        return true;
+    }
 
     static string OpcodeFamily(DecodedInstruction instruction)
     {
@@ -177,7 +243,30 @@ public static class IlBodyDiff
             : opcode.ToString().Replace('_', '.').ToLowerInvariant();
     }
 
-    static IlOperandIdentity? OperandIdentity(DecodedInstruction instruction)
+    static bool TryOperandIdentity(
+        DecodedInstruction instruction,
+        MetadataOperandResolver? resolver,
+        out IlOperandIdentity? operand,
+        out string? failure)
+    {
+        if (IsMetadataTokenOperand(instruction.Operand))
+        {
+            if (resolver is null)
+            {
+                operand = null;
+                failure = $"metadata token operand at IL_{instruction.Offset:X4} requires a MetadataReader-backed comparison";
+                return false;
+            }
+
+            return resolver.TryResolve(instruction, out operand, out failure);
+        }
+
+        operand = ImmediateOperandIdentity(instruction) ?? OperandIdentityByKind(instruction);
+        failure = null;
+        return true;
+    }
+
+    static IlOperandIdentity? ImmediateOperandIdentity(DecodedInstruction instruction)
         => instruction.OpCode switch
         {
             ILOpCode.Ldc_i4_m1 => new(IlOperandIdentityKind.Immediate, "-1"),
@@ -190,7 +279,7 @@ public static class IlBodyDiff
             ILOpCode.Ldc_i4_6 => new(IlOperandIdentityKind.Immediate, "6"),
             ILOpCode.Ldc_i4_7 => new(IlOperandIdentityKind.Immediate, "7"),
             ILOpCode.Ldc_i4_8 => new(IlOperandIdentityKind.Immediate, "8"),
-            _ => OperandIdentityByKind(instruction),
+            _ => null,
         };
 
     static IlOperandIdentity? OperandIdentityByKind(DecodedInstruction instruction)
@@ -205,11 +294,12 @@ public static class IlBodyDiff
                 => new(IlOperandIdentityKind.BranchTarget, $"IL_{instruction.BranchTargets[0]:X4}"),
             OperandKind.InlineSwitch
                 => new(IlOperandIdentityKind.SwitchTargets, string.Join(", ", instruction.BranchTargets.Select(target => $"IL_{target:X4}"))),
-            OperandKind.InlineString or OperandKind.InlineMethod or OperandKind.InlineField
-                or OperandKind.InlineType or OperandKind.InlineSig or OperandKind.InlineTok
-                => new(IlOperandIdentityKind.Token, $"0x{instruction.OperandValue:X8}"),
             _ => null,
         };
+
+    static bool IsMetadataTokenOperand(OperandKind kind)
+        => kind is OperandKind.InlineString or OperandKind.InlineMethod or OperandKind.InlineField
+            or OperandKind.InlineType or OperandKind.InlineSig or OperandKind.InlineTok;
 
     static bool BranchTargetsMatch(
         ImmutableArray<DecodedInstruction> oldInstructions,
@@ -246,5 +336,294 @@ public static class IlBodyDiff
             if (instructions[i].Offset == offset)
                 return i;
         return -1;
+    }
+
+    sealed class MetadataOperandResolver(MetadataReader reader)
+    {
+        public bool TryResolve(DecodedInstruction instruction, out IlOperandIdentity? operand, out string? failure)
+        {
+            try
+            {
+                string value = instruction.Operand switch
+                {
+                    OperandKind.InlineString => ResolveString((int)instruction.OperandValue),
+                    OperandKind.InlineMethod => ResolveMethod((int)instruction.OperandValue),
+                    OperandKind.InlineField => ResolveField((int)instruction.OperandValue),
+                    OperandKind.InlineType => ResolveType((int)instruction.OperandValue),
+                    OperandKind.InlineTok => ResolveToken((int)instruction.OperandValue),
+                    OperandKind.InlineSig => ResolveSignature((int)instruction.OperandValue),
+                    _ => throw new InvalidOperationException($"Operand kind {instruction.Operand} is not a metadata token."),
+                };
+                operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
+                failure = null;
+                return true;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
+            {
+                operand = null;
+                failure = $"metadata token operand at IL_{instruction.Offset:X4} could not be resolved: {ex.Message}";
+                return false;
+            }
+        }
+
+        string ResolveString(int token)
+        {
+            var handle = MetadataTokens.UserStringHandle(token);
+            return $"string \"{Escape(reader.GetUserString(handle))}\"";
+        }
+
+        string ResolveMethod(int token)
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            return handle.Kind switch
+            {
+                HandleKind.MethodDefinition => FormatMethodDefinition((MethodDefinitionHandle)handle),
+                HandleKind.MemberReference => FormatMemberReference((MemberReferenceHandle)handle),
+                HandleKind.MethodSpecification => FormatMethodSpecification((MethodSpecificationHandle)handle),
+                _ => throw new BadImageFormatException($"Expected method token, got {handle.Kind}."),
+            };
+        }
+
+        string ResolveField(int token)
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            return handle.Kind switch
+            {
+                HandleKind.FieldDefinition => FormatFieldDefinition((FieldDefinitionHandle)handle),
+                HandleKind.MemberReference => FormatFieldMemberReference((MemberReferenceHandle)handle),
+                _ => throw new BadImageFormatException($"Expected field token, got {handle.Kind}."),
+            };
+        }
+
+        string ResolveType(int token)
+            => FormatType(MetadataTokens.EntityHandle(token));
+
+        string ResolveToken(int token)
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            return handle.Kind switch
+            {
+                HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification
+                    => $"type {FormatType(handle)}",
+                HandleKind.MethodDefinition => $"method {FormatMethodDefinition((MethodDefinitionHandle)handle)}",
+                HandleKind.MemberReference when reader.GetMemberReference((MemberReferenceHandle)handle).GetKind() == MemberReferenceKind.Method
+                    => $"method {FormatMemberReference((MemberReferenceHandle)handle)}",
+                HandleKind.MemberReference => $"field {FormatFieldMemberReference((MemberReferenceHandle)handle)}",
+                HandleKind.MethodSpecification => $"method {FormatMethodSpecification((MethodSpecificationHandle)handle)}",
+                HandleKind.FieldDefinition => $"field {FormatFieldDefinition((FieldDefinitionHandle)handle)}",
+                _ => throw new BadImageFormatException($"Unsupported ldtoken handle kind {handle.Kind}."),
+            };
+        }
+
+        string ResolveSignature(int token)
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind != HandleKind.StandaloneSignature)
+                throw new BadImageFormatException($"Expected standalone signature token, got {handle.Kind}.");
+
+            var signature = reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
+            return $"signature {Convert.ToHexString(reader.GetBlobBytes(signature.Signature))}";
+        }
+
+        string FormatMethodDefinition(MethodDefinitionHandle handle)
+        {
+            var method = reader.GetMethodDefinition(handle);
+            var signature = method.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs: null);
+        }
+
+        string FormatMemberReference(MemberReferenceHandle handle)
+        {
+            var member = reader.GetMemberReference(handle);
+            if (member.GetKind() != MemberReferenceKind.Method)
+                throw new BadImageFormatException("Expected method member reference.");
+
+            var signature = member.DecodeMethodSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs: null);
+        }
+
+        string FormatMethodSpecification(MethodSpecificationHandle handle)
+        {
+            var spec = reader.GetMethodSpecification(handle);
+            var typeArguments = spec.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            string genericArgs = $"<{string.Join(", ", typeArguments)}>";
+
+            return spec.Method.Kind switch
+            {
+                HandleKind.MethodDefinition => FormatMethodSpecificationDefinition((MethodDefinitionHandle)spec.Method, genericArgs),
+                HandleKind.MemberReference => FormatMethodSpecificationReference((MemberReferenceHandle)spec.Method, genericArgs),
+                _ => throw new BadImageFormatException($"Unsupported method specification target {spec.Method.Kind}."),
+            };
+        }
+
+        string FormatMethodSpecificationDefinition(MethodDefinitionHandle handle, string genericArgs)
+        {
+            var method = reader.GetMethodDefinition(handle);
+            var signature = method.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs);
+        }
+
+        string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
+        {
+            var member = reader.GetMemberReference(handle);
+            var signature = member.DecodeMethodSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs);
+        }
+
+        string FormatFieldDefinition(FieldDefinitionHandle handle)
+        {
+            var field = reader.GetFieldDefinition(handle);
+            string fieldType = field.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{reader.GetString(field.Name)}";
+        }
+
+        string FormatFieldMemberReference(MemberReferenceHandle handle)
+        {
+            var member = reader.GetMemberReference(handle);
+            if (member.GetKind() != MemberReferenceKind.Field)
+                throw new BadImageFormatException("Expected field member reference.");
+
+            string fieldType = member.DecodeFieldSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            return $"{fieldType} {FormatMemberParent(member.Parent)}::{reader.GetString(member.Name)}";
+        }
+
+        string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
+        {
+            string instance = signature.Header.IsInstance ? "instance " : "";
+            return $"{instance}{signature.ReturnType} {parent}::{name}{genericArgs}({string.Join(", ", signature.ParameterTypes)})";
+        }
+
+        string FormatMemberParent(EntityHandle parent)
+            => parent.Kind switch
+            {
+                HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification
+                    => FormatType(parent),
+                _ => throw new BadImageFormatException($"Unsupported member parent {parent.Kind}."),
+            };
+
+        string FormatType(EntityHandle handle)
+            => handle.Kind switch
+            {
+                HandleKind.TypeDefinition => FormatTypeDefinition((TypeDefinitionHandle)handle),
+                HandleKind.TypeReference => FormatTypeReference((TypeReferenceHandle)handle),
+                HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle)
+                    .DecodeSignature(SignatureIdentityProvider.Instance, null),
+                _ => throw new BadImageFormatException($"Unsupported type handle {handle.Kind}."),
+            };
+
+        string FormatTypeDefinition(TypeDefinitionHandle handle)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            string name = reader.GetString(type.Name);
+            var declaring = type.GetDeclaringType();
+            string fullName = declaring.IsNil
+                ? Dotted(reader.GetString(type.Namespace), name)
+                : $"{FormatTypeDefinition(declaring)}+{name}";
+            return $"[{CurrentAssemblyName()}]{fullName}";
+        }
+
+        string FormatTypeReference(TypeReferenceHandle handle)
+        {
+            var type = reader.GetTypeReference(handle);
+            string name = reader.GetString(type.Name);
+            string fullName = Dotted(reader.GetString(type.Namespace), name);
+            return type.ResolutionScope.Kind switch
+            {
+                HandleKind.AssemblyReference =>
+                    $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
+                HandleKind.TypeReference =>
+                    $"{FormatTypeReference((TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
+                _ => $"[{CurrentAssemblyName()}]{fullName}",
+            };
+        }
+
+        string CurrentAssemblyName()
+            => reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
+
+        static string Dotted(string ns, string name)
+            => ns.Length == 0 ? name : $"{ns}.{name}";
+
+        static string Escape(string value)
+            => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+    }
+
+    sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
+    {
+        public static SignatureIdentityProvider Instance { get; } = new();
+
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode)
+            => typeCode switch
+            {
+                PrimitiveTypeCode.Void => "void",
+                PrimitiveTypeCode.Boolean => "bool",
+                PrimitiveTypeCode.Char => "char",
+                PrimitiveTypeCode.SByte => "int8",
+                PrimitiveTypeCode.Byte => "uint8",
+                PrimitiveTypeCode.Int16 => "int16",
+                PrimitiveTypeCode.UInt16 => "uint16",
+                PrimitiveTypeCode.Int32 => "int32",
+                PrimitiveTypeCode.UInt32 => "uint32",
+                PrimitiveTypeCode.Int64 => "int64",
+                PrimitiveTypeCode.UInt64 => "uint64",
+                PrimitiveTypeCode.Single => "float32",
+                PrimitiveTypeCode.Double => "float64",
+                PrimitiveTypeCode.String => "string",
+                PrimitiveTypeCode.Object => "object",
+                PrimitiveTypeCode.IntPtr => "native int",
+                PrimitiveTypeCode.UIntPtr => "native uint",
+                PrimitiveTypeCode.TypedReference => "typedref",
+                _ => typeCode.ToString(),
+            };
+
+        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+            => TypeName(reader, handle);
+
+        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+            => TypeName(reader, handle);
+
+        public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+            => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+
+        public string GetSZArrayType(string elementType) => $"{elementType}[]";
+        public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";
+        public string GetByReferenceType(string elementType) => $"{elementType}&";
+        public string GetPointerType(string elementType) => $"{elementType}*";
+        public string GetPinnedType(string elementType) => $"{elementType} pinned";
+        public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
+            => $"{genericType}<{string.Join(", ", typeArguments)}>";
+        public string GetGenericTypeParameter(object? genericContext, int index) => $"!{index}";
+        public string GetGenericMethodParameter(object? genericContext, int index) => $"!!{index}";
+        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
+            => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
+        public string GetFunctionPointerType(MethodSignature<string> signature)
+            => $"method {signature.ReturnType} *({string.Join(", ", signature.ParameterTypes)})";
+
+        static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            string name = reader.GetString(type.Name);
+            var declaring = type.GetDeclaringType();
+            if (!declaring.IsNil)
+                return $"{TypeName(reader, declaring)}+{name}";
+            string ns = reader.GetString(type.Namespace);
+            string assembly = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
+            return $"[{assembly}]{(ns.Length == 0 ? name : $"{ns}.{name}")}";
+        }
+
+        static string TypeName(MetadataReader reader, TypeReferenceHandle handle)
+        {
+            var type = reader.GetTypeReference(handle);
+            string name = reader.GetString(type.Name);
+            string ns = reader.GetString(type.Namespace);
+            string fullName = ns.Length == 0 ? name : $"{ns}.{name}";
+            return type.ResolutionScope.Kind switch
+            {
+                HandleKind.AssemblyReference =>
+                    $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
+                HandleKind.TypeReference =>
+                    $"{TypeName(reader, (TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
+                _ => fullName,
+            };
+        }
     }
 }

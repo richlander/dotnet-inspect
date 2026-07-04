@@ -83,10 +83,7 @@ public class IlBodyDiffTests
     [Fact]
     public void Compare_CompiledFixtureConstantValueChange_ReportsImmediateChange()
     {
-        var left = DiffFixtureMethod("DiffFixtures.V1", "ConstantValue");
-        var right = DiffFixtureMethod("DiffFixtures.V2", "ConstantValue");
-
-        var diff = IlBodyDiff.Compare(left, right);
+        var diff = DiffFixtureDiff("ConstantValue");
 
         Assert.Collection(
             diff.Rows,
@@ -105,12 +102,65 @@ public class IlBodyDiffTests
     }
 
     [Fact]
-    public void Compare_CompiledFixtureMultipleHunks_AssignsSeparateHunkIds()
+    public void Compare_CompiledFixtureStringTokenChange_ReportsStringOperandChange()
     {
-        var left = DiffFixtureMethod("DiffFixtures.V1", "MultipleHunks");
-        var right = DiffFixtureMethod("DiffFixtures.V2", "MultipleHunks");
+        var diff = DiffFixtureDiff("StringToken");
+
+        Assert.Collection(
+            diff.Rows,
+            removed =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removed.Kind);
+                Assert.Equal("ldstr", removed.Operation.OpcodeFamily);
+                Assert.Equal("string \"alpha\"", removed.Operation.Operand?.Value);
+            },
+            added =>
+            {
+                Assert.Equal(IlDiffKind.Add, added.Kind);
+                Assert.Equal("ldstr", added.Operation.OpcodeFamily);
+                Assert.Equal("string \"beta\"", added.Operation.Operand?.Value);
+            });
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureCallTokenChange_ReportsMemberOperandChange()
+    {
+        var diff = DiffFixtureDiff("CallToken");
+
+        Assert.Collection(
+            diff.Rows,
+            removed =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removed.Kind);
+                Assert.Equal("call", removed.Operation.OpcodeFamily);
+                Assert.Contains("::Abs(", removed.Operation.Operand?.Value, StringComparison.Ordinal);
+            },
+            added =>
+            {
+                Assert.Equal(IlDiffKind.Add, added.Kind);
+                Assert.Equal("call", added.Operation.OpcodeFamily);
+                Assert.Contains("::Sign(", added.Operation.Operand?.Value, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
+    public void Compare_TokenOperandWithoutMetadata_FailsClosed()
+    {
+        var left = DiffFixtureMethod("DiffFixtures.V1", "StringToken");
+        var right = DiffFixtureMethod("DiffFixtures.V2", "StringToken");
 
         var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.False(diff.IsExact);
+        Assert.NotNull(diff.Failure);
+        Assert.Contains("requires a MetadataReader-backed comparison", diff.Failure, StringComparison.Ordinal);
+        Assert.Empty(diff.Rows);
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureMultipleHunks_AssignsSeparateHunkIds()
+    {
+        var diff = DiffFixtureDiff("MultipleHunks");
 
         Assert.Collection(
             diff.Rows,
@@ -147,10 +197,7 @@ public class IlBodyDiffTests
     [Fact]
     public void Compare_CompiledFixtureBranchTargetOffsetShift_DoesNotMarkBranchChanged()
     {
-        var left = DiffFixtureMethod("DiffFixtures.V1", "BranchTargetOffsetShift");
-        var right = DiffFixtureMethod("DiffFixtures.V2", "BranchTargetOffsetShift");
-
-        var diff = IlBodyDiff.Compare(left, right);
+        var diff = DiffFixtureDiff("BranchTargetOffsetShift");
 
         Assert.NotEmpty(diff.Rows);
         Assert.Contains(diff.Rows, row => row.Kind == IlDiffKind.Add && row.Operation.OpcodeFamily == "call");
@@ -160,10 +207,7 @@ public class IlBodyDiffTests
     [Fact]
     public void Compare_CompiledFixtureBranchRetarget_ReportsChangedBranch()
     {
-        var left = DiffFixtureMethod("DiffFixtures.V1", "BranchRetarget");
-        var right = DiffFixtureMethod("DiffFixtures.V2", "BranchRetarget");
-
-        var diff = IlBodyDiff.Compare(left, right);
+        var diff = DiffFixtureDiff("BranchRetarget");
 
         Assert.Contains(diff.Rows, row => row.Kind == IlDiffKind.Remove && IsBranchRow(row));
         Assert.Contains(diff.Rows, row => row.Kind == IlDiffKind.Add && IsBranchRow(row));
@@ -216,19 +260,39 @@ public class IlBodyDiffTests
     static bool IsBranchRow(IlDiffRow row)
         => row.Operation.OpcodeFamily.StartsWith("br", StringComparison.Ordinal);
 
+    static IlBodyDiffResult DiffFixtureDiff(string name)
+    {
+        using var oldStream = File.OpenRead(DiffFixturePath("DiffFixtures.V1"));
+        using var newStream = File.OpenRead(DiffFixturePath("DiffFixtures.V2"));
+        using var oldPe = new PEReader(oldStream);
+        using var newPe = new PEReader(newStream);
+        var oldReader = oldPe.GetMetadataReader();
+        var newReader = newPe.GetMetadataReader();
+        return IlBodyDiff.Compare(
+            oldReader,
+            DiffFixtureMethodBody(oldPe, oldReader, name),
+            newReader,
+            DiffFixtureMethodBody(newPe, newReader, name));
+    }
+
     static MethodInstructions DiffFixtureMethod(string project, string name)
     {
         using var stream = File.OpenRead(DiffFixturePath(project));
         using var peReader = new PEReader(stream);
         var metadataReader = peReader.GetMetadataReader();
+        return MethodInstructions.Decode(DiffFixtureMethodBody(peReader, metadataReader, name));
+    }
+
+    static MethodBodyBlock DiffFixtureMethodBody(PEReader peReader, MetadataReader metadataReader, string name)
+    {
         foreach (var handle in metadataReader.MethodDefinitions)
         {
             var method = metadataReader.GetMethodDefinition(handle);
             if (metadataReader.GetString(method.Name) == name)
-                return MethodInstructions.Decode(peReader.GetMethodBody(method.RelativeVirtualAddress));
+                return peReader.GetMethodBody(method.RelativeVirtualAddress);
         }
 
-        throw new InvalidOperationException($"Could not find method '{name}' in {project}.");
+        throw new InvalidOperationException($"Could not find method '{name}'.");
     }
 
     static string DiffFixturePath(string project)

@@ -43,14 +43,36 @@ public static class BodySignalDiff
             oldGroup ??= [];
             newGroup ??= [];
 
-            for (int i = oldGroup.Length; i < newGroup.Length; i++)
-                rows.Add(ToRow(BodySignalDiffKind.Added, newGroup[i]));
-            for (int i = newGroup.Length; i < oldGroup.Length; i++)
-                rows.Add(ToRow(BodySignalDiffKind.Removed, oldGroup[i]));
+            foreach (var fact in Difference(newGroup, oldGroup))
+                rows.Add(ToRow(BodySignalDiffKind.Added, fact));
+            foreach (var fact in Difference(oldGroup, newGroup))
+                rows.Add(ToRow(BodySignalDiffKind.Removed, fact));
         }
 
         return new BodySignalDiffResult(rows.ToImmutable());
     }
+
+    static IEnumerable<UnsafeFact> Difference(UnsafeFact[] candidate, UnsafeFact[] baseline)
+    {
+        var baselineOffsets = baseline
+            .GroupBy(fact => fact.ILOffset)
+            .ToDictionary(group => OffsetKey(group.Key), group => group.Count(), StringComparer.Ordinal);
+
+        foreach (var fact in candidate)
+        {
+            string offsetKey = OffsetKey(fact.ILOffset);
+            if (baselineOffsets.TryGetValue(offsetKey, out int count) && count > 0)
+            {
+                baselineOffsets[offsetKey] = count - 1;
+                continue;
+            }
+
+            yield return fact;
+        }
+    }
+
+    static string OffsetKey(int? offset)
+        => offset?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "<null>";
 
     static Dictionary<string, UnsafeFact[]> UnsafeFactGroups(LibraryBodyIndex index)
     {
