@@ -4328,6 +4328,14 @@ public static class EnumCastSamples
 
     // #1806: the fallback of `Nullable<cross-assembly enum> ?? enumConstant`
     // needs the same structural enum cast as conditional arms.
+    // #2302: a same-width cross-signedness constant arm at a numeric join. A `uint`
+    // coalesce fallback of `uint.MaxValue` lowers to `ldc.i4.m1`, so a bare `-1` arm
+    // at the `uint` join is CS0019 (`??`) / CS0029; it must render the target-aware
+    // `unchecked((uint)(-1))`. Mirrors the enum coalesce/conditional arm contract for
+    // the plain numeric-primitive join.
+    public static uint CrossSignCoalesceConstant(uint? value)
+        => value ?? uint.MaxValue;
+
     public static System.StringComparison EnumCoalesce(System.StringComparison? value)
         => value ?? System.StringComparison.Ordinal;
 

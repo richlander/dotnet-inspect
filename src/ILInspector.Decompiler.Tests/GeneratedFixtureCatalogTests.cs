@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using ILInspector.DecompilerHarness;
+using ILInspector.Instructions;
 
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -1110,11 +1111,33 @@ public class GeneratedFixtureCatalogTests
                     FidelityCheck.CompileBackStatus.OpcodeDiff,
                     "opcode-diff",
                     Detail: null,
-                    IlDiffDiagnostic:
-                    """
-                    h0 - IL_0000 ldc.i4 1
-                    h0 + IL_0000 ldc.i4 2
-                    """,
+                    IlDiffDiagnostic: new IlDiffDisplayResult(
+                        Failure: null,
+                        Rows:
+                        [
+                            new IlDiffDisplayRow(
+                                0,
+                                IlDiffKind.Remove,
+                                "-",
+                                0,
+                                "IL_0000",
+                                "ldc.i4",
+                                IlOperandIdentityKind.Immediate,
+                                "1",
+                                "ldc.i4 1",
+                                "Removed IL operation 'ldc.i4 1'"),
+                            new IlDiffDisplayRow(
+                                0,
+                                IlDiffKind.Add,
+                                "+",
+                                0,
+                                "IL_0000",
+                                "ldc.i4",
+                                IlOperandIdentityKind.Immediate,
+                                "2",
+                                "ldc.i4 2",
+                                "Added IL operation 'ldc.i4 2'"),
+                        ]),
                     IsFrontier: false,
                     Note: null),
             ]);
@@ -1261,8 +1284,18 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.ActualStatus);
         Assert.Equal("opcode-diff", result.Reason);
         Assert.NotNull(result.IlDiffDiagnostic);
-        Assert.Contains("IL_", result.IlDiffDiagnostic);
+        Assert.NotEmpty(result.IlDiffDiagnostic.Rows);
+        Assert.Contains(result.IlDiffDiagnostic.Rows, row => row.Offset.StartsWith("IL_", StringComparison.Ordinal));
         Assert.DoesNotContain("target-body-fragment-missing", report);
+
+        string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
+        using var document = JsonDocument.Parse(json);
+        var jsonResult = Assert.Single(document.RootElement.GetProperty("Results").EnumerateArray());
+        var rows = jsonResult.GetProperty("IlDiffDiagnostic").GetProperty("Rows").EnumerateArray().ToArray();
+        Assert.NotEmpty(rows);
+        Assert.Contains(rows, row =>
+            row.GetProperty("Offset").GetString()?.StartsWith("IL_", StringComparison.Ordinal) == true
+            && row.GetProperty("OpcodeFamily").GetString() is { Length: > 0 });
     }
 
     [Fact]

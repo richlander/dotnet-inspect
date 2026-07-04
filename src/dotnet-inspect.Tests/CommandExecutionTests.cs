@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using DotnetInspector.Models;
@@ -4498,12 +4499,8 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var diffV1 = Path.GetFullPath(Path.Combine(
-                Path.GetDirectoryName(TestAssemblyPath)!, "..", "..",
-                "DiffFixtures.V1", "release", "DiffFixtureSample.dll"));
-            var diffV2 = Path.GetFullPath(Path.Combine(
-                Path.GetDirectoryName(TestAssemblyPath)!, "..", "..",
-                "DiffFixtures.V2", "release", "DiffFixtureSample.dll"));
+            var diffV1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+            var diffV2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
             List<string[]> commands =
             [

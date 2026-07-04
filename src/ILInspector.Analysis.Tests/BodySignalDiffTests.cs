@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using DotnetInspector.Fixtures;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -7,8 +8,8 @@ public class BodySignalDiffTests
     [Fact]
     public void CompareUnsafe_SurfacesAddedUnsafeOperation()
     {
-        var oldIndex = LibraryBodyIndex.Open(DiffFixturePath("DiffFixtures.V1"));
-        var newIndex = LibraryBodyIndex.Open(DiffFixturePath("DiffFixtures.V2"));
+        var oldIndex = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var newIndex = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
 
         var diff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
 
@@ -21,7 +22,7 @@ public class BodySignalDiffTests
     [Fact]
     public void CompareUnsafe_SelfDiffHasNoRows()
     {
-        var index = LibraryBodyIndex.Open(DiffFixturePath("DiffFixtures.V2"));
+        var index = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
 
         var diff = BodySignalDiff.CompareUnsafe(index, index);
 
@@ -115,16 +116,6 @@ public class BodySignalDiffTests
         var added = Assert.Single(diff.Rows);
         Assert.Equal(BodySignalDiffKind.Added, added.Kind);
         Assert.Null(added.ILOffset);
-    }
-
-    static string DiffFixturePath(string project)
-    {
-        var outputDirectory = new DirectoryInfo(
-            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
-        Assert.True(File.Exists(path), $"Expected diff fixture assembly at {path}");
-        return path;
     }
 
     static MethodIdentity DiffMethod(TypeRef declaring, string name)

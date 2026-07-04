@@ -237,6 +237,35 @@ public class AssertionScanTests
     }
 
     [Fact]
+    public void ObservedFromDeclaredFixtures_IgnoresSiblingFixtureIncidentalProduction()
+    {
+        // A node is scored only against the fixtures that DECLARE it. A sibling
+        // fixture incidentally producing the node must not count — otherwise an
+        // inert declared producer free-rides on the sibling's coverage (#2289's
+        // IsPattern masking, tracked as #2293).
+        var perFixture = new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.Ordinal)
+        {
+            ["assertion.inverse-node-coverage"] = new Dictionary<string, int>(StringComparer.Ordinal),
+            ["assertion.union-switch"] = new Dictionary<string, int>(StringComparer.Ordinal) { ["IsPattern"] = 3 },
+        };
+
+        // Declared only against the coverage fixture, which does not produce it here,
+        // so the sibling union-switch coverage is ignored and it scores 0 (a regression).
+        Assert.Equal(0, AssertionScan.ObservedFromDeclaredFixtures(
+            ["assertion.inverse-node-coverage"], perFixture, "IsPattern"));
+
+        // Once the declared fixture itself produces the node, it counts.
+        perFixture["assertion.inverse-node-coverage"] =
+            new Dictionary<string, int>(StringComparer.Ordinal) { ["IsPattern"] = 2 };
+        Assert.Equal(2, AssertionScan.ObservedFromDeclaredFixtures(
+            ["assertion.inverse-node-coverage"], perFixture, "IsPattern"));
+
+        // A node covered by a declared fixture that was never scanned scores 0.
+        Assert.Equal(0, AssertionScan.ObservedFromDeclaredFixtures(
+            ["assertion.missing"], perFixture, "IsPattern"));
+    }
+
+    [Fact]
     public void AssertionPrinter_MarksNonFinalStagesObligation_FinalStageUnsound()
     {
         // A LoadArgument occupying an enum sink with no Coerce is an undischarged

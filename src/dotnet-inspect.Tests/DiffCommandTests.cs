@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
@@ -88,6 +89,17 @@ public class DiffCommandTests
         Assert.Contains("allocations", markdown);
         Assert.Contains("+1", markdown);
         Assert.Contains("IL_0001", markdown);
+    }
+
+    [Fact]
+    public void BuildApiDiff_UsesResearchSignatureScopeByDefault()
+    {
+        var oldSurface = DiffSurface(DiffMember("Existing", ["A"]));
+        var newSurface = DiffSurface(DiffMember("Existing", ["B"]));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions());
+
+        Assert.Empty(diff.TypeDiffs);
     }
 
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
@@ -221,8 +233,8 @@ public class DiffCommandTests
     [Fact]
     public void BuildAnalysisDiff_VersionPair_SurfacesSeededRegressionAndImprovement()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { ChangedOnly = true });
 
@@ -247,8 +259,8 @@ public class DiffCommandTests
     [Fact]
     public void BuildAnalysisDiff_VersionPair_SurfacesHotnessOnlyAllocationRegression()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions { ChangedOnly = true });
 
@@ -283,7 +295,7 @@ public class DiffCommandTests
     [Fact]
     public void BuildAnalysisDiff_Identity_SelfDiffHasNoSpuriousDeltas()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
 
         // Full diff: self-diff must have neither in-place deltas nor spurious
         // added/removed rows.
@@ -297,15 +309,29 @@ public class DiffCommandTests
         Assert.Equal("No in-place analysis signal changes detected.", changedOnly.Summary);
     }
 
-    static string DiffFixturePath(string project)
-    {
-        var outputDirectory = new System.IO.DirectoryInfo(
-            System.AppContext.BaseDirectory.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-        string path = System.IO.Path.GetFullPath(System.IO.Path.Combine(
-            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
-        Assert.True(System.IO.File.Exists(path), $"Expected diff fixture assembly at {path}");
-        return path;
-    }
+    static ApiSurface DiffSurface(params ApiMember[] members)
+        => new()
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "Sample",
+                    Name = "Widget",
+                    Kind = "class",
+                    Members = [.. members],
+                }
+            ],
+        };
+
+    static ApiMember DiffMember(string name, IReadOnlyList<string>? attributes = null)
+        => new()
+        {
+            Name = name,
+            Kind = "method",
+            Signature = $"void {name}()",
+            Attributes = attributes?.ToList() ?? [],
+        };
 
     // Key-path audit: the analysis-diff member key must distinguish members that
     // TypeRef.Equals distinguishes but display strings do not — same-name/different-arity
