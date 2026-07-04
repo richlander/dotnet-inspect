@@ -1275,11 +1275,24 @@ public sealed partial class CSharpPrinter
         // Same stack family only: `(int)longBackedEnum` would truncate. The
         // importer's family merge should never build such a join, but the cast
         // must not be the place that finds out (slice-4 review's verify item).
-        return target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
+        if (target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
             && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
-            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget)
-            ? $"({TypeText(integerTarget)}){Operand(arm)}"
-            : null;
+            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget))
+            return $"({TypeText(integerTarget)}){Operand(arm)}";
+        // A same-WIDTH cross-signedness arm at a numeric join is CS0266 bare (a `uint`
+        // arm at an `int` join). Reinterpret its bits with the join cast — unchecked
+        // inside a checked region so the value-preserving reinterpretation cannot become
+        // a runtime overflow (#2302, #2301). SameWidth keeps this to the genuinely
+        // lossless sibling casts (int/uint, short/ushort, byte/sbyte, long/ulong,
+        // ushort/char); a differing-width join is a narrowing the printer must not
+        // silently introduce, so it is left to a real Convert node in the IL.
+        if (target is { } numericTarget
+            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget)
+            && TypeFamilies.SameWidth(EffectiveType(arm), numericTarget))
+            return arm is Constant { Value: int or long } constArm
+                ? NumericConstant(constArm, numericTarget)
+                : CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
+        return null;
     }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)

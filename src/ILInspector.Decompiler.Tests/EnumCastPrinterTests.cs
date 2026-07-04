@@ -65,6 +65,18 @@ public class EnumCastPrinterTests
         AssertCompiles("public static StringComparison M(StringComparison? value)", body);
     }
 
+    // #2302: the same join-arm contract for a plain numeric-primitive out-of-range
+    // constant — a bare `-1` at a `uint` coalesce is CS0019, so it must reinterpret.
+    [Fact]
+    public void CrossSignCoalesce_OutOfRangeConstant_UncheckedReinterprets()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.CrossSignCoalesceConstant));
+
+        Assert.Contains("unchecked((uint)(-1))", body);
+        Assert.DoesNotContain("?? -1", body);
+        AssertCompiles("public static uint M(uint? value)", body);
+    }
+
     [Fact]
     public void EnumSwitchExpression_ReturningCrossAssemblyEnum_CastsArms()
     {
