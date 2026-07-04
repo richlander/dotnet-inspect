@@ -21,6 +21,21 @@ investigate). Use `--sample N` to run a deterministic hash-ranked sample per
 assembly, and combine it with `--package` / `--package-version` /
 `--package-tfm` / `--package-assembly` the same way other harness scans do.
 
+The scan splits every violation into a **discharged obligation** (flagged at an
+intermediate stage, then wrapped by a later pass — e.g. coercion insertion) and a
+**final-stage survivor** — an assertion still failing after the last pass, the
+corpus-scale analog of `--dump --assertions`' `UNSOUND` marker (see below and
+[docs/design/assertion-lane-effects.md](../../docs/design/assertion-lane-effects.md)).
+The `final-stage survivors (UNSOUND)` line is the real soundness number:
+`first violation sites` counts everything (mostly discharged obligations, which
+are the pipeline working as designed), while a non-zero survivor count is the
+load-bearing signal. "Final stage is zero survivors" for the wrappable population
+is now measured corpus-wide rather than eyeballed from `--dump --assertions`
+exemplars (known `PrinterOwned` residuals excluded). `--emit-assertion-violations`
+persists the survivor flag (snapshot schema v2), and `--diff-assertion-violations`
+reports a dedicated **survivor delta** so a newly surviving assertion is
+distinguished from a gained-but-discharged obligation.
+
 The scan is a triage and localized-signoff aid, not a CI gate on a raw violation
 count. It automates the value-typed-emission leak-surface census, but the
 population-scale correctness gates remain compile-back, render A/B, and the
