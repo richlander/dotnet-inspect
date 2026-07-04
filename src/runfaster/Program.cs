@@ -2461,12 +2461,47 @@ internal static class ProgramSupport
                 pos++;
             }
             arity = n;
+
+            // Reflection normally trails the whole chain's arguments after the last segment
+            // (Outer`1+Inner`1[A,B]), handled by the caller's distribution. But a segment's own
+            // arguments can also appear immediately, before a nested separator
+            // (Parent`2[A,B]+Nested); bind them here only when a '+'/'.' nested continuation follows
+            // the bracket, so a trailing whole-chain list is still left for distribution.
+            if (n > 0 && pos < s.Length && s[pos] == '[' && HasTypeContent(s, pos))
+            {
+                int after = MatchingBracketEnd(s, pos);
+                if (after >= 0 && after + 1 < s.Length
+                    && (s[after] == '.' || s[after] == '+') && IsSegmentStart(s[after + 1]))
+                {
+                    args = ParseReflArgList(s, ref pos);
+                }
+            }
         }
         else if (!compilerGenerated && pos < s.Length && s[pos] == '<')
         {
             args = ParseDisplayArgs(s, ref pos);
             arity = args.Count;
         }
+    }
+
+    // Index just past the ']' matching the '[' at pos (respecting nesting), or -1 if unbalanced.
+    static int MatchingBracketEnd(string s, int pos)
+    {
+        int depth = 0;
+        for (int i = pos; i < s.Length; i++)
+        {
+            if (s[i] == '[')
+            {
+                depth++;
+            }
+            else if (s[i] == ']')
+            {
+                depth--;
+                if (depth == 0)
+                    return i + 1;
+            }
+        }
+        return -1;
     }
 
     // True when the bracket at pos holds a type argument list ([A,B]) rather than an array-rank

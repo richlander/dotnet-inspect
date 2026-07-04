@@ -169,6 +169,22 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void CanonicalTypeSignature_ReconcilesNestedGenericArgumentOrdering()
+    {
+        // A nested generic type must canonicalize the same regardless of whether the parent's
+        // arguments trail the whole chain (reflection's normal form) or precede the nested separator.
+        var trailing = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2+KeyCollection[System.String,System.Int32]");
+        var preSeparator = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary`2[System.String,System.Int32]+KeyCollection");
+        var display = ProgramSupport.CanonicalTypeSignature(
+            "System.Collections.Generic.Dictionary<System.String,System.Int32>.KeyCollection");
+
+        Assert.Equal(display, trailing);
+        Assert.Equal(display, preSeparator);
+    }
+
+    [Fact]
     public void CanonicalTypeSignature_PreservesGenericArgumentOrderAndSeparators()
     {
         // The argument separator must be preserved so different splits do not collide.
