@@ -68,6 +68,29 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_RetargetedBranchAndRemovedInstruction_ReportsInProgramOrder()
+    {
+        var left = MethodInstructions.Decode([0x2b, 0x03, 0x00, 0x16, 0x2a, 0x17, 0x2a], 7, []);
+        var right = MethodInstructions.Decode([0x2b, 0x00, 0x16, 0x2a, 0x17, 0x2a], 6, []);
+
+        var diff = IlBodyDiff.Compare(left, right);
+
+        Assert.Collection(
+            diff.Differences,
+            changed =>
+            {
+                Assert.Equal(IlBodyDiffChangeKind.Changed, changed.Kind);
+                Assert.Equal(0, changed.OldOffset);
+                Assert.Equal(0, changed.NewOffset);
+            },
+            removed =>
+            {
+                Assert.Equal(IlBodyDiffChangeKind.Removed, removed.Kind);
+                Assert.Equal(2, removed.OldOffset);
+            });
+    }
+
+    [Fact]
     public void Compare_MalformedBody_ReportsFailure()
     {
         var malformed = MethodInstructions.Decode([0xfe], 1, []);

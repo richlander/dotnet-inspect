@@ -49,23 +49,20 @@ public static class IlBodyDiff
         foreach (var (nextOld, nextNew) in lcs)
         {
             AddUnmatched(oldInstructions, oldIndex, nextOld, newInstructions, newIndex, nextNew, differences, ref diffIndex);
+            if (!BranchTargetsMatch(oldInstructions, nextOld, newInstructions, nextNew, oldToNew))
+            {
+                var oldInstruction = oldInstructions[nextOld];
+                var newInstruction = newInstructions[nextNew];
+                differences.Add(new IlInstructionDiff(
+                    IlBodyDiffChangeKind.Changed,
+                    diffIndex++,
+                    oldInstruction.Offset,
+                    oldInstruction.OpCode,
+                    newInstruction.Offset,
+                    newInstruction.OpCode));
+            }
             oldIndex = nextOld + 1;
             newIndex = nextNew + 1;
-        }
-
-        foreach (var (mappedOld, mappedNew) in lcs)
-        {
-            if (BranchTargetsMatch(oldInstructions, mappedOld, newInstructions, mappedNew, oldToNew))
-                continue;
-            var oldInstruction = oldInstructions[mappedOld];
-            var newInstruction = newInstructions[mappedNew];
-            differences.Add(new IlInstructionDiff(
-                IlBodyDiffChangeKind.Changed,
-                diffIndex++,
-                oldInstruction.Offset,
-                oldInstruction.OpCode,
-                newInstruction.Offset,
-                newInstruction.OpCode));
         }
 
         AddUnmatched(oldInstructions, oldIndex, oldInstructions.Length, newInstructions, newIndex, newInstructions.Length, differences, ref diffIndex);
