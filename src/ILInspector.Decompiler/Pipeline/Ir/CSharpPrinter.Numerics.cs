@@ -1125,7 +1125,16 @@ public sealed partial class CSharpPrinter
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes))
         {
-            return CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}");
+            // Wrap only when the checked underlying->target conversion can
+            // actually throw (cross-signedness, signed->unsigned): an
+            // identity/widening enum cast is overflow-free in checked C# too,
+            // and wrapping it is noise — `checked((int)intBackedEnum + 1)`
+            // must stay bare (work-2302 CI canary). A missing value__ assumes
+            // the I4-signed shape, matching EnumSemanticFamily.
+            var underlying = EnumUnderlyingType(EffectiveType(value)) ?? TypeRef.CoreLib("System", "Int32");
+            return TypeFamilies.CheckedConversionCanThrow(underlying, primitiveTarget)
+                ? CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}")
+                : $"({TypeText(primitiveTarget)}){Operand(value)}";
         }
         // Enum → enum: C# permits the explicit conversion between any two enum
         // types directly. Reached when a slot join carries one enum and a

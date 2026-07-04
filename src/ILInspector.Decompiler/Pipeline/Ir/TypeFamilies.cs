@@ -170,6 +170,40 @@ public static class TypeFamilies
     /// <summary>True when two fixed-width integer primitives occupy the same byte width (ushort/char, int/uint) — a same-width cast subsumes any inner conversion to the sibling.</summary>
     public static bool SameWidth(TypeRef? a, TypeRef? b) => Width(a) is { } wa && wa == Width(b);
 
+    /// <summary>True for the unsigned fixed-width integer primitives (char included; nuint excluded — platform width is unknown here).</summary>
+    static bool IsUnsignedInteger(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Byte" or "UInt16" or "Char" or "UInt32" or "UInt64" };
+
+    /// <summary>
+    /// True when the C# <em>checked</em> conversion <paramref name="source"/> →
+    /// <paramref name="target"/> can throw for some value — i.e. when a bare
+    /// cast inside a lexical <c>checked</c> region recompiles to a
+    /// <c>conv.ovf</c> that changes IL semantics, so a synthesized reinterpret
+    /// cast there must wrap in <c>unchecked(...)</c>. False exactly for the
+    /// value-preserving-for-all-values pairs — identity, same-signedness
+    /// widening, and unsigned into strictly-wider signed — where the checked
+    /// and unchecked conversions agree and the wrap would be pure noise
+    /// (`checked((int)intBackedEnum + 1)` must stay bare — the work-2302 CI
+    /// canary). Platform-width (nint/nuint) and unknown pairs answer true:
+    /// when the width is unknown, the wrap is the safe direction.
+    /// </summary>
+    public static bool CheckedConversionCanThrow(TypeRef? source, TypeRef? target)
+    {
+        if (source is null || target is null)
+            return true;
+        if (source.Equals(target))
+            return false;
+        if (Width(source) is not { } sourceWidth || Width(target) is not { } targetWidth)
+            return true;
+        bool sourceUnsigned = IsUnsignedInteger(source);
+        bool targetUnsigned = IsUnsignedInteger(target);
+        if (sourceUnsigned == targetUnsigned)
+            return targetWidth < sourceWidth;
+        if (sourceUnsigned)
+            return targetWidth <= sourceWidth;
+        return true;
+    }
+
     /// <summary>
     /// True when an integer constant is in <paramref name="target"/>'s range, so
     /// C# converts it implicitly (a constant-expression conversion) and no cast

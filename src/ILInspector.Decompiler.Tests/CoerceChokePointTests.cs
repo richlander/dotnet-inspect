@@ -391,6 +391,33 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool c, uint u, int a, int b)", body);
     }
 
+    // The CI-caught dual pair: an enum->underlying cast in a checked region
+    // wraps only when the checked conversion can actually throw. Identity
+    // (int-backed -> int) stays bare — EnumUnderlyingCastTests pins that side;
+    // cross-signedness (uint-backed -> int) must wrap.
+    [Fact]
+    public void UnsignedBackedEnumCast_ToInt_InCheckedRegion_WrapsUnchecked()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "UFlags");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new Coerce(intType, new LoadArgument(0, "f", enumType)),
+            new LoadArgument(1, "x", intType));
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [new Parameter("f", enumType), new Parameter("x", intType)],
+            enumType,
+            underlying: uintType);
+
+        Assert.Contains("unchecked((int)f)", body);
+        AssertCompiles("public static int M(UFlags f, int x)", body, "public enum UFlags : uint { }");
+    }
+
     // #2301: a cross-signedness reinterpret cast rendered inside a lexical
     // checked region must wrap in unchecked(...) — bare `(uint)x` there
     // recompiles to a conv.ovf.u4 the IL never had (and throws on negative x).
