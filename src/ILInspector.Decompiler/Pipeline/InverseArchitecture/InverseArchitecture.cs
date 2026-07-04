@@ -91,6 +91,21 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundAwaitExpression</c> (an <c>await x</c> expression).</summary>
     RoslynBoundAwaitExpression,
+
+    /// <summary>Roslyn's <c>BoundLiteral</c> (a compile-time constant value).</summary>
+    RoslynBoundLiteral,
+
+    /// <summary>Roslyn's <c>BoundConditionalOperator</c> (the <c>c ? t : f</c> ternary).</summary>
+    RoslynBoundConditionalOperator,
+
+    /// <summary>Roslyn's <c>BoundNullCoalescingOperator</c> (the <c>a ?? b</c> operator).</summary>
+    RoslynBoundNullCoalescingOperator,
+
+    /// <summary>Roslyn's <c>BoundIncrementOperator</c> (the <c>++</c>/<c>--</c> operators, prefix and postfix).</summary>
+    RoslynBoundIncrementOperator,
+
+    /// <summary>Roslyn's <c>BoundConvertedSwitchExpression</c> (a <c>value switch { ... }</c> expression after conversion).</summary>
+    RoslynBoundConvertedSwitchExpression,
 }
 
 /// <summary>

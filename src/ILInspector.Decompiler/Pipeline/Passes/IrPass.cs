@@ -325,6 +325,12 @@ public static class IrPasses
         // target in a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
         // Nothing may reshape sink values after this.
+        // A decided in-domain slot (one testified type, all stores at it or
+        // renderably coercible) is a finished variable: materialize it as a
+        // typed local BEFORE insertion, so its minted locals are coerced at
+        // their sinks like any local (slice 5b-2; the assertion diff caught
+        // the reverse ordering leaving them bare).
+        new SlotMaterializationPass(),
         new CoercionInsertionPass(),
     ];
 
@@ -344,6 +350,21 @@ public static class IrPasses
     /// </summary>
     public static ImmutableArray<IIrPass> Lowered { get; } =
         [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass))];
+
+    /// <summary>
+    /// The sub-pipeline for cross-method reconstruction imports (async and
+    /// iterator <c>MoveNext</c> bodies): <see cref="Default"/> without the
+    /// requesting pass and without <see cref="SlotMaterializationPass"/>.
+    /// Reconstruction pattern-matches structural slot nodes (the state
+    /// machine's spilled stores/loads), so materializing them inside the
+    /// sub-pipeline breaks the match — and it buys nothing: the transplanted
+    /// body re-enters the host pipeline, where materialization runs at its own
+    /// position. Running an emission-stage pass inside an earlier pass is the
+    /// ordering inversion the obligations model forbids. Lambda raising keeps
+    /// <see cref="Default"/>: its embedded body IS final output.
+    /// </summary>
+    public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
+        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

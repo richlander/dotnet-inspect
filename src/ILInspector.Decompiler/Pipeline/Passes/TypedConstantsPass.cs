@@ -25,7 +25,7 @@ public sealed class TypedConstantsPass : IIrPass
     void RunScope(IrNode scope, TypeRef? returnType, IrFunction function, Stepper stepper)
     {
         var shapes = function.TypeShapes;
-        var slotTypes = CoercionSinks.TestifiedSlotTypes(scope, returnType);
+        var slotTypes = CoercionSinks.TestifiedSlotTypes(scope, returnType, shapes);
         foreach (var node in CoercionSinks.ScopeNodes(scope).ToList())
         {
             switch (node)

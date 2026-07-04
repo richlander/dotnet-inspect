@@ -74,7 +74,7 @@ public static class CoercionSinks
 
     public static IEnumerable<TypedSink> Enumerate(IrFunction function)
         => Enumerate(function.Body, function.Signature.ReturnType, function,
-            TestifiedSlotTypes(function.Body, function.Signature.ReturnType));
+            TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes));
 
     /// <summary>Scope-bounded descendants: every node in this body, not crossing into nested lambda / local-function bodies (their scopes walk separately).</summary>
     public static IEnumerable<IrNode> ScopeNodes(IrNode scope)
@@ -99,7 +99,7 @@ public static class CoercionSinks
     /// constant reconciliation (TypedConstantsPass) and slot-store sink
     /// enumeration (slice 5b).
     /// </summary>
-    public static Dictionary<int, TypeRef> TestifiedSlotTypes(IrNode scope, TypeRef? returnType)
+    public static Dictionary<int, TypeRef> TestifiedSlotTypes(IrNode scope, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {
         var types = new Dictionary<int, TypeRef>();
         var ambiguous = new HashSet<int>();
@@ -107,7 +107,7 @@ public static class CoercionSinks
         {
             if (ambiguous.Contains(load.Slot))
                 continue;
-            var evidence = load.Type ?? LoadSinkTargetType(load, returnType);
+            var evidence = load.Type ?? LoadSinkTargetType(load, returnType, shapes);
             if (evidence is null)
             {
                 types.Remove(load.Slot);
@@ -131,13 +131,14 @@ public static class CoercionSinks
     }
 
     /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
-    static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType)
+    static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => load.Parent switch
         {
             StoreLocal store when ReferenceEquals(store.Value, load) => store.Type,
             StoreArgument store when ReferenceEquals(store.Value, load) => store.Type,
             StoreField store when ReferenceEquals(store.Value, load) => store.Field.Type,
             StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
+            StoreElement store when ReferenceEquals(store.Value, load) => StoreElementTarget(store, shapes),
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
             _ => null,
         };
@@ -157,11 +158,11 @@ public static class CoercionSinks
             switch (child)
             {
                 case Lambda lambda:
-                    foreach (var nested in Enumerate(lambda, returnType: null, function, TestifiedSlotTypes(lambda, returnType: null)))
+                    foreach (var nested in Enumerate(lambda, returnType: null, function, TestifiedSlotTypes(lambda, returnType: null, function.TypeShapes)))
                         yield return nested;
                     continue;
                 case LocalFunctionStatement local:
-                    foreach (var nested in Enumerate(local, local.ReturnType, function, TestifiedSlotTypes(local, local.ReturnType)))
+                    foreach (var nested in Enumerate(local, local.ReturnType, function, TestifiedSlotTypes(local, local.ReturnType, function.TypeShapes)))
                         yield return nested;
                     continue;
             }
