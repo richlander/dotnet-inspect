@@ -30,7 +30,9 @@ internal static class AssertionScan
         string SinkType,
         string Message,
         int Ordinal,
-        bool FinalStageSurvivor = false)
+        bool FinalStageSurvivor = false,
+        int LifetimeStages = 0,
+        string DischargePass = "")
     {
         public string Identity => $"{Pass}|{Predicate}|{Node}|{SinkType}|{Message}#{Ordinal}";
 
@@ -466,9 +468,14 @@ internal static class AssertionScan
         }
 
         var finalStageIdentities = new HashSet<string>(StringComparer.Ordinal);
+        var stageNames = new List<string>();
+        var firstStageByIdentity = new Dictionary<string, int>(StringComparer.Ordinal);
+        var lastStageByIdentity = new Dictionary<string, int>(StringComparer.Ordinal);
 
         void Capture(string passName)
         {
+            int stageIndex = stageNames.Count;
+            stageNames.Add(passName);
             AddCoveredNodes(function, covered);
             var stageIdentities = new HashSet<string>(StringComparer.Ordinal);
             var stageViolations = new List<(string Identity, ViolationSite Site)>();
@@ -482,6 +489,13 @@ internal static class AssertionScan
                     int ordinal = OccurrenceOrdinal(occurrenceOrdinals, identity, violation.Node);
                     string stableIdentity = $"{identity}#{ordinal}";
                     stageIdentities.Add(stableIdentity);
+                    // Track the accrual (first) and last-present stage index per
+                    // identity — pass names in IrPasses.Default are not unique
+                    // (e.g. typed-constants runs twice), so lifetime must key on
+                    // capture-order index, not the pass name.
+                    if (!firstStageByIdentity.ContainsKey(stableIdentity))
+                        firstStageByIdentity[stableIdentity] = stageIndex;
+                    lastStageByIdentity[stableIdentity] = stageIndex;
                     stageViolations.Add((
                         stableIdentity,
                         new ViolationSite(key, passName, predicate.Name, node, sinkType, violation.Message, ordinal)));
@@ -524,24 +538,47 @@ internal static class AssertionScan
                 overload,
                 signature,
                 key,
-                MarkSurvivors(violations, finalStageIdentities),
+                Finalize(violations, finalStageIdentities, stageNames, firstStageByIdentity, lastStageByIdentity),
                 covered,
                 $"{ex.GetType().Name}: {ex.Message}");
         }
 
         return new MethodResult(assembly, assemblyPath, type, method, overload, signature, key,
-            MarkSurvivors(violations, finalStageIdentities), covered, PassBug: null);
+            Finalize(violations, finalStageIdentities, stageNames, firstStageByIdentity, lastStageByIdentity),
+            covered, PassBug: null);
     }
 
     /// <summary>
-    /// Flags each first-appearance violation whose claim is still present at the
-    /// final stage — a discharged obligation (wrapped by a later pass, e.g.
-    /// coercion insertion) is cleared, a survivor is the real soundness signal.
+    /// Marks each first-appearance violation with its final-stage-survivor status
+    /// and, for a discharged obligation, its lifetime — the number of pipeline
+    /// stages it persisted from accrual to discharge (the corpus analog of the
+    /// obligation-lifetime the effects model describes). A survivor has no
+    /// discharge, so its lifetime is 0 and <c>DischargePass</c> is empty; a
+    /// discharged obligation records the pass that cleared it. A short lifetime
+    /// means a pass decided the type early; a long one means it retrofitted the
+    /// claim late.
     /// </summary>
-    internal static IReadOnlyList<ViolationSite> MarkSurvivors(
-        IReadOnlyList<ViolationSite> violations, IReadOnlySet<string> finalStageIdentities)
+    internal static IReadOnlyList<ViolationSite> Finalize(
+        IReadOnlyList<ViolationSite> violations,
+        IReadOnlySet<string> finalStageIdentities,
+        IReadOnlyList<string> stageNames,
+        IReadOnlyDictionary<string, int> firstStageByIdentity,
+        IReadOnlyDictionary<string, int> lastStageByIdentity)
         => violations
-            .Select(v => v with { FinalStageSurvivor = finalStageIdentities.Contains(v.StageIdentity) })
+            .Select(v =>
+            {
+                bool survivor = finalStageIdentities.Contains(v.StageIdentity);
+                if (survivor)
+                    return v with { FinalStageSurvivor = true, LifetimeStages = 0, DischargePass = "" };
+
+                int first = firstStageByIdentity[v.StageIdentity];
+                int last = lastStageByIdentity[v.StageIdentity];
+                // Discharged after `last`: the first absent stage is last+1.
+                int dischargeIndex = last + 1;
+                int lifetime = dischargeIndex - first;
+                string dischargePass = dischargeIndex < stageNames.Count ? stageNames[dischargeIndex] : "";
+                return v with { FinalStageSurvivor = false, LifetimeStages = lifetime, DischargePass = dischargePass };
+            })
             .ToArray();
 
     static int OccurrenceOrdinal(Dictionary<string, Dictionary<IrNode, int>> ordinals, string identity, IrNode node)
@@ -612,6 +649,24 @@ internal static class AssertionScan
             Console.WriteLine("Final-stage survivors (UNSOUND — the soundness signal):");
             PrintHistogram("  by node:", survivors.GroupBy(v => v.Node));
             PrintHistogram("  by sink type:", survivors.GroupBy(v => v.SinkType));
+        }
+
+        // Obligation lifetime — stages from accrual to discharge — is a
+        // construction-quality signal: a short lifetime means a pass decided the
+        // type early, a long one means it retrofitted the claim late. Only
+        // discharged obligations have a lifetime (survivors never discharge). See
+        // docs/design/assertion-lane-effects.md.
+        var discharged = methodsWithViolations.SelectMany(m => m.Violations).Where(v => !v.FinalStageSurvivor).ToArray();
+        if (discharged.Length > 0)
+        {
+            var lifetimes = discharged.Select(v => v.LifetimeStages).ToArray();
+            Console.WriteLine();
+            Console.WriteLine("Obligation lifetime (discharged; stages from accrual to discharge):");
+            Console.WriteLine($"  mean: {lifetimes.Average():F1}  max: {lifetimes.Max()}  min: {lifetimes.Min()}");
+            PrintHistogram("  by discharging pass:", discharged.Where(v => v.DischargePass.Length > 0).GroupBy(v => v.DischargePass));
+            Console.WriteLine("  longest-lived (retrofit hotspots):");
+            foreach (var v in discharged.OrderByDescending(v => v.LifetimeStages).Take(maxExamples))
+                Console.WriteLine($"    {v.LifetimeStages} stages  {v.Node} -> {v.SinkType}  ({v.Pass} -> {v.DischargePass})");
         }
 
         Console.WriteLine();

@@ -36,6 +36,14 @@ persists the survivor flag (snapshot schema v2), and `--diff-assertion-violation
 reports a dedicated **survivor delta** so a newly surviving assertion is
 distinguished from a gained-but-discharged obligation.
 
+For discharged obligations the scan also reports **obligation lifetime** — the
+number of pipeline stages from accrual (first appearance) to discharge (the stage
+a later pass cleared it). A short lifetime means a pass decided the type early; a
+long one means it retrofitted the claim late, so the `longest-lived (retrofit
+hotspots)` list surfaces the obligations a pass could discharge sooner. Lifetime
+is a construction-quality trend, not a gate; see
+[docs/design/assertion-lane-effects.md](../../docs/design/assertion-lane-effects.md).
+
 The scan is a triage and localized-signoff aid, not a CI gate on a raw violation
 count. It automates the value-typed-emission leak-surface census, but the
 population-scale correctness gates remain compile-back, render A/B, and the

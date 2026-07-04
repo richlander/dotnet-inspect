@@ -262,10 +262,13 @@ public class AssertionScanTests
         var violation = Assert.Single(result.Violations);
         Assert.False(violation.FinalStageSurvivor);
         Assert.Contains(nameof(Coerce), result.CoveredNodes);
+        // Discharged, so it has a real lifetime and a named discharging pass.
+        Assert.True(violation.LifetimeStages > 0);
+        Assert.NotEqual("", violation.DischargePass);
     }
 
     [Fact]
-    public void MarkSurvivors_FlagsOnlyViolationsPresentAtFinalStage()
+    public void Finalize_FlagsSurvivorsAndComputesDischargedLifetime()
     {
         var discharged = new AssertionScan.ViolationSite(
             Method: "m", Pass: IrPasses.ImportStageName, Predicate: "SinkDistinguishableFromStack",
@@ -274,13 +277,32 @@ public class AssertionScanTests
             Method: "m", Pass: IrPasses.ImportStageName, Predicate: "SinkDistinguishableFromStack",
             Node: nameof(Constant), SinkType: "bool", Message: "0 occupies a bool sink without a Coerce", Ordinal: 0);
 
-        // Only the survivor's stage identity is present at the final stage.
+        // Stage order: import(0), pass-a(1), coercion-insertion(2), tail(3).
+        var stageNames = new[] { IrPasses.ImportStageName, "pass-a", "coercion-insertion", "tail" };
+        // Discharged accrued at import(0), last present at pass-a(1) -> discharged at index 2.
+        var firstStage = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [discharged.StageIdentity] = 0,
+            [survivor.StageIdentity] = 0,
+        };
+        var lastStage = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [discharged.StageIdentity] = 1,
+            [survivor.StageIdentity] = 3,
+        };
         var finalStage = new HashSet<string>(StringComparer.Ordinal) { survivor.StageIdentity };
 
-        var marked = AssertionScan.MarkSurvivors([discharged, survivor], finalStage);
+        var marked = AssertionScan.Finalize([discharged, survivor], finalStage, stageNames, firstStage, lastStage);
 
-        Assert.False(marked.Single(v => v.Node == nameof(LoadArgument)).FinalStageSurvivor);
-        Assert.True(marked.Single(v => v.Node == nameof(Constant)).FinalStageSurvivor);
+        var d = marked.Single(v => v.Node == nameof(LoadArgument));
+        Assert.False(d.FinalStageSurvivor);
+        Assert.Equal(2, d.LifetimeStages);            // dischargeIndex(2) - accrual(0)
+        Assert.Equal("coercion-insertion", d.DischargePass);
+
+        var s = marked.Single(v => v.Node == nameof(Constant));
+        Assert.True(s.FinalStageSurvivor);
+        Assert.Equal(0, s.LifetimeStages);            // survivors never discharge
+        Assert.Equal("", s.DischargePass);
     }
 
     [Fact]
