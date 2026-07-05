@@ -1870,32 +1870,55 @@ public sealed partial class CSharpPrinter
     }
 
     string CoalesceRightText(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
+    {
+        string text = CoalesceRightCore(right, target, primitiveCoercionSourceType);
+        // The `??` right operand binds tighter than `?:`, so a top-level
+        // conditional expression must parenthesize — `n ?? (c ? a : b)`, not
+        // `n ?? c ? a : b` which C# parses as `(n ?? c) ? a : b` (CS0019/CS0029).
+        // A bare top-level ternary reaches here from the bool→int composition
+        // (`b ? 1 : 0`), a stale-`Coerce` over a conditional, or a conditional
+        // right rendered without `Operand`'s parentheses (#2345 rounds 3-4).
+        // Conditional/switch arms need no such guard — their `:`/`=>` delimiters
+        // already bracket the ternary.
+        return HasTopLevelConditionalOperator(text) ? $"({text})" : text;
+    }
+
+    string CoalesceRightCore(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType)
         => TryCoerceJoinArm(right, target, primitiveCoercionSourceType) is { } coerced
             ? coerced
             // The bool-arm composition, mirroring ConditionalArm and
-            // SwitchArmValueText (the #2145 one-rule-in-all-three discipline;
-            // #2345 review found the switch sibling missing it).
+            // SwitchArmValueText (the #2145 one-rule-in-all-three discipline).
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
                 && EffectiveType(right) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-                ? CoalesceRightBoolComposition(right, intTarget)
+                ? BoolToIntegerText(right, intTarget)
                 : Operand(right);
 
     /// <summary>
-    /// The bool→integer composition for a coalesce right side. The <c>??</c>
-    /// right operand binds looser than <c>?:</c>, so a bare-ternary composition
-    /// (the Int32/Int64 form <see cref="BoolToIntegerText"/> leaves uncast) must
-    /// parenthesize — <c>n ?? (b ? 1 : 0)</c>, not <c>n ?? b ? 1 : 0</c> which C#
-    /// parses as <c>(n ?? b) ? 1 : 0</c> (CS0019; #2345 round-3, GPT-5.5). The
-    /// cast form for other targets is already a primary expression. Conditional
-    /// and switch arms need no such wrap — their <c>:</c>/<c>=&gt;</c> delimiters
-    /// already bracket the ternary.
+    /// True when <paramref name="text"/> is a conditional expression at the top
+    /// level — a <c>?</c> ternary operator (rendered space-flanked, so distinct
+    /// from <c>??</c>, <c>?.</c>, <c>?[</c>) outside any bracket. Used to decide
+    /// whether a coalesce right operand needs parentheses.
     /// </summary>
-    string CoalesceRightBoolComposition(IrExpression right, TypeRef intTarget)
+    static bool HasTopLevelConditionalOperator(string text)
     {
-        string composition = BoolToIntegerText(right, intTarget);
-        return intTarget is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
-            ? $"({composition})"
-            : composition;
+        int depth = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            switch (text[i])
+            {
+                case '(' or '[' or '{':
+                    depth++;
+                    break;
+                case ')' or ']' or '}':
+                    depth--;
+                    break;
+                case '?' when depth == 0
+                    && i > 0 && text[i - 1] == ' '
+                    && i + 1 < text.Length && text[i + 1] == ' ':
+                    return true;
+            }
+        }
+        return false;
     }
 
     static TypeRef? NullableValueType(TypeRef? type)

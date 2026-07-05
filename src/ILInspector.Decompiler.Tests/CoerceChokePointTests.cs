@@ -353,6 +353,86 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void BoolCompositionOfNestedConditional_ParenthesizesCondition()
+    {
+        // #2345 round-4 (GPT-5.5): BoolToIntegerText composes `{cond} ? 1 : 0`;
+        // when the bool value is itself a conditional it renders bare
+        // `c ? b1 : b2`, and `c ? b1 : b2 ? 1 : 0` reassociates as
+        // `c ? b1 : (b2 ? 1 : 0)` (bool/int arm mismatch, CS0029). The condition
+        // must parenthesize: `(c ? b1 : b2) ? 1 : 0`. Root fix in
+        // BoolToIntegerText, so conditional/switch/coalesce consumers all inherit
+        // it — asserted here through a conditional arm.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var nestedBool = new Conditional(
+            new LoadArgument(1, "c", boolType),
+            new LoadArgument(2, "b1", boolType),
+            new LoadArgument(3, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var outer = new Conditional(
+            new LoadArgument(0, "outer", boolType),
+            nestedBool,
+            new Constant(2, intType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, outer),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("outer", boolType), new Parameter("c", boolType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [uintType]);
+
+        Assert.Contains("(c ? b1 : b2)", body);
+        AssertCompiles("public static uint M(bool outer, bool c, bool b1, bool b2)", body);
+    }
+
+    [Fact]
+    public void CoalesceExpression_WithConditionalRight_ParenthesizesTernary()
+    {
+        // #2345 round-4 (Gemini): a coalesce right that renders as a bare
+        // top-level ternary — here a stale `Coerce` over a conditional, which
+        // TryCoerceJoinArm re-targets to `CoerceText(conditional, target)` and
+        // returns unbracketed — must parenthesize as a `??` right operand:
+        // `n ?? (c ? 1 : 2)`, not `n ?? c ? 1 : 2` (parses `(n ?? c) ? 1 : 2`,
+        // CS0019). Covers the render paths the bool-composition canary does not.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var conditional = new Conditional(
+            new LoadArgument(1, "c", boolType),
+            new Constant(1, intType),
+            new Constant(2, intType))
+        {
+            MergedType = intType,
+        };
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "n", nullableInt),
+            new Coerce(sbyteType, conditional));
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, coalesce),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("c", boolType)],
+            [intType]);
+
+        Assert.DoesNotContain("?? c ? 1 : 2", body);
+        AssertCompiles("public static int M(int? n, bool c)", body);
+    }
+
+    [Fact]
     public void Conditional_WithNarrowSignedArmsAtPrimitiveStoreTarget_CastsThroughMergedWidth()
     {
         // Clean Gemini review: the target cast is licensed by the conditional's

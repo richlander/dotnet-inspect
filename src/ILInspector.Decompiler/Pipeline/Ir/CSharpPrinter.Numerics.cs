@@ -1403,9 +1403,18 @@ public sealed partial class CSharpPrinter
                 : Operand(arm);
 
     string BoolToIntegerText(IrExpression value, TypeRef target)
-        => target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
-            ? $"{Condition(value)} ? 1 : 0"
-            : CheckedSafeCast(() => $"({TypeText(target)})({Condition(value)} ? 1 : 0)");
+    {
+        // The condition of the composed `?:` must out-bind `?:` itself. Every
+        // bool-valued form Condition() produces already does (comparisons,
+        // `&&`/`||`, `!x`, `??`, calls) EXCEPT a nested conditional, which
+        // renders bare `c ? b1 : b2` and reassociates into the composition
+        // (`c ? b1 : b2 ? 1 : 0` is `c ? b1 : (b2 ? 1 : 0)`, a bool/int arm
+        // mismatch — #2345 round-4, GPT-5.5). Parenthesize that one case.
+        string condition = value is Conditional ? $"({Condition(value)})" : Condition(value);
+        return target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
+            ? $"{condition} ? 1 : 0"
+            : CheckedSafeCast(() => $"({TypeText(target)})({condition} ? 1 : 0)");
+    }
 
     /// <summary>
     /// The one join-arm coercion, all three directions: an integer-family arm
