@@ -1908,137 +1908,27 @@ public sealed partial class CSharpPrinter
     }
 
     string CoalesceRightText(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
-    {
-        string text = CoalesceRightCore(right, target, primitiveCoercionSourceType);
-        // The `??` right operand binds tighter than `?:`, so a top-level
-        // conditional expression must parenthesize — `n ?? (c ? a : b)`, not
-        // `n ?? c ? a : b` which C# parses as `(n ?? c) ? a : b` (CS0019/CS0029).
-        // A bare top-level ternary reaches here from the bool→int composition
-        // (`b ? 1 : 0`), a stale-`Coerce` over a conditional, or a conditional
-        // right rendered without `Operand`'s parentheses (#2345 rounds 3-5).
-        // Conditional/switch arms need no such guard — their `:`/`=>` delimiters
-        // already bracket the ternary.
-        return ParenthesizeConditional(text);
-    }
+        // The `??` right operand demands NullCoalescing (`??` binds tighter
+        // than `?:`), so a Conditional-precedence fragment — the bool→int
+        // composition, a stale-`Coerce` re-target, a bare conditional right —
+        // wraps by the one precedence rule (#2376 phase 1; replaces the #2345
+        // rounds 3-8 string scanner). Conditional/switch arms carry no such
+        // demand — their `:`/`=>` delimiters already bracket the ternary.
+        => CoalesceRightRendered(right, target, primitiveCoercionSourceType).At(Precedence.NullCoalescing);
 
-    string CoalesceRightCore(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType)
-        => TryCoerceJoinArm(right, target, primitiveCoercionSourceType) is { } coerced
+    Rendered CoalesceRightRendered(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType)
+        => TryCoerceJoinArmRendered(right, target, primitiveCoercionSourceType) is { } coerced
             ? coerced
             // The bool-arm composition, mirroring ConditionalArm and
             // SwitchArmValueText (the #2145 one-rule-in-all-three discipline).
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
                 && EffectiveType(right) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-                ? BoolToIntegerText(right, intTarget)
-                : Operand(right);
-
-    /// <summary>Parenthesizes <paramref name="text"/> when it renders a top-level conditional expression, otherwise returns it unchanged.</summary>
-    static string ParenthesizeConditional(string text)
-        => HasTopLevelConditionalOperator(text) ? $"({text})" : text;
-
-    /// <summary>
-    /// True when <paramref name="text"/> is a conditional expression at the top
-    /// level — a <c>?</c> ternary operator (rendered space-flanked, so distinct
-    /// from <c>??</c>, <c>?.</c>, <c>?[</c>, and a <c>T?</c> nullable suffix)
-    /// outside any bracket, string, or character literal. String/char literals —
-    /// including interpolated strings and their <c>{expr}</c> holes — are skipped
-    /// whole, so an unbalanced bracket or a stray <c>?</c> inside a literal cannot
-    /// corrupt the depth count (#2345 rounds 5-6 review).
-    /// </summary>
-    static bool HasTopLevelConditionalOperator(string text)
-    {
-        int depth = 0;
-        for (int i = 0; i < text.Length; i++)
-        {
-            char ch = text[i];
-            if (ch is '"' or '\'')
-            {
-                i = SkipLiteral(text, i);
-                continue;
-            }
-            if (ch is '(' or '[' or '{')
-                depth++;
-            else if (ch is ')' or ']' or '}')
-                depth--;
-            else if (ch == '?' && depth == 0
-                && i > 0 && text[i - 1] == ' '
-                && i + 1 < text.Length && text[i + 1] == ' ')
-                return true;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Returns the index of the closing quote of the string or character literal
-    /// opening at <paramref name="open"/>. Honors <c>\</c> escapes (or <c>""</c>
-    /// for verbatim strings) and, for interpolated strings, skips each
-    /// <c>{expr}</c> hole — with its nested literals — so a quote or brace inside
-    /// a hole is not mistaken for the string's terminator.
-    /// </summary>
-    static int SkipLiteral(string text, int open)
-    {
-        char quote = text[open];
-        bool verbatim = open > 0 && (text[open - 1] == '@'
-            || (open > 1 && text[open - 1] == '$' && text[open - 2] == '@'));
-        bool interpolated = quote == '"' && open > 0 && (text[open - 1] == '$'
-            || (open > 1 && text[open - 1] == '@' && text[open - 2] == '$'));
-        for (int i = open + 1; i < text.Length; i++)
-        {
-            char ch = text[i];
-            if (!verbatim && ch == '\\')
-                i++;
-            else if (verbatim && ch == quote && i + 1 < text.Length && text[i + 1] == quote)
-                i++;
-            else if (interpolated && ch == '{')
-            {
-                if (i + 1 < text.Length && text[i + 1] == '{')
-                    i++;
-                else
-                    i = SkipInterpolationHole(text, i);
-            }
-            else if (ch == quote)
-                return i;
-        }
-        return text.Length - 1;
-    }
-
-    /// <summary>
-    /// Returns the index of the closing <c>}</c> of the interpolation hole
-    /// opening at <paramref name="open"/>. The expression component's nested
-    /// literals and brackets are skipped as real syntax; a <c>:</c> at the
-    /// hole's top level begins the format component, which is literal text (a
-    /// bare <c>'</c> or an escaped <c>\"</c> there is a format character, not a
-    /// string delimiter — #2345 round-7 review) and runs to the closing brace.
-    /// </summary>
-    static int SkipInterpolationHole(string text, int open)
-    {
-        int innerDepth = 0;
-        bool inFormat = false;
-        for (int i = open + 1; i < text.Length; i++)
-        {
-            char ch = text[i];
-            if (inFormat)
-            {
-                if (ch == '}')
-                    return i;
-                continue;
-            }
-            if (ch is '"' or '\'')
-                i = SkipLiteral(text, i);
-            else if (ch is '(' or '[' or '{')
-                innerDepth++;
-            else if (ch is ')' or ']')
-                innerDepth--;
-            else if (ch == '}')
-            {
-                if (innerDepth == 0)
-                    return i;
-                innerDepth--;
-            }
-            else if (ch == ':' && innerDepth == 0)
-                inFormat = true;
-        }
-        return text.Length - 1;
-    }
+                ? BoolToInteger(right, intTarget)
+                // Operand() parenthesizes every non-atom itself (Conditional
+                // included), so its output is always effectively primary — the
+                // loose fragments reach this context only through the two
+                // branches above, which report their own precedence.
+                : Rendered.Primary(Operand(right));
 
     static TypeRef? NullableValueType(TypeRef? type)
         => type is
