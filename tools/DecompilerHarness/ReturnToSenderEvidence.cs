@@ -35,9 +35,15 @@ internal sealed record ReturnToSenderActionableSubject(
     string? RtsStatus,
     string? CompileBackStatus,
     string? Detail,
-    IReadOnlyList<ReturnToSenderChangeCount> ChangeCounts);
+    IReadOnlyList<ReturnToSenderChangeCount> ChangeCounts,
+    IReadOnlyList<ReturnToSenderIlEvidence> IlEvidence);
 
 internal sealed record ReturnToSenderChangeCount(string ChangeId, int Count);
+
+internal sealed record ReturnToSenderIlEvidence(
+    string ChangeId,
+    IlDiffDisplayFailureRow? Failure,
+    IReadOnlyList<IlDiffDisplayRow> Rows);
 
 internal static class ReturnToSenderEvidence
 {
@@ -107,13 +113,22 @@ internal static class ReturnToSenderEvidence
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new ReturnToSenderChangeCount(group.Key, group.Count()))
             .ToArray();
+        var ilEvidence = subject.Evidence
+            .Where(item => item.Mechanism == ResearchDiffMechanism.IlBody
+                && (item.IlDisplayFailureRow is not null || !item.IlDisplayRows.IsDefaultOrEmpty))
+            .Select(item => new ReturnToSenderIlEvidence(
+                item.ChangeId,
+                item.IlDisplayFailureRow,
+                item.IlDisplayRows.IsDefault ? [] : item.IlDisplayRows.ToArray()))
+            .ToArray();
         return new ReturnToSenderActionableSubject(
             subject.Subject.Id,
             subject.Subject.Display,
             rts.ChangeId,
             rts.NewValue,
             rts.Detail,
-            changeCounts);
+            changeCounts,
+            ilEvidence);
     }
 
     static bool HasRtsStatus(ResearchSubjectDiff subject, string changeId)
