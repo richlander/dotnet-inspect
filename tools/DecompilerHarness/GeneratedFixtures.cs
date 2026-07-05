@@ -2067,6 +2067,7 @@ internal sealed record GeneratedFixtureReturnToSenderResult(
     string? Detail,
     IlDiffDisplayResult? IlDiffDiagnostic,
     MemberAnchor? MemberAnchor,
+    ReturnToSenderClosureEvidence? ClosureEvidence,
     bool IsFrontier,
     string? Note)
 {
@@ -2201,6 +2202,7 @@ internal static class GeneratedFixtureRunner
                                 : actual.Detail,
                         actual.IlDiffDiagnostic,
                         actual.MemberAnchor,
+                        ReturnToSenderClosureEvidenceBuilder.FromPlan(actual.Plan),
                         target.IsFrontier,
                         target.Note));
                 }
@@ -2236,6 +2238,7 @@ internal static class GeneratedFixtureRunner
             Detail: null,
             IlDiffDiagnostic: null,
             MemberAnchor: null,
+            ClosureEvidence: null,
             target.IsFrontier,
             target.Note);
 
@@ -2441,6 +2444,12 @@ internal static class GeneratedFixtureRunner
                     sb.AppendLine($"      {row.DisplayMember}  rts={actual}  bucket={row.Reason}");
                     if (row.MemberAnchor is not null)
                         sb.AppendLine($"      member: {row.MemberAnchor.StableSelector}  canonical={row.MemberAnchor.CanonicalSignature}");
+                    if (row.ClosureEvidence is not null)
+                    {
+                        sb.AppendLine(
+                            $"      closure: types={row.ClosureEvidence.RequiredTypes} members={row.ClosureEvidence.RequiredMembers} " +
+                            $"roslyn-types={row.ClosureEvidence.RoslynRecoveredTypes} roslyn-member-surfaces={row.ClosureEvidence.RoslynRecoveredMemberSurfaces}");
+                    }
                     if (!string.IsNullOrWhiteSpace(row.Detail))
                         sb.AppendLine($"      detail: {row.Detail}");
                     if (row.IlDiffDiagnostic is not null)
@@ -2508,6 +2517,7 @@ internal static class GeneratedFixtureRunner
             result.Detail,
             IlDiffDiagnostic = SerializableIlDiffDisplayResult(result.IlDiffDiagnostic),
             result.MemberAnchor,
+            result.ClosureEvidence,
             result.IsFrontier,
             result.Note,
             result.DisplayMember,
