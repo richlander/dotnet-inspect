@@ -797,6 +797,103 @@ public class CoerceChokePointTests
         AssertCompiles("public static int M(bool c, IFlags f, int x)", body, "public enum IFlags { }");
     }
 
+    [Fact]
+    public void IntBackedEnumOperand_InCheckedRegion_StaysBare()
+    {
+        // #2338 B5: the operand-shaped enum cast shares the same checked-region
+        // rule. int -> int-backed enum cannot throw in checked C#.
+        var enumType = TypeRef.Definition("synthetic", "", "IFlags");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var comparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadArgument(0, "f", enumType),
+            new LoadArgument(1, "raw", intType));
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(2, "x", intType),
+            new Coerce(intType, comparison));
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [new Parameter("f", enumType), new Parameter("raw", intType), new Parameter("x", intType)],
+            enumType,
+            underlying: intType);
+
+        Assert.Contains("(IFlags)raw", body);
+        Assert.DoesNotContain("unchecked((IFlags)raw)", body);
+        AssertCompiles("public static int M(IFlags f, int raw, int x)", body, "public enum IFlags { }");
+    }
+
+    [Fact]
+    public void ByteBackedEnumOperand_InCheckedRegion_WrapsUnchecked()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var comparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadArgument(0, "f", enumType),
+            new LoadArgument(1, "raw", intType));
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(2, "x", intType),
+            new Coerce(intType, comparison));
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [new Parameter("f", enumType), new Parameter("raw", intType), new Parameter("x", intType)],
+            enumType,
+            underlying: byteType);
+
+        Assert.Contains("unchecked((Tiny)raw)", body);
+        AssertCompiles("public static int M(Tiny f, int raw, int x)", body, "public enum Tiny : byte { }");
+    }
+
+    [Fact]
+    public void BoolEnumOperand_InCheckedRegion_StaysBare()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var boolComparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadArgument(1, "a", intType),
+            new LoadArgument(2, "b", intType));
+        var enumComparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadArgument(0, "f", enumType),
+            boolComparison);
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(3, "x", intType),
+            new Coerce(intType, enumComparison));
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [
+                new Parameter("f", enumType),
+                new Parameter("a", intType),
+                new Parameter("b", intType),
+                new Parameter("x", intType),
+            ],
+            enumType,
+            underlying: byteType);
+
+        Assert.Contains("(Tiny)(a == b ? 1 : 0)", body);
+        Assert.DoesNotContain("unchecked((Tiny)(a == b ? 1 : 0))", body);
+        AssertCompiles("public static int M(Tiny f, int a, int b, int x)", body, "public enum Tiny : byte { }");
+    }
+
     // The CI-caught dual pair: an enum->underlying cast in a checked region
     // wraps only when the checked conversion can actually throw. Identity
     // (int-backed -> int) stays bare — EnumUnderlyingCastTests pins that side;

@@ -209,9 +209,24 @@ public sealed partial class CSharpPrinter
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
         bool forceUnchecked = MayOverflowEnumBackingType(value, enumType);
-        return CheckedSafeCast(
+        return CheckedSafeEnumCast(
+            value,
+            enumType,
             () => $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
             force: forceUnchecked);
+    }
+
+    string CheckedSafeEnumCast(IrExpression value, TypeRef enumType, Func<string> renderCast, bool force = false)
+    {
+        if (force)
+            return CheckedSafeCast(renderCast, force: true);
+        // A bool composition is always 0/1, fitting every enum backing type.
+        if (TypeFamilies.IsBoolean(EffectiveType(value)))
+            return renderCast();
+        var underlying = EnumUnderlyingType(enumType);
+        return underlying is not null && !TypeFamilies.CheckedConversionCanThrow(EffectiveType(value), underlying)
+            ? renderCast()
+            : CheckedSafeCast(renderCast);
     }
 
     /// <summary>
@@ -249,7 +264,7 @@ public sealed partial class CSharpPrinter
         if (enumSide is null || !IsEnumLikeInteger(enumSide))
             return null;
         if (TypeFamilies.IsBoolean(EffectiveType(value)))
-            return CheckedSafeCast(() => $"({TypeText(enumSide)})({Condition(value)} ? 1 : 0)");
+            return CheckedSafeEnumCast(value, enumSide, () => $"({TypeText(enumSide)})({Condition(value)} ? 1 : 0)");
         if (value.ResultType is not { } valueType || !TypeFamilies.IsIntegerLike(valueType))
             return null;
         return value is Constant { Value: int or long } konst

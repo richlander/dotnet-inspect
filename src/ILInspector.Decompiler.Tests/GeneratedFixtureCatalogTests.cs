@@ -1171,6 +1171,84 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("rts.status.fail: 1", report);
         Assert.Contains("il.operation.added: 1", report);
         Assert.Contains("il.operation.removed: 1", report);
+        Assert.Contains("Actionable subjects (first 1", report);
+        Assert.Contains("Method1~abcdef1234  rts=OpcodeDiff  detail=opcode-diff", report);
+        Assert.Contains("      il.operation.added: 1", report);
+        Assert.Contains("      il.operation.removed: 1", report);
+        Assert.Contains("      il-display:", report);
+        Assert.Contains("        il.operation.removed: h0 - IL_0000 ldc.i4 1", report);
+        Assert.Contains("        il.operation.added: h0 + IL_0000 ldc.i4 2", report);
+
+        string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
+        using var document = JsonDocument.Parse(json);
+        var actionable = Assert.Single(document.RootElement
+            .GetProperty("ResearchSummary")
+            .GetProperty("ActionableSubjects")
+            .EnumerateArray());
+        var ilEvidence = actionable.GetProperty("IlEvidence").EnumerateArray().ToArray();
+        Assert.Contains(ilEvidence, evidence =>
+            evidence.GetProperty("ChangeId").GetString() == "il.operation.removed"
+            && evidence.GetProperty("Rows").EnumerateArray().Single().GetProperty("UnifiedLine").GetString() == "h0 - IL_0000 ldc.i4 1");
+        Assert.Contains(ilEvidence, evidence =>
+            evidence.GetProperty("ChangeId").GetString() == "il.operation.added"
+            && evidence.GetProperty("Rows").EnumerateArray().Single().GetProperty("UnifiedLine").GetString() == "h0 + IL_0000 ldc.i4 2");
+    }
+
+    [Fact]
+    public void ReturnToSenderCatalogReport_IncludesResearchIlFailureRows()
+    {
+        var failure = new IlDiffDisplayFailureRow(
+            IlDiffFailureKind.NewBodyMissing,
+            "new body missing",
+            Side: "new",
+            Detail: "method has no body");
+        var run = new GeneratedFixtureReturnToSenderRunResult(
+            ProjectDirectory: "",
+            AssemblyPath: "",
+            Results:
+            [
+                new GeneratedFixtureReturnToSenderResult(
+                    "test.il-diff-failure",
+                    "TestType",
+                    "Method1",
+                    Overload: 0,
+                    GeneratedFixtureReturnToSenderStatus.Fail,
+                    FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    "opcode-diff",
+                    Detail: null,
+                    IlDiffDiagnostic: new IlDiffDisplayResult(
+                        Failure: failure.UnifiedLine,
+                        Rows: [],
+                        FailureRows: [failure]),
+                    MemberAnchor: new MemberAnchor(
+                        "Method1~abcdef1234",
+                        "M:TestType.Method1()",
+                        "abcdef1234",
+                        "TestType",
+                        "Method1"),
+                    IsFrontier: false,
+                    Note: null),
+            ]);
+
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+
+        Assert.Contains("      il-display:", report);
+        Assert.Contains("        il.diff.new-body-missing: IL diff failed: new body missing", report);
+
+        string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
+        using var document = JsonDocument.Parse(json);
+        var actionable = Assert.Single(document.RootElement
+            .GetProperty("ResearchSummary")
+            .GetProperty("ActionableSubjects")
+            .EnumerateArray());
+        var evidence = Assert.Single(actionable.GetProperty("IlEvidence").EnumerateArray());
+        Assert.Equal("il.diff.new-body-missing", evidence.GetProperty("ChangeId").GetString());
+        var failureJson = evidence.GetProperty("Failure");
+        Assert.Equal("NewBodyMissing", failureJson.GetProperty("Kind").GetString());
+        Assert.Equal("new body missing", failureJson.GetProperty("Message").GetString());
+        Assert.Equal("new", failureJson.GetProperty("Side").GetString());
+        Assert.Equal("method has no body", failureJson.GetProperty("Detail").GetString());
+        Assert.Equal("IL diff failed: new body missing", failureJson.GetProperty("UnifiedLine").GetString());
     }
 
     [Fact]
@@ -1320,6 +1398,11 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(rows, row =>
             row.GetProperty("Offset").GetString()?.StartsWith("IL_", StringComparison.Ordinal) == true
             && row.GetProperty("OpcodeFamily").GetString() is { Length: > 0 });
+        var summary = document.RootElement.GetProperty("ResearchSummary");
+        Assert.Equal(1, summary.GetProperty("FailingMembers").GetInt32());
+        Assert.Equal(1, summary.GetProperty("OpcodeDiffMembers").GetInt32());
+        var actionable = Assert.Single(summary.GetProperty("ActionableSubjects").EnumerateArray());
+        Assert.StartsWith("Method1~", actionable.GetProperty("SubjectId").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
