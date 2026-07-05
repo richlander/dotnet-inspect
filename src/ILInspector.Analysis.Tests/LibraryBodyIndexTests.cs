@@ -271,9 +271,9 @@ public class LibraryBodyIndexTests
         // the real target; the other (CallerGraphLookalikeCaller) calls its own in-assembly
         // Target.Api.Ping lookalike with the same fully-qualified name. Only the real caller may
         // be reported — the cross-assembly key must carry callee assembly identity (#1579).
-        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
-        var realCaller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
-        var lookalikeCaller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphLookalikeCaller"));
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var realCaller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var lookalikeCaller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
 
         var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
         var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { realCaller, lookalikeCaller }, maxDepth: 2, maxNodes: 50);
@@ -290,9 +290,9 @@ public class LibraryBodyIndexTests
         // Two caller assemblies declare the identical Shared.Entry.Run signature and both call the
         // real Target.Api.Ping. They must remain two distinct direct caller nodes; a key that omits
         // the caller source assembly collapses them into one (#1579).
-        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
-        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
-        var twin = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCallerTwin"));
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var twin = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
 
         var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
         var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, twin }, maxDepth: 2, maxNodes: 50);
@@ -311,8 +311,8 @@ public class LibraryBodyIndexTests
         // RunInt may be reported: the cross-assembly reverse map keys on CallerGraphKey, which
         // must carry parameter types, or the two overloads collapse and cross-link callers
         // (#1623 rung 1; non-vacuous because same-assembly resolution is token-based).
-        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
-        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
         var intOverload = targetIndex.Methods.Single(method =>
             method.DeclaringType.Name == "Api" && method.Name == "Ping"
@@ -333,8 +333,8 @@ public class LibraryBodyIndexTests
         // Box<int>.Store(1) — a member reference keyed on the List<int>-style instantiation. The
         // cross-assembly reverse map must normalize that constructed declaring type to its open
         // definition so the caller is reported (#1339); before, it under-reported as zero.
-        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
-        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
         var store = targetIndex.Methods.First(method =>
             method.DeclaringType.Name == "Box`1" && method.Name == "Store"
@@ -354,8 +354,8 @@ public class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_WithScope_KeepsSameArityGenericOverloadsDistinct()
     {
-        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
-        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
         var storeValue = targetIndex.Methods.First(method =>
             method.DeclaringType.Name == "Box`1" && method.Name == "Store"
@@ -381,8 +381,8 @@ public class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_WithScope_KeepsSameNameGenericTypesOfDifferentArityDistinct()
     {
-        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
-        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
         var box1Store = targetIndex.Methods.First(method =>
             method.DeclaringType.Name == "Box`1" && method.Name == "Store"
@@ -409,7 +409,7 @@ public class LibraryBodyIndexTests
     [Fact]
     public void ResolvedCall_PreservesOpenGenericMarker_DistinctFromInstantiatedParameter()
     {
-        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
         var storeValueCall = caller.DirectCalls.First(call =>
             call.Callee.Name == "Store" && call.Callee.ParameterTypes[0].Kind == TypeRefKind.Definition);
@@ -440,8 +440,8 @@ public class LibraryBodyIndexTests
         // Root the caller graph at the open Echo<T>(T). Another assembly calls Echo<int>(1) — a
         // MethodSpec keyed on the instantiation. Normalizing generic method identity to the open
         // definition + parameter arity links the caller across assemblies (#1339).
-        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
-        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
         var echo = targetIndex.Methods.First(method =>
             method.DeclaringType.Name == "GenericApi" && method.Name == "Echo");
@@ -488,34 +488,6 @@ public class LibraryBodyIndexTests
         Assert.False(pattern.MatchesCrossAssembly(twoArg));
     }
 
-    static string CallerGraphFixturePath(string projectName)
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName,
-            "..",
-            "..",
-            projectName,
-            outputDirectory.Name,
-            projectName + ".dll"));
-        Assert.True(File.Exists(path), $"Expected caller-graph fixture assembly at {path}");
-        return path;
-    }
-
-    static string NamedFixturePath(string projectName, string assemblyName)
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName,
-            "..",
-            "..",
-            projectName,
-            outputDirectory.Name,
-            assemblyName + ".dll"));
-        Assert.True(File.Exists(path), $"Expected fixture assembly at {path}");
-        return path;
-    }
-
     // #1741: two Ping overloads whose parameter types share the FQN Shared.Token but come
     // from different assemblies (DiffAsmLibA vs DiffAsmLibB). The cross-assembly caller
     // graph must keep them distinct — rooting at one overload reports only its own caller.
@@ -524,8 +496,8 @@ public class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_WithScope_KeepsSameFqnParametersFromDifferentAssembliesDistinct()
     {
-        var target = LibraryBodyIndex.Open(NamedFixturePath("DiffAsmFixtures.Target", "DiffAsmTarget"));
-        var caller = LibraryBodyIndex.Open(NamedFixturePath("DiffAsmFixtures.Caller", "DiffAsmCaller"));
+        var target = LibraryBodyIndex.Open(FixtureCatalog.DiffAsmTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.DiffAsmCaller.AssemblyPath());
 
         var pingA = target.Methods.First(method =>
             method.Name == "Ping" && method.ParameterTypes[0].Assembly == "DiffAsmLibA");

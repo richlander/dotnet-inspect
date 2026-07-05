@@ -17,6 +17,7 @@ public enum CSharpDiffKind
 {
     Remove,
     Add,
+    Changed,
 }
 
 public sealed record CSharpDiffRow(
@@ -31,7 +32,9 @@ public sealed record CSharpDiffRow(
     int? Line,
     string? SourceCoordinate,
     string Fidelity,
-    string Text);
+    string Text,
+    string? OldValue = null,
+    string? NewValue = null);
 
 public sealed record CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> Rows)
 {
@@ -754,6 +757,7 @@ public static class CSharpBodyDiff
             return;
 
         int hunk = hunkId++;
+        AddSemanticRows(rows, entry, hunk, oldRender, oldStart, oldEnd, newRender, newStart, newEnd);
         for (int i = oldStart; i < oldEnd; i++)
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, i + 1, oldRender.Fidelity.ToString(), oldRender.Lines[i]));
         for (int i = newStart; i < newEnd; i++)
@@ -803,11 +807,32 @@ public static class CSharpBodyDiff
         string text,
         string? changeId = null,
         string? message = null)
+        => CreateRow(entry, hunk, kind, line, fidelity, text, changeId, message, oldValue: null, newValue: null);
+
+    static CSharpDiffRow CreateRow(
+        CSharpMethodEntry entry,
+        int hunk,
+        CSharpDiffKind kind,
+        int? line,
+        string fidelity,
+        string text,
+        string? changeId,
+        string? message,
+        string? oldValue,
+        string? newValue)
     {
-        changeId ??= kind == CSharpDiffKind.Add ? "csharp.line.added" : "csharp.line.removed";
-        message ??= kind == CSharpDiffKind.Add
-            ? $"Added C# line '{text}'"
-            : $"Removed C# line '{text}'";
+        changeId ??= kind switch
+        {
+            CSharpDiffKind.Add => "csharp.line.added",
+            CSharpDiffKind.Remove => "csharp.line.removed",
+            _ => "csharp.line.changed",
+        };
+        message ??= kind switch
+        {
+            CSharpDiffKind.Add => $"Added C# line '{text}'",
+            CSharpDiffKind.Remove => $"Removed C# line '{text}'",
+            _ => $"Changed C# line '{text}'",
+        };
         return new CSharpDiffRow(
             entry.StableAssemblyKey,
             entry.StableMemberKey,
@@ -820,7 +845,597 @@ public static class CSharpBodyDiff
             line,
             line is null ? null : $"line:{line.Value}",
             fidelity,
-            text);
+            text,
+            oldValue,
+            newValue);
+    }
+
+    static void AddSemanticRows(
+        ImmutableArray<CSharpDiffRow>.Builder rows,
+        CSharpMethodEntry entry,
+        int hunk,
+        CSharpMethodRender oldRender,
+        int oldStart,
+        int oldEnd,
+        CSharpMethodRender newRender,
+        int newStart,
+        int newEnd)
+    {
+        if (oldRender.Fidelity != DecompilationFidelity.Full || newRender.Fidelity != DecompilationFidelity.Full)
+            return;
+
+        for (int i = oldStart; i < oldEnd; i++)
+        {
+            if (TryParseSwitchCase(oldRender.Lines[i], out var label))
+            {
+                rows.Add(CreateRow(
+                    entry,
+                    hunk,
+                    CSharpDiffKind.Remove,
+                    i + 1,
+                    oldRender.Fidelity.ToString(),
+                    oldRender.Lines[i],
+                    "csharp.switch.case.removed",
+                    $"Removed switch case '{label}'",
+                    oldValue: label,
+                    newValue: null));
+            }
+        }
+
+        for (int i = newStart; i < newEnd; i++)
+        {
+            if (TryParseSwitchCase(newRender.Lines[i], out var label))
+            {
+                rows.Add(CreateRow(
+                    entry,
+                    hunk,
+                    CSharpDiffKind.Add,
+                    i + 1,
+                    newRender.Fidelity.ToString(),
+                    newRender.Lines[i],
+                    "csharp.switch.case.added",
+                    $"Added switch case '{label}'",
+                    oldValue: null,
+                    newValue: label));
+            }
+        }
+
+        AddChangedSemanticRows(
+            rows,
+            entry,
+            hunk,
+            oldRender,
+            oldStart,
+            oldEnd,
+            newRender,
+            newStart,
+            newEnd,
+            TryParseReturnExpression,
+            "csharp.return-expression.changed",
+            static (oldValue, newValue) => $"Changed return expression from '{oldValue}' to '{newValue}'");
+
+        AddChangedSemanticRows(
+            rows,
+            entry,
+            hunk,
+            oldRender,
+            oldStart,
+            oldEnd,
+            newRender,
+            newStart,
+            newEnd,
+            TryParseCallExpression,
+            "csharp.call.changed",
+            static (oldValue, newValue) => $"Changed call from '{oldValue}' to '{newValue}'");
+    }
+
+    delegate bool TryParseLine(string line, out string value);
+
+    static void AddChangedSemanticRows(
+        ImmutableArray<CSharpDiffRow>.Builder rows,
+        CSharpMethodEntry entry,
+        int hunk,
+        CSharpMethodRender oldRender,
+        int oldStart,
+        int oldEnd,
+        CSharpMethodRender newRender,
+        int newStart,
+        int newEnd,
+        TryParseLine parser,
+        string changeId,
+        Func<string, string, string> messageFactory)
+    {
+        var oldValues = ParsedLines(oldRender.Lines, oldStart, oldEnd, parser);
+        var newValues = ParsedLines(newRender.Lines, newStart, newEnd, parser);
+        if (oldValues.Count == 0 || oldValues.Count != newValues.Count)
+            return;
+
+        for (int i = 0; i < oldValues.Count; i++)
+        {
+            var oldValue = oldValues[i];
+            var newValue = newValues[i];
+            if (oldValue.Value == newValue.Value)
+                continue;
+
+            rows.Add(CreateRow(
+                entry,
+                hunk,
+                CSharpDiffKind.Changed,
+                newValue.Line,
+                newRender.Fidelity.ToString(),
+                newRender.Lines[newValue.Line - 1],
+                changeId,
+                messageFactory(oldValue.Value, newValue.Value),
+                oldValue.Value,
+                newValue.Value));
+        }
+    }
+
+    static List<(int Line, string Value)> ParsedLines(string[] lines, int start, int end, TryParseLine parser)
+    {
+        var values = new List<(int Line, string Value)>();
+        for (int i = start; i < end; i++)
+            if (parser(lines[i], out var value))
+                values.Add((i + 1, value));
+        return values;
+    }
+
+    static bool TryParseSwitchCase(string line, out string label)
+    {
+        var trimmed = line.Trim();
+        if (!trimmed.EndsWith(":", StringComparison.Ordinal))
+        {
+            label = "";
+            return false;
+        }
+
+        if (trimmed == "default:")
+        {
+            label = "default";
+            return true;
+        }
+
+        if (trimmed.StartsWith("case ", StringComparison.Ordinal))
+        {
+            label = trimmed["case ".Length..^1].Trim();
+            return label.Length > 0;
+        }
+
+        label = "";
+        return false;
+    }
+
+    static bool TryParseReturnExpression(string line, out string expression)
+    {
+        var trimmed = line.Trim();
+        if (!trimmed.StartsWith("return ", StringComparison.Ordinal) || !trimmed.EndsWith(";", StringComparison.Ordinal))
+        {
+            expression = "";
+            return false;
+        }
+
+        expression = trimmed["return ".Length..^1].Trim();
+        return expression.Length > 0;
+    }
+
+    static bool TryParseCallExpression(string line, out string call)
+    {
+        call = "";
+        var trimmed = line.Trim();
+        if (trimmed.StartsWith("if ", StringComparison.Ordinal)
+            || trimmed.StartsWith("if(", StringComparison.Ordinal)
+            || trimmed.StartsWith("for ", StringComparison.Ordinal)
+            || trimmed.StartsWith("for(", StringComparison.Ordinal)
+            || trimmed.StartsWith("while ", StringComparison.Ordinal)
+            || trimmed.StartsWith("while(", StringComparison.Ordinal)
+            || trimmed.StartsWith("switch ", StringComparison.Ordinal)
+            || trimmed.StartsWith("switch(", StringComparison.Ordinal)
+            || trimmed.StartsWith("catch ", StringComparison.Ordinal)
+            || trimmed.StartsWith("catch(", StringComparison.Ordinal)
+            || !trimmed.EndsWith(";", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var expression = trimmed[..^1].Trim();
+        if (expression.StartsWith("return ", StringComparison.Ordinal))
+        {
+            expression = expression["return ".Length..].Trim();
+        }
+        else
+        {
+            int assignment = LastTopLevelAssignment(expression);
+            if (assignment >= 0)
+                expression = expression[(assignment + 1)..].Trim();
+        }
+
+        if (expression.StartsWith("await ", StringComparison.Ordinal))
+            expression = expression["await ".Length..].Trim();
+        if (expression.StartsWith("new ", StringComparison.Ordinal) || expression.Length == 0)
+            return false;
+
+        var invocations = ExtractInvocations(expression);
+        if (invocations.Count == 0)
+            return false;
+
+        call = string.Join(" | ", invocations);
+        return true;
+    }
+
+    static List<string> ExtractInvocations(string expression)
+    {
+        var invocations = new List<string>();
+        for (int i = 0; i < expression.Length; i++)
+        {
+            if (expression[i] != '(' || IsQuoted(expression, i))
+                continue;
+
+            int close = FindMatchingCloseParen(expression, i);
+            if (close < 0)
+                continue;
+
+            int nameEnd = PreviousNonWhitespace(expression, i - 1);
+            if (nameEnd < 0 || !IsInvocationNameEnd(expression[nameEnd]))
+            {
+                i = close;
+                continue;
+            }
+
+            int nameStart = FindNameStart(expression, nameEnd);
+            if (nameStart < 0)
+            {
+                i = close;
+                continue;
+            }
+
+            var name = expression[nameStart..(nameEnd + 1)].Trim();
+            if (name is "new" or "return" or "typeof" or "sizeof" or "nameof" or "default" or "checked" or "unchecked")
+            {
+                i = close;
+                continue;
+            }
+
+            int start = FindInvocationStart(expression, nameStart);
+            var invocation = expression[start..(close + 1)].Trim();
+            if (invocation.StartsWith("new ", StringComparison.Ordinal))
+            {
+                i = close;
+                continue;
+            }
+
+            invocations.Add(invocation);
+            i = close;
+        }
+
+        return invocations;
+    }
+
+    static bool IsInvocationNameEnd(char c)
+        => char.IsLetterOrDigit(c) || c == '_' || c == '>' || c == '`';
+
+    static int FindNameStart(string expression, int nameEnd)
+    {
+        int i = nameEnd;
+        if (expression[i] == '>')
+        {
+            int genericDepth = 1;
+            i--;
+            while (i >= 0)
+            {
+                if (expression[i] == '>')
+                    genericDepth++;
+                else if (expression[i] == '<' && --genericDepth == 0)
+                {
+                    i--;
+                    break;
+                }
+
+                i--;
+            }
+        }
+
+        while (i >= 0 && (char.IsLetterOrDigit(expression[i]) || expression[i] == '_' || expression[i] == '`'))
+            i--;
+
+        int start = i + 1;
+        return start <= nameEnd ? start : -1;
+    }
+
+    static int FindInvocationStart(string expression, int nameStart)
+    {
+        int start = nameStart;
+        int previous = PreviousNonWhitespace(expression, start - 1);
+        if (previous < 0 || expression[previous] != '.')
+            return start;
+
+        int depth = 0;
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+        for (int i = previous - 1; i >= 0; i--)
+        {
+            char c = expression[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+
+            if (c is ')' or ']' or '}')
+            {
+                depth++;
+                continue;
+            }
+
+            if (c is '(' or '[' or '{')
+            {
+                if (depth > 0)
+                {
+                    depth--;
+                    continue;
+                }
+
+                start = i + 1;
+                break;
+            }
+
+            if (depth == 0 && IsInvocationBoundary(c))
+            {
+                start = i + 1;
+                break;
+            }
+
+            start = i;
+        }
+
+        return start;
+    }
+
+    static bool IsInvocationBoundary(char c)
+        => c is ' ' or '\t' or '+' or '-' or '*' or '/' or '%' or '=' or '!' or '<' or '>' or '&' or '|' or '^' or '?' or ':' or ',' or ';';
+
+    static int PreviousNonWhitespace(string text, int index)
+    {
+        for (int i = index; i >= 0; i--)
+            if (!char.IsWhiteSpace(text[i]))
+                return i;
+        return -1;
+    }
+
+    static int FindMatchingCloseParen(string text, int open)
+    {
+        int depth = 0;
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+
+        for (int i = open; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+
+            if (c == '(')
+                depth++;
+            else if (c == ')' && --depth == 0)
+                return i;
+        }
+
+        return -1;
+    }
+
+    static bool IsQuoted(string text, int index)
+    {
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+
+        for (int i = 0; i < index; i++)
+        {
+            char c = text[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+                inString = true;
+            else if (c == '\'')
+                inChar = true;
+        }
+
+        return inString || inChar;
+    }
+
+    static int LastTopLevelAssignment(string text)
+    {
+        int depth = 0;
+        int last = -1;
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+
+            if (c is '(' or '[' or '{')
+            {
+                depth++;
+                continue;
+            }
+
+            if (c is ')' or ']' or '}')
+            {
+                if (depth > 0)
+                    depth--;
+                continue;
+            }
+
+            if (depth == 0
+                && c == '='
+                && (i == 0 || text[i - 1] is not ('=' or '!' or '<' or '>' or '='))
+                && (i + 1 == text.Length || text[i + 1] is not ('=' or '>')))
+            {
+                last = i;
+            }
+        }
+
+        return last;
+    }
+
+    static int IndexOfUnquoted(string text, char target)
+    {
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+
+            if (c == target)
+                return i;
+        }
+
+        return -1;
     }
 
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(IReadOnlyList<string> oldLines, IReadOnlyList<string> newLines)

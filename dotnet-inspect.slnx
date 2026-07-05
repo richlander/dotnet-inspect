@@ -66,5 +66,6 @@
   <Folder Name="/tools/">
     <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
+    <Project Path="tools/IlDiffHarness/IlDiffHarness.csproj" />
   </Folder>
 </Solution>

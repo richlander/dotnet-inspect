@@ -17,7 +17,8 @@ public enum ResearchDiffMechanism
     BodySignals = 2,
     IlBody = 4,
     CSharp = 8,
-    AllAvailable = Api | BodySignals | IlBody | CSharp,
+    ReturnToSender = 16,
+    AllAvailable = Api | BodySignals | IlBody | CSharp | ReturnToSender,
 }
 
 public enum ResearchDiffSubjectKind
@@ -41,6 +42,7 @@ public enum ResearchDiffChangeCategory
     BodySignal,
     IlBody,
     CSharp,
+    RoundTrip,
 }
 
 public enum ResearchDiffEvidenceKind
@@ -587,13 +589,18 @@ public static class ResearchDiff
                 $"{row.Anchor.TypeFullName}.{row.Anchor.MemberName}",
                 row.Anchor.TypeFullName,
                 row.Anchor.MemberName);
-            var direction = row.Kind == CSharpDiffKind.Add ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
+            var direction = row.Kind switch
+            {
+                CSharpDiffKind.Add => ResearchDiffDirection.Added,
+                CSharpDiffKind.Remove => ResearchDiffDirection.Removed,
+                _ => ResearchDiffDirection.Changed,
+            };
             builder.Add(subject, new ResearchDiffEvidence(
                 ResearchDiffMechanism.CSharp,
                 row.ChangeId,
                 direction,
-                OldValue: direction == ResearchDiffDirection.Removed ? row.Text : null,
-                NewValue: direction == ResearchDiffDirection.Added ? row.Text : null,
+                OldValue: row.OldValue ?? (direction == ResearchDiffDirection.Removed ? row.Text : null),
+                NewValue: row.NewValue ?? (direction == ResearchDiffDirection.Added ? row.Text : null),
                 Detail: row.Message,
                 Category: ResearchDiffChangeCategory.CSharp));
         }

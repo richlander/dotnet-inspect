@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Collection(ConsoleMutatorCollection.Name)]
 public class FidelityCheckGeneratedFilterTests
 {
     [Fact]
