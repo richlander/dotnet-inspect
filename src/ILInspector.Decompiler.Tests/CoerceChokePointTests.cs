@@ -359,6 +359,26 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void PointerTarget_NonZeroNativeInteger_RendersExplicitPointerCast()
+    {
+        // Gemini review round 2: the same pointer-target rule must cover
+        // non-zero native integers, not only null. IL carries conv.u into a
+        // pointer local; C# needs the explicit pointer cast.
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var nativeUInt = TypeRef.CoreLib("System", "UIntPtr");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        string body = RenderBody(
+            [new StoreLocal(0, bytePointer, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: true, new LoadArgument(0, "arg", intType)))],
+            TypeRef.CoreLib("System", "Void"),
+            [new Parameter("arg", intType)],
+            [bytePointer]);
+
+        Assert.Contains("byte* V_0 = (byte*)((nuint)(uint)arg);", body);
+        Assert.DoesNotContain("byte* V_0 = (nuint)arg;", body);
+        AssertCompiles("public static unsafe void M(int arg)", body);
+    }
+
+    [Fact]
     public void NonThrowingNumericCoerce_InCheckedRegion_DoesNotWrapUnchecked()
     {
         // #2338 B3: byte->char is explicit but cannot throw in checked C#.

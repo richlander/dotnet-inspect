@@ -1056,10 +1056,6 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CoerceText(IrExpression value, TypeRef? target)
     {
-        if (target is { Kind: TypeRefKind.Pointer } && IsZeroConstant(value))
-        {
-            return $"({TypeText(target)})null";
-        }
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
             && AddressOfValue(value) is { } address)
@@ -1085,6 +1081,14 @@ public sealed partial class CSharpPrinter
             } addressConvert)
         {
             return $"({TypeText(target)})(&{Deref(addressConvert.Operand)})";
+        }
+        if (target is { Kind: TypeRefKind.Pointer }
+            && value is not Constant { Value: null }
+            && EffectiveType(value) is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" })
+        {
+            return IsZeroConstant(value)
+                ? $"({TypeText(target)})null"
+                : $"({TypeText(target)}){Operand(value)}";
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && EffectiveType(value) is { Kind: TypeRefKind.Pointer } pointerSource
