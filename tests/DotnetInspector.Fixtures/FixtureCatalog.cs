@@ -16,6 +16,11 @@ public sealed record FixturePair(string Id, FixtureDefinition Old, FixtureDefini
 }
 
 public sealed record FixtureGroup(string Id, IReadOnlyList<FixtureDefinition> Fixtures);
+public static class FixtureGroupExtensions
+{
+    public static IReadOnlyList<string> AssemblyPaths(this FixtureGroup group)
+        => [.. group.Fixtures.Select(fixture => fixture.AssemblyPath())];
+}
 
 public static class FixtureIds
 {
@@ -378,10 +383,39 @@ public static class FixtureCatalog
     static readonly Dictionary<string, FixtureDefinition> s_byId =
         All.ToDictionary(fixture => fixture.Id, StringComparer.Ordinal);
 
+    public static readonly IReadOnlyList<FixtureGroup> Groups =
+    [
+        DiffAssemblyFixtures,
+        AnalysisFixtures,
+        DecompilerFixtures,
+        DecompilerLadderFixtures,
+        DecompilerUnsafeFixtures,
+        RunFasterFixtures,
+        ReturnToSenderCandidates,
+    ];
+
+    static readonly Dictionary<string, FixtureGroup> s_groupsById =
+        Groups.ToDictionary(group => group.Id, StringComparer.Ordinal);
+
     public static FixtureDefinition Get(string id)
         => s_byId.TryGetValue(id, out var fixture)
             ? fixture
             : throw new ArgumentException($"Unknown fixture id '{id}'.", nameof(id));
+
+    public static FixtureGroup Group(string id)
+        => s_groupsById.TryGetValue(id, out var group)
+            ? group
+            : throw new ArgumentException($"Unknown fixture group id '{id}'.", nameof(id));
+
+    public static IReadOnlyList<FixtureDefinition> SelectByTag(string tag)
+    {
+        var matches = All
+            .Where(fixture => fixture.Tags.Contains(tag, StringComparer.Ordinal))
+            .ToArray();
+        return matches.Length > 0
+            ? matches
+            : throw new ArgumentException($"Unknown fixture tag '{tag}'.", nameof(tag));
+    }
 
     public static string AssemblyPath(string id)
     {

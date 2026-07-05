@@ -28,7 +28,7 @@ public class FixtureCatalogTests
     public void Groups_ReferenceRegisteredFixtures()
     {
         var all = FixtureCatalog.All.ToHashSet();
-        foreach (var group in Groups())
+        foreach (var group in FixtureCatalog.Groups)
         {
             Assert.NotEmpty(group.Fixtures);
             Assert.All(group.Fixtures, fixture =>
@@ -48,6 +48,37 @@ public class FixtureCatalogTests
     }
 
     [Fact]
+    public void Group_UnknownIdFailsClearly()
+    {
+        var error = Assert.Throws<ArgumentException>(() => FixtureCatalog.Group("missing"));
+
+        Assert.Contains("Unknown fixture group id 'missing'", error.Message);
+    }
+
+    [Fact]
+    public void SelectByTag_UnknownTagFailsClearly()
+    {
+        var error = Assert.Throws<ArgumentException>(() => FixtureCatalog.SelectByTag("missing"));
+
+        Assert.Contains("Unknown fixture tag 'missing'", error.Message);
+    }
+
+    [Fact]
+    public void SelectByTag_RtsCandidateMatchesReturnToSenderGroup()
+    {
+        Assert.Equal(
+            FixtureCatalog.ReturnToSenderCandidates.Fixtures.Select(fixture => fixture.Id).Order(StringComparer.Ordinal),
+            FixtureCatalog.SelectByTag("rts-candidate").Select(fixture => fixture.Id).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ReturnToSenderCandidates_ResolveAssemblyPaths()
+    {
+        Assert.All(FixtureCatalog.ReturnToSenderCandidates.AssemblyPaths(), path =>
+            Assert.True(File.Exists(path), $"Expected RTS candidate fixture at {path}"));
+    }
+
+    [Fact]
     public void AssemblyNameAxisFixtures_ResolveIntentionalFileNames()
     {
         AssertFixtureFileName(FixtureCatalog.AnalysisProtobuf, "Google.Protobuf.dll");
@@ -61,15 +92,4 @@ public class FixtureCatalogTests
         Assert.Equal(expectedFileName, Path.GetFileName(path));
         Assert.Equal(fixture.ProjectName, new DirectoryInfo(path).Parent?.Parent?.Name);
     }
-
-    static IReadOnlyList<FixtureGroup> Groups() =>
-    [
-        FixtureCatalog.DiffAssemblyFixtures,
-        FixtureCatalog.AnalysisFixtures,
-        FixtureCatalog.DecompilerFixtures,
-        FixtureCatalog.DecompilerLadderFixtures,
-        FixtureCatalog.DecompilerUnsafeFixtures,
-        FixtureCatalog.RunFasterFixtures,
-        FixtureCatalog.ReturnToSenderCandidates,
-    ];
 }
