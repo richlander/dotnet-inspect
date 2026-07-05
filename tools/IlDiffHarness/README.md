@@ -13,6 +13,9 @@ dotnet run --project tools/IlDiffHarness -c Release -- \
 
 dotnet run --project tools/IlDiffHarness -c Release -- \
   --pairs pairs.tsv --max-examples 5
+
+dotnet run --project tools/IlDiffHarness -c Release -- \
+  --pairs pairs.tsv --format jsonl --max-examples 5
 ```
 
 Pair manifests use one old/new assembly pair per line, separated by a tab.
@@ -31,3 +34,7 @@ The card includes:
 
 Reported failure buckets are card data, not process failures. The harness exits
 nonzero only for command-line, IO, or metadata-read errors.
+
+Output defaults to Markout Markdown. Use `--format tsv` or `--format jsonl` to
+render the same card sections through Markout table formats. JSONL output
+omits Markdown section separators so each non-empty line is a JSON object.
