@@ -56,6 +56,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Graph Signal Annotations](design/graph-signal-annotations.md) | Projecting analysis signals (alloc/copy/unsafe, and exception-risk follow-ups) onto call-graph nodes via `--fields`. |
+| [Allocation Triage Pre-Filters](design/allocation-triage-prefilters.md) | Which allocation candidates Performance Triage surfaces, why the pre-filters prune cold-by-construction shapes, and what realized cost the static side cannot predict. |
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
 | [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |

@@ -68,6 +68,55 @@ public class PipelineStageTests
     }
 
     [Fact]
+    public void StageDump_Format_SignpostsTheFinalStageAndReadingGuide()
+    {
+        // Readers/reviewers misread an early pre-raise stage as the result; the
+        // dump must carry a reading guide, per-stage ordinals, and a FINAL tag on
+        // the terminal stage so an intermediate is never mistaken for the answer
+        // (issue #2270).
+        var function = ImportFixture(nameof(CfgSampleClass.Add));
+        var stages = IrPasses.RunWithStages(function);
+
+        string text = StageDump.Format(stages);
+
+        Assert.Contains("==== reading guide ====", text);
+        // Import stage is the first ordinal, never tagged FINAL.
+        Assert.Contains($"==== IR (typed tree after import) ====  [1/{stages.Count}]", text);
+        // The terminal stage carries the FINAL tag with the final fidelity.
+        Assert.Contains(
+            $"[{stages.Count}/{stages.Count} · FINAL raised · fidelity {stages[^1].Fidelity}]",
+            text);
+        // Exactly one stage is tagged FINAL (the middot-delimited tag is unique
+        // to the stage header; the reading guide mentions "[FINAL raised]" too).
+        Assert.Equal(1, CountOccurrences(text, "· FINAL raised ·"));
+    }
+
+    static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0, i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            i += needle.Length;
+        }
+        return count;
+    }
+
+    [Fact]
+    public void StageDump_Format_ReadingGuideNamesRaisedCSharpOnlyWhenIncluded()
+    {
+        // The guide must not point --diff/--assertions readers at a raised C#
+        // section those renderers do not append; only the C#-appending --dump
+        // path (includesRaisedCSharp: true) names it (issue #2270 review).
+        var function = ImportFixture(nameof(CfgSampleClass.Add));
+        var stages = IrPasses.RunWithStages(function);
+
+        Assert.DoesNotContain("raised C# section", StageDump.Format(stages));
+        Assert.Contains("the FINAL IR stage", StageDump.Format(stages));
+        Assert.Contains("raised C# section", StageDump.Format(stages, includesRaisedCSharp: true));
+    }
+
+    [Fact]
     public void StageDump_Title_NamesTheImportBoundary()
     {
         Assert.Equal("IR (typed tree after import)", StageDump.Title(IrPasses.ImportStageName));
