@@ -39,6 +39,25 @@ public sealed class CSharpConversionRulesTests
     }
 
     [Fact]
+    public void IsImplicitNumericAssignment_IncludesFloatWideningsAndRejectsExplicitPairs()
+    {
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("Int32"), Core("Single")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("Int64"), Core("Single")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("UInt64"), Core("Single")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("UInt64"), Core("Double")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("Int32"), Core("IntPtr")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("UInt32"), Core("UIntPtr")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("IntPtr"), Core("Double")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("UIntPtr"), Core("UInt64")));
+        Assert.True(CSharpConversionRules.IsImplicitNumericAssignment(Core("Char"), Core("UInt16")));
+        Assert.False(CSharpConversionRules.IsImplicitNumericAssignment(Core("Double"), Core("Single")));
+        Assert.False(CSharpConversionRules.IsImplicitNumericAssignment(Core("Int32"), Core("UInt32")));
+        Assert.False(CSharpConversionRules.IsImplicitNumericAssignment(Core("Int64"), Core("IntPtr")));
+        Assert.False(CSharpConversionRules.IsImplicitNumericAssignment(Core("UIntPtr"), Core("Int64")));
+        Assert.False(CSharpConversionRules.IsImplicitNumericAssignment(Core("Boolean"), Core("Int32")));
+    }
+
+    [Fact]
     public void CheckedConversionCanThrow_ModelsCheckedExplicitCastHazards()
     {
         Assert.False(CSharpConversionRules.CheckedConversionCanThrow(Core("Int32"), Core("Int64")));

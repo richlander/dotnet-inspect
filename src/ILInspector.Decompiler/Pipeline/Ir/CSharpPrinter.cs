@@ -712,7 +712,7 @@ public sealed partial class CSharpPrinter
     {
         if (source.Equals(target))
             return true;
-        if (IsImplicitNumericAssignment(source, target))
+        if (CSharpConversionRules.IsImplicitNumericAssignment(source, target))
             return true;
         if (IsCoreObject(target) && IsReferenceLike(source))
             return true;
@@ -750,24 +750,6 @@ public sealed partial class CSharpPrinter
 
     static bool IsCoreObject(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
-
-    static bool IsImplicitNumericAssignment(TypeRef source, TypeRef target)
-    {
-        if (!TypeFamilies.IsNumericPrimitive(source) || !TypeFamilies.IsNumericPrimitive(target))
-            return false;
-        return (source.Name, target.Name) switch
-        {
-            ("SByte", "Int16" or "Int32" or "Int64" or "Single" or "Double") => true,
-            ("Byte", "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
-            ("Int16", "Int32" or "Int64" or "Single" or "Double") => true,
-            ("UInt16", "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
-            ("Char", "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
-            ("Int32", "Int64" or "Single" or "Double") => true,
-            ("UInt32", "Int64" or "UInt64" or "Single" or "Double") => true,
-            ("Int64" or "UInt64" or "Single", "Double") => true,
-            _ => false,
-        };
-    }
 
     TypeRef? StackSlotRenderType(int slot, TypeRef? type)
         => _stackSlotUnifiedTypes.TryGetValue(slot, out var unifiedType) ? unifiedType : type;
