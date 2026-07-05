@@ -1068,6 +1068,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("RETURNTOSENDER GENERATED FIXTURE FRONTIER", report);
         Assert.Contains("Passed : 2", report);
         Assert.Contains("Skipped: 0", report);
+        Assert.Contains("Research evidence:", report);
+        Assert.Contains("rts.status.pass:", report);
         Assert.DoesNotContain("constructor-target", report);
 
         var propertyGetter = Assert.Single(run.Results, result =>
@@ -1097,6 +1099,10 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Method").GetString() == "get_Method1"
                 && result.GetProperty("MemberAnchor").GetProperty("StableSelector").GetString()!.StartsWith("Method1~", StringComparison.Ordinal));
+        var researchDiff = document.RootElement.GetProperty("ResearchDiff");
+        Assert.Contains(researchDiff.GetProperty("Subjects").EnumerateArray(),
+            subject => subject.GetProperty("Evidence").EnumerateArray()
+                .Any(evidence => evidence.GetProperty("ChangeId").GetString() == "rts.status.pass"));
         Assert.DoesNotContain(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Reason").GetString() == "constructor-target");
     }
@@ -1161,6 +1167,10 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("h0 - IL_0000 ldc.i4 1", report);
         Assert.Contains("h0 + IL_0000 ldc.i4 2", report);
         Assert.Contains("member: Method1~abcdef1234  canonical=M:TestType.Method1()", report);
+        Assert.Contains("Research evidence:", report);
+        Assert.Contains("rts.status.fail: 1", report);
+        Assert.Contains("il.operation.added: 1", report);
+        Assert.Contains("il.operation.removed: 1", report);
     }
 
     [Fact]

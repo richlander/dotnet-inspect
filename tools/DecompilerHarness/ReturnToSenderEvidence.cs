@@ -44,7 +44,7 @@ internal static class ReturnToSenderEvidence
             .Select(group => new ResearchSubjectDiff(group.Key, [.. group.SelectMany(Evidence)]))
             .Where(subject => subject.Evidence.Count > 0)
             .ToArray();
-        return new ResearchDiffResult(subjects);
+        return new ResearchDiffResult(subjects, Rows: []);
     }
 
     static ResearchSubjectKey SubjectKey(ReturnToSenderEvidenceRow row)
