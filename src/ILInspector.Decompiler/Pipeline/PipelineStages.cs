@@ -99,9 +99,9 @@ public static class StageDump
     /// nothing collapse to a one-line "(no change)" header, so "what did this
     /// pass do?" is a glance instead of a manual sed between two stage headers
     /// (issue #633 item 3). The terminal stage is the result, so it always
-    /// renders its full body — even when the last pass changed nothing — rather
-    /// than collapsing to an empty header (issue #2270 review). Same stage
-    /// boundaries as <see cref="Format"/>.
+    /// renders its full body — whether or not the last pass changed anything —
+    /// rather than a delta the reading guide's "read the final stage" cannot
+    /// land on (issue #2270 review). Same stage boundaries as <see cref="Format"/>.
     /// </summary>
     public static string FormatDiff(IReadOnlyList<PipelineStage> stages, bool includesRaisedCSharp = false)
     {
@@ -118,14 +118,15 @@ public static class StageDump
         {
             var hunks = DiffHunks(stages[i - 1].Projection, stages[i].Projection);
             sb.AppendLine();
-            // The terminal stage is the result the reading guide points at, so
-            // print its full body even when the last pass changed nothing —
-            // otherwise "read the final stage" lands on an empty header. A
-            // changed final stage keeps its delta hunks (the full body is the
-            // first stage plus the hunks above it).
-            if (i == stages.Count - 1 && hunks.Count == 0)
+            // The terminal stage is the result the reading guide points at, so it
+            // always prints its full IR body (with a "(no change)" note when the
+            // last pass changed nothing) rather than a localized delta — otherwise
+            // "read the final stage" lands on a diff fragment, not a tree (#2270
+            // review). Intermediate stages keep their unified `-`/`+` hunks.
+            if (i == stages.Count - 1)
             {
-                sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix: "(no change)"));
+                string? suffix = hunks.Count == 0 ? "(no change)" : null;
+                sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix));
                 sb.Append(stages[i].Projection);
                 continue;
             }

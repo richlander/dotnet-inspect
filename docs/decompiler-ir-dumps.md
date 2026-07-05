@@ -41,10 +41,11 @@ the product-vs-tool boundary.
 ## How to read a dump
 
 Each stage is a block framed by a `====` header, containing the typed IR tree at
-that point, ending with a `// fidelity:` footer. The dump opens with a
-`reading guide`, then the tree **after import** (IL turned into typed nodes,
-nothing raised yet), then the tree again **after every pass that ran**,
-terminating on the raised C# — which is **byte-identical to the product's
+that point, ending with a `// fidelity:` footer. The IR stages open with a
+`reading guide` (right before the tree **after import**, so with `--il` the
+annotated-IL views precede it), then the tree **after import** (IL turned into
+typed nodes, nothing raised yet), then the tree again **after every pass that
+ran**, terminating on the raised C# — which is **byte-identical to the product's
 `Decompiled Source`**. The last stage you read is exactly the artifact the
 quality gates grade; there is no drift between what you inspect and what is
 measured.
@@ -55,8 +56,8 @@ result — the earlier stages are a per-pass trace that shows pre-raise IR (asyn
 state machines, un-raised nodes) by design, so a node appearing in an early stage
 is not the product output. The `--diff` and `--assertions` views render the
 stages without a trailing C# section, so their reading guide names only the final
-IR stage; `--diff` also always prints the final stage's full body, even when the
-last pass changed nothing.
+IR stage; `--diff` also always prints the final stage's full IR body (not a delta
+hunk), whether or not the last pass changed anything.
 
 A trimmed dump of `string.IsNullOrEmpty`:
 
