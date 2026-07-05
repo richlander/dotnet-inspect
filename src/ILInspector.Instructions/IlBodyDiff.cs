@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -758,6 +759,7 @@ public static class IlBodyDiff
             SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
             SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
             SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+            SignatureCallingConvention.Unmanaged => "unmanaged",
             _ => convention.ToString(),
         };
         return text.Length == 0 ? "" : $"{text} ";
@@ -768,10 +770,11 @@ public static class IlBodyDiff
         var reference = reader.GetAssemblyReference(handle);
         string name = reader.GetString(reference.Name);
         string culture = reference.Culture.IsNil ? "neutral" : reader.GetString(reference.Culture);
-        string token = reference.PublicKeyOrToken.IsNil
+        string keyOrToken = reference.PublicKeyOrToken.IsNil
             ? "null"
             : Convert.ToHexString(reader.GetBlobBytes(reference.PublicKeyOrToken)).ToLowerInvariant();
+        string keyLabel = (reference.Flags & AssemblyFlags.PublicKey) != 0 ? "PublicKey" : "PublicKeyToken";
         string flags = reference.Flags == default ? "" : $", Flags={reference.Flags}";
-        return $"{name}, Version={reference.Version}, Culture={culture}, PublicKeyToken={token}{flags}";
+        return $"{name}, Version={reference.Version}, Culture={culture}, {keyLabel}={keyOrToken}{flags}";
     }
 }
