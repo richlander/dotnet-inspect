@@ -993,7 +993,7 @@ public static class CSharpBodyDiff
         if (oldRender.State is CSharpMethodRenderState.Body && newRender.State is CSharpMethodRenderState.NoBody)
         {
             failureRows.Add(CreateFailureRow(
-                oldEntry,
+                newEntry,
                 CSharpDiffFailureKind.NewBodyMissing,
                 "New method has no C# body.",
                 side: "new",
@@ -1006,7 +1006,7 @@ public static class CSharpBodyDiff
         if (oldRender.State is CSharpMethodRenderState.NoBody && newRender.State is CSharpMethodRenderState.Body)
         {
             failureRows.Add(CreateFailureRow(
-                newEntry,
+                oldEntry,
                 CSharpDiffFailureKind.OldBodyMissing,
                 "Old method has no C# body.",
                 side: "old",

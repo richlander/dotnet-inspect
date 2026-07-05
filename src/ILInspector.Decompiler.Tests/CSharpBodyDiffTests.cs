@@ -577,8 +577,7 @@ public class CSharpBodyDiffTests
         Assert.Equal("Old method has no C# body.", failure.Message);
         Assert.Equal(row.HunkId, failure.HunkId);
         Assert.Contains("BodyStateSample", failure.Member, StringComparison.Ordinal);
-        Assert.Equal(row.MemberRef, failure.MemberRef);
-        Assert.Equal(row.TypeRef, failure.TypeRef);
+        Assert.NotEqual(row.MemberRef.ModuleVersionId, failure.MemberRef.ModuleVersionId);
         Assert.Equal(CSharpDiffKind.Add, row.Kind);
         Assert.Equal("csharp.method.body-added", row.ChangeId);
         Assert.Equal("Added C# method body.", row.Message);
@@ -604,8 +603,7 @@ public class CSharpBodyDiffTests
         Assert.Equal("New method has no C# body.", failure.Message);
         Assert.Equal(row.HunkId, failure.HunkId);
         Assert.Contains("BodyStateSample", failure.Member, StringComparison.Ordinal);
-        Assert.Equal(row.MemberRef, failure.MemberRef);
-        Assert.Equal(row.TypeRef, failure.TypeRef);
+        Assert.NotEqual(row.MemberRef.ModuleVersionId, failure.MemberRef.ModuleVersionId);
         Assert.Equal(CSharpDiffKind.Remove, row.Kind);
         Assert.Equal("csharp.method.body-removed", row.ChangeId);
         Assert.Equal("Removed C# method body.", row.Message);

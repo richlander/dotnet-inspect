@@ -648,7 +648,7 @@ public class DiffCommand
             return null;
         var (memberName, digest) = SharedParsers.ParseDigestShorthand(parsed.MemberName);
         var (selectorName, parsedOverloadIndex) = IsKindQualifiedMemberSelector(memberName)
-            ? (memberName, null)
+            ? ParseKindQualifiedMemberFilter(memberName)
             : FqnParser.ParseMemberFilter(memberName);
         var overloadIndex = parsed.OverloadIndex ?? parsedOverloadIndex;
         var type = surface.Types.FirstOrDefault(type => MatchesDiffTypeFilter(type.FullName, parsed.TypeName));
@@ -672,6 +672,18 @@ public class DiffCommand
         => value.StartsWith("operator:", StringComparison.OrdinalIgnoreCase)
            || value.StartsWith("explicit:", StringComparison.OrdinalIgnoreCase)
            || value.StartsWith("extension:", StringComparison.OrdinalIgnoreCase);
+
+    static (string Name, int? Index) ParseKindQualifiedMemberFilter(string value)
+    {
+        var colon = value.LastIndexOf(':');
+        if (colon <= 0 || colon == value.Length - 1)
+            return (value, null);
+
+        var suffix = value[(colon + 1)..];
+        return int.TryParse(suffix, out var index)
+            ? (value[..colon], index)
+            : (value, null);
+    }
 
     static FqnParser.ParseResult? TryParseKindQualifiedMemberTarget(string target)
     {
@@ -744,10 +756,8 @@ public class DiffCommand
         {
             var evidences = subject.Evidence.Where(evidence => evidence.Mechanism is ResearchDiffMechanism.CSharp or ResearchDiffMechanism.IlBody or ResearchDiffMechanism.BodySignals).ToArray();
             if (!options.IncludeAll
-                && subject.Subject.Anchor is { } anchor
-                && surfaceAnchors.Count > 0
                 && !evidences.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.CSharp)
-                && !surfaceAnchors.Contains(anchor.StableSelector))
+                && (subject.Subject.Anchor is not { } anchor || !surfaceAnchors.Contains(anchor.StableSelector)))
             {
                 continue;
             }

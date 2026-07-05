@@ -185,6 +185,11 @@ public class DiffCommandTests
         var overview = DiffCommand.BuildOverview(inputs, DiffCommand.BuildApiDiff(oldSurface, newSurface, options), options);
 
         Assert.Equal($"{anchor.StableSelector} ({anchor.CanonicalSignature})", overview.Target);
+
+        var ordinalOptions = options with { TypeFilter = ["Sample.Widget.operator:op_Implicit:1"] };
+        var ordinalOverview = DiffCommand.BuildOverview(inputs, DiffCommand.BuildApiDiff(oldSurface, newSurface, ordinalOptions), ordinalOptions);
+
+        Assert.Equal($"{anchor.StableSelector} ({anchor.CanonicalSignature})", ordinalOverview.Target);
     }
 
     [Fact]
