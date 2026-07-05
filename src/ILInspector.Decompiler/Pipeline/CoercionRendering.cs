@@ -10,10 +10,11 @@ public static class CoercionRendering
     /// <summary>
     /// The slot-store wrappability contract: every accepted pair is both a
     /// coercion spelling that <c>CoerceText</c> renders and a stack-family
-    /// relation the verifier can carry in one live range. The asymmetries are
-    /// intentional: integer to bool has no spelling, missing enum underlying
-    /// data assumes I4 for same-family enum casts, and slot I4 to I8 enum
-    /// widening requires a resolved enum source.
+    /// relation the verifier can carry in one live range. The spelling half is
+    /// owned by <see cref="CanSpellValueCoercion"/>; the remaining family check
+    /// is slot-specific. The asymmetries are intentional: integer to bool has no
+    /// spelling, missing enum underlying data assumes I4 for same-family enum
+    /// casts, and slot I4 to I8 enum widening requires a resolved enum source.
     /// </summary>
     public static bool CanSpellSlotCoercion(
         TypeRef? valueType,
@@ -23,7 +24,7 @@ public static class CoercionRendering
     {
         if (valueType is null)
             return false;
-        if (!CanSpellSlotValue(valueType, target, shapes, enumUnderlyingTypes))
+        if (!CanSpellValueCoercion(valueType, target, shapes, enumUnderlyingTypes))
             return false;
 
         var valueFamily = SlotSemanticFamily(valueType, shapes, enumUnderlyingTypes);
@@ -33,6 +34,24 @@ public static class CoercionRendering
                 || (valueFamily == StackFamily.I4 && targetFamily == StackFamily.I8
                     && enumUnderlyingTypes.ContainsKey(valueType)));
     }
+
+    /// <summary>
+    /// Type-level coercion spellings owned by <c>CoerceText</c>. This predicate
+    /// intentionally excludes value-sensitive spellings such as numeric constants
+    /// and node-shape spellings such as address-to-pointer casts; callers with
+    /// only source/target types cannot prove those cases.
+    /// </summary>
+    public static bool CanSpellValueCoercion(
+        TypeRef valueType,
+        TypeRef target,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes)
+        => valueType.Equals(target)
+            || CanSpellBoolToInteger(valueType, target)
+            || CanSpellIntegerToEnum(valueType, target, shapes)
+            || CanSpellEnumToInteger(valueType, target, shapes, enumUnderlyingTypes)
+            || CanSpellEnumToEnum(valueType, target, shapes, enumUnderlyingTypes)
+            || CanSpellPrimitiveNumeric(valueType, target);
 
     public static bool CanSpellIntegerToEnum(
         TypeRef? valueType,
@@ -76,21 +95,11 @@ public static class CoercionRendering
     public static bool CanSpellBoolToInteger(TypeRef? valueType, TypeRef target)
         => TypeFamilies.IsIntegerLike(target) && TypeFamilies.IsBoolean(valueType);
 
-    static bool CanSpellSlotValue(
-        TypeRef valueType,
-        TypeRef target,
-        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
-        IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes)
-        => valueType.Equals(target)
-            || CanSpellBoolToInteger(valueType, target)
-            || CanSpellIntegerToEnum(valueType, target, shapes)
-            || CanSpellEnumToInteger(valueType, target, shapes, enumUnderlyingTypes)
-            || CanSpellEnumToEnum(valueType, target, shapes, enumUnderlyingTypes)
-            || CanSpellPrimitiveNumeric(valueType, target);
-
-    static bool CanSpellPrimitiveNumeric(TypeRef valueType, TypeRef target)
+    public static bool CanSpellPrimitiveNumeric(TypeRef? valueType, TypeRef? target)
         => !TypeFamilies.IsBoolean(valueType)
             && !TypeFamilies.IsBoolean(target)
+            && valueType is not null
+            && target is not null
             && TypeFamilies.IsNumericPrimitive(valueType)
             && TypeFamilies.IsNumericPrimitive(target)
             && TypeFamilies.Of(valueType) == TypeFamilies.Of(target);

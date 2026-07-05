@@ -1237,6 +1237,8 @@ public sealed partial class CSharpPrinter
         // unchecked cast (uint.MaxValue's `ldc.i4.m1` → unchecked((uint)(-1))).
         if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
             return NumericConstant(konst, t);
+        if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(EffectiveType(value), numericTarget))
+            return Expression(value);
         if (!CSharpConversionRules.NeedsNumericCast(EffectiveType(value), target))
             return Expression(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
@@ -1247,11 +1249,11 @@ public sealed partial class CSharpPrinter
         // sibling-width): inside a lexical checked region a bare spelling
         // recompiles to a conv.ovf the IL never had (#2301), so they route
         // through CheckedSafeCast like the enum reinterprets above.
-        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, target))
+        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, numericTarget))
             return conv.Operand is Constant { Value: int or long } convConst
-                ? NumericConstant(convConst, target!)
-                : CheckedSafeNumericCast(EffectiveType(conv.Operand), target!, () => $"({TypeText(target!)}){Operand(conv.Operand)}");
-        return CheckedSafeNumericCast(EffectiveType(value), target!, () => $"({TypeText(target!)}){Operand(value)}");
+                ? NumericConstant(convConst, numericTarget)
+                : CheckedSafeNumericCast(EffectiveType(conv.Operand), numericTarget, () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}");
+        return CheckedSafeNumericCast(EffectiveType(value), numericTarget, () => $"({TypeText(numericTarget)}){Operand(value)}");
     }
 
     string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)
