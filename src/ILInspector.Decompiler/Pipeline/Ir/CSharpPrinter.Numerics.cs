@@ -1293,18 +1293,90 @@ public sealed partial class CSharpPrinter
         // `?:` is right-associative, so a conditional in the condition position
         // reassociates without parentheses (`(a ? b : c) ? d : e` would reparse
         // as `a ? b : (c ? d : e)`). The arms render through Operand, which
-        // already wraps a nested conditional where needed.
-        var condition = conditional.Condition is Conditional
-            ? $"({Condition(conditional.Condition)})"
-            : Condition(conditional.Condition);
+        // already wraps a nested conditional where needed. A conditional can
+        // hide behind a stale `Coerce`/`Convert`, so parenthesize off the
+        // rendered condition text, not the node type (#2345 round-5).
+        var condition = ParenthesizeConditional(Condition(conditional.Condition));
+        // Two-stage join decision (#2306 unified with #2322): first the
+        // join-level bare-vs-spell call (EffectiveJoinTarget — neutralizes the
+        // target when the bare arm set is valid C#, so zero churn); then, in
+        // spell mode, #2322's merged-type source threading licenses the
+        // same-slot-width arm reinterprets.
+        var joinArms = new IrExpression[] { conditional.WhenTrue, conditional.WhenFalse };
+        var armTarget = EffectiveJoinTarget(target, joinArms);
         TypeRef? primitiveCoercionSourceType =
-            target is not null
+            armTarget is not null
             && EffectiveType(conditional) is { } conditionalType
-            && !conditionalType.Equals(target)
-            && CanRenderPrimitiveConditionalForTarget(conditional, target)
+            && !conditionalType.Equals(armTarget)
+            && CanRenderPrimitiveConditionalForTarget(conditional, armTarget)
                 ? conditionalType
                 : null;
-        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, target, primitiveCoercionSourceType)} : {ConditionalArm(conditional.WhenFalse, target, primitiveCoercionSourceType)}";
+        bool joinHasExactTypedArm = armTarget is { } anchorTarget && joinArms.Any(arm => JoinArmAnchorsTarget(arm, anchorTarget));
+        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)} : {ConditionalArm(conditional.WhenFalse, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)}";
+    }
+
+    /// <summary>
+    /// Whether an arm anchors the join's natural type AT the target, licensing
+    /// sibling in-range constants to stay bare under the C# 9 rescue. Only an
+    /// arm that renders exactly-T (its bare type IS the target, or it will be
+    /// spelled `(T)x` by distribution) anchors; a merely-widening arm does not
+    /// (#2345 round-2 finding E, Gemini: a `byte` arm at a `uint` join widens
+    /// to BOTH uint and int, so the natural type still lands on int and the
+    /// bare constant fails — `c ? 1 : byteArm` at uint is CS0266; the
+    /// constant must spell `(uint)1`).
+    /// </summary>
+    bool JoinArmAnchorsTarget(IrExpression arm, TypeRef target)
+        => BareJoinType(arm)?.Equals(target) == true
+            || (arm is not Constant && !ArmRendersBareSafelyAt(arm, target));
+
+    /// <summary>
+    /// The join-level bare-vs-spell decision for a primitive integer target
+    /// (#2306). C# validates a conditional at T in two ways: the natural type
+    /// (computed TYPE-level over the arm types — a constant contributes
+    /// int/long regardless of value) widens into T, or there is NO natural
+    /// type and every arm converts to T independently (the C# 9 target-typed
+    /// rescue — `uint u = c ? 0 : (uint)x;` is valid precisely because
+    /// int/uint have no common type, while `sbyte s = c ? 127 : (sbyte)x;`
+    /// has natural type int and fails). When either holds the target is
+    /// neutralized so the arms render bare (zero churn); otherwise the target
+    /// distributes and the join-arm rule spells every non-exact arm, making
+    /// the join uniformly T-typed by construction. Non-primitive targets
+    /// (enum/char/reference) keep their dedicated paths untouched.
+    /// </summary>
+    TypeRef? EffectiveJoinTarget(TypeRef? target, IReadOnlyList<IrExpression> arms)
+        => target is { } t && TypeFamilies.IsIntegerLike(t) && PrimitiveJoinArmsRenderBare(arms, t)
+            ? null
+            : target;
+
+    bool PrimitiveJoinArmsRenderBare(IReadOnlyList<IrExpression> arms, TypeRef target)
+    {
+        if (arms.All(arm => ArmRendersBareSafelyAt(arm, target)))
+            return true;
+        var bareTypes = arms.Select(BareJoinType).ToList();
+        if (bareTypes.Any(t => t is null))
+            return false;
+        bool hasNatural = bareTypes.Any(candidate => bareTypes.All(other =>
+            other!.Equals(candidate!) || TypeFamilies.IsImplicitIntegerWidening(other!, candidate!)));
+        return !hasNatural && arms.All(arm => ArmConvertsImplicitlyAt(arm, target));
+    }
+
+    /// <summary>The type an arm's bare rendering contributes to C#'s natural-type computation.</summary>
+    TypeRef? BareJoinType(IrExpression arm) => arm switch
+    {
+        Constant { Value: int } => TypeRef.CoreLib("System", "Int32"),
+        Constant { Value: long } => TypeRef.CoreLib("System", "Int64"),
+        Coerce coerce => coerce.Target,
+        Convert { Target: { } convTarget } => convTarget,
+        _ => EffectiveType(arm),
+    };
+
+    /// <summary>Whether the arm expression converts implicitly to the target on its own — the per-arm half of the C# 9 rescue (constant conversions included).</summary>
+    bool ArmConvertsImplicitlyAt(IrExpression arm, TypeRef target)
+    {
+        if (ArmRendersBareSafelyAt(arm, target))
+            return true;
+        return arm is Constant { Value: int or long } konst
+            && TypeFamilies.ConstantFits(konst.Value is int i ? i : (long)konst.Value!, target);
     }
 
     static bool IsFalseConstant(IrExpression expression)
@@ -1313,7 +1385,7 @@ public sealed partial class CSharpPrinter
     static bool IsBooleanLike(IrExpression expression)
         => expression.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary };
 
-    string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
+    string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
         => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
             ? charText
             // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
@@ -1323,7 +1395,7 @@ public sealed partial class CSharpPrinter
             // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
             // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
             // and renders its member name via Operand.
-            : TryCoerceJoinArm(arm, target, primitiveCoercionSourceType) is { } coercedArm
+            : TryCoerceJoinArm(arm, target, primitiveCoercionSourceType, joinHasExactTypedArm) is { } coercedArm
                 ? coercedArm
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
@@ -1331,9 +1403,20 @@ public sealed partial class CSharpPrinter
                 : Operand(arm);
 
     string BoolToIntegerText(IrExpression value, TypeRef target)
-        => target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
-            ? $"{Condition(value)} ? 1 : 0"
-            : CheckedSafeCast(() => $"({TypeText(target)})({Condition(value)} ? 1 : 0)");
+    {
+        // The condition of the composed `?:` must out-bind `?:` itself. Every
+        // bool-valued form Condition() produces already does (comparisons,
+        // `&&`/`||`, `!x`, `??`, calls) EXCEPT a conditional, which renders bare
+        // `c ? b1 : b2` and reassociates into the composition
+        // (`c ? b1 : b2 ? 1 : 0` is `c ? b1 : (b2 ? 1 : 0)`, a bool/int arm
+        // mismatch — #2345 rounds 4-5). A conditional can hide behind a stale
+        // `Coerce`/`Convert`, so parenthesize off the rendered text, not the
+        // node type (GPT-5.5 round-5).
+        string condition = ParenthesizeConditional(Condition(value));
+        return target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
+            ? $"{condition} ? 1 : 0"
+            : CheckedSafeCast(() => $"({TypeText(target)})({condition} ? 1 : 0)");
+    }
 
     /// <summary>
     /// The one join-arm coercion, all three directions: an integer-family arm
@@ -1345,8 +1428,23 @@ public sealed partial class CSharpPrinter
     /// and a primitive arm at a same-family primitive join takes the
     /// reinterpret cast (#2302). Null when the arm needs no join coercion.
     /// </summary>
-    string? TryCoerceJoinArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
+    string? TryCoerceJoinArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
     {
+        // An arm carrying the pipeline's own Coerce re-targets: the node means
+        // "render my operand into the position's required type", and under
+        // join distribution the position's requirement IS the join target —
+        // rendering the stale wrapper and re-casting made
+        // `(sbyte)((sbyte)value)` from Coerce{int, Convert sbyte} at an sbyte
+        // sink (#2306 corpus audit). INTEGER-LIKE targets only: re-targeting
+        // is the primitive distribution's rule, and letting it preempt
+        // TryCoerceEnumOperand sent Coerce{int, bool} at an enum join through
+        // CoerceText's integer-gated bool branch and out bare (#2345 review,
+        // GPT-5.5: CS0029 — enum targets keep the composition path below).
+        if (target is { } retarget && TypeFamilies.IsIntegerLike(retarget)
+            && arm is Coerce staleCoerce && !staleCoerce.Target.Equals(retarget))
+        {
+            return CoerceText(staleCoerce.Operand, retarget);
+        }
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
             return coerced;
         // Same stack family only: `(int)longBackedEnum` would truncate. The
@@ -1365,26 +1463,71 @@ public sealed partial class CSharpPrinter
                 ? CheckedSafeCast(() => $"({TypeText(integerTarget)}){Operand(arm)}")
                 : $"({TypeText(integerTarget)}){Operand(arm)}";
         }
-        // A same-WIDTH cross-signedness arm at a numeric join is CS0266 bare (a `uint`
-        // arm at an `int` join). Reinterpret its bits with the join cast — unchecked
-        // inside a checked region so the value-preserving reinterpretation cannot become
-        // a runtime overflow (#2302, #2301; #2310's SameWidth scope merged with this
-        // branch's thunk-form CheckedSafeCast, whose operand renders outside the
-        // checked context so nested checked nodes keep their own wrappers). SameWidth
-        // keeps this to the genuinely lossless sibling casts (int/uint, short/ushort,
-        // byte/sbyte, long/ulong, ushort/char); a differing-width join is a narrowing
-        // the printer must not silently introduce, so it is left to a real Convert
-        // node in the IL.
-        if (target is { } numericTarget
-            && EffectiveType(arm) is { } armType
-            && TypeFamilies.NeedsNumericCast(armType, numericTarget)
-            && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
+        // Third direction, unified (#2302/#2306/#2310/#2322): a primitive arm
+        // at a primitive join that cannot render bare (ArmRendersBareSafelyAt
+        // — the type-level natural-type rule, which also guards Convert/Coerce
+        // arms already spelling the target against double casts).
+        //
+        // CONSTANTS are value-aware, no width guard: an out-of-range constant
+        // reinterprets via NumericConstant; an in-range constant stays bare
+        // under the post-spelling C# 9 rescue (`c ? 0 : (uint)x`) unless the
+        // target widens back into its bare int/long (`(sbyte)127` — bare 127
+        // drags the join's natural type to int) or the join has no
+        // exactly-typed arm to anchor the rescue (`c ? 0 : 1` at uint would
+        // re-form natural type int — all-constant joins cast every arm).
+        //
+        // NON-CONSTANTS take the CheckedSafeCast reinterpret gated by
+        // CanCoercePrimitiveJoinArm against the merged-type coercion source
+        // (#2322): same slot width only — a differing-width cast is a
+        // narrowing the printer must not silently introduce (left to a real
+        // Convert node in the IL). The thunk-form CheckedSafeCast renders the
+        // operand outside the checked context so nested checked nodes keep
+        // their own wrappers.
+        if (target is { } numericTarget && TypeFamilies.IsIntegerLike(numericTarget)
+            && !ArmRendersBareSafelyAt(arm, numericTarget))
         {
-            return arm is Constant { Value: int or long } constArm
-                ? NumericConstant(constArm, numericTarget)
-                : CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
+            if (arm is Constant { Value: int or long } konst)
+            {
+                long payload = konst.Value is int ci ? ci : (long)konst.Value!;
+                if (!TypeFamilies.ConstantFits(payload, numericTarget))
+                    return NumericConstant(konst, numericTarget);
+                var bareType = TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64");
+                return !joinHasExactTypedArm || TypeFamilies.IsImplicitIntegerWidening(numericTarget, bareType)
+                    ? $"({TypeText(numericTarget)}){(payload < 0 ? $"({Expression(konst)})" : Expression(konst))}"
+                    : null;
+            }
+            if (EffectiveType(arm) is { } armType
+                && TypeFamilies.NeedsNumericCast(armType, numericTarget)
+                && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
+            {
+                return CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
+            }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Whether an arm's bare rendering keeps the surrounding join valid at
+    /// <paramref name="target"/> — C#'s conditional natural type is computed
+    /// TYPE-level (a constant contributes int/long regardless of its value:
+    /// `sbyte s = c ? 1 : 2;` is CS0266, and target-typing never rescues a
+    /// conditional that has a natural type — the AssertCompiles canary refuted
+    /// the value-aware theory twice). Safe exactly when the arm's rendered
+    /// type IS the target or widens implicitly into it: widening is a strict
+    /// partial order, so any mix of bare-safe arms yields a natural type that
+    /// itself widens to the target, and the join is valid by construction.
+    /// </summary>
+    bool ArmRendersBareSafelyAt(IrExpression arm, TypeRef target)
+    {
+        if (arm is Coerce coerce)
+            return coerce.Target.Equals(target);
+        if (arm is Convert { Target: { } convTarget } && convTarget.Equals(target))
+            return true;
+        var armType = arm is Constant { Value: int or long } konst
+            ? TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64")
+            : EffectiveType(arm);
+        return armType is not null
+            && (armType.Equals(target) || TypeFamilies.IsImplicitIntegerWidening(armType, target));
     }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
@@ -1407,17 +1550,31 @@ public sealed partial class CSharpPrinter
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
 
-    bool CanRenderPrimitiveConditionalForTarget(Conditional conditional, TypeRef target)
-        => EffectiveType(conditional) is { } conditionalType
-            && TypeFamilies.IsIntegerLike(conditionalType)
+    /// <summary>
+    /// Capability gate for target-aware primitive join rendering (#2322's
+    /// shape, generalized to any arm list so the switch-expression and
+    /// coalesce consumers share it — the #2145 one-rule-in-all-three
+    /// discipline). Capability only: the bare-vs-spell CHURN decision lives in
+    /// <see cref="EffectiveJoinTarget"/>, and constants are admitted
+    /// unconditionally because the join-arm rule spells them value-aware.
+    /// </summary>
+    bool CanRenderPrimitiveJoinForTarget(TypeRef target, TypeRef? sourceType, IReadOnlyList<IrExpression> arms)
+        => sourceType is { } nodeType
+            && TypeFamilies.IsIntegerLike(nodeType)
             && TypeFamilies.IsIntegerLike(target)
             && CoercionRendering.CanSpellSlotCoercion(
-                conditionalType,
+                nodeType,
                 target,
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes)
-            && CanRenderPrimitiveJoinArm(conditional.WhenTrue, target, conditionalType)
-            && CanRenderPrimitiveJoinArm(conditional.WhenFalse, target, conditionalType);
+            && arms.All(arm => arm is Constant { Value: int or long } or Coerce
+                || CanRenderPrimitiveJoinArm(arm, target, nodeType));
+
+    bool CanRenderPrimitiveConditionalForTarget(Conditional conditional, TypeRef target)
+        => CanRenderPrimitiveJoinForTarget(
+            target,
+            EffectiveType(conditional),
+            [conditional.WhenTrue, conditional.WhenFalse]);
 
     bool CanRenderPrimitiveJoinArm(IrExpression arm, TypeRef target, TypeRef coercionSourceType)
         => EffectiveType(arm) is { } armType
@@ -1441,10 +1598,17 @@ public sealed partial class CSharpPrinter
             && SameNumericSlotWidth(coercionSourceType, target);
 
     bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
-        => IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value));
+        => (IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value)))
+            || CanRenderPrimitiveJoinForTarget(target, EffectiveType(expression), [.. expression.Arms.Select(arm => arm.Value)]);
 
     string? TryCoalesceTextForTarget(Coalesce coalesce, TypeRef target)
     {
+        // The primitive clause mirrors the conditional/switch gates (the
+        // #2145 one-rule-in-all-three discipline); a plain-primitive coalesce
+        // left cannot be null so it rarely fires, but the rule must not be
+        // width-partial across the three consumers.
+        if (CanRenderPrimitiveJoinForTarget(target, EffectiveType(coalesce), [coalesce.Left, coalesce.Right]))
+            return CoalesceText(coalesce, target);
         if (!IsEnumLikeInteger(target))
             return null;
         if (NullableValueType(coalesce.Left.ResultType)?.Equals(target) == true && IsIntegerArm(coalesce.Right))

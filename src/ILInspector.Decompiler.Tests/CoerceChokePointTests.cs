@@ -203,6 +203,400 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool flag, bool b, int tick)", body);
     }
 
+    // #2345 review canary (GPT-5.5, finding 1): a stale Coerce{int} over a
+    // BOOL arm at an ENUM join must keep the enum/bool composition path —
+    // the integer-only guard on Coerce re-targeting; preempting
+    // TryCoerceEnumOperand rendered the bool bare (CS0029).
+    [Fact]
+    public void StaleCoerceBoolArm_AtEnumJoin_KeepsComposedEnumCast()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Coerce(intType, new LoadArgument(1, "b", boolType)),
+            new LoadArgument(2, "e", enumType))
+        {
+            MergedType = enumType,
+        };
+        string body = RenderReturn(
+            conditional,
+            enumType,
+            [new Parameter("c", boolType), new Parameter("b", boolType), new Parameter("e", enumType)],
+            enumType);
+
+        Assert.Contains("(Tiny)(b ? 1 : 0)", body);
+        Assert.DoesNotContain("? b :", body);
+        AssertCompiles("public static Tiny M(bool c, bool b, Tiny e)", body, "public enum Tiny { }");
+    }
+
+    // #2345 round-2 canary (Gemini, Critical — corpus witness
+    // PEModule::GetMarshallingType): a stale Coerce{int} over a NON-constant
+    // integer arm at an ENUM join must keep TryCoerceEnumOperand's cast —
+    // the re-target branch firing for enum targets rendered `firstByte`
+    // bare (CS0029) where base spelled `(UnmanagedType)firstByte`.
+    [Fact]
+    public void StaleCoerceIntegerArm_AtEnumJoin_KeepsEnumCast()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Coerce(intType, new LoadArgument(1, "firstByte", byteType)),
+            new Constant(0, intType))
+        {
+            MergedType = enumType,
+        };
+        string body = RenderReturn(
+            conditional,
+            enumType,
+            [new Parameter("c", boolType), new Parameter("firstByte", byteType)],
+            enumType);
+
+        Assert.Contains("(Tiny)firstByte", body);
+        Assert.DoesNotContain("? firstByte", body);
+        AssertCompiles("public static Tiny M(bool c, byte firstByte)", body, "public enum Tiny { }");
+    }
+
+    // #2345 round-2 finding E (Gemini): a WIDENING arm does not anchor the
+    // natural type at the target — a byte arm at a uint join widens to both
+    // uint and int, csc's natural type lands on int, and a bare in-range
+    // constant sibling fails (CS0266). The constant must spell `(uint)1`;
+    // the byte arm stays bare (it widens to uint legitimately).
+    [Fact]
+    public void ConstantBesideWideningArm_AtUnsignedSink_CastsTheConstant()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(1, intType),
+            new LoadArgument(1, "x", byteType))
+        {
+            MergedType = intType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("x", byteType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? (uint)1 : x", body);
+        AssertCompiles("public static uint M(bool c, byte x)", body);
+    }
+
+
+    // #2345 review canary (GPT-5.5, finding 2): the switch-expression gate
+    // admits bool arms via CanSpellBoolToInteger, so SwitchArmValueText must
+    // compose them like ConditionalArm does — bare bool at a uint join is
+    // CS0029.
+    [Fact]
+    public void SwitchExpression_WithBoolArmAtUnsignedStoreTarget_ComposesBoolArm()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var switchExpression = new SwitchExpression(
+            new LoadArgument(0, "x", intType),
+            [
+                new SwitchExpressionArm([0], isDefault: false, new LoadArgument(1, "i", intType)),
+                new SwitchExpressionArm(default, isDefault: true, new LoadArgument(2, "b", boolType)),
+            ]);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, switchExpression),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("x", intType), new Parameter("i", intType), new Parameter("b", boolType)],
+            [uintType]);
+
+        Assert.Contains("(uint)(b ? 1 : 0)", body);
+        Assert.DoesNotContain("=> b", body);
+        AssertCompiles("public static uint M(int x, int i, bool b)", body);
+    }
+
+    [Fact]
+    public void CoalesceExpression_WithBoolRightAtIntStoreTarget_ParenthesizesComposedBoolArm()
+    {
+        // #2345 round-3 (GPT-5.5): the coalesce right side binds looser than
+        // `?:`, so the Int32/Int64 bool composition must parenthesize —
+        // `n ?? (b ? 1 : 0)`, not `n ?? b ? 1 : 0` which C# parses as
+        // `(n ?? b) ? 1 : 0` (CS0019). Sibling to the switch/conditional bool
+        // canaries; the coalesce is the one consumer whose join operator lacks a
+        // delimiter to bracket the ternary.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "n", nullableInt),
+            new LoadArgument(1, "b", boolType));
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, coalesce),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("b", boolType)],
+            [intType]);
+
+        Assert.Contains("?? (b ? 1 : 0)", body);
+        AssertCompiles("public static int M(int? n, bool b)", body);
+    }
+
+    [Fact]
+    public void BoolCompositionOfNestedConditional_ParenthesizesCondition()
+    {
+        // #2345 round-4 (GPT-5.5): BoolToIntegerText composes `{cond} ? 1 : 0`;
+        // when the bool value is itself a conditional it renders bare
+        // `c ? b1 : b2`, and `c ? b1 : b2 ? 1 : 0` reassociates as
+        // `c ? b1 : (b2 ? 1 : 0)` (bool/int arm mismatch, CS0029). The condition
+        // must parenthesize: `(c ? b1 : b2) ? 1 : 0`. Root fix in
+        // BoolToIntegerText, so conditional/switch/coalesce consumers all inherit
+        // it — asserted here through a conditional arm.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var nestedBool = new Conditional(
+            new LoadArgument(1, "c", boolType),
+            new LoadArgument(2, "b1", boolType),
+            new LoadArgument(3, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var outer = new Conditional(
+            new LoadArgument(0, "outer", boolType),
+            nestedBool,
+            new Constant(2, intType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, outer),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("outer", boolType), new Parameter("c", boolType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [uintType]);
+
+        Assert.Contains("(c ? b1 : b2)", body);
+        AssertCompiles("public static uint M(bool outer, bool c, bool b1, bool b2)", body);
+    }
+
+    [Fact]
+    public void BoolCompositionOfCoerceWrappedConditional_ParenthesizesCondition()
+    {
+        // #2345 round-5 (GPT-5.5): a conditional can hide behind a stale
+        // `Coerce`, so parenthesizing on `value is Conditional` misses
+        // `Coerce(bool, Conditional)` — `Condition()` still renders it bare
+        // `c ? b1 : b2`, producing `c ? b1 : b2 ? 1 : 0` (CS0029). The guard
+        // keys off the rendered condition text, not the node type.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var inner = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "b1", boolType),
+            new LoadArgument(2, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var value = new Coerce(boolType, inner);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, value),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("c", boolType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [intType]);
+
+        Assert.Contains("(c ? b1 : b2)", body);
+        AssertCompiles("public static int M(bool c, bool b1, bool b2)", body);
+    }
+
+    [Fact]
+    public void CoalesceRightConditional_WithBracketInStringLiteral_StillParenthesizes()
+    {
+        // #2345 round-5 (Gemini): the top-level-conditional scan must skip
+        // string/char literals, or an unbalanced bracket inside a literal
+        // (`s == "("`) corrupts its depth count and the `??` right ternary is
+        // left un-parenthesized (`n ?? s == "(" ? 1 : 2`, CS0019).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var conditional = new Conditional(
+            new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadArgument(1, "s", stringType), new Constant("(", stringType)),
+            new Constant(1, intType),
+            new Constant(2, intType))
+        {
+            MergedType = intType,
+        };
+        var coalesce = new Coalesce(new LoadArgument(0, "n", nullableInt), conditional);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, coalesce),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("s", stringType)],
+            [intType]);
+
+        Assert.DoesNotContain("?? s ==", body);
+        AssertCompiles("public static int M(int? n, string s)", body);
+    }
+
+    [Fact]
+    public void CoalesceRightStringLiteral_WithQuestionMark_StaysBare()
+    {
+        // #2345 round-5 (Gemini): a coalesce right that is a plain string
+        // literal containing a space-flanked `?` must NOT be mistaken for a
+        // conditional and wrapped — `s ?? "is it ? "`, not `s ?? ("is it ? ")`.
+        var stringType = TypeRef.CoreLib("System", "String");
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "s", stringType),
+            new Constant("is it ? ", stringType));
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, stringType, coalesce),
+                new Return(new LoadLocal(0, stringType)),
+            ],
+            stringType,
+            [new Parameter("s", stringType)],
+            [stringType]);
+
+        Assert.DoesNotContain("(\"is it ? \")", body);
+        AssertCompiles("public static string M(string s)", body);
+    }
+
+    [Fact]
+    public void CoalesceRightConditional_WithInterpolatedStringHole_StillParenthesizes()
+    {
+        // #2345 round-6 (GPT-5.5, Gemini): the literal skipper must parse
+        // interpolated-string holes, or a nested string with an unbalanced
+        // brace inside a hole (`$"{"("}"`) corrupts the depth count and the
+        // real top-level `??`-right ternary escapes un-parenthesized (CS0029).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var interpolated = new InterpolatedStringExpression(
+            [InterpolatedStringPart.FormattedValue(0)],
+            [new Constant("(", stringType)]);
+        var comparison = new Comparison(ComparisonKind.Equal, isUnsigned: false, interpolated, new LoadArgument(0, "s", stringType));
+        var conditional = new Conditional(
+            comparison,
+            new LoadArgument(1, "b1", boolType),
+            new LoadArgument(2, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var value = new Coerce(boolType, conditional);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, value),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("s", stringType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [intType]);
+
+        AssertCompiles("public static int M(string s, bool b1, bool b2)", body);
+    }
+
+    [Fact]
+    public void CoalesceRightConditional_WithInterpolationFormatQuote_StillParenthesizes()
+    {
+        // #2345 round-7 (Gemini): an interpolation format specifier is literal
+        // text — a bare `'` (e.g. a DateTime custom format `hh 'o'`) or an
+        // escaped `\"` there is a format character, not a string delimiter. The
+        // hole skipper must not treat it as a nested literal, or it swallows the
+        // hole's `}` and the string's closing `"`, hiding the real top-level
+        // `??`-right ternary (left un-parenthesized → CS0019).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var interpolated = new InterpolatedStringExpression(
+            [new InterpolatedStringPart(null, 0, new InterpolationFormat(0, HasAlignment: false, "hh 'o''clock'"))],
+            [new LoadArgument(1, "x", objectType)]);
+        var comparison = new Comparison(ComparisonKind.NotEqual, isUnsigned: false, interpolated, new LoadArgument(0, "s", stringType));
+        var conditional = new Conditional(
+            comparison,
+            new LoadArgument(2, "b1", boolType),
+            new LoadArgument(3, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var value = new Coerce(boolType, conditional);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, value),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("s", stringType), new Parameter("x", objectType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [intType]);
+
+        AssertCompiles("public static int M(string s, object x, bool b1, bool b2)", body);
+    }
+
+    [Fact]
+    public void CoalesceExpression_WithConditionalRight_ParenthesizesTernary()
+    {
+        // #2345 round-4 (Gemini): a coalesce right that renders as a bare
+        // top-level ternary — here a stale `Coerce` over a conditional, which
+        // TryCoerceJoinArm re-targets to `CoerceText(conditional, target)` and
+        // returns unbracketed — must parenthesize as a `??` right operand:
+        // `n ?? (c ? 1 : 2)`, not `n ?? c ? 1 : 2` (parses `(n ?? c) ? 1 : 2`,
+        // CS0019). Covers the render paths the bool-composition canary does not.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var conditional = new Conditional(
+            new LoadArgument(1, "c", boolType),
+            new Constant(1, intType),
+            new Constant(2, intType))
+        {
+            MergedType = intType,
+        };
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "n", nullableInt),
+            new Coerce(sbyteType, conditional));
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, coalesce),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("c", boolType)],
+            [intType]);
+
+        Assert.DoesNotContain("?? c ? 1 : 2", body);
+        AssertCompiles("public static int M(int? n, bool c)", body);
+    }
+
     [Fact]
     public void Conditional_WithNarrowSignedArmsAtPrimitiveStoreTarget_CastsThroughMergedWidth()
     {
@@ -854,6 +1248,90 @@ public class CoerceChokePointTests
 
         Assert.Contains("unchecked((uint)x)", body);
         AssertCompiles("public static uint M(uint u, int x)", body);
+    }
+
+    // #2306: an int-MergedType Conditional at a uint sink — the live
+    // SpinThenBlockingWait shape (`uint V_1 = c ? 0 : Environment.TickCount;`
+    // shipped CS0266). The sink target distributes into the arms: the in-range
+    // constant stays bare, the int expression takes the reinterpret cast.
+    [Fact]
+    public void IntConditional_AtUnsignedSink_DistributesTargetIntoArms()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(0, intType),
+            new LoadArgument(1, "x", intType))
+        {
+            MergedType = intType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("x", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? 0 : (uint)x", body);
+        AssertCompiles("public static uint M(bool c, int x)", body);
+    }
+
+    // C#'s natural type is computed TYPE-level: `sbyte s = c ? 127 : (sbyte)x;`
+    // is CS0266 (127 contributes int; sbyte -> int gives the join a natural
+    // type of int, and target-typing never rescues a conditional that HAS a
+    // natural type — AssertCompiles refuted the value-aware theory). So this
+    // join distributes: the in-range constant takes `(sbyte)127`, and the
+    // stale pipeline Coerce{int} arm re-targets its OPERAND — a single cast,
+    // never the `(sbyte)((sbyte)value)` double of the corpus audit.
+    [Fact]
+    public void NaturalTypePoisonedConditional_DistributesSingleCastPerArm()
+    {
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(127, intType),
+            new Coerce(intType, new Pipeline.Convert(sbyteType, isChecked: false, isUnsigned: false, new LoadArgument(1, "x", intType))))
+        {
+            MergedType = intType,
+        };
+        string body = RenderReturn(
+            conditional,
+            sbyteType,
+            [new Parameter("c", boolType), new Parameter("x", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? (sbyte)127 : (sbyte)x", body);
+        Assert.DoesNotContain("(sbyte)((sbyte)", body);
+        AssertCompiles("public static sbyte M(bool c, int x)", body);
+    }
+
+    // The cross-family refusal: a long-armed conditional at a uint sink must
+    // NOT distribute (the cast would be the place that discovers a wrong
+    // join); it stays on the merge-node bail.
+    [Fact]
+    public void LongConditional_AtUnsignedSink_DeclinesDistribution()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "a", longType),
+            new LoadArgument(2, "b", longType))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("a", longType), new Parameter("b", longType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.DoesNotContain("(uint)a", body);
+        Assert.DoesNotContain("(uint)(c", body);
     }
 
     static string RenderReturn(
