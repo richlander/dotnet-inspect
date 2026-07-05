@@ -31,14 +31,12 @@ if (args.Contains("--help") || args.Contains("-h"))
 }
 
 var pairs = new List<AssemblyPair>();
+var positional = new List<string>();
 string? pairsManifest = null;
 int maxExamples = 5;
 OutputFormat outputFormat = OutputFormat.Markdown;
 
-if (args.Length >= 2 && !args[0].StartsWith("-", StringComparison.Ordinal) && !args[1].StartsWith("-", StringComparison.Ordinal))
-    pairs.Add(new AssemblyPair(args[0], args[1]));
-
-for (int i = pairs.Count == 0 ? 0 : 2; i < args.Length; i++)
+for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
@@ -77,10 +75,27 @@ for (int i = pairs.Count == 0 ? 0 : 2; i < args.Length; i++)
 
             break;
         default:
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+            {
+                positional.Add(args[i]);
+                break;
+            }
+
             Console.Error.WriteLine($"Unknown argument: {args[i]}");
             Console.Error.WriteLine(Usage);
             return 2;
     }
+}
+
+if (positional.Count != 0)
+{
+    if (positional.Count != 2)
+    {
+        Console.Error.WriteLine("Positional usage requires exactly old and new assembly paths.");
+        return 2;
+    }
+
+    pairs.Insert(0, new AssemblyPair(positional[0], positional[1]));
 }
 
 if (pairsManifest is not null)
@@ -131,7 +146,7 @@ foreach (var pair in pairs)
 
 try
 {
-    var cards = pairs.Select(pair => BuildPairCard(pair, maxExamples)).ToImmutableArray();
+    var cards = pairs.Select(BuildPairCard).ToImmutableArray();
     Console.Write(FormatCard(cards, maxExamples, outputFormat));
     return 0;
 }
@@ -175,7 +190,7 @@ static bool TryParseOutputFormat(string value, out OutputFormat format)
     return format is OutputFormat.Markdown or OutputFormat.Tsv or OutputFormat.Jsonl;
 }
 
-static CSharpDiffPairCard BuildPairCard(AssemblyPair pair, int maxExamples)
+static CSharpDiffPairCard BuildPairCard(AssemblyPair pair)
 {
     var result = CSharpBodyDiff.CompareAssemblies(pair.OldPath, pair.NewPath);
     var failures = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -209,12 +224,12 @@ static CSharpDiffPairCard BuildPairCard(AssemblyPair pair, int maxExamples)
             Buckets(failures),
             Buckets(changeIds),
             Buckets(operationKinds),
-            Examples(result, maxExamples)));
+            ExampleGroups(result)));
 }
 
-static ImmutableArray<CSharpDiffExample> Examples(CSharpBodyDiffResult result, int maxExamples)
+static ImmutableArray<CSharpDiffExampleGroup> ExampleGroups(CSharpBodyDiffResult result)
 {
-    if (maxExamples == 0 || (result.Rows.IsDefaultOrEmpty && result.FailureRows.IsDefaultOrEmpty))
+    if (result.Rows.IsDefaultOrEmpty && result.FailureRows.IsDefaultOrEmpty)
         return [];
 
     var groups = new Dictionary<string, ExampleGroup>(StringComparer.Ordinal);
@@ -234,10 +249,10 @@ static ImmutableArray<CSharpDiffExample> Examples(CSharpBodyDiffResult result, i
 
     return [.. groups
         .OrderBy(pair => pair.Value.Member, StringComparer.Ordinal)
-        .Take(maxExamples)
-        .Select(pair => new CSharpDiffExample(
+        .Select(pair => new CSharpDiffExampleGroup(
             pair.Value.Member,
-            CSharpDiffPrinter.RenderUnified(new CSharpBodyDiffResult(pair.Value.Rows.ToImmutableArray(), pair.Value.Failures.ToImmutableArray()))))];
+            pair.Value.Rows.ToImmutableArray(),
+            pair.Value.Failures.ToImmutableArray()))];
 }
 
 static ImmutableArray<CardBucket> Buckets(Dictionary<string, int> counts)
@@ -347,14 +362,13 @@ static CSharpDiffCard Aggregate(ImmutableArray<CSharpDiffPairCard> pairs, int ma
             IncrementBy(changeIds, bucket.Name, bucket.Count);
         foreach (var bucket in pair.Card.TopOperationKinds)
             IncrementBy(operationKinds, bucket.Name, bucket.Count);
-        foreach (var example in pair.Card.Examples)
+        foreach (var example in pair.Card.ExampleGroups)
         {
             if (examples.Count >= maxExamples)
                 break;
-            examples.Add(example with
-            {
-                Member = $"{DisplayPath(pair.OldPath)} to {DisplayPath(pair.NewPath)} :: {example.Member}"
-            });
+            examples.Add(RenderExample(
+                $"{DisplayPath(pair.OldPath)} to {DisplayPath(pair.NewPath)} :: {example.Member}",
+                example));
         }
     }
 
@@ -366,10 +380,11 @@ static CSharpDiffCard Aggregate(ImmutableArray<CSharpDiffPairCard> pairs, int ma
         FailureBuckets: Buckets(failures),
         TopChangeIds: Buckets(changeIds),
         TopOperationKinds: Buckets(operationKinds),
-        Examples: examples.ToImmutable())
+        ExampleGroups: [])
     {
         ExactPairCount = exact,
         ChangedPairCount = changed,
+        Examples = examples.ToImmutable(),
     };
 }
 
@@ -435,6 +450,9 @@ static CSharpDiffExampleMarkdownView ExampleMarkdownRow(CSharpDiffExample exampl
 static CSharpDiffExampleTableRow ExampleTableRow(CSharpDiffExample example)
     => new("Examples", example.Member, example.UnifiedDiff);
 
+static CSharpDiffExample RenderExample(string member, CSharpDiffExampleGroup group)
+    => new(member, CSharpDiffPrinter.RenderUnified(new CSharpBodyDiffResult(group.Rows, group.Failures)));
+
 sealed class ExampleGroup(string member)
 {
     public string Member { get; } = member;
@@ -461,13 +479,19 @@ sealed record CSharpDiffCard(
     ImmutableArray<CardBucket> FailureBuckets,
     ImmutableArray<CardBucket> TopChangeIds,
     ImmutableArray<CardBucket> TopOperationKinds,
-    ImmutableArray<CSharpDiffExample> Examples)
+    ImmutableArray<CSharpDiffExampleGroup> ExampleGroups)
 {
     public int ExactPairCount { get; init; }
     public int ChangedPairCount { get; init; }
+    public ImmutableArray<CSharpDiffExample> Examples { get; init; } = [];
 }
 
 sealed record CardBucket(string Name, int Count);
+
+sealed record CSharpDiffExampleGroup(
+    string Member,
+    ImmutableArray<CSharpDiffRow> Rows,
+    ImmutableArray<CSharpDiffFailureRow> Failures);
 
 sealed record CSharpDiffExample(string Member, string UnifiedDiff);
 
