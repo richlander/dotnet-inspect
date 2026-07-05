@@ -145,6 +145,10 @@ public class ReachingDefinitionsTests
                 Assert.True(second.HasSingleDefinition);
                 Assert.True(second.HasSingleUse);
             });
+
+        Assert.Equal([1, 5], graph.SingleDefinitionSingleUseWebs()
+            .Select(web => Assert.Single(web.Definitions).Offset)
+            .ToArray());
     }
 
     [Fact]
@@ -161,6 +165,7 @@ public class ReachingDefinitionsTests
         var web = Assert.Single(graph.WebsFor(new SlotIdentity(0, IsArgument: false)));
         Assert.True(web.AddressTaken);
         Assert.Equal([2], web.Uses.Select(use => use.Offset).ToArray());
+        Assert.Empty(graph.SingleDefinitionSingleUseWebs());
     }
 
     [Fact]
@@ -195,6 +200,31 @@ public class ReachingDefinitionsTests
         Assert.Equal([0], web.Uses.Select(use => use.Offset).ToArray());
         Assert.Equal(-1, web.StartOffset);
         Assert.Equal(0, web.EndOffset);
+        Assert.Empty(graph.SingleDefinitionSingleUseWebs());
+        Assert.Equal([web], graph.SingleDefinitionSingleUseWebs(includeArguments: true));
+    }
+
+    [Fact]
+    public void DefUseGraph_PreservesIncompleteReason()
+    {
+        var result = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0, [default(ExceptionRegion)]);
+
+        var graph = result.ToDefUseGraph();
+
+        Assert.False(graph.IsComplete);
+        Assert.Equal(result.IncompleteReason, graph.IncompleteReason);
+    }
+
+    [Fact]
+    public void DefUseGraph_EmptyCompleteResult_IsComplete()
+    {
+        var graph = ReachingDefinitions.Analyze([], argumentSlotCount: 0).ToDefUseGraph();
+
+        Assert.Empty(graph.Webs);
+        Assert.True(graph.IsComplete);
+        Assert.Null(graph.IncompleteReason);
     }
 
     [Fact]

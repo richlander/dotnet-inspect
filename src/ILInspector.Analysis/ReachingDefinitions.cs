@@ -45,12 +45,22 @@ public sealed record SlotDefUseWeb(
     public bool HasMultipleDefinitions => Definitions.Length > 1;
     public bool HasSingleDefinition => Definitions.Length == 1;
     public bool HasSingleUse => Uses.Length == 1;
+    public bool HasSingleDefinitionSingleUseWithoutAddress
+        => HasSingleDefinition && HasSingleUse && !AddressTaken;
 }
 
-public sealed record SlotDefUseGraph(ImmutableArray<SlotDefUseWeb> Webs)
+public sealed record SlotDefUseGraph(
+    ImmutableArray<SlotDefUseWeb> Webs,
+    bool IsComplete = true,
+    string? IncompleteReason = null)
 {
     public ImmutableArray<SlotDefUseWeb> WebsFor(SlotIdentity slot)
         => [.. Webs.Where(web => web.Slot == slot)];
+
+    public ImmutableArray<SlotDefUseWeb> SingleDefinitionSingleUseWebs(bool includeArguments = false)
+        => [.. Webs.Where(web =>
+            web.HasSingleDefinitionSingleUseWithoutAddress
+            && (includeArguments || !web.IsArgument))];
 
     public static SlotDefUseGraph Create(ReachingDefinitionsResult result)
     {
@@ -60,7 +70,7 @@ public sealed record SlotDefUseGraph(ImmutableArray<SlotDefUseWeb> Webs)
         int useCount = result.Uses.Length;
         int nodeCount = definitionCount + useCount;
         if (nodeCount == 0)
-            return new SlotDefUseGraph([]);
+            return new SlotDefUseGraph([], result.IsComplete, result.IncompleteReason);
 
         var parents = Enumerable.Range(0, nodeCount).ToArray();
         var definitionIndexById = result.Definitions
@@ -102,12 +112,12 @@ public sealed record SlotDefUseGraph(ImmutableArray<SlotDefUseWeb> Webs)
                 var slot = definitions.Length > 0
                     ? new SlotIdentity(definitions[0].Slot, definitions[0].IsArgument)
                     : new SlotIdentity(uses[0].Slot, uses[0].IsArgument);
-                int startOffset = definitions.Select(definition => definition.Offset)
-                    .Concat(uses.Select(use => use.Offset))
-                    .Min();
-                int endOffset = definitions.Select(definition => definition.Offset)
-                    .Concat(uses.Select(use => use.Offset))
-                    .Max();
+                int startOffset = Math.Min(
+                    definitions.IsEmpty ? int.MaxValue : definitions[0].Offset,
+                    uses.IsEmpty ? int.MaxValue : uses[0].Offset);
+                int endOffset = Math.Max(
+                    definitions.IsEmpty ? int.MinValue : definitions[^1].Offset,
+                    uses.IsEmpty ? int.MinValue : uses[^1].Offset);
                 return new
                 {
                     Slot = slot,
@@ -140,7 +150,7 @@ public sealed record SlotDefUseGraph(ImmutableArray<SlotDefUseWeb> Webs)
                 candidate.HasMergedUse));
         }
 
-        return new SlotDefUseGraph(webs.MoveToImmutable());
+        return new SlotDefUseGraph(webs.MoveToImmutable(), result.IsComplete, result.IncompleteReason);
 
         int Find(int node)
         {
