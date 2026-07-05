@@ -96,20 +96,15 @@ internal static class ReturnToSenderEvidence
             : diagnostic.Rows;
         foreach (var displayRow in displayRows)
         {
-            var direction = displayRow.Kind switch
-            {
-                IlDiffKind.Add => ResearchDiffDirection.Added,
-                IlDiffKind.Remove => ResearchDiffDirection.Removed,
-                _ => ResearchDiffDirection.Changed,
-            };
+            if (displayRow.Kind == IlDiffKind.Context)
+                continue;
+
+            var direction = displayRow.Kind == IlDiffKind.Add
+                ? ResearchDiffDirection.Added
+                : ResearchDiffDirection.Removed;
             yield return new ResearchDiffEvidence(
                 ResearchDiffMechanism.IlBody,
-                displayRow.Kind switch
-                {
-                    IlDiffKind.Add => "il.operation.added",
-                    IlDiffKind.Remove => "il.operation.removed",
-                    _ => "il.operation.context",
-                },
+                displayRow.Kind == IlDiffKind.Add ? "il.operation.added" : "il.operation.removed",
                 direction,
                 OldValue: displayRow.Kind == IlDiffKind.Remove ? displayRow.Operation : null,
                 NewValue: displayRow.Kind == IlDiffKind.Add ? displayRow.Operation : null,

@@ -56,21 +56,32 @@ public class ReturnToSenderEvidenceTests
                 [
                     new IlDiffDisplayRow(
                         0,
-                        IlDiffKind.Remove,
-                        "-",
+                        IlDiffKind.Context,
+                        " ",
                         0,
                         "IL_0000",
+                        "nop",
+                        OperandKind: null,
+                        OperandValue: null,
+                        "nop",
+                        "Unchanged IL operation 'nop'"),
+                    new IlDiffDisplayRow(
+                        1,
+                        IlDiffKind.Remove,
+                        "-",
+                        1,
+                        "IL_0001",
                         "ldc.i4",
                         IlOperandIdentityKind.Immediate,
                         "1",
                         "ldc.i4 1",
                         "Removed IL operation 'ldc.i4 1'"),
                     new IlDiffDisplayRow(
-                        0,
+                        1,
                         IlDiffKind.Add,
                         "+",
-                        0,
-                        "IL_0000",
+                        1,
+                        "IL_0001",
                         "ldc.i4",
                         IlOperandIdentityKind.Immediate,
                         "2",
@@ -89,11 +100,12 @@ public class ReturnToSenderEvidenceTests
             item.Mechanism == ResearchDiffMechanism.IlBody
             && item.ChangeId == "il.operation.removed"
             && item.OldValue == "ldc.i4 1"
-            && item.OldIlOffset == 0);
+            && item.OldIlOffset == 1);
         Assert.Contains(subject.Evidence, item =>
             item.Mechanism == ResearchDiffMechanism.IlBody
             && item.ChangeId == "il.operation.added"
             && item.NewValue == "ldc.i4 2"
-            && item.NewIlOffset == 0);
+            && item.NewIlOffset == 1);
+        Assert.DoesNotContain(subject.Evidence, item => item.ChangeId == "il.operation.context");
     }
 }
