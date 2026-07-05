@@ -786,7 +786,9 @@ public static class ResearchDiff
             failure.Anchor.StableSelector,
             $"{failure.Anchor.TypeFullName}.{failure.Anchor.MemberName}",
             failure.Anchor.TypeFullName,
-            failure.Anchor.MemberName);
+            failure.Anchor.MemberName,
+            new TypeAnchor(failure.Anchor.TypeFullName),
+            failure.Anchor);
         var direction = failure.Kind switch
         {
             CSharpDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,
@@ -801,6 +803,7 @@ public static class ResearchDiff
             NewValue: failure.Side == "new" ? failure.Detail ?? failure.Message : null,
             Detail: failure.Detail ?? failure.Message,
             Category: ResearchDiffChangeCategory.CSharp,
+            Anchor: failure.Anchor,
             CSharpDisplayFailureRow: CSharpDiffPrinter.ToDisplayFailureRow(failure)));
     }
 

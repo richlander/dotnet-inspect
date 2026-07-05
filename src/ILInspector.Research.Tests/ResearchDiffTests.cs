@@ -521,6 +521,10 @@ public class ResearchDiffTests
             && member.HasChange("csharp.diff.old-body-missing")));
         var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.diff.old-body-missing");
         Assert.Equal(ResearchDiffDirection.Added, evidence.Direction);
+        Assert.NotNull(changed.Subject.Anchor);
+        Assert.NotNull(changed.Subject.TypeAnchor);
+        Assert.Same(changed.Subject.Anchor, evidence.Anchor);
+        Assert.StartsWith("BodyState~", changed.Subject.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.NotNull(evidence.CSharpDisplayFailureRow);
         Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, evidence.CSharpDisplayFailureRow.Kind);
         Assert.Equal("old", evidence.CSharpDisplayFailureRow.Side);
