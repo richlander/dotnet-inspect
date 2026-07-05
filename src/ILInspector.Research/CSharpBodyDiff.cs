@@ -150,6 +150,12 @@ public sealed record CSharpDiffFailureRow(
     string? Detail = null,
     int? HunkId = null);
 
+internal sealed record CSharpSemanticOperation(
+    CSharpDiffOperationKind Kind,
+    int Line,
+    string Value,
+    string Text);
+
 public sealed record CSharpBodyDiffResult(
     ImmutableArray<CSharpDiffRow> Rows,
     ImmutableArray<CSharpDiffFailureRow> FailureRows = default)
@@ -887,11 +893,13 @@ public static class CSharpBodyDiff
             return;
 
         int hunk = hunkId++;
-        AddSemanticRows(rows, entry, hunk, oldRender, oldStart, oldEnd, newRender, newStart, newEnd);
-        for (int i = oldStart; i < oldEnd; i++)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, i + 1, oldRender.Fidelity.ToString(), oldRender.Lines[i]));
-        for (int i = newStart; i < newEnd; i++)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, i + 1, newRender.Fidelity.ToString(), newRender.Lines[i]));
+        var oldOperations = BuildSemanticOperations(oldRender.Lines, oldStart, oldEnd);
+        var newOperations = BuildSemanticOperations(newRender.Lines, newStart, newEnd);
+        AddSemanticRows(rows, entry, hunk, oldRender, newRender, oldOperations, newOperations);
+        foreach (var operation in oldOperations.Where(operation => operation.Kind == CSharpDiffOperationKind.Line))
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, operation.Line, oldRender.Fidelity.ToString(), operation.Text));
+        foreach (var operation in newOperations.Where(operation => operation.Kind == CSharpDiffOperationKind.Line))
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, operation.Line, newRender.Fidelity.ToString(), operation.Text));
     }
 
     static void AddRenderStateRows(
@@ -1068,64 +1076,52 @@ public static class CSharpBodyDiff
         CSharpMethodEntry entry,
         int hunk,
         CSharpMethodRender oldRender,
-        int oldStart,
-        int oldEnd,
         CSharpMethodRender newRender,
-        int newStart,
-        int newEnd)
+        ImmutableArray<CSharpSemanticOperation> oldOperations,
+        ImmutableArray<CSharpSemanticOperation> newOperations)
     {
         if (oldRender.Fidelity != DecompilationFidelity.Full || newRender.Fidelity != DecompilationFidelity.Full)
             return;
 
-        for (int i = oldStart; i < oldEnd; i++)
+        foreach (var operation in oldOperations.Where(operation => operation.Kind == CSharpDiffOperationKind.SwitchCase))
         {
-            if (TryParseSwitchCase(oldRender.Lines[i], out var label))
-            {
-                rows.Add(CreateRow(
-                    entry,
-                    hunk,
-                    CSharpDiffKind.Remove,
-                    i + 1,
-                    oldRender.Fidelity.ToString(),
-                    oldRender.Lines[i],
-                    "csharp.switch.case.removed",
-                    $"Removed switch case '{label}'",
-                    oldValue: label,
-                    newValue: null,
-                    operationKind: CSharpDiffOperationKind.SwitchCase));
-            }
+            rows.Add(CreateRow(
+                entry,
+                hunk,
+                CSharpDiffKind.Remove,
+                operation.Line,
+                oldRender.Fidelity.ToString(),
+                operation.Text,
+                "csharp.switch.case.removed",
+                $"Removed switch case '{operation.Value}'",
+                oldValue: operation.Value,
+                newValue: null,
+                operationKind: CSharpDiffOperationKind.SwitchCase));
         }
 
-        for (int i = newStart; i < newEnd; i++)
+        foreach (var operation in newOperations.Where(operation => operation.Kind == CSharpDiffOperationKind.SwitchCase))
         {
-            if (TryParseSwitchCase(newRender.Lines[i], out var label))
-            {
-                rows.Add(CreateRow(
-                    entry,
-                    hunk,
-                    CSharpDiffKind.Add,
-                    i + 1,
-                    newRender.Fidelity.ToString(),
-                    newRender.Lines[i],
-                    "csharp.switch.case.added",
-                    $"Added switch case '{label}'",
-                    oldValue: null,
-                    newValue: label,
-                    operationKind: CSharpDiffOperationKind.SwitchCase));
-            }
+            rows.Add(CreateRow(
+                entry,
+                hunk,
+                CSharpDiffKind.Add,
+                operation.Line,
+                newRender.Fidelity.ToString(),
+                operation.Text,
+                "csharp.switch.case.added",
+                $"Added switch case '{operation.Value}'",
+                oldValue: null,
+                newValue: operation.Value,
+                operationKind: CSharpDiffOperationKind.SwitchCase));
         }
 
         AddChangedSemanticRows(
             rows,
             entry,
             hunk,
-            oldRender,
-            oldStart,
-            oldEnd,
             newRender,
-            newStart,
-            newEnd,
-            TryParseReturnExpression,
+            oldOperations,
+            newOperations,
             CSharpDiffOperationKind.ReturnExpression,
             "csharp.return-expression.changed",
             static (oldValue, newValue) => $"Changed return expression from '{oldValue}' to '{newValue}'");
@@ -1134,41 +1130,50 @@ public static class CSharpBodyDiff
             rows,
             entry,
             hunk,
-            oldRender,
-            oldStart,
-            oldEnd,
             newRender,
-            newStart,
-            newEnd,
-            TryParseCallExpression,
+            oldOperations,
+            newOperations,
             CSharpDiffOperationKind.Invocation,
             "csharp.call.changed",
             static (oldValue, newValue) => $"Changed call from '{oldValue}' to '{newValue}'");
     }
 
-    delegate bool TryParseLine(string line, out string value);
+    static ImmutableArray<CSharpSemanticOperation> BuildSemanticOperations(string[] lines, int start, int end)
+    {
+        var operations = ImmutableArray.CreateBuilder<CSharpSemanticOperation>();
+        for (int i = start; i < end; i++)
+        {
+            string line = lines[i];
+            int lineNumber = i + 1;
+            operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.Line, lineNumber, line, line));
+            if (TryParseSwitchCase(line, out var label))
+                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.SwitchCase, lineNumber, label, line));
+            if (TryParseReturnExpression(line, out var expression))
+                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.ReturnExpression, lineNumber, expression, line));
+            if (TryParseCallExpression(line, out var call))
+                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.Invocation, lineNumber, call, line));
+        }
+
+        return operations.ToImmutable();
+    }
 
     static void AddChangedSemanticRows(
         ImmutableArray<CSharpDiffRow>.Builder rows,
         CSharpMethodEntry entry,
         int hunk,
-        CSharpMethodRender oldRender,
-        int oldStart,
-        int oldEnd,
         CSharpMethodRender newRender,
-        int newStart,
-        int newEnd,
-        TryParseLine parser,
+        ImmutableArray<CSharpSemanticOperation> oldOperations,
+        ImmutableArray<CSharpSemanticOperation> newOperations,
         CSharpDiffOperationKind operationKind,
         string changeId,
         Func<string, string, string> messageFactory)
     {
-        var oldValues = ParsedLines(oldRender.Lines, oldStart, oldEnd, parser);
-        var newValues = ParsedLines(newRender.Lines, newStart, newEnd, parser);
-        if (oldValues.Count == 0 || oldValues.Count != newValues.Count)
+        var oldValues = oldOperations.Where(operation => operation.Kind == operationKind).ToArray();
+        var newValues = newOperations.Where(operation => operation.Kind == operationKind).ToArray();
+        if (oldValues.Length == 0 || oldValues.Length != newValues.Length)
             return;
 
-        for (int i = 0; i < oldValues.Count; i++)
+        for (int i = 0; i < oldValues.Length; i++)
         {
             var oldValue = oldValues[i];
             var newValue = newValues[i];
@@ -1181,22 +1186,13 @@ public static class CSharpBodyDiff
                 CSharpDiffKind.Changed,
                 newValue.Line,
                 newRender.Fidelity.ToString(),
-                newRender.Lines[newValue.Line - 1],
+                newValue.Text,
                 changeId,
                 messageFactory(oldValue.Value, newValue.Value),
                 oldValue.Value,
                 newValue.Value,
                 operationKind));
         }
-    }
-
-    static List<(int Line, string Value)> ParsedLines(string[] lines, int start, int end, TryParseLine parser)
-    {
-        var values = new List<(int Line, string Value)>();
-        for (int i = start; i < end; i++)
-            if (parser(lines[i], out var value))
-                values.Add((i + 1, value));
-        return values;
     }
 
     static bool TryParseSwitchCase(string line, out string label)
