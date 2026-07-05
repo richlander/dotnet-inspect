@@ -152,6 +152,14 @@ public class ResearchDiffTests
         Assert.Equal("il.operation.added", row.ChangeId);
         Assert.Equal(ilRow.Message, row.Message);
         Assert.Same(ilRow, row.IlRow);
+        Assert.NotNull(row.IlDisplayRow);
+        Assert.Equal(3, row.IlDisplayRow.HunkId);
+        Assert.Equal("+", row.IlDisplayRow.Marker);
+        Assert.Equal("IL_0000", row.IlDisplayRow.Offset);
+        Assert.Equal("ldc.i4", row.IlDisplayRow.OpcodeFamily);
+        Assert.Equal(IlOperandIdentityKind.Immediate, row.IlDisplayRow.OperandKind);
+        Assert.Equal("2", row.IlDisplayRow.OperandValue);
+        Assert.Equal("h3 + IL_0000 ldc.i4 2", row.IlDisplayRow.UnifiedLine);
     }
 
     [Fact]
@@ -169,6 +177,12 @@ public class ResearchDiffTests
         Assert.Equal(IlDiffFailureKind.NewBodyMissing, failure.Kind);
         Assert.Equal("new", failure.Side);
         Assert.Equal("metadata row absent", failure.Detail);
+        Assert.NotNull(row.IlDisplayFailureRow);
+        Assert.Equal(IlDiffFailureKind.NewBodyMissing, row.IlDisplayFailureRow.Kind);
+        Assert.Equal("new body missing", row.IlDisplayFailureRow.Message);
+        Assert.Equal("new", row.IlDisplayFailureRow.Side);
+        Assert.Equal("metadata row absent", row.IlDisplayFailureRow.Detail);
+        Assert.Equal("IL diff failed: new body missing", row.IlDisplayFailureRow.UnifiedLine);
     }
 
     [Fact]
@@ -198,6 +212,8 @@ public class ResearchDiffTests
             {
                 Assert.Equal("il.operation.removed", operationRow.ChangeId);
                 Assert.Same(ilRow, operationRow.IlRow);
+                Assert.NotNull(operationRow.IlDisplayRow);
+                Assert.Equal("h0 - IL_0000 nop", operationRow.IlDisplayRow.UnifiedLine);
                 Assert.Null(operationRow.IlFailureRow);
             });
     }
@@ -344,12 +360,19 @@ public class ResearchDiffTests
         var ilEvidence = Assert.Single(constant.Evidence, evidence => evidence.ChangeId == "il.hunk.changed");
         Assert.Same(constant.Subject.Anchor, ilEvidence.Anchor);
         Assert.Equal(constant.Subject.MetadataMember, ilEvidence.MetadataMember);
-        Assert.NotNull(ilEvidence.IlDisplayRows);
-        Assert.Contains(ilEvidence.IlDisplayRows!, row => row.Marker == "-" && row.Message.Contains("Removed IL operation", StringComparison.Ordinal));
-        Assert.Contains(ilEvidence.IlDisplayRows!, row => row.Marker == "+" && row.Message.Contains("Added IL operation", StringComparison.Ordinal));
+        Assert.NotEmpty(ilEvidence.IlDisplayRows);
+        Assert.Contains(ilEvidence.IlDisplayRows, row => row.Marker == "-" && row.Message.Contains("Removed IL operation", StringComparison.Ordinal));
+        Assert.Contains(ilEvidence.IlDisplayRows, row => row.Marker == "+" && row.Message.Contains("Added IL operation", StringComparison.Ordinal));
         Assert.Contains("h", ilEvidence.Detail);
         Assert.DoesNotContain(changedMembers, member =>
             member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
+        Assert.Contains(ilEvidence.IlDisplayRows, row =>
+            row.Kind == IlDiffKind.Remove
+            && row.Marker == "-"
+            && row.OpcodeFamily == "ldc.i4"
+            && row.OperandKind == IlOperandIdentityKind.Immediate
+            && row.OperandValue == "1"
+            && row.UnifiedLine.Contains("ldc.i4 1", StringComparison.Ordinal));
     }
 
     [Fact]

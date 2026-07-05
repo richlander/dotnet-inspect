@@ -1171,6 +1171,10 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("rts.status.fail: 1", report);
         Assert.Contains("il.operation.added: 1", report);
         Assert.Contains("il.operation.removed: 1", report);
+        Assert.Contains("Actionable subjects (first 1", report);
+        Assert.Contains("Method1~abcdef1234  rts=OpcodeDiff  detail=opcode-diff", report);
+        Assert.Contains("      il.operation.added: 1", report);
+        Assert.Contains("      il.operation.removed: 1", report);
     }
 
     [Fact]
@@ -1320,6 +1324,11 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains(rows, row =>
             row.GetProperty("Offset").GetString()?.StartsWith("IL_", StringComparison.Ordinal) == true
             && row.GetProperty("OpcodeFamily").GetString() is { Length: > 0 });
+        var summary = document.RootElement.GetProperty("ResearchSummary");
+        Assert.Equal(1, summary.GetProperty("FailingMembers").GetInt32());
+        Assert.Equal(1, summary.GetProperty("OpcodeDiffMembers").GetInt32());
+        var actionable = Assert.Single(summary.GetProperty("ActionableSubjects").EnumerateArray());
+        Assert.StartsWith("Method1~", actionable.GetProperty("SubjectId").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]

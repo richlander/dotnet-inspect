@@ -544,6 +544,9 @@ public class CSharpBodyDiffTests
         Assert.Equal("csharp.method.removed", row.ChangeId);
         Assert.Equal("Removed C# method.", row.Message);
         Assert.Equal("/* method removed */", row.Text);
+        Assert.Equal(CSharpDiffOperationKind.Method, row.OldOperation?.Kind);
+        Assert.Equal("/* method removed */", row.OldOperation?.Value);
+        Assert.Null(row.NewOperation);
         Assert.Null(row.SourceCoordinate);
     }
 
@@ -560,6 +563,9 @@ public class CSharpBodyDiffTests
         Assert.Equal("csharp.method.body-added", row.ChangeId);
         Assert.Equal("Added C# method body.", row.Message);
         Assert.Equal("/* method body added */", row.Text);
+        Assert.Null(row.OldOperation);
+        Assert.Equal(CSharpDiffOperationKind.MethodBody, row.NewOperation?.Kind);
+        Assert.Equal("/* method body added */", row.NewOperation?.Value);
         Assert.Null(row.SourceCoordinate);
     }
 
@@ -576,6 +582,9 @@ public class CSharpBodyDiffTests
         Assert.Equal("csharp.method.body-removed", row.ChangeId);
         Assert.Equal("Removed C# method body.", row.Message);
         Assert.Equal("/* method body removed */", row.Text);
+        Assert.Equal(CSharpDiffOperationKind.MethodBody, row.OldOperation?.Kind);
+        Assert.Equal("/* method body removed */", row.OldOperation?.Value);
+        Assert.Null(row.NewOperation);
         Assert.Null(row.SourceCoordinate);
     }
 

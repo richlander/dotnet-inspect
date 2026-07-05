@@ -79,6 +79,25 @@ public class FixtureCatalogTests
     }
 
     [Fact]
+    public void SidecarAssets_ResolveTraceCoupledRunFasterAsset()
+    {
+        var fixture = FixtureCatalog.RunFasterAllocation;
+
+        Assert.Contains("trace-coupled", fixture.Tags);
+        var asset = Assert.Single(fixture.Assets);
+        Assert.Equal("fixture.nettrace", asset.Name);
+        Assert.EndsWith(Path.Combine("Fixtures", "RunFaster.AllocationFixture", "fixture.nettrace"), fixture.AssetPath(asset.Name));
+    }
+
+    [Fact]
+    public void SidecarAssets_UnknownAssetFailsClearly()
+    {
+        var error = Assert.Throws<ArgumentException>(() => FixtureCatalog.RunFasterAllocation.AssetPath("missing"));
+
+        Assert.Contains("Fixture 'runfaster.allocation' has no asset named 'missing'", error.Message);
+    }
+
+    [Fact]
     public void AssemblyNameAxisFixtures_ResolveIntentionalFileNames()
     {
         AssertFixtureFileName(FixtureCatalog.AnalysisProtobuf, "Google.Protobuf.dll");

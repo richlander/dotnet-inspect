@@ -4,10 +4,14 @@ public sealed record FixtureDefinition(
     string Id,
     string ProjectName,
     string AssemblyFileName,
-    IReadOnlyList<string> Tags)
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<FixtureAsset> Assets)
 {
     public string AssemblyPath() => FixtureCatalog.AssemblyPath(Id);
+    public string AssetPath(string name) => FixtureCatalog.AssetPath(Id, name);
 }
+
+public sealed record FixtureAsset(string Name, string ProjectName, string RelativePath);
 
 public sealed record FixturePair(string Id, FixtureDefinition Old, FixtureDefinition New)
 {
@@ -267,7 +271,8 @@ public static class FixtureCatalog
         FixtureIds.RunFasterAllocation,
         "RunFaster.AllocationFixture",
         "RunFaster.AllocationFixture.dll",
-        "runfaster", "allocation", "trace-coupled");
+        ["runfaster", "allocation", "trace-coupled"],
+        Asset("fixture.nettrace", "runfaster.Tests", "Fixtures/RunFaster.AllocationFixture/fixture.nettrace"));
 
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
@@ -438,8 +443,39 @@ public static class FixtureCatalog
             path);
     }
 
+    public static string AssetPath(string id, string assetName)
+    {
+        var fixture = Get(id);
+        var asset = fixture.Assets.FirstOrDefault(asset => asset.Name == assetName);
+        if (asset is null)
+            throw new ArgumentException($"Fixture '{id}' has no asset named '{assetName}'.", nameof(assetName));
+
+        string configuration = CurrentConfiguration();
+        string root = RepositoryRoot();
+        string path = Path.Combine(
+            root,
+            "artifacts",
+            "bin",
+            asset.ProjectName,
+            configuration,
+            asset.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+
+        if (File.Exists(path))
+            return path;
+
+        throw new FileNotFoundException(
+            $"Expected built fixture asset '{fixture.Id}/{asset.Name}' at {path}. Run 'dotnet build dotnet-inspect.slnx -c Release' before running harnesses or tests that consume fixture assets.",
+            path);
+    }
+
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, params string[] tags)
-        => new(id, projectName, assemblyFileName, tags);
+        => new(id, projectName, assemblyFileName, tags, []);
+
+    static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, string[] tags, params FixtureAsset[] assets)
+        => new(id, projectName, assemblyFileName, tags, assets);
+
+    static FixtureAsset Asset(string name, string projectName, string relativePath)
+        => new(name, projectName, relativePath);
 
     static string CurrentConfiguration()
     {

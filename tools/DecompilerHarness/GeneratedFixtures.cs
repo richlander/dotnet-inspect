@@ -2354,6 +2354,7 @@ internal static class GeneratedFixtureRunner
         sb.AppendLine($"  Failed : {failedTargets}");
 
         var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
+        var researchSummary = ReturnToSenderEvidence.Summarize(research, maxExamples);
         var researchEvidence = research.Subjects.SelectMany(subject => subject.Evidence).ToArray();
         if (researchEvidence.Length != 0)
         {
@@ -2368,6 +2369,19 @@ internal static class GeneratedFixtureRunner
                 .ThenBy(group => group.Key, StringComparer.Ordinal))
             {
                 sb.AppendLine($"  {group.Key}: {group.Count()}");
+            }
+        }
+
+        if (researchSummary.ActionableSubjects.Count != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Actionable subjects (first {researchSummary.ActionableSubjects.Count}):");
+            foreach (var subject in researchSummary.ActionableSubjects)
+            {
+                string status = subject.CompileBackStatus ?? subject.RtsStatus ?? "unknown";
+                sb.AppendLine($"  {subject.SubjectId}  rts={status}  detail={subject.Detail ?? "-"}");
+                foreach (var count in subject.ChangeCounts)
+                    sb.AppendLine($"      {count.ChangeId}: {count.Count}");
             }
         }
 
@@ -2457,12 +2471,14 @@ internal static class GeneratedFixtureRunner
 
     public static string FormatReturnToSenderCatalogJson(GeneratedFixtureReturnToSenderRunResult run)
     {
+        var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
         var payload = new
         {
             ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
             AssemblyPath = File.Exists(run.AssemblyPath) ? run.AssemblyPath : null,
             run.Results,
-            ResearchDiff = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run)),
+            ResearchDiff = research,
+            ResearchSummary = ReturnToSenderEvidence.Summarize(research, int.MaxValue),
             run.Passed,
         };
         return JsonSerializer.Serialize(payload, s_jsonOptions);
