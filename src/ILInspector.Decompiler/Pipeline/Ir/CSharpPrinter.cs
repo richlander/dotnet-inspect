@@ -1877,8 +1877,26 @@ public sealed partial class CSharpPrinter
             // #2345 review found the switch sibling missing it).
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
                 && EffectiveType(right) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-                ? BoolToIntegerText(right, intTarget)
+                ? CoalesceRightBoolComposition(right, intTarget)
                 : Operand(right);
+
+    /// <summary>
+    /// The bool→integer composition for a coalesce right side. The <c>??</c>
+    /// right operand binds looser than <c>?:</c>, so a bare-ternary composition
+    /// (the Int32/Int64 form <see cref="BoolToIntegerText"/> leaves uncast) must
+    /// parenthesize — <c>n ?? (b ? 1 : 0)</c>, not <c>n ?? b ? 1 : 0</c> which C#
+    /// parses as <c>(n ?? b) ? 1 : 0</c> (CS0019; #2345 round-3, GPT-5.5). The
+    /// cast form for other targets is already a primary expression. Conditional
+    /// and switch arms need no such wrap — their <c>:</c>/<c>=&gt;</c> delimiters
+    /// already bracket the ternary.
+    /// </summary>
+    string CoalesceRightBoolComposition(IrExpression right, TypeRef intTarget)
+    {
+        string composition = BoolToIntegerText(right, intTarget);
+        return intTarget is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
+            ? $"({composition})"
+            : composition;
+    }
 
     static TypeRef? NullableValueType(TypeRef? type)
         => type is

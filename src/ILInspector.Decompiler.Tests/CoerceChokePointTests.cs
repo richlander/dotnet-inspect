@@ -322,6 +322,37 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void CoalesceExpression_WithBoolRightAtIntStoreTarget_ParenthesizesComposedBoolArm()
+    {
+        // #2345 round-3 (GPT-5.5): the coalesce right side binds looser than
+        // `?:`, so the Int32/Int64 bool composition must parenthesize —
+        // `n ?? (b ? 1 : 0)`, not `n ?? b ? 1 : 0` which C# parses as
+        // `(n ?? b) ? 1 : 0` (CS0019). Sibling to the switch/conditional bool
+        // canaries; the coalesce is the one consumer whose join operator lacks a
+        // delimiter to bracket the ternary.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "n", nullableInt),
+            new LoadArgument(1, "b", boolType));
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, coalesce),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("b", boolType)],
+            [intType]);
+
+        Assert.Contains("?? (b ? 1 : 0)", body);
+        AssertCompiles("public static int M(int? n, bool b)", body);
+    }
+
+    [Fact]
     public void Conditional_WithNarrowSignedArmsAtPrimitiveStoreTarget_CastsThroughMergedWidth()
     {
         // Clean Gemini review: the target cast is licensed by the conditional's
