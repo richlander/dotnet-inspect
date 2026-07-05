@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Diagnostics;
 using System.Reflection;
+using DotnetInspector.Fixtures;
 using Xunit;
 
 namespace runfaster.Tests;
@@ -11,9 +12,8 @@ public class E2EFixtureTests
     [Fact]
     public void Correlate_WithNetTrace_JoinsByMethodTokenAndIlOffset()
     {
-        string fixtureDir = Path.Combine(AppContext.BaseDirectory, "Fixtures", "RunFaster.AllocationFixture");
-        string tracePath = Path.Combine(fixtureDir, "fixture.nettrace");
-        string assemblyPath = Path.Combine(AppContext.BaseDirectory, "RunFaster.AllocationFixture.dll");
+        string tracePath = FixtureCatalog.RunFasterAllocation.AssetPath("fixture.nettrace");
+        string assemblyPath = FixtureCatalog.RunFasterAllocation.AssemblyPath();
         string runfasterDll = Path.Combine(AppContext.BaseDirectory, "runfaster.dll");
         var allocateOne = typeof(RunFaster.AllocationFixture.Program).GetMethod(
             "AllocateOne",
