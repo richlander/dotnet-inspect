@@ -17,10 +17,16 @@ const string Usage =
       - capped examples rendered through IlDiffPrinter.
     """;
 
-if (args.Length < 2 || args.Contains("--help") || args.Contains("-h"))
+if (args.Contains("--help") || args.Contains("-h"))
 {
     Console.Error.WriteLine(Usage);
-    return args.Length == 0 ? 2 : 0;
+    return 0;
+}
+
+if (args.Length < 2)
+{
+    Console.Error.WriteLine(Usage);
+    return 2;
 }
 
 string oldAssembly = args[0];
@@ -197,8 +203,11 @@ static string MethodKey(MetadataReader reader, MethodDefinition method)
 {
     string type = TypeName(reader, method.GetDeclaringType());
     string name = reader.GetString(method.Name);
-    string signature = Convert.ToHexString(reader.GetBlobBytes(method.Signature));
-    return $"{type}::{name}#{signature}";
+    var signature = method.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+    string instance = signature.Header.IsInstance ? "instance" : "static";
+    string genericArity = signature.GenericParameterCount > 0 ? $"<{signature.GenericParameterCount}>" : "";
+    string signatureText = $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
+    return $"{type}::{name}{genericArity}#{signatureText}";
 }
 
 static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
@@ -289,3 +298,80 @@ sealed record IlDiffCard(
 sealed record CardBucket(string Name, int Count);
 
 sealed record IlDiffExample(string Method, string UnifiedDiff);
+
+sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
+{
+    public static SignatureIdentityProvider Instance { get; } = new();
+
+    public string GetPrimitiveType(PrimitiveTypeCode typeCode)
+        => typeCode switch
+        {
+            PrimitiveTypeCode.Void => "void",
+            PrimitiveTypeCode.Boolean => "bool",
+            PrimitiveTypeCode.Char => "char",
+            PrimitiveTypeCode.SByte => "int8",
+            PrimitiveTypeCode.Byte => "uint8",
+            PrimitiveTypeCode.Int16 => "int16",
+            PrimitiveTypeCode.UInt16 => "uint16",
+            PrimitiveTypeCode.Int32 => "int32",
+            PrimitiveTypeCode.UInt32 => "uint32",
+            PrimitiveTypeCode.Int64 => "int64",
+            PrimitiveTypeCode.UInt64 => "uint64",
+            PrimitiveTypeCode.Single => "float32",
+            PrimitiveTypeCode.Double => "float64",
+            PrimitiveTypeCode.String => "string",
+            PrimitiveTypeCode.Object => "object",
+            PrimitiveTypeCode.IntPtr => "native int",
+            PrimitiveTypeCode.UIntPtr => "native uint",
+            PrimitiveTypeCode.TypedReference => "typedref",
+            _ => typeCode.ToString(),
+        };
+
+    public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+        => TypeDefinitionName(reader, handle);
+
+    public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+    {
+        var type = reader.GetTypeReference(handle);
+        string name = reader.GetString(type.Name);
+        string ns = reader.GetString(type.Namespace);
+        string fullName = ns.Length == 0 ? name : $"{ns}.{name}";
+        return type.ResolutionScope.Kind switch
+        {
+            HandleKind.AssemblyReference =>
+                $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
+            HandleKind.TypeReference =>
+                $"{GetTypeFromReference(reader, (TypeReferenceHandle)type.ResolutionScope, rawTypeKind)}+{fullName}",
+            _ => fullName,
+        };
+    }
+
+    public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+
+    public string GetSZArrayType(string elementType) => $"{elementType}[]";
+    public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";
+    public string GetByReferenceType(string elementType) => $"{elementType}&";
+    public string GetPointerType(string elementType) => $"{elementType}*";
+    public string GetPinnedType(string elementType) => $"{elementType} pinned";
+    public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
+        => $"{genericType}<{string.Join(", ", typeArguments)}>";
+    public string GetGenericTypeParameter(object? genericContext, int index) => $"!{index}";
+    public string GetGenericMethodParameter(object? genericContext, int index) => $"!!{index}";
+    public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
+        => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
+    public string GetFunctionPointerType(MethodSignature<string> signature)
+        => $"method {signature.ReturnType} *({string.Join(", ", signature.ParameterTypes)})";
+
+    static string TypeDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var type = reader.GetTypeDefinition(handle);
+        string name = reader.GetString(type.Name);
+        var declaring = type.GetDeclaringType();
+        if (!declaring.IsNil)
+            return $"{TypeDefinitionName(reader, declaring)}+{name}";
+        string ns = reader.GetString(type.Namespace);
+        string assembly = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
+        return $"[{assembly}]{(ns.Length == 0 ? name : $"{ns}.{name}")}";
+    }
+}
