@@ -201,8 +201,18 @@ namespace DiffFixtureSample
                     goto Zero;
                 case 1:
                     goto One;
+                case 2:
+                    goto Two;
                 case 3:
                     goto Three;
+                case 4:
+                    goto Four;
+                case 5:
+                    goto Five;
+                case 6:
+                    goto Six;
+                case 8:
+                    goto Eight;
                 default:
                     return -1;
             }
@@ -213,8 +223,23 @@ namespace DiffFixtureSample
         One:
             return 11;
 
+        Two:
+            return 12;
+
         Three:
             return 13;
+
+        Four:
+            return 14;
+
+        Five:
+            return 15;
+
+        Six:
+            return 16;
+
+        Eight:
+            return 18;
         }
 
         public static int SemanticReturnExpression(int value)
@@ -239,6 +264,17 @@ namespace DiffFixtureSample
         {
             string value = "John (Doe)";
             return value;
+        }
+
+        public static int SemanticCallArithmeticGroupingNearMiss(int value)
+        {
+            int adjusted = value * (value + 2);
+            return adjusted;
+        }
+
+        public static int SemanticCallTrailingExpression(int value)
+        {
+            return System.Math.Abs(value) + 1;
         }
 
         // V1: safe body. V2 adds a visible unsafe operation.

@@ -1051,23 +1051,273 @@ public static class CSharpBodyDiff
 
         if (expression.StartsWith("await ", StringComparison.Ordinal))
             expression = expression["await ".Length..].Trim();
-        if (expression.StartsWith("new ", StringComparison.Ordinal) || expression.Length == 0 || expression[^1] != ')')
+        if (expression.StartsWith("new ", StringComparison.Ordinal) || expression.Length == 0)
             return false;
 
-        var paren = IndexOfUnquoted(expression, '(');
-        if (paren <= 0)
+        var invocations = ExtractInvocations(expression);
+        if (invocations.Count == 0)
             return false;
-        var head = expression[..paren].Trim();
-        var lastSpace = head.LastIndexOf(' ');
-        if (lastSpace >= 0)
-            head = head[(lastSpace + 1)..];
-        if (head.Length == 0 || head is "new" or "return" or "typeof" or "sizeof" or "nameof" or "default" or "checked" or "unchecked")
-            return false;
-        var end = expression.LastIndexOf(')');
-        if (end < paren)
-            return false;
-        call = expression[..(end + 1)].Trim();
+
+        call = string.Join(" | ", invocations);
         return true;
+    }
+
+    static List<string> ExtractInvocations(string expression)
+    {
+        var invocations = new List<string>();
+        for (int i = 0; i < expression.Length; i++)
+        {
+            if (expression[i] != '(' || IsQuoted(expression, i))
+                continue;
+
+            int close = FindMatchingCloseParen(expression, i);
+            if (close < 0)
+                continue;
+
+            int nameEnd = PreviousNonWhitespace(expression, i - 1);
+            if (nameEnd < 0 || !IsInvocationNameEnd(expression[nameEnd]))
+            {
+                i = close;
+                continue;
+            }
+
+            int nameStart = FindNameStart(expression, nameEnd);
+            if (nameStart < 0)
+            {
+                i = close;
+                continue;
+            }
+
+            var name = expression[nameStart..(nameEnd + 1)].Trim();
+            if (name is "new" or "return" or "typeof" or "sizeof" or "nameof" or "default" or "checked" or "unchecked")
+            {
+                i = close;
+                continue;
+            }
+
+            int start = FindInvocationStart(expression, nameStart);
+            var invocation = expression[start..(close + 1)].Trim();
+            if (invocation.StartsWith("new ", StringComparison.Ordinal))
+            {
+                i = close;
+                continue;
+            }
+
+            invocations.Add(invocation);
+            i = close;
+        }
+
+        return invocations;
+    }
+
+    static bool IsInvocationNameEnd(char c)
+        => char.IsLetterOrDigit(c) || c == '_' || c == '>' || c == '`';
+
+    static int FindNameStart(string expression, int nameEnd)
+    {
+        int i = nameEnd;
+        if (expression[i] == '>')
+        {
+            int genericDepth = 1;
+            i--;
+            while (i >= 0)
+            {
+                if (expression[i] == '>')
+                    genericDepth++;
+                else if (expression[i] == '<' && --genericDepth == 0)
+                {
+                    i--;
+                    break;
+                }
+
+                i--;
+            }
+        }
+
+        while (i >= 0 && (char.IsLetterOrDigit(expression[i]) || expression[i] == '_' || expression[i] == '`'))
+            i--;
+
+        int start = i + 1;
+        return start <= nameEnd ? start : -1;
+    }
+
+    static int FindInvocationStart(string expression, int nameStart)
+    {
+        int start = nameStart;
+        int previous = PreviousNonWhitespace(expression, start - 1);
+        if (previous < 0 || expression[previous] != '.')
+            return start;
+
+        int depth = 0;
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+        for (int i = previous - 1; i >= 0; i--)
+        {
+            char c = expression[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+
+            if (c is ')' or ']' or '}')
+            {
+                depth++;
+                continue;
+            }
+
+            if (c is '(' or '[' or '{')
+            {
+                if (depth > 0)
+                {
+                    depth--;
+                    continue;
+                }
+
+                start = i + 1;
+                break;
+            }
+
+            if (depth == 0 && IsInvocationBoundary(c))
+            {
+                start = i + 1;
+                break;
+            }
+
+            start = i;
+        }
+
+        return start;
+    }
+
+    static bool IsInvocationBoundary(char c)
+        => c is ' ' or '\t' or '+' or '-' or '*' or '/' or '%' or '=' or '!' or '<' or '>' or '&' or '|' or '^' or '?' or ':' or ',' or ';';
+
+    static int PreviousNonWhitespace(string text, int index)
+    {
+        for (int i = index; i >= 0; i--)
+            if (!char.IsWhiteSpace(text[i]))
+                return i;
+        return -1;
+    }
+
+    static int FindMatchingCloseParen(string text, int open)
+    {
+        int depth = 0;
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+
+        for (int i = open; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+
+            if (c == '(')
+                depth++;
+            else if (c == ')' && --depth == 0)
+                return i;
+        }
+
+        return -1;
+    }
+
+    static bool IsQuoted(string text, int index)
+    {
+        bool inString = false;
+        bool inChar = false;
+        bool escape = false;
+
+        for (int i = 0; i < index; i++)
+        {
+            char c = text[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (inString || inChar)
+            {
+                if (c == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+
+            if (c == '"')
+                inString = true;
+            else if (c == '\'')
+                inChar = true;
+        }
+
+        return inString || inChar;
     }
 
     static int LastTopLevelAssignment(string text)
