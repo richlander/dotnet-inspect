@@ -1247,7 +1247,7 @@ public sealed partial class CSharpPrinter
         // sibling-width): inside a lexical checked region a bare spelling
         // recompiles to a conv.ovf the IL never had (#2301), so they route
         // through CheckedSafeCast like the enum reinterprets above.
-        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && SameNumericSlotWidth(conv.Target, target))
+        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, target))
             return conv.Operand is Constant { Value: int or long } convConst
                 ? NumericConstant(convConst, target!)
                 : CheckedSafeNumericCast(EffectiveType(conv.Operand), target!, () => $"({TypeText(target!)}){Operand(conv.Operand)}");
@@ -1270,10 +1270,6 @@ public sealed partial class CSharpPrinter
             } convert => convert.Operand,
             _ => null,
         };
-
-    static bool SameNumericSlotWidth(TypeRef? a, TypeRef? b)
-        => TypeFamilies.SameWidth(a, b)
-            || TypeFamilies.Of(a) == StackFamily.I && TypeFamilies.Of(b) == StackFamily.I;
 
     string ConditionalText(Conditional conditional)
         => ConditionalText(conditional, conditional.MergedType);
@@ -1455,10 +1451,15 @@ public sealed partial class CSharpPrinter
         // to int recompiles to conv.ovf.i4.un inside a lexical checked region
         // — a throw the IL never had — so throw-capable underlying->target
         // pairs wrap; identity/widening pairs stay bare.
-        if (target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
-            && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
-            && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget))
+        if (target is { } integerTarget
+            && EffectiveType(arm) is { } enumArmType
+            && CoercionRendering.CanSpellEnumToInteger(
+                enumArmType,
+                integerTarget,
+                _function.TypeShapes,
+                _function.EnumUnderlyingTypes))
         {
+            var underlying = EnumUnderlyingType(enumArmType) ?? TypeRef.CoreLib("System", "Int32");
             return TypeFamilies.CheckedConversionCanThrow(underlying, integerTarget)
                 ? CheckedSafeCast(() => $"({TypeText(integerTarget)}){Operand(arm)}")
                 : $"({TypeText(integerTarget)}){Operand(arm)}";
@@ -1595,7 +1596,7 @@ public sealed partial class CSharpPrinter
                 target,
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes)
-            && SameNumericSlotWidth(coercionSourceType, target);
+            && CSharpConversionRules.SameNumericSlotWidth(coercionSourceType, target);
 
     bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
         => (IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value)))
