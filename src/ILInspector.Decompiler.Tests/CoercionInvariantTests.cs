@@ -15,6 +15,58 @@ public class CoercionInvariantTests
     static readonly TypeRef Enum32 = TypeRef.Definition("synthetic", "", "E32");
     static readonly TypeRef Int32Type = TypeRef.CoreLib("System", "Int32");
 
+    [Fact]
+    public void BoolSlotLoadedIntoLogicalNot_UnifiesToBool_NoUnassignedSplit()
+    {
+        // #2377: a bool store into an int slot whose load feeds a LogicalNot
+        // (`!S`) must unify the slot to bool. Otherwise the store names `S_0`
+        // (bool) while the `S_0 == 0` consumer names a distinct `int S_0_1`
+        // that nothing assigns (CS0165), and the bool store is dead.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "flag", boolType)));
+        first.Add(new Branch(1));
+        container.Add(first);
+        var second = new Block(1);
+        second.Add(new Return(new LogicalNot(new LoadStackSlot(0, Int32Type))));
+        container.Add(second);
+        var function = Function(container, boolType, new Parameter("flag", boolType));
+
+        string output = CSharpPrinter.Print(function).Output!.Replace("\r", "");
+
+        Assert.DoesNotContain("S_0_1", output);   // no split
+        Assert.DoesNotContain("int S_0", output); // slot is bool, not int
+        Assert.Contains("bool S_0 = flag;", output);
+        Assert.Contains("!S_0", output);          // bool negation, not `S_0 == 0`
+        Assert.DoesNotContain("S_0 == 0", output);
+    }
+
+    [Fact]
+    public void BoolSlotAsDirectBranchCondition_UnifiesToBool_RendersBare()
+    {
+        // #2377 (positive polarity): a bool store into an int slot whose load is a
+        // direct branch condition (`if (S)`) also unifies to bool and renders bare
+        // — `S != 0` would be `bool != int` (CS0019) and the split would be CS0165.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new LoadArgument(0, "flag", boolType)));
+        first.Add(new ConditionalBranch(new LoadStackSlot(0, Int32Type), 0x10));
+        container.Add(first);
+        var second = new Block(0x10);
+        second.Add(new Return(new LoadArgument(0, "flag", boolType)));
+        container.Add(second);
+        var function = Function(container, boolType, new Parameter("flag", boolType));
+
+        string output = CSharpPrinter.Print(function).Output!.Replace("\r", "");
+
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.Contains("bool S_0 = flag;", output);
+        Assert.DoesNotContain("S_0 != 0", output);
+    }
+
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
         => new("M", TypeRef.Definition("synthetic", "", "Holder"),
             new MethodSignature(returnType, [.. parameters], HasThis: false, GenericParameterCount: 0), [], body)
