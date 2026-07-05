@@ -290,31 +290,6 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool c, byte x)", body);
     }
 
-    // #2345 re-review canary (GPT-5.5): the coalesce right has no delimiter
-    // and `??` binds tighter than `?:` — the bare Int32 bool composition
-    // `n ?? b ? 1 : 0` reparses as `(n ?? b) ? 1 : 0` (CS0019). The bare
-    // ternary form must parenthesize: `n ?? (b ? 1 : 0)`.
-    [Fact]
-    public void Coalesce_WithBoolRightAtIntTarget_ParenthesizesComposition()
-    {
-        var intType = TypeRef.CoreLib("System", "Int32");
-        var boolType = TypeRef.CoreLib("System", "Boolean");
-        var nullableInt = TypeRef.GenericInstance(
-            TypeRef.CoreLib("System", "Nullable`1"),
-            [intType]);
-        var coalesce = new Coalesce(
-            new LoadArgument(0, "n", nullableInt),
-            new LoadArgument(1, "b", boolType));
-        string body = RenderReturn(
-            coalesce,
-            intType,
-            [new Parameter("n", nullableInt), new Parameter("b", boolType)],
-            TypeRef.Definition("synthetic", "", "UnusedEnum"));
-
-        Assert.Contains("n ?? (b ? 1 : 0)", body);
-        Assert.DoesNotContain("?? b ?", body);
-        AssertCompiles("public static int M(int? n, bool b)", body);
-    }
 
     // #2345 review canary (GPT-5.5, finding 2): the switch-expression gate
     // admits bool arms via CanSpellBoolToInteger, so SwitchArmValueText must
@@ -345,6 +320,37 @@ public class CoerceChokePointTests
         Assert.Contains("(uint)(b ? 1 : 0)", body);
         Assert.DoesNotContain("=> b", body);
         AssertCompiles("public static uint M(int x, int i, bool b)", body);
+    }
+
+    [Fact]
+    public void CoalesceExpression_WithBoolRightAtIntStoreTarget_ParenthesizesComposedBoolArm()
+    {
+        // #2345 round-3 (GPT-5.5): the coalesce right side binds looser than
+        // `?:`, so the Int32/Int64 bool composition must parenthesize —
+        // `n ?? (b ? 1 : 0)`, not `n ?? b ? 1 : 0` which C# parses as
+        // `(n ?? b) ? 1 : 0` (CS0019). Sibling to the switch/conditional bool
+        // canaries; the coalesce is the one consumer whose join operator lacks a
+        // delimiter to bracket the ternary.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "n", nullableInt),
+            new LoadArgument(1, "b", boolType));
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, coalesce),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("b", boolType)],
+            [intType]);
+
+        Assert.Contains("?? (b ? 1 : 0)", body);
+        AssertCompiles("public static int M(int? n, bool b)", body);
     }
 
     [Fact]
