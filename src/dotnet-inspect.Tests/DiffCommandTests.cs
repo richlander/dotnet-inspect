@@ -216,6 +216,7 @@ public class DiffCommandTests
         var overview = DiffCommand.BuildOverview(inputs, DiffCommand.BuildApiDiff(oldSurface, newSurface, options), options);
 
         Assert.Contains(overview.MemberRows, row => row.Member == "ProtectedConstant" && row.Changed);
+        Assert.DoesNotContain(overview.MemberRows, row => row.Member == ".ctor" && row.Changed);
     }
 
     [Fact]

@@ -311,7 +311,7 @@ public static class ResearchDiff
         var anchors = new MemberAnchorCache();
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.Api))
-            AddApiDiff(builder, oldInput, newInput, options.IncludeAllApi, options.ApiScope);
+            AddApiDiff(builder, oldInput, newInput, options.IncludeAllApi, options.ApiScope, options.TypeFilters);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.BodySignals))
             AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters, anchors);
@@ -325,7 +325,13 @@ public static class ResearchDiff
         return builder.ToResult();
     }
 
-    static void AddApiDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, bool includeAll, ApiDiffScope apiScope)
+    static void AddApiDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        bool includeAll,
+        ApiDiffScope apiScope,
+        IReadOnlySet<string>? typeFilters)
     {
         var oldSurface = ResolveApiSurface(oldInput, includeAll);
         var newSurface = ResolveApiSurface(newInput, includeAll);
@@ -334,7 +340,7 @@ public static class ResearchDiff
 
         var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(apiScope));
         builder.ApiDiff = diff;
-        foreach (var typeDiff in diff.TypeDiffs)
+        foreach (var typeDiff in diff.TypeDiffs.Where(typeDiff => MatchesTypeFilters(typeDiff.TypeFullName, typeFilters)))
         {
             foreach (var change in typeDiff.Changes)
             {
@@ -626,8 +632,8 @@ public static class ResearchDiff
                 var oldAnchor = oldAnchors.GetValueOrDefault(oldMethod.MetadataToken);
                 var newAnchor = newAnchors.GetValueOrDefault(newMethod.MetadataToken);
                 var subject = SubjectFromMethod(newMethod, newAnchor ?? oldAnchor);
-                var oldAvailable = oldBodies.TryDecode(oldMethod.MetadataToken, out var oldBody, out var oldReason);
-                var newAvailable = newBodies.TryDecode(newMethod.MetadataToken, out var newBody, out var newReason);
+                var oldAvailable = oldBodies.TryGetBodyBlock(oldMethod.MetadataToken, out var oldBody, out var oldReason);
+                var newAvailable = newBodies.TryGetBodyBlock(newMethod.MetadataToken, out var newBody, out var newReason);
 
                 if (!oldAvailable || !newAvailable)
                 {
@@ -650,7 +656,7 @@ public static class ResearchDiff
                     continue;
                 }
 
-                var diff = IlBodyDiff.Compare(oldBody!, newBody!);
+                var diff = IlBodyDiff.Compare(oldBodies.Reader, oldBody!, newBodies.Reader, newBody!);
                 if (diff.IsExact)
                     continue;
                 if (!diff.FailureRows.IsDefaultOrEmpty)
@@ -1292,7 +1298,9 @@ public static class ResearchDiff
             _metadataReader = _peReader.GetMetadataReader();
         }
 
-        public bool TryDecode(int metadataToken, out MethodInstructions? body, out string? unavailableReason)
+        public MetadataReader Reader => _metadataReader;
+
+        public bool TryGetBodyBlock(int metadataToken, out MethodBodyBlock? body, out string? unavailableReason)
         {
             body = null;
             unavailableReason = null;
@@ -1310,7 +1318,7 @@ public static class ResearchDiff
                 return false;
             }
 
-            body = MethodInstructions.Decode(_peReader.GetMethodBody(method.RelativeVirtualAddress));
+            body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
             return true;
         }
 
