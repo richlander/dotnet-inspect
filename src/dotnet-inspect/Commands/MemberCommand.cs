@@ -173,20 +173,20 @@ public static class MemberCommand
                 var rows = ApiOutputFormatter.BuildMemberIndexRows(apiType, displayOverloads);
                 var matches = rows
                     .Select((row, index) => (row, index))
-                    .Where(item => item.row.Digest.StartsWith(effectiveOptions.MemberDigest, StringComparison.OrdinalIgnoreCase))
+                    .Where(item => item.row.Fingerprint.StartsWith(effectiveOptions.MemberDigest, StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
                 if (matches.Count == 0)
                 {
-                    Console.Error.WriteLine($"Error: No overload of {memberName} matches digest '{effectiveOptions.MemberDigest}'. Use -S \"Member Index\" to list digests.");
+                    Console.Error.WriteLine($"Error: Member '{memberName}' exists, but no overload matches fingerprint '{effectiveOptions.MemberDigest}'. Use -S \"Member Index\" to list current member anchors.");
                     return 1;
                 }
 
                 if (matches.Count > 1)
                 {
-                    Console.Error.WriteLine($"Error: Digest '{effectiveOptions.MemberDigest}' is ambiguous. Use a longer digest prefix:");
+                    Console.Error.WriteLine($"Error: Member anchor '{memberName}~{effectiveOptions.MemberDigest}' is ambiguous; use a longer fingerprint:");
                     foreach (var (row, _) in matches)
-                        Console.Error.WriteLine($"  {row.Stable}  {row.CanonicalSignature}");
+                        Console.Error.WriteLine($"  {row.MemberAnchor}  {row.CanonicalSignature}");
                     return 1;
                 }
 

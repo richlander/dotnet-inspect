@@ -880,7 +880,7 @@ public static class ApiOutputFormatter
             int? endLine = member.SourceEndLineNumber ?? member.SourceLineNumber;
 
             rows.Add(new MemberSourceLocationRow(
-                detail ? null : indexRows[i].Selector,
+                detail ? null : indexRows[i].MemberAnchor,
                 string.IsNullOrWhiteSpace(signature) ? null : MarkoutInline.Code(signature),
                 member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
                 member.SourceLineNumber,
@@ -910,26 +910,13 @@ public static class ApiOutputFormatter
 
     internal static List<MemberIndexRow> BuildMemberIndexRows(ApiType type, IReadOnlyList<ApiMember> members)
     {
-        var overloadCounts = members
-            .GroupBy(m => GetMemberSelectorName(m), StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-        var overloadIndices = new Dictionary<string, int>(StringComparer.Ordinal);
         List<MemberIndexRow> rows = [];
 
         foreach (var member in members)
         {
-            var selectorName = GetMemberSelectorName(member);
-            overloadIndices.TryGetValue(selectorName, out var index);
-            index++;
-            overloadIndices[selectorName] = index;
-
             var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
-            var selector = overloadCounts[selectorName] > 1
-                ? $"{selectorName}:{index}"
-                : selectorName;
 
             rows.Add(new MemberIndexRow(
-                MarkoutInline.Code(selector),
                 MarkoutInline.Code(anchor.Format(MemberAnchorFormat.StableSelector)),
                 MarkoutInline.Code(anchor.Format(MemberAnchorFormat.CanonicalSignature)),
                 anchor.Fingerprint));

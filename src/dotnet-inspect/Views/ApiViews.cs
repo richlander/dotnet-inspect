@@ -498,16 +498,16 @@ public record MemberRow(
 
 [MarkoutSerializable]
 public record MemberIndexRow(
-    string Selector,
-    string Stable,
-    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
-    [property: MarkoutIgnore] string Digest);
+    [property: MarkoutPropertyName("Member anchor")] string MemberAnchor,
+    [property: MarkoutPropertyName("Canonical signature")] string CanonicalSignature,
+    [property: MarkoutIgnore] string Fingerprint);
 
 [MarkoutSerializable]
 public record TypeSourceFileRow(string Url);
 
 [MarkoutSerializable]
 public record MemberSourceLocationRow(
+    [property: MarkoutPropertyName("Member anchor")]
     [property: MarkoutSkipNull] string? Selector,
     [property: MarkoutSkipNull] string? Signature,
     [property: MarkoutSkipNull] string? File,
