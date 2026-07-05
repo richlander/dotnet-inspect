@@ -109,6 +109,134 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void Conditional_AtPrimitiveStoreTarget_DistributesCoercionToArms()
+    {
+        // Issue #2306: the conditional's own join is int, but the store target
+        // is uint. The arms agree with each other, so join-arm typing does not
+        // intervene; the target-aware merge renderer must still route through
+        // the shared slot-coercion contract and cast the non-constant arm.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new Constant(0, intType),
+            new LoadArgument(1, "tick", intType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, conditional),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("flag", boolType), new Parameter("tick", intType)],
+            [uintType]);
+
+        Assert.Contains("flag ? 0 : (uint)tick", body);
+        Assert.DoesNotContain("? 0 : tick", body);
+        AssertCompiles("public static uint M(bool flag, int tick)", body);
+    }
+
+    [Fact]
+    public void Conditional_AtNativePrimitiveStoreTarget_DistributesCoercionToArms()
+    {
+        // Gemini review: nint/nuint have platform-sized width, so the native
+        // family must use the same slot-width helper as CoerceText instead of
+        // the fixed-width SameWidth table.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intPtrType = TypeRef.CoreLib("System", "IntPtr");
+        var uintPtrType = TypeRef.CoreLib("System", "UIntPtr");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "a", intPtrType),
+            new LoadArgument(2, "b", intPtrType))
+        {
+            MergedType = intPtrType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintPtrType, conditional),
+                new Return(new LoadLocal(0, uintPtrType)),
+            ],
+            uintPtrType,
+            [new Parameter("flag", boolType), new Parameter("a", intPtrType), new Parameter("b", intPtrType)],
+            [uintPtrType]);
+
+        Assert.Contains("flag ? (nuint)a : (nuint)b", body);
+        Assert.DoesNotContain("? a : b", body);
+        AssertCompiles("public static nuint M(bool flag, nint a, nint b)", body);
+    }
+
+    [Fact]
+    public void Conditional_WithBoolArmAtPrimitiveStoreTarget_CastsComposedBoolArm()
+    {
+        // Gemini review: bool remains outside the primitive conditional's
+        // merged type, but an integer-merged conditional can still contain a
+        // bool-typed arm. The arm composes bool->int and then casts to the
+        // unsigned target instead of vetoing target-aware rendering.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "b", boolType),
+            new LoadArgument(2, "tick", intType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, conditional),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("flag", boolType), new Parameter("b", boolType), new Parameter("tick", intType)],
+            [uintType]);
+
+        Assert.Contains("flag ? (uint)(b ? 1 : 0) : (uint)tick", body);
+        Assert.DoesNotContain("? (b ? 1 : 0) : tick", body);
+        AssertCompiles("public static uint M(bool flag, bool b, int tick)", body);
+    }
+
+    [Fact]
+    public void Conditional_WithNarrowSignedArmsAtPrimitiveStoreTarget_CastsThroughMergedWidth()
+    {
+        // Clean Gemini review: the target cast is licensed by the conditional's
+        // merged stack width, not the source spelling width of each arm. Two
+        // sbyte arms can be int-merged by the IR and still need uint casts at a
+        // uint store target.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "sb1", sbyteType),
+            new LoadArgument(2, "sb2", sbyteType))
+        {
+            MergedType = intType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, conditional),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("flag", boolType), new Parameter("sb1", sbyteType), new Parameter("sb2", sbyteType)],
+            [uintType]);
+
+        Assert.Contains("flag ? (uint)sb1 : (uint)sb2", body);
+        Assert.DoesNotContain("? sb1 : sb2", body);
+        AssertCompiles("public static uint M(bool flag, sbyte sb1, sbyte sb2)", body);
+    }
+
+    [Fact]
     public void UnnamedHighBitConstantArm_KeepsUncheckedCast()
     {
         // The cast half of the name-or-cast rule at the #2076 conditional-arm
@@ -391,6 +519,74 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool c, uint u, int a, int b)", body);
     }
 
+    // #2333 (round-3 review, GPT-5.5 with a runtime OverflowException repro):
+    // the enum->integer JOIN-ARM exit had the same checked-region hazard as
+    // the CoerceText exits — a uint-backed enum arm at an int join spells
+    // `(int)f`, which recompiles to conv.ovf.i4.un inside checked. It wraps
+    // exactly when the underlying->target conversion can throw; the
+    // int-backed identity stays bare.
+    [Fact]
+    public void UnsignedBackedEnumArm_AtIntJoin_InCheckedRegion_WrapsUnchecked()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "UFlags");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(1, intType),
+            new LoadArgument(1, "f", enumType))
+        {
+            MergedType = intType,
+        };
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(2, "x", intType),
+            conditional);
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [new Parameter("c", boolType), new Parameter("f", enumType), new Parameter("x", intType)],
+            enumType,
+            underlying: uintType);
+
+        Assert.Contains("unchecked((int)f)", body);
+        AssertCompiles("public static int M(bool c, UFlags f, int x)", body, "public enum UFlags : uint { }");
+    }
+
+    [Fact]
+    public void IntBackedEnumArm_AtIntJoin_InCheckedRegion_StaysBare()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "IFlags");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(1, intType),
+            new LoadArgument(1, "f", enumType))
+        {
+            MergedType = intType,
+        };
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(2, "x", intType),
+            conditional);
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [new Parameter("c", boolType), new Parameter("f", enumType), new Parameter("x", intType)],
+            enumType,
+            underlying: intType);
+
+        Assert.Contains("(int)f", body);
+        Assert.DoesNotContain("unchecked((int)f)", body);
+        AssertCompiles("public static int M(bool c, IFlags f, int x)", body, "public enum IFlags { }");
+    }
+
     // The CI-caught dual pair: an enum->underlying cast in a checked region
     // wraps only when the checked conversion can actually throw. Identity
     // (int-backed -> int) stays bare — EnumUnderlyingCastTests pins that side;
@@ -550,6 +746,22 @@ public class CoerceChokePointTests
                 : new Dictionary<TypeRef, IReadOnlyDictionary<long, string>> { [enumType] = members },
         };
 
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    static string RenderBody(
+        IReadOnlyList<IrNode> statements,
+        TypeRef returnType,
+        IReadOnlyList<Parameter> parameters,
+        IReadOnlyList<TypeRef> locals)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(returnType, [.. parameters], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [.. locals], container);
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 

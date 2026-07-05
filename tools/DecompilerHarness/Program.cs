@@ -32,12 +32,14 @@ static class Program
         bool sequential = false;
         string? renderAb = null;
         string? emitRenderAb = null;
+        bool idempotenceCheck = false;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
         bool listOverloads = false;
         bool byShape = false;
         bool validityCheck = false;
+        bool validityPredicateScan = false;
         int compileCap = 4000;
         bool assertions = false;
         bool assertionScan = false;
@@ -126,7 +128,8 @@ static class Program
                 case "--sample": sampleSize = int.Parse(args[++i]); break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
                 case "--validity-check": validityCheck = true; break;
-                case "--compile-cap": compileCap = int.Parse(args[++i]); break;
+                case "--validity-predicate-scan": validityPredicateScan = true; break;
+                case "--compile-cap": compileCap = ParseCompileCap(args[++i]); break;
                 case "--emit-assertion-violations": emitAssertionViolations = args[++i]; break;
                 case "--diff-assertion-violations": diffAssertionViolations = args[++i]; break;
                 case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
@@ -201,6 +204,7 @@ static class Program
                 case "--sequential": sequential = true; break;
                 case "--render-ab": renderAb = args[++i]; break;
                 case "--emit-render-ab": emitRenderAb = args[++i]; break;
+                case "--idempotence-check": idempotenceCheck = true; break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -249,6 +253,8 @@ static class Program
 
         if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
+        if (validityPredicateScan)
+            return ValidityPredicateScan.Run(assemblies, maxExamples, workers, sequential);
 
         if (fidelityMethodDelta is not null)
         {
@@ -289,6 +295,9 @@ static class Program
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
+
+        if (idempotenceCheck)
+            return IdempotenceSensor.Run(assemblies, maxExamples, corpusMethodCap, workers, sequential);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1335,6 +1344,13 @@ static class Program
         return 1;
     }
 
+    static int ParseCompileCap(string value)
+        => value.Equals("all", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("unbounded", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("uncapped", StringComparison.OrdinalIgnoreCase)
+            ? int.MaxValue
+            : int.Parse(value);
+
     static void PrintUsage() => Console.WriteLine("""
         usage: decompiler-harness [assembly-or-directory ...] [options]
 
@@ -1410,7 +1426,10 @@ static class Program
                                 cross-assembly RequiresUnsafe).
           --max-examples <n>    example methods per bucket (default 5)
           --validity-check       compile every decompiled body; report invalid C#
-          --compile-cap <n>     cap semantically-bound methods (default 4000)
+          --validity-predicate-scan
+                                exhaustively count cheap IR predicates for known
+                                validity-risk classes; no compilation.
+          --compile-cap <n|all> cap semantically-bound methods (default 4000)
           --emit-assertion-violations <f>
                                 with --assertion-scan, write per-method assertion
                                 violations to JSON file <f>.
@@ -1420,6 +1439,10 @@ static class Program
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --idempotence-check     run the IR pipeline twice and report methods the
+                                second run still rewrites (ordering gaps / instability);
+                                bucketed by the pass that fired. Zero is the target.
+                                A 2x-pipeline lane — for scheduled/deep runs.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL

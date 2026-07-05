@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using ILInspector.DecompilerHarness;
 using ILInspector.Instructions;
+using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -1075,6 +1076,9 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, propertyGetter.Status);
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, propertyGetter.ActualStatus);
         Assert.Null(propertyGetter.IlDiffDiagnostic);
+        Assert.NotNull(propertyGetter.MemberAnchor);
+        Assert.StartsWith("Method1~", propertyGetter.MemberAnchor.StableSelector, StringComparison.Ordinal);
+        Assert.Equal("P:GeneratedFixtures.MinimalPropertyLiteral.Class1.Method1", propertyGetter.MemberAnchor.CanonicalSignature);
 
         Assert.Contains(run.Results, result =>
             result.FixtureId == "minimal.method-call.same-type"
@@ -1090,6 +1094,9 @@ public class GeneratedFixtureCatalogTests
         Assert.True(document.RootElement.GetProperty("Passed").GetBoolean());
         Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Status").GetString() == "Pass");
+        Assert.Contains(document.RootElement.GetProperty("Results").EnumerateArray(),
+            result => result.GetProperty("Method").GetString() == "get_Method1"
+                && result.GetProperty("MemberAnchor").GetProperty("StableSelector").GetString()!.StartsWith("Method1~", StringComparison.Ordinal));
         Assert.DoesNotContain(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Reason").GetString() == "constructor-target");
     }
@@ -1138,6 +1145,12 @@ public class GeneratedFixtureCatalogTests
                                 "ldc.i4 2",
                                 "Added IL operation 'ldc.i4 2'"),
                         ]),
+                    MemberAnchor: new MemberAnchor(
+                        "Method1~abcdef1234",
+                        "M:TestType.Method1()",
+                        "abcdef1234",
+                        "TestType",
+                        "Method1"),
                     IsFrontier: false,
                     Note: null),
             ]);
@@ -1147,6 +1160,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("il-diff:", report);
         Assert.Contains("h0 - IL_0000 ldc.i4 1", report);
         Assert.Contains("h0 + IL_0000 ldc.i4 2", report);
+        Assert.Contains("member: Method1~abcdef1234  canonical=M:TestType.Method1()", report);
     }
 
     [Fact]
