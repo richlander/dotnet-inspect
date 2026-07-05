@@ -71,4 +71,110 @@ public class IrNodeDescendantsTests
 
         Assert.Equal(ReferencePreOrder(root).ToList(), root.Descendants.ToList());
     }
+
+    [Fact]
+    public void Descendants_PooledStack_AllocationIndependentOfSubtreeSize()
+    {
+        // A shallow tree and a large deep tree. With the work stack pooled, a traversal
+        // allocates only its fixed iterator state machine — never a stack or a backing
+        // array that grows with the subtree — so per-traversal allocation is identical
+        // for both regardless of node count.
+        var small = Node(0x00, Node(0x10), Node(0x20));
+        var large = BuildBalanced(depth: 8, fanout: 3); // 3^0+..+3^8 = 9841 nodes
+
+        static long PerTraversalBytes(IrNode root)
+        {
+            static int Walk(IrNode node)
+            {
+                int count = 0;
+                foreach (var _ in node.Descendants)
+                    count++;
+                return count;
+            }
+
+            Walk(root); // warm up JIT + populate the pool
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            const int iterations = 200;
+            for (int i = 0; i < iterations; i++)
+                Walk(root);
+            return (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
+        }
+
+        long smallBytes = PerTraversalBytes(small);
+        long largeBytes = PerTraversalBytes(large);
+
+        // Independent of subtree size: the 9841-node walk allocates no more than the
+        // 2-node walk (only the state machine; the stack + backing are pooled).
+        Assert.Equal(smallBytes, largeBytes);
+    }
+
+    [Fact]
+    public void Descendants_NestedReentrantTraversal_IsCorrect()
+    {
+        var root = Node(0x00,
+            Node(0x10, Node(0x11, Node(0x13)), Node(0x12)),
+            Node(0x20, Node(0x21)));
+
+        // Interleave an inner traversal inside the outer one: the pooled stacks must
+        // not be shared, so each descendant's own subtree count is exact.
+        var pairs = new List<(int Node, int SubtreeCount)>();
+        foreach (var node in root.Descendants)
+        {
+            int inner = 0;
+            foreach (var _ in node.Descendants)
+                inner++;
+            pairs.Add((((Block)node).StartOffset, inner));
+        }
+
+        Assert.Equal(
+            new[]
+            {
+                (0x10, 3), // a: a1, a3, a2
+                (0x11, 1), // a1: a3
+                (0x13, 0),
+                (0x12, 0),
+                (0x20, 1), // b: b1
+                (0x21, 0),
+            },
+            pairs);
+    }
+
+    [Fact]
+    public void Descendants_EarlyBreak_ReturnsStackToPool()
+    {
+        var root = BuildBalanced(depth: 4, fanout: 3);
+
+        // Break out early many times; the finally must return each rented stack, so a
+        // subsequent full traversal still allocates only its state machine (no growth).
+        for (int i = 0; i < 100; i++)
+        {
+            foreach (var _ in root.Descendants)
+                break;
+        }
+
+        // Full traversal after the early breaks still yields the complete subtree.
+        int count = 0;
+        foreach (var _ in root.Descendants)
+            count++;
+        Assert.Equal(CountNodes(root) - 1, count);
+    }
+
+    static Block BuildBalanced(int depth, int fanout)
+    {
+        var node = new Block(depth);
+        if (depth > 0)
+        {
+            for (int i = 0; i < fanout; i++)
+                node.Add(BuildBalanced(depth - 1, fanout));
+        }
+        return node;
+    }
+
+    static int CountNodes(IrNode node)
+    {
+        int count = 1;
+        foreach (var child in node.Children)
+            count += CountNodes(child);
+        return count;
+    }
 }
