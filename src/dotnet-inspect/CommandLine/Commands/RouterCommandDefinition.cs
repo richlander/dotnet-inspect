@@ -158,7 +158,7 @@ public static class RouterCommandDefinition
                 }
             }
 
-            var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
+            var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target) || target.Contains('.');
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(target, allowPlatformPrefixFallback);
             if (memberSplit != null)
             {

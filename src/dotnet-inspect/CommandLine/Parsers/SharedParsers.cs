@@ -119,7 +119,7 @@ public static class SharedParsers
 
             var typeCandidate = value[..i];
             var memberName = value[(i + 1)..];
-            if (string.IsNullOrWhiteSpace(memberName) || memberName.Contains('<'))
+            if (string.IsNullOrWhiteSpace(memberName))
                 continue;
 
             var probe = ResolveTypeCandidate(typeCandidate, allowPlatformPrefixFallback);
@@ -140,6 +140,13 @@ public static class SharedParsers
         var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
         if (probe != null)
             return probe;
+
+        if (allowPlatformPrefixFallback)
+        {
+            var runtimeLib = PlatformResolver.FindLibraryContainingType(typeCandidate);
+            if (runtimeLib != null)
+                return new SourceResolver.LocalProbeResult(runtimeLib, typeCandidate, SourceResolver.LocalSourceKind.Platform);
+        }
 
         // If qualified name resolution failed, try resolving the candidate as a bare
         // CoreLib type. This covers generic types ("List<T>", "Span`1") as well as
