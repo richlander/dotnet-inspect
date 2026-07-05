@@ -98,6 +98,7 @@ public static class DiffOptionsParser
             }
         }
 
+        var verbosity = opts.ParseVerbosity(parseResult);
         var options = new DiffOptions
         {
             PackageVersionRange = packageVersionRange,
@@ -126,9 +127,9 @@ public static class DiffOptionsParser
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Rows = opts.ParseRows(parseResult),
+            Verbosity = verbosity,
         };
 
-        var verbosity = opts.ParseVerbosity(parseResult);
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 

@@ -9,6 +9,26 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class DiffOutputFormatter
 {
+    public static string RenderOverview(DiffOverview overview)
+    {
+        var lines = new List<string>
+        {
+            $"# Diff: {overview.Name}",
+            "",
+            $"Compares {overview.SourceKind} {Code(overview.Name)} from {Code(overview.FromVersion)} to {Code(overview.ToVersion)}."
+        };
+        if (overview.Targets.Count > 0)
+            lines[^1] += $" Target: {string.Join(", ", overview.Targets.Select(Code))}.";
+
+        lines.Add("");
+        lines.Add("| Diff | Changed |");
+        lines.Add("| ---- | ------- |");
+        lines.Add($"| API change | {YesNo(overview.ApiChanged)} |");
+        lines.Add($"| Attribute change | {YesNo(overview.AttributeChanged)} |");
+        lines.Add($"| Body change | {YesNo(overview.BodyChanged)} |");
+        return string.Join(Environment.NewLine, lines);
+    }
+
     public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
     {
         foreach (var name in typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n))
@@ -165,4 +185,9 @@ public static class DiffOutputFormatter
 
         return rows.Count > 0 ? rows : null;
     }
+
+    static string YesNo(bool value) => value ? "Yes" : "No";
+
+    static string Code(string value)
+        => $"`{value.Replace("`", "\\`", StringComparison.Ordinal)}`";
 }

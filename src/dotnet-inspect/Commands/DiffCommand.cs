@@ -132,7 +132,9 @@ public class DiffCommand
                 }
                 else
                 {
-                    var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
+                    var output = options.Verbosity == Verbosity.Minimal && options.IncludeSections is null
+                        ? DiffOutputFormatter.RenderOverview(BuildOverview(inputs, diff, options))
+                        : RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
                     Console.WriteLine(output);
                 }
 
@@ -150,7 +152,7 @@ public class DiffCommand
         }
     }
 
-    sealed record DiffInputs(
+    internal sealed record DiffInputs(
         ApiSurface FromSurface,
         ApiSurface ToSurface,
         string FromVersion,
@@ -473,21 +475,24 @@ public class DiffCommand
 
     internal static IReadOnlyList<TypeDiff> ApplyFilters(ApiDiff diff, DiffOptions options)
     {
-        var typeDiffs = diff.TypeDiffs;
-
-        // Apply type filter post-Compare
-        if (options.TypeFilter.Count > 0)
-        {
-            typeDiffs = typeDiffs
-                .Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, options.TypeFilter))
-                .ToList();
-
-            if (typeDiffs.Count == 0)
-                Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
-        }
+        var typeDiffs = ApplyTypeFilters(diff.TypeDiffs, options.TypeFilter, writeNote: true);
 
         // Apply classification filter
         return FilterByClassification(typeDiffs, options);
+    }
+
+    static IReadOnlyList<TypeDiff> ApplyTypeFilters(IReadOnlyList<TypeDiff> typeDiffs, HashSet<string> filters, bool writeNote)
+    {
+        if (filters.Count == 0)
+            return typeDiffs;
+
+        var filtered = typeDiffs
+            .Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, filters))
+            .ToList();
+
+        if (writeNote && filtered.Count == 0)
+            Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", filters)}.");
+        return filtered;
     }
 
     private static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
@@ -532,6 +537,37 @@ public class DiffCommand
         return OutputFormatter.ApplyRowLimit(markdown, options.Rows);
     }
 
+    internal static DiffOverview BuildOverview(DiffInputs inputs, ApiDiff apiDiff, DiffOptions options)
+    {
+        var apiChanged = FilterByClassification(ApplyTypeFilters(apiDiff.TypeDiffs, options.TypeFilter, writeNote: false), options).Count > 0;
+        var attributeDiff = ResearchDiff.Compare(
+            ResearchDiffInput.FromApiSurface(inputs.FromSurface),
+            ResearchDiffInput.FromApiSurface(inputs.ToSurface),
+            new ResearchDiffOptions(
+                ResearchDiffMechanism.Api,
+                IncludeAllApi: options.IncludeAll,
+                ApiScope: ApiDiffScope.Attributes)).ApiDiff ?? new ApiDiff();
+        var attributeChanged = FilterByClassification(ApplyTypeFilters(attributeDiff.TypeDiffs, options.TypeFilter, writeNote: false), options).Count > 0;
+        var bodyChanged = inputs.FromPaths.Count > 0
+            && inputs.ToPaths.Count > 0
+            && ResearchDiff.Compare(
+                ResearchDiffInput.FromAssemblies(inputs.FromPaths),
+                ResearchDiffInput.FromAssemblies(inputs.ToPaths),
+                new ResearchDiffOptions(
+                    ResearchDiffMechanism.BodySignals | ResearchDiffMechanism.IlBody | ResearchDiffMechanism.CSharp,
+                    TypeFilters: options.TypeFilter)).Subjects.Any(subject => subject.ImplementationChanged);
+
+        return new DiffOverview(
+            inputs.Name,
+            SourceKind(options),
+            inputs.FromVersion,
+            inputs.ToVersion,
+            [.. options.TypeFilter.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)],
+            apiChanged,
+            attributeChanged,
+            bodyChanged);
+    }
+
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
         => ResearchDiff.Compare(
             ResearchDiffInput.FromApiSurface(fromSurface),
@@ -541,6 +577,11 @@ public class DiffCommand
                 IncludeAllApi: options.IncludeAll,
                 ApiScope: ApiDiffScope.Signature)).ApiDiff
             ?? new ApiDiff();
+
+    static string SourceKind(DiffOptions options)
+        => options.PackageVersionRange is not null ? "package"
+            : options.PlatformVersionRange is not null ? "platform library"
+            : "library";
 
     private static IReadOnlyList<TypeDiff> FilterByClassification(IReadOnlyList<TypeDiff> typeDiffs, DiffOptions options)
     {
@@ -594,6 +635,7 @@ public record DiffOptions
     public string[]? Fields { get; init; }
     public int? Rows { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).

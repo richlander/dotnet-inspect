@@ -18,6 +18,16 @@ public class DiffOneLineView
 [MarkoutSerializable]
 public record DiffOneLineRow(string Change, string Type, string Detail);
 
+public sealed record DiffOverview(
+    string Name,
+    string SourceKind,
+    string FromVersion,
+    string ToVersion,
+    IReadOnlyList<string> Targets,
+    bool ApiChanged,
+    bool AttributeChanged,
+    bool BodyChanged);
+
 /// <summary>
 /// View model for full diff rendering. Uses GroupBy to partition changes
 /// by type name, rendering each type as a subheading with its changes as list items.

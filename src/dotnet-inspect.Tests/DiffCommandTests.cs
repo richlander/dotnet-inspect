@@ -102,6 +102,50 @@ public class DiffCommandTests
         Assert.Empty(diff.TypeDiffs);
     }
 
+    [Fact]
+    public void RenderOverview_DescribesQueryAndRendersChangeBooleans()
+    {
+        var overview = new DiffOverview(
+            "System.Text.Json",
+            "package",
+            "9.0.0",
+            "10.0.0",
+            ["JsonSerializer.Serialize:1"],
+            ApiChanged: false,
+            AttributeChanged: true,
+            BodyChanged: false);
+
+        var markdown = DiffOutputFormatter.RenderOverview(overview);
+
+        Assert.Contains("Compares package `System.Text.Json` from `9.0.0` to `10.0.0`. Target: `JsonSerializer.Serialize:1`.", markdown);
+        Assert.Contains("| API change | No |", markdown);
+        Assert.Contains("| Attribute change | Yes |", markdown);
+        Assert.Contains("| Body change | No |", markdown);
+        Assert.DoesNotContain("| Field | Value |", markdown);
+    }
+
+    [Fact]
+    public void BuildOverview_SeparatesApiAndAttributeChanges()
+    {
+        var oldSurface = DiffSurface(DiffMember("Existing", ["A"]));
+        var newSurface = DiffSurface(DiffMember("Existing", ["B"]), DiffMember("Added"));
+        var options = new DiffOptions { PackageVersionRange = "Pkg@1.0.0..2.0.0" };
+        var inputs = new DiffCommand.DiffInputs(
+            oldSurface,
+            newSurface,
+            "1.0.0",
+            "2.0.0",
+            "Pkg",
+            [],
+            []);
+
+        var overview = DiffCommand.BuildOverview(inputs, DiffCommand.BuildApiDiff(oldSurface, newSurface, options), options);
+
+        Assert.True(overview.ApiChanged);
+        Assert.True(overview.AttributeChanged);
+        Assert.False(overview.BodyChanged);
+    }
+
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
         => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", inLoop ? "in-loop" : null, null), magnitude, direction, inBoth, inLoop);
 
