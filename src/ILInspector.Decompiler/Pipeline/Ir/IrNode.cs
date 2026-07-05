@@ -114,29 +114,41 @@ public abstract class IrNode
         Parent.SetChild(ChildIndex, replacement);
     }
 
+    /// <summary>
+    /// Pre-order (self-excluded) descendants of this node. Iterative DFS: a recursive
+    /// <c>yield return</c> over children allocates one nested iterator per node (O(N)
+    /// state machines per traversal) and re-yields every value up through its ancestors
+    /// (O(N*depth) time). This walks the same order with a single work stack rented from
+    /// a per-thread pool, so a traversal allocates only its iterator state machine — the
+    /// stack and its backing array are reused across traversals. Children are pushed in
+    /// reverse so they pop in source order, reproducing the recursive pre-order.
+    /// </summary>
     public IEnumerable<IrNode> Descendants
     {
         get
         {
-            // Iterative pre-order DFS. A recursive `yield return` over children
-            // allocates one nested enumerator per node (O(N) state machines per
-            // traversal) and re-yields every value up through its ancestors
-            // (O(N*depth) time); an explicit stack does the same walk with a
-            // single enumerator plus one stack, and cannot deep-recurse.
-            // Children are pushed in reverse so they pop in source order,
-            // reproducing the recursive pre-order exactly.
             if (_children.Count == 0)
                 yield break;
-            var stack = new Stack<IrNode>();
-            for (int i = _children.Count - 1; i >= 0; i--)
-                stack.Push(_children[i]);
-            while (stack.Count > 0)
+            var stack = DescendantStackPool.Rent();
+            try
             {
-                var node = stack.Pop();
-                yield return node;
-                var children = node._children;
-                for (int i = children.Count - 1; i >= 0; i--)
-                    stack.Push(children[i]);
+                for (int i = _children.Count - 1; i >= 0; i--)
+                    stack.Push(_children[i]);
+                while (stack.Count > 0)
+                {
+                    var node = stack.Pop();
+                    yield return node;
+                    var children = node._children;
+                    for (int i = children.Count - 1; i >= 0; i--)
+                        stack.Push(children[i]);
+                }
+            }
+            finally
+            {
+                // Runs when the iterator is disposed — foreach and LINQ both dispose,
+                // including on an early break — so the stack returns to the pool even
+                // when enumeration stops early.
+                DescendantStackPool.Return(stack);
             }
         }
     }
@@ -179,6 +191,56 @@ public abstract class IrNode
     }
 
     public override string ToString() => Describe();
+}
+
+/// <summary>
+/// Per-thread pool of work stacks for <see cref="IrNode.Descendants"/>. A
+/// traversal rents a stack and returns it on <c>Dispose</c>, so steady-state
+/// traversal allocates nothing. Reentrancy-safe: nested/interleaved traversals rent
+/// distinct stacks, and a skipped return only falls back to a fresh allocation. The
+/// return path is idempotent against a double-return (a copied-then-doubly-disposed
+/// enumerator) so a stack cannot be handed out twice.
+/// </summary>
+static class DescendantStackPool
+{
+    const int MaxPooledPerThread = 8;
+
+    [ThreadStatic]
+    static Stack<IrNode>?[]? _free;
+
+    [ThreadStatic]
+    static int _count;
+
+    public static Stack<IrNode> Rent()
+    {
+        var free = _free;
+        if (free is not null && _count > 0)
+        {
+            int index = --_count;
+            var stack = free[index]!;
+            free[index] = null;
+            stack.Clear();
+            return stack;
+        }
+        return new Stack<IrNode>();
+    }
+
+    public static void Return(Stack<IrNode> stack)
+    {
+        var free = _free ??= new Stack<IrNode>?[MaxPooledPerThread];
+        // Idempotent: never pool the same instance twice (guards a double-return from
+        // a copied-then-doubly-disposed struct enumerator).
+        for (int i = 0; i < _count; i++)
+        {
+            if (ReferenceEquals(free[i], stack))
+                return;
+        }
+        if (_count < free.Length)
+        {
+            stack.Clear();
+            free[_count++] = stack;
+        }
+    }
 }
 
 /// <summary>An IR node that produces a value, typed by <see cref="TypeRef"/>.</summary>
