@@ -142,6 +142,37 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromIlBodyDiff_PreservesFailureAndPartialOperationRows()
+    {
+        var operation = new CanonicalIlOperation(
+            Offset: 0,
+            OpcodeFamily: "nop",
+            Operand: null);
+        var ilRow = new IlDiffRow(0, IlDiffKind.Remove, operation, "Removed IL operation 'nop'");
+        var il = IlBodyDiffResult.UnsupportedBoundary(
+            "unsupported canonicalization boundary",
+            [ilRow],
+            detail: "slot identity");
+
+        var diff = ResearchDiff.FromIlBodyDiff(il);
+
+        Assert.Collection(
+            diff.Rows,
+            failure =>
+            {
+                Assert.Equal("il.diff.unsupported-boundary", failure.ChangeId);
+                Assert.NotNull(failure.IlFailureRow);
+                Assert.Null(failure.IlRow);
+            },
+            operationRow =>
+            {
+                Assert.Equal("il.operation.removed", operationRow.ChangeId);
+                Assert.Same(ilRow, operationRow.IlRow);
+                Assert.Null(operationRow.IlFailureRow);
+            });
+    }
+
+    [Fact]
     public void FromCSharpBodyDiff_PreservesProducerMessageAndTypedRow()
     {
         var csharpRow = Assert.Single(CSharpBodyDiff.CompareAssemblies(

@@ -79,7 +79,7 @@ public static class IlDiffPrinter
             : result.Failure is { Length: > 0 } legacyFailure ? $"IL diff failed: {legacyFailure}" : null;
         return new IlDiffDisplayResult(
             failure,
-            ToDisplayRows(result.Rows),
+            result.Rows.IsDefault ? [] : ToDisplayRows(result.Rows),
             failureRows);
     }
 

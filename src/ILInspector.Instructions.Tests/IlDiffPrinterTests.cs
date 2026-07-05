@@ -109,6 +109,18 @@ public class IlDiffPrinterTests
     }
 
     [Fact]
+    public void ToDisplayResult_TreatsDefaultResultRowsAsEmpty()
+    {
+        var diff = new IlBodyDiffResult(IsExact: false, Failure: "legacy failure", Rows: default);
+
+        var display = IlDiffPrinter.ToDisplayResult(diff);
+
+        Assert.Equal("IL diff failed: legacy failure", display.Failure);
+        Assert.Empty(display.Rows);
+        Assert.Equal(["IL diff failed: legacy failure"], IlDiffPrinter.ToUnifiedLines(display));
+    }
+
+    [Fact]
     public void ToUnifiedLines_PreservesRowsWhenFailureCarriesPartialEvidence()
     {
         var row = new IlDiffRow(
@@ -126,6 +138,29 @@ public class IlDiffPrinterTests
         Assert.Equal(
             [
                 "IL diff failed: partial decode failed",
+                "h0 - IL_0000 nop",
+            ],
+            lines);
+    }
+
+    [Fact]
+    public void ToUnifiedLines_PreservesRowsWhenTypedFailureCarriesPartialEvidence()
+    {
+        var row = new IlDiffRow(
+            0,
+            IlDiffKind.Remove,
+            new CanonicalIlOperation(0, "nop", Operand: null),
+            "Removed IL operation 'nop'");
+        var diff = IlBodyDiffResult.UnsupportedBoundary(
+            "unsupported canonicalization boundary",
+            [row],
+            detail: "slot identity");
+
+        var lines = IlDiffPrinter.ToUnifiedLines(diff);
+
+        Assert.Equal(
+            [
+                "IL diff failed: unsupported canonicalization boundary",
                 "h0 - IL_0000 nop",
             ],
             lines);

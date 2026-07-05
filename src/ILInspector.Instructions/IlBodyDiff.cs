@@ -66,6 +66,9 @@ public sealed record IlBodyDiffResult(
     public static IlBodyDiffResult UnsupportedBoundary(string message, string? detail = null)
         => Failed(IlDiffFailureKind.UnsupportedBoundary, message, side: null, detail);
 
+    public static IlBodyDiffResult UnsupportedBoundary(string message, ImmutableArray<IlDiffRow> rows, string? detail = null)
+        => new(false, message, rows, [new IlDiffFailureRow(IlDiffFailureKind.UnsupportedBoundary, message, null, detail)]);
+
     public static IlBodyDiffResult Failed(IlDiffFailureKind kind, string message, string? side = null, string? detail = null)
         => new(false, message, [], [new IlDiffFailureRow(kind, message, side, detail)]);
 }
