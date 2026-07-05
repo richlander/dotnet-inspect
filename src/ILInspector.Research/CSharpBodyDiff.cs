@@ -158,13 +158,19 @@ public static class CSharpBodyDiff
     public static CSharpBodyDiffResult CompareAssemblies(string oldPath, string newPath, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
         => CompareAssemblies([oldPath], [newPath], includeNonPublic, typeFilters);
 
-    public static CSharpBodyDiffResult CompareAssemblies(IReadOnlyList<string> oldPaths, IReadOnlyList<string> newPaths, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
+    public static CSharpBodyDiffResult CompareAssemblies(
+        IReadOnlyList<string> oldPaths,
+        IReadOnlyList<string> newPaths,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        Func<string, IReadOnlyDictionary<int, MemberAnchor>>? memberAnchorsByToken = null)
     {
         ArgumentNullException.ThrowIfNull(oldPaths);
         ArgumentNullException.ThrowIfNull(newPaths);
 
-        var oldMethods = BuildMethodIndex(oldPaths, includeNonPublic, typeFilters);
-        var newMethods = BuildMethodIndex(newPaths, includeNonPublic, typeFilters);
+        memberAnchorsByToken ??= MemberAnchorsByToken;
+        var oldMethods = BuildMethodIndex(oldPaths, includeNonPublic, typeFilters, memberAnchorsByToken);
+        var newMethods = BuildMethodIndex(newPaths, includeNonPublic, typeFilters, memberAnchorsByToken);
         var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
         var sources = new SourceCache();
         int hunkId = 0;
@@ -202,7 +208,11 @@ public static class CSharpBodyDiff
         return new CSharpBodyDiffResult(rows.ToImmutable());
     }
 
-    static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(IReadOnlyList<string> paths, bool includeNonPublic, IReadOnlySet<string>? typeFilters)
+    static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(
+        IReadOnlyList<string> paths,
+        bool includeNonPublic,
+        IReadOnlySet<string>? typeFilters,
+        Func<string, IReadOnlyDictionary<int, MemberAnchor>> memberAnchorsByToken)
     {
         var entries = new List<CSharpMethodEntry>();
         var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -213,7 +223,7 @@ public static class CSharpBodyDiff
             int occurrence = assemblyOccurrences.GetValueOrDefault(assemblyKey);
             assemblyOccurrences[assemblyKey] = occurrence + 1;
             string occurrenceKey = $"{assemblyKey}#{occurrence}";
-            entries.AddRange(EnumerateMethods(source, path, occurrenceKey, includeNonPublic, typeFilters, MemberAnchorsByToken(path)));
+            entries.AddRange(EnumerateMethods(source, path, occurrenceKey, includeNonPublic, typeFilters, memberAnchorsByToken(path)));
         }
 
         return entries

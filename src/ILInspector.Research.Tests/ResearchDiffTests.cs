@@ -288,6 +288,40 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void Combine_DuplicateSubjectPrefersActiveMetadataOverRemovedSide()
+    {
+        var anchor = new MemberAnchor(
+            "Changed~1234567890",
+            "M:Sample.Widget.Changed()",
+            "1234567890",
+            "Sample.Widget",
+            "Changed");
+        var oldMetadataRef = new MetadataMemberRef("Sample", Guid.NewGuid(), 0x06000001);
+        var newMetadataRef = new MetadataMemberRef("Sample", Guid.NewGuid(), 0x06000001);
+        var baseSubject = new ResearchSubjectKey(
+            ResearchDiffSubjectKind.Member,
+            anchor.StableSelector,
+            "Sample.Widget.Changed()",
+            "Sample.Widget",
+            "Changed",
+            new TypeAnchor(anchor.TypeFullName),
+            anchor);
+        var removed = new ResearchDiffResult(
+            [new ResearchSubjectDiff(
+                baseSubject with { MetadataMember = oldMetadataRef },
+                [new ResearchDiffEvidence(ResearchDiffMechanism.BodySignals, "unsafe.stackalloc.removed", ResearchDiffDirection.Removed, Anchor: anchor, MetadataMember: oldMetadataRef)])]);
+        var changed = new ResearchDiffResult(
+            [new ResearchSubjectDiff(
+                baseSubject with { MetadataMember = newMetadataRef },
+                [new ResearchDiffEvidence(ResearchDiffMechanism.IlBody, "il.hunk.changed", ResearchDiffDirection.Changed, Anchor: anchor, MetadataMember: newMetadataRef)])]);
+
+        var combined = ResearchDiff.Combine(removed, changed);
+
+        var subject = Assert.Single(combined.Subjects);
+        Assert.Equal(newMetadataRef, subject.Subject.MetadataMember);
+    }
+
+    [Fact]
     public void CompareApiSurfaces_AttributeScope_QueriesMemberAttributeChanges()
     {
         var oldSurface = Surface("Widget", Member("Existing", ["A"]));

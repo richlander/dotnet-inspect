@@ -283,18 +283,19 @@ public static class ResearchDiff
 
         options ??= new ResearchDiffOptions();
         var builder = new ResultBuilder();
+        var anchors = new MemberAnchorCache();
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.Api))
             AddApiDiff(builder, oldInput, newInput, options.IncludeAllApi, options.ApiScope);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.BodySignals))
-            AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters);
+            AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters, anchors);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.IlBody))
-            AddIlBodyDiff(builder, oldInput, newInput);
+            AddIlBodyDiff(builder, oldInput, newInput, anchors);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.CSharp))
-            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters);
+            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters, anchors);
 
         return builder.ToResult();
     }
@@ -325,12 +326,17 @@ public static class ResearchDiff
         }
     }
 
-    static void AddBodySignalDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
+    static void AddBodySignalDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        IReadOnlySet<string>? typeFilters,
+        MemberAnchorCache anchors)
     {
         foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
         {
-            var oldAnchors = MemberAnchorsByToken(pair.Old.Path);
-            var newAnchors = MemberAnchorsByToken(pair.New.Path);
+            var oldAnchors = anchors.Get(pair.Old.Path);
+            var newAnchors = anchors.Get(pair.New.Path);
             AddAnalysisSignalDiff(builder, pair.Old.Index, pair.New.Index, typeFilters, oldAnchors, newAnchors);
 
             var oldSubjects = MethodSubjectsByBodySignalKey(pair.Old.Index, oldAnchors);
@@ -563,14 +569,18 @@ public static class ResearchDiff
                 InLoop: inLoop));
     }
 
-    static void AddIlBodyDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput)
+    static void AddIlBodyDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        MemberAnchorCache anchors)
     {
         foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
         {
             var oldMethods = MethodLookup(pair.Old.Index);
             var newMethods = MethodLookup(pair.New.Index);
-            var oldAnchors = MemberAnchorsByToken(pair.Old.Path);
-            var newAnchors = MemberAnchorsByToken(pair.New.Path);
+            var oldAnchors = anchors.Get(pair.Old.Path);
+            var newAnchors = anchors.Get(pair.New.Path);
             var keys = oldMethods.Keys.Intersect(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             using var oldBodies = new MethodBodyLookup(pair.Old.Path);
             using var newBodies = new MethodBodyLookup(pair.New.Path);
@@ -666,30 +676,6 @@ public static class ResearchDiff
         }
     }
 
-    static IReadOnlyDictionary<int, MemberAnchor> MemberAnchorsByToken(string path)
-    {
-        var surface = AssemblyReader.ExtractApiSurface(path, includeAll: true);
-        if (surface is null)
-            return new Dictionary<int, MemberAnchor>();
-
-        var anchors = new Dictionary<int, MemberAnchor>();
-        foreach (var type in surface.Types)
-        {
-            foreach (var member in type.Members)
-            {
-                var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
-                if (member.MetadataToken is { } token)
-                    anchors.TryAdd(token, anchor);
-                if (member.GetterToken is { } getter)
-                    anchors.TryAdd(getter, anchor);
-                if (member.SetterToken is { } setter)
-                    anchors.TryAdd(setter, anchor);
-            }
-        }
-
-        return anchors;
-    }
-
     static void AddIlFailureEvidence(
         ResultBuilder builder,
         ResearchSubjectKey subject,
@@ -732,12 +718,17 @@ public static class ResearchDiff
             _ => MetadataMemberRef(newMethod),
         };
 
-    static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
+    static void AddCSharpDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        IReadOnlySet<string>? typeFilters,
+        MemberAnchorCache anchors)
     {
         if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
             return;
 
-        foreach (var row in CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters).Rows)
+        foreach (var row in CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters, memberAnchorsByToken: anchors.Get).Rows)
         {
             var subject = new ResearchSubjectKey(
                 ResearchDiffSubjectKind.Member,
@@ -1115,7 +1106,7 @@ public static class ResearchDiff
             else
             {
                 var existingSubject = _rows.Keys.First(key => ResearchSubjectKeyIdentityComparer.Instance.Equals(key, subject));
-                var mergedSubject = MergeSubject(existingSubject, subject);
+                var mergedSubject = MergeSubject(existingSubject, subject, evidence.Direction);
                 if (mergedSubject != existingSubject)
                 {
                     _rows.Remove(existingSubject);
@@ -1125,16 +1116,19 @@ public static class ResearchDiff
             evidenceRows.Add(evidence);
         }
 
-        static ResearchSubjectKey MergeSubject(ResearchSubjectKey existing, ResearchSubjectKey candidate)
-            => existing with
+        static ResearchSubjectKey MergeSubject(ResearchSubjectKey existing, ResearchSubjectKey candidate, ResearchDiffDirection candidateDirection)
+        {
+            var preferCandidate = candidateDirection != ResearchDiffDirection.Removed;
+            return existing with
             {
                 TypeName = existing.TypeName ?? candidate.TypeName,
                 MemberName = existing.MemberName ?? candidate.MemberName,
-                TypeAnchor = existing.TypeAnchor ?? candidate.TypeAnchor,
-                Anchor = existing.Anchor ?? candidate.Anchor,
-                MetadataMember = existing.MetadataMember ?? candidate.MetadataMember,
-                MetadataType = existing.MetadataType ?? candidate.MetadataType,
+                TypeAnchor = preferCandidate ? candidate.TypeAnchor ?? existing.TypeAnchor : existing.TypeAnchor ?? candidate.TypeAnchor,
+                Anchor = preferCandidate ? candidate.Anchor ?? existing.Anchor : existing.Anchor ?? candidate.Anchor,
+                MetadataMember = preferCandidate ? candidate.MetadataMember ?? existing.MetadataMember : existing.MetadataMember ?? candidate.MetadataMember,
+                MetadataType = preferCandidate ? candidate.MetadataType ?? existing.MetadataType : existing.MetadataType ?? candidate.MetadataType,
             };
+        }
 
         public ResearchDiffResult ToResult()
             => new([.. _rows
@@ -1162,6 +1156,45 @@ public static class ResearchDiff
 
         public int GetHashCode(ResearchSubjectKey obj)
             => HashCode.Combine(obj.Kind, StringComparer.Ordinal.GetHashCode(obj.Id));
+    }
+
+    sealed class MemberAnchorCache
+    {
+        readonly Dictionary<string, IReadOnlyDictionary<int, MemberAnchor>> _anchors = new(StringComparer.Ordinal);
+
+        public IReadOnlyDictionary<int, MemberAnchor> Get(string path)
+        {
+            if (_anchors.TryGetValue(path, out var anchors))
+                return anchors;
+
+            anchors = Build(path);
+            _anchors.Add(path, anchors);
+            return anchors;
+        }
+
+        static IReadOnlyDictionary<int, MemberAnchor> Build(string path)
+        {
+            var surface = AssemblyReader.ExtractApiSurface(path, includeAll: true);
+            if (surface is null)
+                return new Dictionary<int, MemberAnchor>();
+
+            var anchors = new Dictionary<int, MemberAnchor>();
+            foreach (var type in surface.Types)
+            {
+                foreach (var member in type.Members)
+                {
+                    var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+                    if (member.MetadataToken is { } token)
+                        anchors.TryAdd(token, anchor);
+                    if (member.GetterToken is { } getter)
+                        anchors.TryAdd(getter, anchor);
+                    if (member.SetterToken is { } setter)
+                        anchors.TryAdd(setter, anchor);
+                }
+            }
+
+            return anchors;
+        }
     }
 
     sealed class MethodBodyLookup : IDisposable
