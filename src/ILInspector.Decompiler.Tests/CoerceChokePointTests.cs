@@ -1009,34 +1009,12 @@ public class CoerceChokePointTests
     }
 
     [Fact]
-    public void NintArm_AtNuintMergedType_TakesNativeReinterpretCast()
-    {
-        // #2334: platform-sized signed/unsigned siblings have the same runtime
-        // width even though TypeFamilies.Width is null. The join-arm coercion
-        // must therefore use SameNumericSlotWidth, not fixed-width SameWidth.
-        var nuintType = TypeRef.CoreLib("System", "UIntPtr");
-        var nintType = TypeRef.CoreLib("System", "IntPtr");
-        var boolType = TypeRef.CoreLib("System", "Boolean");
-        var conditional = new Conditional(
-            new LoadArgument(0, "c", boolType),
-            new LoadArgument(1, "u", nuintType),
-            new LoadArgument(2, "i", nintType))
-        {
-            MergedType = nuintType,
-        };
-        string body = RenderReturn(
-            conditional,
-            nuintType,
-            [new Parameter("c", boolType), new Parameter("u", nuintType), new Parameter("i", nintType)],
-            TypeRef.Definition("synthetic", "", "UnusedEnum"));
-
-        Assert.Contains("c ? u : (nuint)i", body);
-        AssertCompiles("public static nuint M(bool c, nuint u, nint i)", body);
-    }
-
-    [Fact]
     public void NuintArm_AtNintMergedType_TakesNativeReinterpretCast()
     {
+        // #2334 reverse direction: platform-sized signed/unsigned siblings have
+        // the same runtime width even though TypeFamilies.Width is null. The
+        // join-arm coercion must therefore use SameNumericSlotWidth, not
+        // fixed-width SameWidth.
         var nintType = TypeRef.CoreLib("System", "IntPtr");
         var nuintType = TypeRef.CoreLib("System", "UIntPtr");
         var boolType = TypeRef.CoreLib("System", "Boolean");
