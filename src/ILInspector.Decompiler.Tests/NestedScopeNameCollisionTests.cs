@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -9,6 +10,9 @@ public class NestedScopeNameCollisionTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
+    static readonly TypeRef FuncIntInt = TypeRef.GenericInstance(
+        TypeRef.CoreLib("System", "Func`2"),
+        [TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "Int32")]);
     static readonly TypeRef Owner = TypeRef.Definition("Synthetic", "", "Holder");
 
     [Fact]
@@ -93,6 +97,88 @@ public class NestedScopeNameCollisionTests
         AssertCompiles(body);
     }
 
+    [Fact]
+    public void DeepNestedLambda_CarriesGrandparentReservedNames()
+    {
+        var innerBody = Body(
+            new StoreStackSlot(0, new Constant(3, Int32)),
+            new ExpressionStatement(new LoadStackSlot(0, Int32)));
+        var inner = new Lambda(
+            Action,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            innerBody);
+        var middleBody = Body(new StoreLocal(0, Action, inner));
+        var middle = new Lambda(
+            Action,
+            [],
+            [Action],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            middleBody);
+
+        string body = RenderBody(
+            [Int32, Action],
+            new StoreStackSlot(0, new Constant(1, Int32)),
+            new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)),
+            new StoreLocal(1, Action, middle));
+
+        Assert.Contains("int S_0 = 1;", body);
+        Assert.Contains("int S_0_1 = 3;", body);
+        Assert.DoesNotContain("() => { int S_0 = 3;", body);
+        AssertCompiles(body);
+    }
+
+    [Fact]
+    public void NestedSwitchTemp_AvoidsOuterSwitchTemp()
+    {
+        var innerLambda = new Lambda(
+            Action,
+            [],
+            [Int32],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            SwitchBody());
+
+        string body = RenderBody(
+            [Action],
+            new SwitchBranch(new Constant(0, Int32), ImmutableArray.Create(4)),
+            new StoreLocal(0, Action, innerLambda));
+
+        Assert.Contains("int __dotnet_inspect_switch0 = default;", body);
+        Assert.Contains("int __dotnet_inspect_switch0_1 = default;", body);
+        Assert.DoesNotContain("() => { int __dotnet_inspect_switch0 = default;", body);
+    }
+
+    [Fact]
+    public void OuterGeneratedName_AvoidsNestedLambdaParameter()
+    {
+        var lambda = new Lambda(
+            FuncIntInt,
+            [new Parameter("S_0", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Body(new Return(new LoadArgument(0, "S_0", Int32))));
+
+        string body = RenderBody(
+            [Int32, FuncIntInt],
+            new StoreStackSlot(0, new Constant(1, Int32)),
+            new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)),
+            new StoreLocal(1, FuncIntInt, lambda));
+
+        Assert.Contains("int S_0_1 = 1;", body);
+        Assert.Contains("S_0 =>", body);
+        Assert.DoesNotContain("int S_0 = 1;", body);
+        AssertCompiles(body);
+    }
+
     static BlockContainer Body(params IrNode[] statements)
     {
         var block = new Block(0);
@@ -100,6 +186,18 @@ public class NestedScopeNameCollisionTests
             block.Add(statement);
         var body = new BlockContainer();
         body.Add(block);
+        return body;
+    }
+
+    static BlockContainer SwitchBody()
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0);
+        entry.Add(new SwitchBranch(new Constant(0, Int32), ImmutableArray.Create(4)));
+        var target = new Block(4);
+        target.Add(new Return(null));
+        body.Add(entry);
+        body.Add(target);
         return body;
     }
 

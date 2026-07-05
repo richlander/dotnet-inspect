@@ -459,7 +459,7 @@ public sealed partial class CSharpPrinter
         int switchIndex = 0;
         foreach (var switchBranch in DescendantsOutsideNestedFunctions(function).OfType<SwitchBranch>())
         {
-            string name = $"__dotnet_inspect_switch{switchIndex++}";
+            string name = ReserveName($"__dotnet_inspect_switch{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
             yield return $"int {name} = default;";
         }
@@ -563,11 +563,7 @@ public sealed partial class CSharpPrinter
             _stackSlotStoreTypes[store] = StackSlotRenderType(store.Slot, store.Value.ResultType);
 
         var ordinals = new Dictionary<int, int>();
-        var takenNames = new HashSet<string>(_reservedScopeNames, StringComparer.Ordinal);
-        foreach (var parameter in _function.Signature.Parameters)
-            takenNames.Add(parameter.Name);
-        for (int i = 0; i < _function.Locals.Length; i++)
-            takenNames.Add(LocalName(i));
+        var takenNames = CurrentReservedNames(includeLocals: true);
 
         string NameFor(int slot, TypeRef? type)
         {
@@ -782,15 +778,30 @@ public sealed partial class CSharpPrinter
 
     IReadOnlySet<string> CurrentScopeNames()
     {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var parameter in _function.Signature.Parameters)
-            names.Add(parameter.Name);
-        for (int i = 0; i < _function.Locals.Length; i++)
-            names.Add(LocalName(i));
+        var names = CurrentReservedNames(includeLocals: true);
         foreach (var (_, (name, _)) in _stackSlotDeclarations)
             names.Add(name);
         foreach (var name in _switchTemps.Values)
             names.Add(name);
+        return names;
+    }
+
+    HashSet<string> CurrentReservedNames(bool includeLocals = false)
+    {
+        var names = new HashSet<string>(_reservedScopeNames, StringComparer.Ordinal);
+        foreach (var parameter in _function.Signature.Parameters)
+            names.Add(parameter.Name);
+        foreach (var nested in _function.Descendants.OfType<Lambda>())
+            foreach (var parameter in nested.Parameters)
+                names.Add(parameter.Name);
+        foreach (var nested in _function.Descendants.OfType<LocalFunctionStatement>())
+            foreach (var parameter in nested.Parameters)
+                names.Add(parameter.Name);
+        if (includeLocals)
+        {
+            for (int i = 0; i < _function.Locals.Length; i++)
+                names.Add(LocalName(i));
+        }
         return names;
     }
 
@@ -2909,9 +2920,7 @@ public sealed partial class CSharpPrinter
             for (int i = 0; i < count; i++)
                 display[i] = $"V_{i}";
 
-            var taken = new HashSet<string>(_reservedScopeNames, StringComparer.Ordinal);
-            foreach (var parameter in _function.Signature.Parameters)
-                taken.Add(parameter.Name);
+            var taken = CurrentReservedNames();
 
             var names = _function.LocalNames;
             if (!names.IsDefaultOrEmpty)
