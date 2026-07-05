@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 
@@ -19,6 +20,7 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.TryFinallyThrowReturn)));
         Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.ReturnOnAllPaths)));
         Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.CorrelatedReturnOnAllPaths)));
+        Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.NestedFinallyLeaveReturn)));
     }
 
     [Fact]
@@ -64,9 +66,83 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(findings);
     }
 
+    [Fact]
+    public void FaultHandlerReturn_DoesNotSatisfyNormalLeavePath()
+    {
+        var findings = AnalyzeSynthetic([
+            .. Call(TokenShared),       // IL_0000 ArrayPool<byte>.Shared
+            0x1F, 0x10,                // IL_0005 ldc.i4.s 16
+            .. Callvirt(TokenRent),     // IL_0007 Rent
+            0x0A,                       // IL_000C stloc.0
+            0xDE, 0x0C,                 // IL_000D leave.s IL_001B
+            .. Call(TokenShared),       // IL_000F ArrayPool<byte>.Shared
+            0x06,                       // IL_0014 ldloc.0
+            .. Callvirt(TokenReturn),   // IL_0015 Return
+            0xDC,                       // IL_001A endfinally
+            0x2A,                       // IL_001B ret
+        ], [Region(ExceptionRegionKind.Fault, tryOffset: 13, tryLength: 2, handlerOffset: 15, handlerLength: 12)]);
+
+        AssertSingleShape(findings, nameof(Synthetic), "arraypool-rent-not-returned");
+    }
+
     static ImmutableArray<LeakTriageFinding> FixtureFindings()
         => [.. LeakTriageAnalyzer.AnalyzeAssembly(typeof(ArrayPoolLeakFixtures).Assembly.Location)
             .Where(finding => finding.Method.DeclaringType.Name == nameof(ArrayPoolLeakFixtures))];
+
+    const int TokenShared = 0x0A000001;
+    const int TokenRent = 0x0A000002;
+    const int TokenReturn = 0x0A000003;
+
+    static ImmutableArray<LeakTriageFinding> AnalyzeSynthetic(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+    {
+        var method = new MethodIdentity(
+            "Fixture",
+            Guid.Empty,
+            TypeRef.Definition("Fixture", "Fixtures", nameof(Synthetic)),
+            nameof(Synthetic),
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        return LeakTriageAnalyzer.AnalyzeMethod(method, il, exceptionRegions, ResolveSyntheticMember);
+    }
+
+    static MemberRef ResolveSyntheticMember(int token)
+    {
+        var arrayPoolOfByte = TypeRef.GenericInstance(
+            TypeRef.Definition("System.Buffers", "System.Buffers", "ArrayPool`1"),
+            [TypeRef.CoreLib("System", "Byte")]);
+        var byteArray = TypeRef.SzArray(TypeRef.CoreLib("System", "Byte"));
+
+        return token switch
+        {
+            TokenShared => new MemberRef(arrayPoolOfByte, "get_Shared", [], arrayPoolOfByte, MemberKind.Method),
+            TokenRent => new MemberRef(arrayPoolOfByte, "Rent", [TypeRef.CoreLib("System", "Int32")], byteArray, MemberKind.Method) { HasThis = true },
+            TokenReturn => new MemberRef(arrayPoolOfByte, "Return", [byteArray], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { HasThis = true },
+            _ => MemberRef.Unsupported($"unknown token 0x{token:X8}"),
+        };
+    }
+
+    static byte[] Call(int token) => [0x28, .. TokenBytes(token)];
+    static byte[] Callvirt(int token) => [0x6F, .. TokenBytes(token)];
+    static byte[] TokenBytes(int token) => BitConverter.GetBytes(token);
+
+    static readonly ConstructorInfo s_exceptionRegionConstructor =
+        typeof(ExceptionRegion).GetConstructor(
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            [typeof(ExceptionRegionKind), typeof(int), typeof(int), typeof(int), typeof(int), typeof(int)],
+            modifiers: null)
+        ?? throw new InvalidOperationException("ExceptionRegion constructor not found.");
+
+    static ExceptionRegion Region(
+        ExceptionRegionKind kind,
+        int tryOffset,
+        int tryLength,
+        int handlerOffset,
+        int handlerLength,
+        int filterOffset = 0)
+        => (ExceptionRegion)s_exceptionRegionConstructor.Invoke([kind, tryOffset, tryLength, handlerOffset, handlerLength, filterOffset]);
 
     static IEnumerable<LeakTriageFinding> ForMethod(ImmutableArray<LeakTriageFinding> findings, string methodName)
         => findings.Where(finding => finding.Method.Name == methodName);
@@ -76,6 +152,10 @@ public sealed class LeakTriageAnalyzerTests
         var finding = Assert.Single(ForMethod(findings, methodName));
         Assert.Equal(shape, finding.Shape);
     }
+}
+
+internal static class Synthetic
+{
 }
 
 internal sealed class ArrayPoolLeakFixtures
@@ -142,6 +222,30 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void NestedFinallyLeaveReturn()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                goto Done;
+            }
+            finally
+            {
+                Consume(1);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+
+    Done:
+        return;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static void UseAfterReturn()
     {
         var buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -188,4 +292,10 @@ internal sealed class ArrayPoolLeakFixtures
 
     static void ReturnHelper(byte[] buffer)
         => ArrayPool<byte>.Shared.Return(buffer);
+
+    static void Consume(int value)
+    {
+        if (value == int.MinValue)
+            throw new InvalidOperationException();
+    }
 }

@@ -218,8 +218,8 @@ public static class LeakTriageAnalyzer
 
             var block = graph.Blocks[blockIndex];
             bool released = ProcessBlockForRelease(instructions, calls, block, blockStartOffset, releaseSet, releasedIn);
-            var successors = LifecycleSuccessors(instructions, graph, block).ToArray();
-            if (!released && block.Edges.ExitsMethod && successors.Length == 0)
+            var successors = block.Edges.Successors;
+            if (!released && block.Edges.ExitsMethod && successors.Count == 0)
                 return true;
             foreach (int successor in successors)
                 stack.Push((successor, released, graph.Blocks[successor].Start));
@@ -260,33 +260,6 @@ public static class LeakTriageAnalyzer
         int fromBlock = graph.BlockIndexAt(fromOffset);
         int toBlock = graph.BlockIndexAt(toOffset);
         return fromBlock >= 0 && fromBlock == toBlock && fromOffset < toOffset;
-    }
-
-    static IEnumerable<int> LifecycleSuccessors(ImmutableArray<DecodedInstruction> instructions, BlockGraph graph, InstructionBlock block)
-    {
-        if (LastInstruction(instructions, block) is { LeavesRegion: true } terminator)
-        {
-            var finallyHandlers = graph.Regions
-                .Where(region => region.Kind is HandlerKind.Finally or HandlerKind.Fault && region.ContainsTry(terminator.Offset))
-                .OrderBy(region => region.TryEnd - region.TryStart)
-                .Select(region => graph.BlockIndexAt(region.HandlerStart))
-                .Where(index => index >= 0)
-                .Distinct()
-                .ToArray();
-            if (finallyHandlers.Length > 0)
-                return [finallyHandlers[0]];
-        }
-
-        return block.Edges.Successors;
-    }
-
-    static DecodedInstruction? LastInstruction(ImmutableArray<DecodedInstruction> instructions, InstructionBlock block)
-    {
-        DecodedInstruction? last = null;
-        foreach (var instruction in instructions)
-            if (instruction.Offset >= block.Start && instruction.Offset < block.End)
-                last = instruction;
-        return last;
     }
 
     static IEnumerable<RentedLocal> FindRents(
