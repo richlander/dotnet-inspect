@@ -91,6 +91,113 @@ public class ReachingDefinitionsTests
     }
 
     [Fact]
+    public void DefUseGraph_BranchMerge_ConnectsDefinitionsAndMergedUse()
+    {
+        var graph = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldarg_0),
+            Op(ILOpCode.Brfalse_s), 0x04,
+            Op(ILOpCode.Ldc_i4_1),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Br_s), 0x02,
+            Op(ILOpCode.Ldc_i4_2),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 1).ToDefUseGraph();
+
+        var slotWeb = Assert.Single(graph.WebsFor(new SlotIdentity(0, IsArgument: false)));
+        Assert.Equal([4, 8], slotWeb.Definitions.Select(definition => definition.Offset).ToArray());
+        Assert.Equal([9], slotWeb.Uses.Select(use => use.Offset).ToArray());
+        Assert.True(slotWeb.HasMergedUse);
+        Assert.True(slotWeb.HasMultipleDefinitions);
+        Assert.False(slotWeb.AddressTaken);
+    }
+
+    [Fact]
+    public void DefUseGraph_SlotReuse_ProducesSeparateWebs()
+    {
+        var graph = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldc_i4_0),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Pop),
+            Op(ILOpCode.Ldc_i4_1),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloc_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0).ToDefUseGraph();
+
+        var webs = graph.WebsFor(new SlotIdentity(0, IsArgument: false));
+
+        Assert.Collection(
+            webs,
+            first =>
+            {
+                Assert.Equal([1], first.Definitions.Select(definition => definition.Offset).ToArray());
+                Assert.Equal([2], first.Uses.Select(use => use.Offset).ToArray());
+                Assert.True(first.HasSingleDefinition);
+                Assert.True(first.HasSingleUse);
+            },
+            second =>
+            {
+                Assert.Equal([5], second.Definitions.Select(definition => definition.Offset).ToArray());
+                Assert.Equal([6], second.Uses.Select(use => use.Offset).ToArray());
+                Assert.True(second.HasSingleDefinition);
+                Assert.True(second.HasSingleUse);
+            });
+    }
+
+    [Fact]
+    public void DefUseGraph_AddressLoad_MarksWebAddressTaken()
+    {
+        var graph = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldc_i4_0),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ldloca_s), 0x00,
+            Op(ILOpCode.Pop),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0).ToDefUseGraph();
+
+        var web = Assert.Single(graph.WebsFor(new SlotIdentity(0, IsArgument: false)));
+        Assert.True(web.AddressTaken);
+        Assert.Equal([2], web.Uses.Select(use => use.Offset).ToArray());
+    }
+
+    [Fact]
+    public void DefUseGraph_UnusedDefinition_StillCreatesWeb()
+    {
+        var graph = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldc_i4_0),
+            Op(ILOpCode.Stloc_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 0).ToDefUseGraph();
+
+        var web = Assert.Single(graph.WebsFor(new SlotIdentity(0, IsArgument: false)));
+        Assert.Equal([1], web.Definitions.Select(definition => definition.Offset).ToArray());
+        Assert.Empty(web.Uses);
+        Assert.True(web.HasSingleDefinition);
+        Assert.False(web.HasSingleUse);
+    }
+
+    [Fact]
+    public void DefUseGraph_ArgumentUse_UsesSyntheticEntryDefinition()
+    {
+        var graph = ReachingDefinitions.Analyze([
+            Op(ILOpCode.Ldarg_0),
+            Op(ILOpCode.Ret),
+        ], argumentSlotCount: 1).ToDefUseGraph();
+
+        var web = Assert.Single(graph.WebsFor(new SlotIdentity(0, IsArgument: true)));
+
+        var definition = Assert.Single(web.Definitions);
+        Assert.True(definition.IsArgument);
+        Assert.Equal(-1, definition.Offset);
+        Assert.Equal([0], web.Uses.Select(use => use.Offset).ToArray());
+        Assert.Equal(-1, web.StartOffset);
+        Assert.Equal(0, web.EndOffset);
+    }
+
+    [Fact]
     public void Analyze_MalformedHugeSwitch_ThrowsBeforeAllocatingTargetTable()
     {
         Assert.Throws<BadImageFormatException>(() => ReachingDefinitions.Analyze([

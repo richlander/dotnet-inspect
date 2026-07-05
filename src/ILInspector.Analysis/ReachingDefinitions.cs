@@ -24,6 +24,143 @@ public sealed record ReachingDefinitionsResult(
 {
     public ImmutableArray<LocalUse> UsesOf(LocalDefinition definition)
         => [.. Uses.Where(use => use.ReachingDefinitions.Any(d => d.Id == definition.Id))];
+
+    public SlotDefUseGraph ToDefUseGraph()
+        => SlotDefUseGraph.Create(this);
+}
+
+public readonly record struct SlotIdentity(int Slot, bool IsArgument);
+
+public sealed record SlotDefUseWeb(
+    int Id,
+    SlotIdentity Slot,
+    ImmutableArray<LocalDefinition> Definitions,
+    ImmutableArray<LocalUse> Uses,
+    int StartOffset,
+    int EndOffset,
+    bool AddressTaken,
+    bool HasMergedUse)
+{
+    public bool IsArgument => Slot.IsArgument;
+    public bool HasMultipleDefinitions => Definitions.Length > 1;
+    public bool HasSingleDefinition => Definitions.Length == 1;
+    public bool HasSingleUse => Uses.Length == 1;
+}
+
+public sealed record SlotDefUseGraph(ImmutableArray<SlotDefUseWeb> Webs)
+{
+    public ImmutableArray<SlotDefUseWeb> WebsFor(SlotIdentity slot)
+        => [.. Webs.Where(web => web.Slot == slot)];
+
+    public static SlotDefUseGraph Create(ReachingDefinitionsResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        int definitionCount = result.Definitions.Length;
+        int useCount = result.Uses.Length;
+        int nodeCount = definitionCount + useCount;
+        if (nodeCount == 0)
+            return new SlotDefUseGraph([]);
+
+        var parents = Enumerable.Range(0, nodeCount).ToArray();
+        var definitionIndexById = result.Definitions
+            .Select((definition, index) => (definition.Id, Index: index))
+            .ToDictionary(pair => pair.Id, pair => pair.Index);
+
+        for (int useIndex = 0; useIndex < result.Uses.Length; useIndex++)
+        {
+            int useNode = definitionCount + useIndex;
+            foreach (var definition in result.Uses[useIndex].ReachingDefinitions)
+                if (definitionIndexById.TryGetValue(definition.Id, out int definitionIndex))
+                    Union(useNode, definitionIndex);
+        }
+
+        var groups = new Dictionary<int, List<int>>();
+        for (int node = 0; node < nodeCount; node++)
+        {
+            int root = Find(node);
+            if (!groups.TryGetValue(root, out var nodes))
+                groups[root] = nodes = [];
+            nodes.Add(node);
+        }
+
+        var candidates = groups.Values
+            .Select(nodes =>
+            {
+                var definitions = nodes
+                    .Where(node => node < definitionCount)
+                    .Select(node => result.Definitions[node])
+                    .OrderBy(definition => definition.Offset)
+                    .ThenBy(definition => definition.Id)
+                    .ToImmutableArray();
+                var uses = nodes
+                    .Where(node => node >= definitionCount)
+                    .Select(node => result.Uses[node - definitionCount])
+                    .OrderBy(use => use.Offset)
+                    .ThenBy(use => use.Slot)
+                    .ToImmutableArray();
+                var slot = definitions.Length > 0
+                    ? new SlotIdentity(definitions[0].Slot, definitions[0].IsArgument)
+                    : new SlotIdentity(uses[0].Slot, uses[0].IsArgument);
+                int startOffset = definitions.Select(definition => definition.Offset)
+                    .Concat(uses.Select(use => use.Offset))
+                    .Min();
+                int endOffset = definitions.Select(definition => definition.Offset)
+                    .Concat(uses.Select(use => use.Offset))
+                    .Max();
+                return new
+                {
+                    Slot = slot,
+                    Definitions = definitions,
+                    Uses = uses,
+                    StartOffset = startOffset,
+                    EndOffset = endOffset,
+                    AddressTaken = uses.Any(use => use.Address),
+                    HasMergedUse = uses.Any(use => use.ReachingDefinitions.Length > 1),
+                };
+            })
+            .OrderBy(candidate => candidate.Slot.IsArgument ? 0 : 1)
+            .ThenBy(candidate => candidate.Slot.Slot)
+            .ThenBy(candidate => candidate.StartOffset)
+            .ThenBy(candidate => candidate.EndOffset)
+            .ToArray();
+
+        var webs = ImmutableArray.CreateBuilder<SlotDefUseWeb>(candidates.Length);
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            var candidate = candidates[i];
+            webs.Add(new SlotDefUseWeb(
+                i,
+                candidate.Slot,
+                candidate.Definitions,
+                candidate.Uses,
+                candidate.StartOffset,
+                candidate.EndOffset,
+                candidate.AddressTaken,
+                candidate.HasMergedUse));
+        }
+
+        return new SlotDefUseGraph(webs.MoveToImmutable());
+
+        int Find(int node)
+        {
+            while (parents[node] != node)
+            {
+                parents[node] = parents[parents[node]];
+                node = parents[node];
+            }
+
+            return node;
+        }
+
+        void Union(int left, int right)
+        {
+            int leftRoot = Find(left);
+            int rightRoot = Find(right);
+            if (leftRoot != rightRoot)
+                parents[rightRoot] = leftRoot;
+        }
+    }
 }
 
 public static class ReachingDefinitions
