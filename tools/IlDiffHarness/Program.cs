@@ -1,15 +1,19 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
 using ILInspector.Instructions;
 using Markout;
+using Markout.Formatting;
 
 const string Usage =
     """
     il-diff-harness <old-assembly> <new-assembly> [--max-examples N]
     il-diff-harness --pair <old-assembly> <new-assembly> [--pair <old-assembly> <new-assembly>...] [--max-examples N]
     il-diff-harness --pairs <manifest.tsv> [--max-examples N]
+    il-diff-harness ... [--format markdown|tsv|jsonl]
+    il-diff-harness ... [--emit-snapshot <file>] [--diff-baseline <file>]
 
       Emits a small IL Diff card over paired assemblies:
       - compared body count and self-diff empty count;
@@ -31,7 +35,10 @@ if (args.Contains("--help") || args.Contains("-h"))
 
 var pairs = new List<AssemblyPair>();
 string? pairsManifest = null;
+string? emitSnapshotPath = null;
+string? diffBaselinePath = null;
 int maxExamples = 5;
+OutputFormat outputFormat = OutputFormat.Markdown;
 
 if (args.Length >= 2 && !args[0].StartsWith("-", StringComparison.Ordinal) && !args[1].StartsWith("-", StringComparison.Ordinal))
 {
@@ -64,6 +71,29 @@ for (int i = pairs.Count == 0 ? 0 : 2; i < args.Length; i++)
                 Console.Error.WriteLine("--max-examples requires a non-negative integer.");
                 return 2;
             }
+            break;
+        case "--format":
+            if (i + 1 >= args.Length || !TryParseOutputFormat(args[++i], out outputFormat))
+            {
+                Console.Error.WriteLine("--format requires one of: markdown, tsv, jsonl.");
+                return 2;
+            }
+            break;
+        case "--emit-snapshot":
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("--emit-snapshot requires a file path.");
+                return 2;
+            }
+            emitSnapshotPath = args[++i];
+            break;
+        case "--diff-baseline":
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("--diff-baseline requires a file path.");
+                return 2;
+            }
+            diffBaselinePath = args[++i];
             break;
         default:
             Console.Error.WriteLine($"Unknown argument: {args[i]}");
@@ -121,10 +151,27 @@ foreach (var pair in pairs)
 try
 {
     var cards = pairs.Select(pair => BuildPairCard(pair, maxExamples)).ToImmutableArray();
-    Console.Write(FormatCard(cards, maxExamples));
-    return 0;
+    var snapshot = BuildSnapshot(cards, maxExamples);
+    BaselineComparison? comparison = null;
+
+    if (diffBaselinePath is not null)
+    {
+        if (!File.Exists(diffBaselinePath))
+        {
+            Console.Error.WriteLine($"Baseline snapshot not found: {diffBaselinePath}");
+            return 2;
+        }
+
+        comparison = CompareSnapshots(ReadSnapshot(diffBaselinePath), snapshot);
+    }
+
+    if (emitSnapshotPath is not null)
+        File.WriteAllText(emitSnapshotPath, JsonSerializer.Serialize(snapshot, SnapshotJson.Options) + Environment.NewLine);
+
+    Console.Write(FormatCard(cards, maxExamples, outputFormat, comparison));
+    return comparison?.HasRegressions == true ? 1 : 0;
 }
-catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or UnauthorizedAccessException)
+catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or JsonException or UnauthorizedAccessException)
 {
     Console.Error.WriteLine(ex.Message);
     return 2;
@@ -151,6 +198,18 @@ static IEnumerable<AssemblyPair> ReadManifest(string manifestPath)
 
 static string ResolveManifestPath(string manifestDirectory, string path)
     => Path.IsPathFullyQualified(path) ? path : Path.GetFullPath(Path.Combine(manifestDirectory, path));
+
+static bool TryParseOutputFormat(string value, out OutputFormat format)
+{
+    format = value.ToLowerInvariant() switch
+    {
+        "markdown" or "md" => OutputFormat.Markdown,
+        "tsv" => OutputFormat.Tsv,
+        "jsonl" => OutputFormat.Jsonl,
+        _ => (OutputFormat)(-1),
+    };
+    return format is OutputFormat.Markdown or OutputFormat.Tsv or OutputFormat.Jsonl;
+}
 
 static IlDiffPairCard BuildPairCard(AssemblyPair pair, int maxExamples)
 {
@@ -330,44 +389,214 @@ static void IncrementFailure(Dictionary<string, int> counts, IlBodyDiffResult re
     Increment(counts, result.Failure ?? "unknown failure");
 }
 
-static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
+static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, OutputFormat format, BaselineComparison? comparison = null)
 {
-    var card = Aggregate(pairs, maxExamples);
     var output = new StringWriter();
-    var writer = new MarkoutWriter(output, new MarkdownFormatter());
-    writer.WriteHeading(1, "IL Diff Card");
-    writer.WriteHeading(2, "Summary");
-    writer.WriteTable(
-        ["Metric", "Count"],
-        [
-            ["Pairs", pairs.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Compared bodies", card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Self-diff empty", card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Pair exact empty", card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Changed bodies", card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Failures", card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-        ]);
-    AppendBuckets(writer, "Failure buckets", card.FailureBuckets);
-    AppendBuckets(writer, "Top hunk kinds", card.TopHunkKinds);
-    AppendBuckets(writer, "Top opcode families", card.TopOpcodeFamilies);
-    AppendPairSummaries(writer, pairs);
-    if (!card.Examples.IsDefaultOrEmpty)
+    if (format == OutputFormat.Markdown)
     {
-        writer.WriteHeading(2, "Examples");
-        foreach (var example in card.Examples)
-        {
-            writer.WriteHeading(3, example.Method);
-            writer.WriteCodeStart("diff");
-            writer.WriteParagraph(example.UnifiedDiff);
-            writer.WriteCodeEnd();
-        }
+        MarkoutSerializer.Serialize(
+            BuildMarkdownView(pairs, maxExamples, comparison),
+            output,
+            new MarkdownFormatter(),
+            IlDiffCardViewContext.Default,
+            new MarkoutWriterOptions());
     }
-
-    writer.Flush();
-    return output.ToString();
+    else
+    {
+        MarkoutSerializer.Serialize(
+            BuildTableView(pairs, maxExamples, comparison),
+            output,
+            new TableFormatter(showHeader: true),
+            IlDiffCardViewContext.Default,
+            WriterOptions(format));
+    }
+    string rendered = output.ToString();
+    return format == OutputFormat.Jsonl
+        ? string.Join(
+            Environment.NewLine,
+            rendered.ReplaceLineEndings("\n")
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)) + Environment.NewLine
+        : rendered;
 }
 
-static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
+static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
+{
+    var card = Aggregate(pairs, maxExamples, snapshotPaths: true);
+    return new IlDiffSnapshot(
+        SchemaVersion: 1,
+        Summary: new IlDiffSnapshotSummary(
+            PairCount: pairs.Length,
+            ComparedBodyCount: card.ComparedBodyCount,
+            SelfDiffEmptyCount: card.SelfDiffExactCount,
+            PairExactEmptyCount: card.PairExactCount,
+            ChangedBodyCount: card.ChangedBodyCount,
+            FailureCount: card.FailureCount),
+        Pairs: pairs.Select(pair => new IlDiffSnapshotPair(
+            Old: SnapshotPath(pair.OldPath),
+            New: SnapshotPath(pair.NewPath),
+            ComparedBodyCount: pair.Card.ComparedBodyCount,
+            SelfDiffEmptyCount: pair.Card.SelfDiffExactCount,
+            PairExactEmptyCount: pair.Card.PairExactCount,
+            ChangedBodyCount: pair.Card.ChangedBodyCount,
+            FailureCount: pair.Card.FailureCount)).ToArray(),
+        FailureBuckets: card.FailureBuckets.ToArray(),
+        HunkKindBuckets: card.TopHunkKinds.ToArray(),
+        OpcodeFamilyBuckets: card.TopOpcodeFamilies.ToArray(),
+        Examples: card.Examples.ToArray());
+}
+
+static IlDiffSnapshot ReadSnapshot(string path)
+{
+    var snapshot = JsonSerializer.Deserialize<IlDiffSnapshot>(File.ReadAllText(path), SnapshotJson.Options)
+        ?? throw new InvalidOperationException($"Could not read IL diff snapshot: {path}");
+    if (snapshot.SchemaVersion != 1)
+        throw new InvalidOperationException($"Unsupported IL diff snapshot schema version {snapshot.SchemaVersion}.");
+    if (snapshot.Summary is null)
+        throw new InvalidOperationException($"IL diff snapshot is missing a summary: {path}");
+    return snapshot;
+}
+
+static BaselineComparison CompareSnapshots(IlDiffSnapshot baseline, IlDiffSnapshot current)
+{
+    var regressions = ImmutableArray.CreateBuilder<BaselineFinding>();
+    var drift = ImmutableArray.CreateBuilder<BaselineFinding>();
+
+    AddCountRegression(regressions, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount);
+    AddCountDropRegression(regressions, "Self-diff empty", baseline.Summary.SelfDiffEmptyCount, current.Summary.SelfDiffEmptyCount);
+    var baselineFailureBuckets = baseline.FailureBuckets ?? [];
+    var currentFailureBuckets = current.FailureBuckets ?? [];
+    AddNewFailureBuckets(regressions, baselineFailureBuckets, currentFailureBuckets);
+
+    AddDrift(drift, "Pairs", baseline.Summary.PairCount, current.Summary.PairCount);
+    AddDrift(drift, "Compared bodies", baseline.Summary.ComparedBodyCount, current.Summary.ComparedBodyCount);
+    AddDriftIfImproved(drift, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount, improvementWhenCurrentIsLower: true);
+    AddDriftIfImproved(drift, "Self-diff empty", baseline.Summary.SelfDiffEmptyCount, current.Summary.SelfDiffEmptyCount, improvementWhenCurrentIsLower: false);
+    AddDrift(drift, "Pair exact empty", baseline.Summary.PairExactEmptyCount, current.Summary.PairExactEmptyCount);
+    AddDrift(drift, "Changed bodies", baseline.Summary.ChangedBodyCount, current.Summary.ChangedBodyCount);
+    AddExistingFailureBucketDrift(drift, baselineFailureBuckets, currentFailureBuckets);
+    AddBucketDrift(drift, "Hunk kind", baseline.HunkKindBuckets ?? [], current.HunkKindBuckets ?? []);
+    AddBucketDrift(drift, "Opcode family", baseline.OpcodeFamilyBuckets ?? [], current.OpcodeFamilyBuckets ?? []);
+
+    return new BaselineComparison(regressions.ToImmutable(), drift.ToImmutable());
+}
+
+static void AddCountRegression(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
+{
+    if (current > baseline)
+        findings.Add(new BaselineFinding("Regression", metric, baseline.ToString(System.Globalization.CultureInfo.InvariantCulture), current.ToString(System.Globalization.CultureInfo.InvariantCulture), "count increased"));
+}
+
+static void AddCountDropRegression(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
+{
+    if (current < baseline)
+        findings.Add(new BaselineFinding("Regression", metric, baseline.ToString(System.Globalization.CultureInfo.InvariantCulture), current.ToString(System.Globalization.CultureInfo.InvariantCulture), "count dropped"));
+}
+
+static void AddNewFailureBuckets(ImmutableArray<BaselineFinding>.Builder findings, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineNames = baseline.Select(bucket => bucket.Name).ToHashSet(StringComparer.Ordinal);
+    foreach (var bucket in current.Where(bucket => bucket.Count > 0 && !baselineNames.Contains(bucket.Name)))
+        findings.Add(new BaselineFinding("Regression", $"Failure bucket `{bucket.Name}`", "0", bucket.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), "new failure bucket"));
+}
+
+static void AddDrift(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
+{
+    if (current != baseline)
+        findings.Add(new BaselineFinding("Drift", metric, baseline.ToString(System.Globalization.CultureInfo.InvariantCulture), current.ToString(System.Globalization.CultureInfo.InvariantCulture), "count changed"));
+}
+
+static void AddDriftIfImproved(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current, bool improvementWhenCurrentIsLower)
+{
+    bool improved = improvementWhenCurrentIsLower
+        ? current < baseline
+        : current > baseline;
+    if (improved)
+        findings.Add(new BaselineFinding(
+            "Drift",
+            metric,
+            baseline.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            current.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            improvementWhenCurrentIsLower ? "count dropped" : "count increased"));
+}
+
+static void AddExistingFailureBucketDrift(ImmutableArray<BaselineFinding>.Builder findings, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineNames = baseline.Select(bucket => bucket.Name).ToHashSet(StringComparer.Ordinal);
+    AddBucketDrift(
+        findings,
+        "Failure bucket",
+        baseline,
+        current.Where(bucket => baselineNames.Contains(bucket.Name)).ToArray());
+}
+
+static void AddBucketDrift(ImmutableArray<BaselineFinding>.Builder findings, string metric, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineCounts = baseline.ToDictionary(bucket => bucket.Name, bucket => bucket.Count, StringComparer.Ordinal);
+    var currentCounts = current.ToDictionary(bucket => bucket.Name, bucket => bucket.Count, StringComparer.Ordinal);
+    foreach (string name in baselineCounts.Keys.Union(currentCounts.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
+    {
+        int oldCount = baselineCounts.GetValueOrDefault(name);
+        int newCount = currentCounts.GetValueOrDefault(name);
+        if (oldCount != newCount)
+            findings.Add(new BaselineFinding("Drift", $"{metric} `{name}`", oldCount.ToString(System.Globalization.CultureInfo.InvariantCulture), newCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "bucket count changed"));
+    }
+}
+
+static IlDiffCardMarkdownView BuildMarkdownView(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, BaselineComparison? comparison)
+{
+    var card = Aggregate(pairs, maxExamples);
+    return new IlDiffCardMarkdownView
+    {
+        Summary = SummaryRows(pairs.Length, card),
+        FailureBuckets = MarkdownBucketRows(card.FailureBuckets) ?? [],
+        TopHunkKinds = MarkdownBucketRows(card.TopHunkKinds) ?? [],
+        TopOpcodeFamilies = MarkdownBucketRows(card.TopOpcodeFamilies) ?? [],
+        PairSummaries = [.. pairs.Select(pair => PairSummaryRow(pair))],
+        BaselineComparison = comparison is null ? null : BaselineRows(comparison) ?? [],
+        Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleMarkdownRow)],
+    };
+}
+
+static IlDiffCardTableView BuildTableView(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, BaselineComparison? comparison)
+{
+    var card = Aggregate(pairs, maxExamples);
+    return new IlDiffCardTableView
+    {
+        Summary = SectionedSummaryRows(pairs.Length, card),
+        FailureBuckets = SectionedBucketRows("Failure buckets", card.FailureBuckets),
+        TopHunkKinds = SectionedBucketRows("Top hunk kinds", card.TopHunkKinds),
+        TopOpcodeFamilies = SectionedBucketRows("Top opcode families", card.TopOpcodeFamilies),
+        PairSummaries = [.. pairs.Select(pair => SectionedPairSummaryRow(pair))],
+        BaselineComparison = comparison is null ? null : SectionedBaselineRows(comparison),
+        Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleTableRow)],
+    };
+}
+
+static MarkoutWriterOptions WriterOptions(OutputFormat format)
+    => format switch
+    {
+        OutputFormat.Markdown => new MarkoutWriterOptions(),
+        OutputFormat.Tsv => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv },
+        OutputFormat.Jsonl => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl },
+        _ => throw new InvalidOperationException($"Unsupported output format '{format}'."),
+    };
+
+static List<IlDiffMetricRow> SummaryRows(int pairCount, IlDiffCard card) =>
+[
+    new("Pairs", Count(pairCount)),
+    new("Compared bodies", Count(card.ComparedBodyCount)),
+    new("Self-diff empty", Count(card.SelfDiffExactCount)),
+    new("Pair exact empty", Count(card.PairExactCount)),
+    new("Changed bodies", Count(card.ChangedBodyCount)),
+    new("Failures", Count(card.FailureCount)),
+];
+
+static List<IlDiffSectionMetricRow> SectionedSummaryRows(int pairCount, IlDiffCard card)
+    => [.. SummaryRows(pairCount, card).Select(row => new IlDiffSectionMetricRow("Summary", row.Metric, row.Count))];
+
+static string Count(int count) => count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, bool snapshotPaths = false)
 {
     var failures = new Dictionary<string, int>(StringComparer.Ordinal);
     var hunkKinds = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -398,7 +627,7 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
                 break;
             examples.Add(example with
             {
-                Method = $"{DisplayPath(pair.OldPath)} to {DisplayPath(pair.NewPath)} :: {example.Method}"
+                Method = $"{PathLabel(pair.OldPath, snapshotPaths)} to {PathLabel(pair.NewPath, snapshotPaths)} :: {example.Method}"
             });
         }
     }
@@ -415,26 +644,39 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
         examples.ToImmutable());
 }
 
-static void AppendPairSummaries(MarkoutWriter writer, ImmutableArray<IlDiffPairCard> pairs)
+static IlDiffPairSummaryRow PairSummaryRow(IlDiffPairCard pair)
+    => new(
+        DisplayPath(pair.OldPath),
+        DisplayPath(pair.NewPath),
+        pair.Card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+static IlDiffSectionPairSummaryRow SectionedPairSummaryRow(IlDiffPairCard pair)
 {
-    writer.WriteHeading(2, "Pair summaries");
-    writer.WriteTable(
-        ["Old", "New", "Compared", "Self-diff empty", "Pair exact empty", "Changed", "Failures"],
-        pairs.Select(pair =>
-        {
-            var card = pair.Card;
-            return new[]
-            {
-                DisplayPath(pair.OldPath),
-                DisplayPath(pair.NewPath),
-                card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            };
-        }));
+    var row = PairSummaryRow(pair);
+    return new IlDiffSectionPairSummaryRow(
+        "Pair summaries",
+        row.Old,
+        row.New,
+        row.Compared,
+        row.SelfDiffEmpty,
+        row.PairExactEmpty,
+        row.Changed,
+        row.Failures);
 }
+
+static List<BaselineFindingView>? BaselineRows(BaselineComparison comparison)
+    => comparison.Rows.IsDefaultOrEmpty
+        ? null
+        : [.. comparison.Rows.Select(row => new BaselineFindingView(row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
+
+static List<BaselineSectionFindingView>? SectionedBaselineRows(BaselineComparison comparison)
+    => comparison.Rows.IsDefaultOrEmpty
+        ? null
+        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline comparison", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
 
 static string DisplayPath(string path)
 {
@@ -445,27 +687,37 @@ static string DisplayPath(string path)
         : relative;
 }
 
-static void AppendBuckets(MarkoutWriter writer, string title, ImmutableArray<CardBucket> buckets)
-{
-    writer.WriteHeading(2, title);
-    if (buckets.IsDefaultOrEmpty)
-    {
-        writer.WriteParagraph("None");
-        return;
-    }
+static string SnapshotPath(string path) => Path.GetFullPath(path);
 
-    writer.WriteTable(
-        ["Bucket", "Count"],
-        buckets.Take(10).Select(bucket => new[]
-        {
-            bucket.Name,
-            bucket.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        }));
-}
+static string PathLabel(string path, bool snapshotPath)
+    => snapshotPath ? SnapshotPath(path) : DisplayPath(path);
+
+static List<IlDiffBucketRow>? MarkdownBucketRows(ImmutableArray<CardBucket> buckets)
+    => buckets.IsDefaultOrEmpty
+        ? null
+        : [.. buckets.Take(10).Select(bucket => new IlDiffBucketRow(bucket.Name, Count(bucket.Count)))];
+
+static List<IlDiffSectionBucketRow>? SectionedBucketRows(string section, ImmutableArray<CardBucket> buckets)
+    => buckets.IsDefaultOrEmpty
+        ? null
+        : [.. buckets.Take(10).Select(bucket => new IlDiffSectionBucketRow(section, bucket.Name, Count(bucket.Count)))];
+
+static IlDiffExampleMarkdownView ExampleMarkdownRow(IlDiffExample example)
+    => new(example.Method, new CodeSection("diff", example.UnifiedDiff));
+
+static IlDiffExampleTableRow ExampleTableRow(IlDiffExample example)
+    => new("Examples", example.Method, example.UnifiedDiff);
 
 sealed record AssemblyPair(string OldPath, string NewPath);
 
 sealed record IlDiffPairCard(string OldPath, string NewPath, IlDiffCard Card);
+
+enum OutputFormat
+{
+    Markdown,
+    Tsv,
+    Jsonl,
+}
 
 sealed record IlDiffCard(
     int ComparedBodyCount,
@@ -481,6 +733,173 @@ sealed record IlDiffCard(
 sealed record CardBucket(string Name, int Count);
 
 sealed record IlDiffExample(string Method, string UnifiedDiff);
+
+[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+sealed class IlDiffCardMarkdownView
+{
+    [MarkoutIgnore]
+    public string Title => "IL Diff Card";
+
+    [MarkoutSection(Name = "Summary")]
+    public List<IlDiffMetricRow>? Summary { get; init; }
+
+    [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
+    public List<IlDiffBucketRow>? FailureBuckets { get; init; }
+
+    [MarkoutSection(Name = "Top hunk kinds", EmptyText = "None")]
+    public List<IlDiffBucketRow>? TopHunkKinds { get; init; }
+
+    [MarkoutSection(Name = "Top opcode families", EmptyText = "None")]
+    public List<IlDiffBucketRow>? TopOpcodeFamilies { get; init; }
+
+    [MarkoutSection(Name = "Pair summaries")]
+    public List<IlDiffPairSummaryRow>? PairSummaries { get; init; }
+
+    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineFindingView>? BaselineComparison { get; init; }
+
+    [MarkoutSection(Name = "Examples")]
+    public List<IlDiffExampleMarkdownView>? Examples { get; init; }
+}
+
+[MarkoutSerializable]
+sealed class IlDiffCardTableView
+{
+    [MarkoutIgnore]
+    public string Title => "IL Diff Card";
+
+    [MarkoutSection(Name = "Summary")]
+    public List<IlDiffSectionMetricRow>? Summary { get; init; }
+
+    [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
+    public List<IlDiffSectionBucketRow>? FailureBuckets { get; init; }
+
+    [MarkoutSection(Name = "Top hunk kinds", EmptyText = "None")]
+    public List<IlDiffSectionBucketRow>? TopHunkKinds { get; init; }
+
+    [MarkoutSection(Name = "Top opcode families", EmptyText = "None")]
+    public List<IlDiffSectionBucketRow>? TopOpcodeFamilies { get; init; }
+
+    [MarkoutSection(Name = "Pair summaries")]
+    public List<IlDiffSectionPairSummaryRow>? PairSummaries { get; init; }
+
+    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineSectionFindingView>? BaselineComparison { get; init; }
+
+    [MarkoutSection(Name = "Examples")]
+    public List<IlDiffExampleTableRow>? Examples { get; init; }
+}
+
+[MarkoutSerializable]
+sealed record IlDiffMetricRow(string Metric, string Count);
+
+[MarkoutSerializable]
+sealed record IlDiffSectionMetricRow(string Section, string Metric, string Count);
+
+[MarkoutSerializable]
+sealed record IlDiffBucketRow(string Bucket, string Count);
+
+[MarkoutSerializable]
+sealed record IlDiffSectionBucketRow(string Section, string Bucket, string Count);
+
+[MarkoutSerializable]
+sealed record IlDiffPairSummaryRow(
+    string Old,
+    string New,
+    string Compared,
+    [property: MarkoutPropertyName("Self-diff empty")] string SelfDiffEmpty,
+    [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
+    string Changed,
+    string Failures);
+
+[MarkoutSerializable]
+sealed record IlDiffSectionPairSummaryRow(
+    string Section,
+    string Old,
+    string New,
+    string Compared,
+    [property: MarkoutPropertyName("Self-diff empty")] string SelfDiffEmpty,
+    [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
+    string Changed,
+    string Failures);
+
+[MarkoutSerializable]
+sealed record BaselineFindingView(string Kind, string Metric, string Baseline, string Current, string Detail);
+
+[MarkoutSerializable]
+sealed record BaselineSectionFindingView(string Section, string Kind, string Metric, string Baseline, string Current, string Detail);
+
+[MarkoutSerializable(TitleProperty = nameof(Example), AutoFields = false)]
+sealed record IlDiffExampleMarkdownView(
+    [property: MarkoutIgnore] string Example,
+    [property: MarkoutSection(Headless = true)] CodeSection Diff);
+
+[MarkoutSerializable]
+sealed record IlDiffExampleTableRow(
+    string Section,
+    string Example,
+    [property: MarkoutPropertyName("Unified diff")] string UnifiedDiff);
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(IlDiffCardMarkdownView))]
+[MarkoutContext(typeof(IlDiffCardTableView))]
+[MarkoutContext(typeof(IlDiffMetricRow))]
+[MarkoutContext(typeof(IlDiffSectionMetricRow))]
+[MarkoutContext(typeof(IlDiffBucketRow))]
+[MarkoutContext(typeof(IlDiffSectionBucketRow))]
+[MarkoutContext(typeof(IlDiffPairSummaryRow))]
+[MarkoutContext(typeof(IlDiffSectionPairSummaryRow))]
+[MarkoutContext(typeof(BaselineFindingView))]
+[MarkoutContext(typeof(BaselineSectionFindingView))]
+[MarkoutContext(typeof(IlDiffExampleMarkdownView))]
+[MarkoutContext(typeof(IlDiffExampleTableRow))]
+partial class IlDiffCardViewContext : MarkoutSerializerContext
+{
+}
+
+sealed record IlDiffSnapshot(
+    int SchemaVersion,
+    IlDiffSnapshotSummary Summary,
+    IlDiffSnapshotPair[] Pairs,
+    CardBucket[] FailureBuckets,
+    CardBucket[] HunkKindBuckets,
+    CardBucket[] OpcodeFamilyBuckets,
+    IlDiffExample[] Examples);
+
+sealed record IlDiffSnapshotSummary(
+    int PairCount,
+    int ComparedBodyCount,
+    int SelfDiffEmptyCount,
+    int PairExactEmptyCount,
+    int ChangedBodyCount,
+    int FailureCount);
+
+sealed record IlDiffSnapshotPair(
+    string Old,
+    string New,
+    int ComparedBodyCount,
+    int SelfDiffEmptyCount,
+    int PairExactEmptyCount,
+    int ChangedBodyCount,
+    int FailureCount);
+
+sealed record BaselineComparison(
+    ImmutableArray<BaselineFinding> Regressions,
+    ImmutableArray<BaselineFinding> Drift)
+{
+    public bool HasRegressions => !Regressions.IsDefaultOrEmpty;
+    public ImmutableArray<BaselineFinding> Rows => [.. Regressions, .. Drift];
+}
+
+sealed record BaselineFinding(string Kind, string Metric, string Baseline, string Current, string Detail);
+
+static class SnapshotJson
+{
+    public static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+    };
+}
 
 sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
 {

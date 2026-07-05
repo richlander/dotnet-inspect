@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using ILInspector.MetadataPrimitives;
 
-namespace ILInspector.Research;
+namespace ILInspector.Decompiler;
 
 public sealed record CSharpDiffDisplayRow(
     string AssemblyIdentity,

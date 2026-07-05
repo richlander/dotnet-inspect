@@ -655,7 +655,7 @@ public sealed class StructuringPass : IIrPass
         int latch = -1;
         for (int j = head; j < stop; j++)
         {
-            var retryLeaves = RetryLeavesTo(blocks[j], headOffset).ToList();
+            var retryLeaves = RetryLeavesTo(blocks[j], headOffset);
             if (retryLeaves.Count == 0)
                 continue;
             if (retryLeaves.Any(leave => !CanRaiseRetryLeave(leave)))
@@ -663,13 +663,35 @@ public sealed class StructuringPass : IIrPass
             latch = j;
         }
 
-        bool hasLoopExit = latch >= 0
-            && Enumerable.Range(head, latch - head + 1).Any(index => HasLoopExit(ctx, blocks[index], index, headOffset, head, latch));
+        bool hasLoopExit = false;
+        if (latch >= 0)
+        {
+            for (int index = head; index <= latch; index++)
+            {
+                if (HasLoopExit(ctx, blocks[index], index, headOffset, head, latch))
+                {
+                    hasLoopExit = true;
+                    break;
+                }
+            }
+        }
         return latch == -1 || !hasLoopExit ? null : latch;
     }
 
-    static IEnumerable<Leave> RetryLeavesTo(Block block, int targetOffset)
-        => block.Descendants.OfType<Leave>().Where(leave => leave.TargetOffset == targetOffset);
+    // Descendant Leave nodes targeting a given offset, collected in one pooled-DFS pass.
+    // A `Descendants.OfType<Leave>().Where(l => l.TargetOffset == targetOffset)` allocates a
+    // capturing closure + delegate + OfType/Where iterators on every call; this hot structuring
+    // helper walks once and filters inline, materializing only the result list.
+    static List<Leave> RetryLeavesTo(Block block, int targetOffset)
+    {
+        var result = new List<Leave>();
+        foreach (var node in block.Descendants)
+        {
+            if (node is Leave leave && leave.TargetOffset == targetOffset)
+                result.Add(leave);
+        }
+        return result;
+    }
 
     static bool HasLoopExit(Ctx ctx, Block block, int blockIndex, int headOffset, int head, int latch)
     {
@@ -1322,9 +1344,7 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithContinues(IrNode root, int targetOffset)
     {
-        foreach (var leave in root.Descendants.OfType<Leave>()
-            .Where(leave => leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
-            .ToList())
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
         {
             var next = new Continue();
             next.InheritSourceOffset(leave);
@@ -1334,14 +1354,26 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithBreaks(IrNode root, int targetOffset)
     {
-        foreach (var leave in root.Descendants.OfType<Leave>()
-            .Where(leave => leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
-            .ToList())
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
         {
             var next = new Break();
             next.InheritSourceOffset(leave);
             leave.ReplaceWith(next);
         }
+    }
+
+    // Raisable descendant Leave nodes targeting a given offset, materialized so the tree can be
+    // rewritten during iteration. Collected in one pooled-DFS pass with inline filtering, avoiding
+    // the per-call closure/delegate/iterator allocations of the equivalent LINQ chain.
+    static List<Leave> RaisableLeavesTargeting(IrNode root, int targetOffset)
+    {
+        var result = new List<Leave>();
+        foreach (var node in root.Descendants)
+        {
+            if (node is Leave leave && leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
+                result.Add(leave);
+        }
+        return result;
     }
 
     static IrExpression BuildWhileCondition(WhileShape loop)

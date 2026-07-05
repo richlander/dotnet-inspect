@@ -13,6 +13,15 @@ dotnet run --project tools/IlDiffHarness -c Release -- \
 
 dotnet run --project tools/IlDiffHarness -c Release -- \
   --pairs pairs.tsv --max-examples 5
+
+dotnet run --project tools/IlDiffHarness -c Release -- \
+  --pairs pairs.tsv --format jsonl --max-examples 5
+
+dotnet run --project tools/IlDiffHarness -c Release -- \
+  --pairs pairs.tsv --emit-snapshot baseline.json
+
+dotnet run --project tools/IlDiffHarness -c Release -- \
+  --pairs pairs.tsv --diff-baseline baseline.json
 ```
 
 Pair manifests use one old/new assembly pair per line, separated by a tab.
@@ -31,3 +40,13 @@ The card includes:
 
 Reported failure buckets are card data, not process failures. The harness exits
 nonzero only for command-line, IO, or metadata-read errors.
+
+Output defaults to Markout Markdown. Use `--format tsv` or `--format jsonl` to
+render the same card sections through Markout table formats. JSONL output
+omits Markdown section separators so each non-empty line is a JSON object.
+
+Use `--emit-snapshot <file>` to write stable JSON card data for a run. Use
+`--diff-baseline <file>` to compare the current run against a previous snapshot.
+Baseline comparisons return exit code `1` for regressions (more failures, new
+failure buckets, or fewer self-diff-empty bodies) and report changed-body,
+hunk-kind, and opcode-family drift as non-failing drift.

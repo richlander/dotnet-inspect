@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.Instructions;
 
@@ -204,6 +205,12 @@ public class ResearchDiffTests
         Assert.Equal(ResearchDiffEvidenceKind.CSharp, row.EvidenceKind);
         Assert.Equal(csharpRow.Message, row.Message);
         Assert.Same(csharpRow, row.CSharpRow);
+        Assert.NotNull(row.CSharpDisplayRow);
+        Assert.Equal(csharpRow.HunkId, row.CSharpDisplayRow.HunkId);
+        Assert.Equal("-", row.CSharpDisplayRow.Marker);
+        Assert.Equal(CSharpDiffOperationKind.Line, row.CSharpDisplayRow.OperationKind);
+        Assert.Equal(csharpRow.Text, row.CSharpDisplayRow.Operation);
+        Assert.Contains(csharpRow.Text, row.CSharpDisplayRow.UnifiedLine, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -357,6 +364,11 @@ public class ResearchDiffTests
         var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.return-expression.changed");
         Assert.Equal("value + 1", evidence.OldValue);
         Assert.Equal("value + 2", evidence.NewValue);
+        var displayRow = Assert.Single(evidence.CSharpDisplayRows);
+        Assert.Equal("~", displayRow.Marker);
+        Assert.Equal(CSharpDiffOperationKind.ReturnExpression, displayRow.OperationKind);
+        Assert.Equal("return value + 1 => return value + 2", displayRow.Operation);
+        Assert.Contains("return value + 1 => return value + 2", displayRow.UnifiedLine, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -3309,6 +3309,24 @@ public sealed partial class CSharpPrinter
         // conv.r.un and conv.ovf.*.un interpret the SOURCE as unsigned —
         // a signed operand needs its unsigned cast or the value is wrong.
         string operand = convert.IsUnsigned ? UnsignedOperand(convert.Operand, checkedSafe: !convert.IsChecked) : Operand(convert.Operand);
+        // A widening conversion to an unsigned target (`conv.u8`) ZERO-extends the
+        // 32-bit stack value, but a bare `(ulong)x` sign-extends a SIGNED operand —
+        // a silent wrong value for a negative x. C# elides the sibling cast, so
+        // `(ulong)(uint)i` compiles to `ldarg; conv.u8` and the operand is a bare
+        // signed `int`. Reinterpret through the unsigned sibling when the operand
+        // RENDERS signed. The discriminator is EffectiveType, not the ECMA stack
+        // ResultType: an already-unsigned expression such as `(uint)a + b` renders
+        // unsigned (its bare `(ulong)` already zero-extends) and must not be
+        // re-cast — gating on the rendered type keeps this to genuine corrections.
+        // Constants take the value-aware branch above; `.un` operands are already
+        // unsigned (#2336, the non-constant sibling of #2101).
+        // Only the UNCHECKED widening conv.u8/conv.u zero-extends silently. A
+        // checked conv.ovf.u8 of a signed operand throws for a negative value, so
+        // the bare `checked((ulong)i)` already matches it — inserting a `(uint)`
+        // there would recompile to conv.ovf.u4;conv.u8 (wrong opcodes).
+        if (!convert.IsUnsigned && !convert.IsChecked && convert.Operand is not Constant
+            && TypeFamilies.WideningZeroExtendSibling(EffectiveType(convert.Operand), convert.Target) is { } zeroExtendWiden)
+            operand = $"({TypeText(zeroExtendWiden)}){operand}";
         string targetText = TypeText(convert.Target);
         // A cast whose operand begins with a unary `-`/`+` is parsed as binary
         // subtraction/addition (CS0075) unless the target spelling is a predefined
