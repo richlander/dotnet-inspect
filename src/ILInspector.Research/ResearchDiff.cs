@@ -65,9 +65,11 @@ public sealed record ResearchDiffRow(
     IlDiffDisplayFailureRow? IlDisplayFailureRow = null,
     BodySignalDiffRow? BodySignalRow = null,
     CSharpDiffRow? CSharpRow = null,
-    CSharpDiffDisplayRow? CSharpDisplayRow = null,
     CSharpDiffFailureRow? CSharpFailureRow = null,
-    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null);
+    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null)
+{
+    public CSharpDiffDisplayRow? CSharpDisplayRow { get; init; }
+}
 
 public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
@@ -115,9 +117,11 @@ public sealed record ResearchDiffEvidence(
     bool SubjectInBoth = true,
     bool InLoop = false,
     ImmutableArray<IlDiffDisplayRow> IlDisplayRows = default,
-    ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows = default,
     IlDiffDisplayFailureRow? IlDisplayFailureRow = null,
-    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null);
+    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null)
+{
+    public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; init; } = default;
+}
 
 public sealed record ResearchSubjectDiff(
     ResearchSubjectKey Subject,
@@ -248,8 +252,10 @@ public static class ResearchDiff
                 row.ChangeId,
                 ResearchDiffEvidenceKind.CSharp,
                 row.Message,
-                CSharpRow: row,
-                CSharpDisplayRow: CSharpDiffPrinter.ToDisplayRow(row))));
+                CSharpRow: row)
+            {
+                CSharpDisplayRow = CSharpDiffPrinter.ToDisplayRow(row)
+            }));
         }
 
         return new ResearchDiffResult([], Rows: rows.ToImmutable());
@@ -667,8 +673,10 @@ public static class ResearchDiff
                 OldValue: row.OldOperation?.Value ?? row.OldValue ?? (direction == ResearchDiffDirection.Removed ? row.Text : null),
                 NewValue: row.NewOperation?.Value ?? row.NewValue ?? (direction == ResearchDiffDirection.Added ? row.Text : null),
                 Detail: row.Message,
-                Category: ResearchDiffChangeCategory.CSharp,
-                CSharpDisplayRows: [CSharpDiffPrinter.ToDisplayRow(row)]));
+                Category: ResearchDiffChangeCategory.CSharp)
+            {
+                CSharpDisplayRows = [CSharpDiffPrinter.ToDisplayRow(row)]
+            });
         }
     }
 
