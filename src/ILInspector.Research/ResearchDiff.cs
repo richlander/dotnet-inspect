@@ -247,10 +247,19 @@ public static class ResearchDiff
     public static ResearchDiffResult Combine(params ResearchDiffResult[] results)
     {
         ArgumentNullException.ThrowIfNull(results);
-        return new ResearchDiffResult(
-            [.. results.SelectMany(result => result.Subjects)],
-            results.FirstOrDefault(result => result.ApiDiff is not null)?.ApiDiff,
-            Rows: [.. results.SelectMany(result => result.Rows.IsDefault ? [] : result.Rows)]);
+        var builder = new ResultBuilder
+        {
+            ApiDiff = results.FirstOrDefault(result => result.ApiDiff is not null)?.ApiDiff
+        };
+
+        foreach (var subject in results.SelectMany(result => result.Subjects))
+        {
+            foreach (var evidence in subject.Evidence)
+                builder.Add(subject.Subject, evidence);
+        }
+
+        var combined = builder.ToResult();
+        return combined with { Rows = [.. results.SelectMany(result => result.Rows.IsDefault ? [] : result.Rows)] };
     }
 
     public static ResearchDiffResult CompareAssemblies(string oldAssemblyPath, string newAssemblyPath, ResearchDiffOptions? options = null)
@@ -552,19 +561,20 @@ public static class ResearchDiff
                 {
                     if (!oldAvailable && !newAvailable)
                         continue;
-                    var activeAnchor = !oldAvailable ? newAnchor : oldAnchor;
-                    var activeMethod = !oldAvailable ? newMethod : oldMethod;
+                    var subjectAnchor = !oldAvailable ? newAnchor ?? oldAnchor : oldAnchor ?? newAnchor;
+                    var failureAnchor = !oldAvailable ? oldAnchor ?? newAnchor : newAnchor ?? oldAnchor;
+                    var failureMethod = !oldAvailable ? oldMethod : newMethod;
                     var activeSubject = !oldAvailable
-                        ? SubjectFromMethod(newMethod, activeAnchor)
-                        : SubjectFromMethod(oldMethod, activeAnchor);
+                        ? SubjectFromMethod(newMethod, subjectAnchor)
+                        : SubjectFromMethod(oldMethod, subjectAnchor);
                     AddIlFailureEvidence(
                         builder,
                         activeSubject,
                         !oldAvailable
                             ? IlBodyDiffResult.OldBodyMissing(oldReason).FailureRows[0]
                             : IlBodyDiffResult.NewBodyMissing(newReason).FailureRows[0],
-                        activeAnchor,
-                        MetadataMemberRef(activeMethod));
+                        failureAnchor,
+                        MetadataMemberRef(failureMethod));
                     continue;
                 }
 
@@ -574,7 +584,12 @@ public static class ResearchDiff
                 if (!diff.FailureRows.IsDefaultOrEmpty)
                 {
                     foreach (var failure in diff.FailureRows)
-                        AddIlFailureEvidence(builder, subject, failure, newAnchor ?? oldAnchor, MetadataMemberRef(newMethod));
+                        AddIlFailureEvidence(
+                            builder,
+                            subject,
+                            failure,
+                            AnchorForFailure(failure, oldAnchor, newAnchor),
+                            MetadataMemberRefForFailure(failure, oldMethod, newMethod));
                     if (diff.Rows.IsDefaultOrEmpty)
                         continue;
                 }
@@ -671,6 +686,22 @@ public static class ResearchDiff
             Anchor: anchor,
             MetadataMember: metadataMember));
     }
+
+    static MemberAnchor? AnchorForFailure(IlDiffFailureRow failure, MemberAnchor? oldAnchor, MemberAnchor? newAnchor)
+        => failure.Side switch
+        {
+            "old" => oldAnchor ?? newAnchor,
+            "new" => newAnchor ?? oldAnchor,
+            _ => newAnchor ?? oldAnchor,
+        };
+
+    static MetadataMemberRef MetadataMemberRefForFailure(IlDiffFailureRow failure, MethodIdentity oldMethod, MethodIdentity newMethod)
+        => failure.Side switch
+        {
+            "old" => MetadataMemberRef(oldMethod),
+            "new" => MetadataMemberRef(newMethod),
+            _ => MetadataMemberRef(newMethod),
+        };
 
     static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
     {
@@ -1050,8 +1081,29 @@ public static class ResearchDiff
                 evidenceRows = [];
                 _rows.Add(subject, evidenceRows);
             }
+            else
+            {
+                var existingSubject = _rows.Keys.First(key => ResearchSubjectKeyIdentityComparer.Instance.Equals(key, subject));
+                var mergedSubject = MergeSubject(existingSubject, subject);
+                if (mergedSubject != existingSubject)
+                {
+                    _rows.Remove(existingSubject);
+                    _rows.Add(mergedSubject, evidenceRows);
+                }
+            }
             evidenceRows.Add(evidence);
         }
+
+        static ResearchSubjectKey MergeSubject(ResearchSubjectKey existing, ResearchSubjectKey candidate)
+            => existing with
+            {
+                TypeName = existing.TypeName ?? candidate.TypeName,
+                MemberName = existing.MemberName ?? candidate.MemberName,
+                TypeAnchor = existing.TypeAnchor ?? candidate.TypeAnchor,
+                Anchor = existing.Anchor ?? candidate.Anchor,
+                MetadataMember = existing.MetadataMember ?? candidate.MetadataMember,
+                MetadataType = existing.MetadataType ?? candidate.MetadataType,
+            };
 
         public ResearchDiffResult ToResult()
             => new([.. _rows

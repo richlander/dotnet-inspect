@@ -236,6 +236,42 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void Combine_UpgradesDuplicateSubjectToRicherAnchor()
+    {
+        var anchor = new MemberAnchor(
+            "Changed~1234567890",
+            "M:Sample.Widget.Changed()",
+            "1234567890",
+            "Sample.Widget",
+            "Changed");
+        var metadataRef = new MetadataMemberRef("Sample", Guid.NewGuid(), 0x06000001);
+        var sparseSubject = new ResearchSubjectKey(
+            ResearchDiffSubjectKind.Member,
+            anchor.StableSelector,
+            "Sample.Widget.Changed()",
+            "Sample.Widget",
+            "Changed");
+        var richSubject = sparseSubject with
+        {
+            TypeAnchor = new TypeAnchor(anchor.TypeFullName),
+            Anchor = anchor,
+            MetadataMember = metadataRef
+        };
+        var sparse = new ResearchDiffResult(
+            [new ResearchSubjectDiff(sparseSubject, [new ResearchDiffEvidence(ResearchDiffMechanism.BodySignals, "analysis.signal.unsafe", ResearchDiffDirection.Added)])]);
+        var rich = new ResearchDiffResult(
+            [new ResearchSubjectDiff(richSubject, [new ResearchDiffEvidence(ResearchDiffMechanism.IlBody, "il.hunk.changed", ResearchDiffDirection.Changed, Anchor: anchor, MetadataMember: metadataRef)])]);
+
+        var combined = ResearchDiff.Combine(sparse, rich);
+
+        var subject = Assert.Single(combined.Subjects);
+        Assert.Same(anchor, subject.Subject.Anchor);
+        Assert.Equal(metadataRef, subject.Subject.MetadataMember);
+        Assert.True(subject.HasMechanism(ResearchDiffMechanism.BodySignals));
+        Assert.True(subject.HasMechanism(ResearchDiffMechanism.IlBody));
+    }
+
+    [Fact]
     public void CompareApiSurfaces_AttributeScope_QueriesMemberAttributeChanges()
     {
         var oldSurface = Surface("Widget", Member("Existing", ["A"]));
