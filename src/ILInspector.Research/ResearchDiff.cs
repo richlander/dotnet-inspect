@@ -66,7 +66,10 @@ public sealed record ResearchDiffRow(
     BodySignalDiffRow? BodySignalRow = null,
     CSharpDiffRow? CSharpRow = null,
     CSharpDiffFailureRow? CSharpFailureRow = null,
-    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null);
+    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null)
+{
+    public CSharpDiffDisplayRow? CSharpDisplayRow { get; init; }
+}
 
 public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
@@ -126,7 +129,10 @@ public sealed record ResearchDiffEvidence(
     bool InLoop = false,
     ImmutableArray<IlDiffDisplayRow> IlDisplayRows = default,
     IlDiffDisplayFailureRow? IlDisplayFailureRow = null,
-    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null);
+    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null)
+{
+    public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; init; } = default;
+}
 
 public sealed record ResearchSubjectDiff(
     ResearchSubjectKey Subject,
@@ -261,7 +267,10 @@ public static class ResearchDiff
                 row.ChangeId,
                 ResearchDiffEvidenceKind.CSharp,
                 row.Message,
-                CSharpRow: row)));
+                CSharpRow: row)
+            {
+                CSharpDisplayRow = CSharpDiffPrinter.ToDisplayRow(row)
+            }));
         }
 
         return new ResearchDiffResult([], Rows: rows.ToImmutable());
@@ -792,7 +801,10 @@ public static class ResearchDiff
                 Anchor: row.Anchor,
                 MetadataMember: row.MemberRef,
                 MetadataType: row.TypeRef,
-                CSharpRow: row));
+                CSharpRow: row)
+            {
+                CSharpDisplayRows = [CSharpDiffPrinter.ToDisplayRow(row)]
+            });
         }
     }
 
