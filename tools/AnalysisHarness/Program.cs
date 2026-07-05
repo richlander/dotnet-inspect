@@ -148,6 +148,14 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
+// --tsv/--jsonl are leak-triage-specific format selectors; other modes use --json.
+// Reject them outside --leak-triage rather than silently accepting-and-ignoring them.
+if ((tsv || jsonl) && leakTriageList is null)
+{
+    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage; other modes use --json.");
+    return 2;
+}
+
 if (recallAssembly is not null)
     return RunRecall(recallAssembly, referenceFile);
 
