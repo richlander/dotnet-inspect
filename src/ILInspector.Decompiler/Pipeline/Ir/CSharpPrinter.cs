@@ -2302,7 +2302,7 @@ public sealed partial class CSharpPrinter
         Conditional { ResultType.Kind: TypeRefKind.ByRef } c
             when c.WhenTrue.ResultType?.Kind == TypeRefKind.ByRef
                 && c.WhenFalse.ResultType?.Kind == TypeRefKind.ByRef
-            => $"({Condition(c.Condition)} ? ref {Deref(c.WhenTrue)} : ref {Deref(c.WhenFalse)})",
+            => $"({RenderedCondition(c.Condition).At(Precedence.NullCoalescing)} ? ref {Deref(c.WhenTrue)} : ref {Deref(c.WhenFalse)})",
         { ResultType.Kind: TypeRefKind.ByRef } => Operand(address),
         _ => $"*{Operand(address)}",
     };

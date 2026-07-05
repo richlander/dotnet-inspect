@@ -204,7 +204,7 @@ public sealed partial class CSharpPrinter
     }
 
     string UnionSwitchArmText(UnionSwitchExpressionArm arm, TypeRef? target = null)
-        => $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}{(arm.Guard is { } guard ? $" when {Condition(guard)}" : "")} => {SwitchArmValueText(arm.Value, target)}";
+        => $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}{(arm.Guard is { } guard ? $" when {RenderedCondition(guard).At(Precedence.NullCoalescing)}" : "")} => {SwitchArmValueText(arm.Value, target)}";
 
     string UnionSwitchReceiverText(IrExpression value)
         => UnionValueReceiverText(value) ?? Operand(value);
