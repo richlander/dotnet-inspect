@@ -1311,9 +1311,23 @@ public sealed partial class CSharpPrinter
             && CanRenderPrimitiveConditionalForTarget(conditional, armTarget)
                 ? conditionalType
                 : null;
-        bool joinHasExactTypedArm = joinArms.Any(arm => arm is not Constant);
+        bool joinHasExactTypedArm = armTarget is { } anchorTarget && joinArms.Any(arm => JoinArmAnchorsTarget(arm, anchorTarget));
         return $"{condition} ? {ConditionalArm(conditional.WhenTrue, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)} : {ConditionalArm(conditional.WhenFalse, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)}";
     }
+
+    /// <summary>
+    /// Whether an arm anchors the join's natural type AT the target, licensing
+    /// sibling in-range constants to stay bare under the C# 9 rescue. Only an
+    /// arm that renders exactly-T (its bare type IS the target, or it will be
+    /// spelled `(T)x` by distribution) anchors; a merely-widening arm does not
+    /// (#2345 round-2 finding E, Gemini: a `byte` arm at a `uint` join widens
+    /// to BOTH uint and int, so the natural type still lands on int and the
+    /// bare constant fails — `c ? 1 : byteArm` at uint is CS0266; the
+    /// constant must spell `(uint)1`).
+    /// </summary>
+    bool JoinArmAnchorsTarget(IrExpression arm, TypeRef target)
+        => BareJoinType(arm)?.Equals(target) == true
+            || (arm is not Constant && !ArmRendersBareSafelyAt(arm, target));
 
     /// <summary>
     /// The join-level bare-vs-spell decision for a primitive integer target

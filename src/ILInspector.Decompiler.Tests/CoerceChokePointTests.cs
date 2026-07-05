@@ -261,6 +261,35 @@ public class CoerceChokePointTests
         AssertCompiles("public static Tiny M(bool c, byte firstByte)", body, "public enum Tiny { }");
     }
 
+    // #2345 round-2 finding E (Gemini): a WIDENING arm does not anchor the
+    // natural type at the target — a byte arm at a uint join widens to both
+    // uint and int, csc's natural type lands on int, and a bare in-range
+    // constant sibling fails (CS0266). The constant must spell `(uint)1`;
+    // the byte arm stays bare (it widens to uint legitimately).
+    [Fact]
+    public void ConstantBesideWideningArm_AtUnsignedSink_CastsTheConstant()
+    {
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(1, intType),
+            new LoadArgument(1, "x", byteType))
+        {
+            MergedType = intType,
+        };
+        string body = RenderReturn(
+            conditional,
+            uintType,
+            [new Parameter("c", boolType), new Parameter("x", byteType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? (uint)1 : x", body);
+        AssertCompiles("public static uint M(bool c, byte x)", body);
+    }
+
     // #2345 review canary (GPT-5.5, finding 2): the switch-expression gate
     // admits bool arms via CanSpellBoolToInteger, so SwitchArmValueText must
     // compose them like ConditionalArm does — bare bool at a uint join is

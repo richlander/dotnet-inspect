@@ -189,7 +189,7 @@ public sealed partial class CSharpPrinter
             && CanRenderPrimitiveJoinForTarget(armTarget, nodeType, armValues)
                 ? nodeType
                 : null;
-        bool joinHasExactTypedArm = armValues.Any(value => value is not Constant);
+        bool joinHasExactTypedArm = armTarget is { } anchorTarget && armValues.Any(value => JoinArmAnchorsTarget(value, anchorTarget));
         return $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => SwitchArmText(arm, armTarget, labelEnum, primitiveCoercionSourceType, joinHasExactTypedArm)))} }}";
     }
 
