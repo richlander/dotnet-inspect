@@ -1,8 +1,8 @@
 # IL Diff Harness
 
 Developer harness for measuring `IlBodyDiff` over paired assemblies. It is not a
-shipped `dotnet-inspect` command; it emits a compact Markdown card for fixture,
-corpus, RTS, or Research follow-up work.
+shipped `dotnet-inspect` command; it emits a compact Markout-rendered Markdown
+card for fixture, corpus, RTS, or Research follow-up work.
 
 ```bash
 dotnet run --project tools/IlDiffHarness -c Release -- \
