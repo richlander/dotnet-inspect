@@ -651,6 +651,20 @@ public sealed partial class CSharpPrinter
             StoreElement store when ReferenceEquals(store.Value, load) => store.ElementType,
             StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
             Return ret when ReferenceEquals(ret.Value, load) => _function.Signature.ReturnType,
+            // A bool-in-int-slot load whose value flows into a boolean operator
+            // or condition position (`!S`, `S && x`, `S ? a : b`, `if (S)`,
+            // `while (S)`) has a boolean target — C# requires bool there. Without
+            // this the slot's bool store and this load get different names (S_1
+            // bool vs S_1_1 int) and the consumer reads an unassigned int split
+            // (CS0165, #2377).
+            LogicalNot not when ReferenceEquals(not.Operand, load) => TypeRef.CoreLib("System", "Boolean"),
+            LogicalBinary logical when ReferenceEquals(logical.Left, load) || ReferenceEquals(logical.Right, load) => TypeRef.CoreLib("System", "Boolean"),
+            Conditional conditional when ReferenceEquals(conditional.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            ConditionalBranch branch when ReferenceEquals(branch.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            IfStatement ifStatement when ReferenceEquals(ifStatement.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            WhileLoop whileLoop when ReferenceEquals(whileLoop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            DoWhileLoop doWhile when ReferenceEquals(doWhile.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            ForLoop forLoop when ReferenceEquals(forLoop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
             _ => null,
         };
 
@@ -2287,8 +2301,12 @@ public sealed partial class CSharpPrinter
     /// (ResultType <c>byte</c>) but the printer spells it as the underlying bool
     /// place, so a branch over it must negate rather than compare to 0.
     /// </summary>
-    static bool RendersAsBoolean(IrExpression operand)
-        => operand is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary } } };
+    bool RendersAsBoolean(IrExpression operand)
+        => operand is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary } } }
+            // A bool-in-int-slot load whose slot unified to bool (its declaration is
+            // `bool S = …`) renders as a bool place: spelling `S == 0`/`S != 0`
+            // would be `bool == int` (CS0019), so it is its own truth value (#2377).
+            || (operand is LoadStackSlot load && TypeFamilies.IsBoolean(StackSlotRenderType(load.Slot, load.Type)));
 
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)
