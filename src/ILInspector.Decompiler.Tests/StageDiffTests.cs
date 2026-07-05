@@ -22,10 +22,29 @@ public class StageDiffTests
         var diff = StageDump.FormatDiff(
         [
             Stage("(import)", "a\nb\nc\n"),
-            Stage("identity-convert", "a\nb\nc\n"),
+            Stage("identity-convert", "a\nb\nc\n"),   // no change (middle)
+            Stage("property-sugar", "a\nB\nc\n"),     // changed (final)
         ]);
 
         Assert.Contains("==== IR (after identity-convert) (no change) ====", diff);
+    }
+
+    [Fact]
+    public void FormatDiff_ShowsFinalStageBodyEvenWhenUnchanged()
+    {
+        // The terminal stage is the result the reading guide points at, so its
+        // full body is shown even when the last pass changed nothing — otherwise
+        // "read the final stage" lands on an empty header (issue #2270 review).
+        var diff = StageDump.FormatDiff(
+        [
+            Stage("(import)", "a\nb\nc\n"),
+            Stage("property-sugar", "a\nB\nc\n"),        // changed
+            Stage("coercion-insertion", "a\nB\nc\n"),    // no change, FINAL
+        ]);
+
+        Assert.Contains("(after coercion-insertion) (no change) ====", diff);
+        int finalHeader = diff.IndexOf("(after coercion-insertion)", StringComparison.Ordinal);
+        Assert.Contains("a\nB\nc", diff[finalHeader..]);
     }
 
     [Fact]
@@ -34,16 +53,37 @@ public class StageDiffTests
         var diff = StageDump.FormatDiff(
         [
             Stage("(import)", "a\nb\nc\n"),
-            Stage("property-sugar", "a\nB\nc\n"),
+            Stage("property-sugar", "a\nB\nc\n"),        // changed (middle)
+            Stage("coercion-insertion", "a\nB\nc\n"),    // final (no change)
         ]);
 
-        // The changed stage is not collapsed, and the delta shows the swapped line.
+        // The changed middle stage is not collapsed, and the delta shows the swapped line.
         Assert.Contains("==== IR (after property-sugar) ====", diff);
         Assert.DoesNotContain("(after property-sugar) (no change)", diff);
         Assert.Contains("- b", diff);
         Assert.Contains("+ B", diff);
         // Context line is retained; the far context is elided.
         Assert.Contains("  a", diff);
+    }
+
+    [Fact]
+    public void FormatDiff_ShowsFinalStageFullBodyWhenTheLastPassChanged()
+    {
+        // The terminal stage is the result, so it prints its full IR body — not a
+        // delta hunk the reading guide's "read the final stage" cannot land on
+        // (issue #2270 review) — even when the last pass changed something.
+        var diff = StageDump.FormatDiff(
+        [
+            Stage("(import)", "a\nb\nc\n"),
+            Stage("coercion-insertion", "a\nB\nc\n"),    // changed, FINAL
+        ]);
+
+        Assert.Contains("(after coercion-insertion) ====", diff);
+        Assert.DoesNotContain("(after coercion-insertion) (no change)", diff);
+        int finalHeader = diff.IndexOf("(after coercion-insertion)", StringComparison.Ordinal);
+        Assert.Contains("a\nB\nc", diff[finalHeader..]);
+        // The final stage is a full body, not a delta hunk.
+        Assert.DoesNotContain("- b", diff);
     }
 
     [Fact]
