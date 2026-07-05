@@ -65,11 +65,15 @@ internal static class ValidityPredicateScan
 
         foreach (var bucket in buckets.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
-            if (bucket.Value.Examples.Count == 0)
+            var examples = bucket.Value.Examples
+                .Order(StringComparer.Ordinal)
+                .Take(Math.Max(0, maxExamples))
+                .ToArray();
+            if (examples.Length == 0)
                 continue;
             Console.WriteLine();
             Console.WriteLine($"{bucket.Key} examples:");
-            foreach (var example in bucket.Value.Examples.Order(StringComparer.Ordinal))
+            foreach (var example in examples)
                 Console.WriteLine($"  {example}");
         }
 
@@ -117,7 +121,7 @@ internal static class ValidityPredicateScan
 
         void Add(string predicate, IrNode node, string detail)
         {
-            var bucket = buckets.GetOrAdd(predicate, _ => new PredicateBucket(maxExamples));
+            var bucket = buckets.GetOrAdd(predicate, _ => new PredicateBucket());
             bucket.Add($"{assemblyName}!{typeName}::{methodName} IL_{Math.Max(0, node.SourceOffset):X4} — {detail}");
         }
     }
@@ -131,10 +135,7 @@ internal static class ValidityPredicateScan
     sealed class PredicateBucket
     {
         readonly object _gate = new();
-        readonly int _maxExamples;
         readonly List<string> _examples = [];
-
-        public PredicateBucket(int maxExamples) => _maxExamples = Math.Max(0, maxExamples);
 
         public int Count;
         public IReadOnlyList<string> Examples
@@ -150,10 +151,7 @@ internal static class ValidityPredicateScan
         {
             Interlocked.Increment(ref Count);
             lock (_gate)
-            {
-                if (_examples.Count < _maxExamples)
-                    _examples.Add(example);
-            }
+                _examples.Add(example);
         }
     }
 }

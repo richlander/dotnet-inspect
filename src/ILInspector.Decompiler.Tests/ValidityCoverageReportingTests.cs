@@ -2,6 +2,7 @@ using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Collection(ConsoleMutatorCollection.Name)]
 public class ValidityCoverageReportingTests
 {
     static readonly object ConsoleGate = new();
