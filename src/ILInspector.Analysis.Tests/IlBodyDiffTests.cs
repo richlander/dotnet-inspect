@@ -232,6 +232,89 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_CompiledFixtureTryCatchAvailability_SurfacesOperationRows()
+    {
+        Assert.Empty(ExceptionRegionShapes(FixtureCatalog.DiffPair.Old, "TryCatchAvailability"));
+        var newRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.New, "TryCatchAvailability"));
+        Assert.Equal(ExceptionRegionKind.Catch, newRegion.Kind);
+
+        var diff = DiffFixtureDiff("TryCatchAvailability");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "leave");
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "pop");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureFinallyAvailability_SurfacesOperationRows()
+    {
+        Assert.Empty(ExceptionRegionShapes(FixtureCatalog.DiffPair.Old, "FinallyAvailability"));
+        var newRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.New, "FinallyAvailability"));
+        Assert.Equal(ExceptionRegionKind.Finally, newRegion.Kind);
+
+        var diff = DiffFixtureDiff("FinallyAvailability");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "endfinally");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureTryCatchRegionShape_SurfacesOperationRows()
+    {
+        var oldRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.Old, "TryCatchRegionShape"));
+        var newRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.New, "TryCatchRegionShape"));
+        Assert.Equal(ExceptionRegionKind.Catch, oldRegion.Kind);
+        Assert.Equal(ExceptionRegionKind.Catch, newRegion.Kind);
+        Assert.NotEqual(oldRegion.TryLength, newRegion.TryLength);
+
+        var diff = DiffFixtureDiff("TryCatchRegionShape");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "call");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureRepeatedCallOneOccurrence_ReportsOnlyChangedCall()
+    {
+        var diff = DiffFixtureDiff("RepeatedCallOneOccurrence");
+
+        var callRows = diff.Rows
+            .Where(row => row.Operation.OpcodeFamily == "call")
+            .ToArray();
+        Assert.Collection(
+            callRows,
+            removed =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removed.Kind);
+                Assert.Contains("::Abs(", removed.Operation.Operand?.Value, StringComparison.Ordinal);
+            },
+            added =>
+            {
+                Assert.Equal(IlDiffKind.Add, added.Kind);
+                Assert.Contains("::Sign(", added.Operation.Operand?.Value, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureSlotLocalShapeNearMiss_SurfacesRawSlotRows()
+    {
+        var diff = DiffFixtureDiff("SlotLocalShapeNearMiss");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        var localRows = diff.Rows
+            .Where(IsRawLocalRow)
+            .ToArray();
+        Assert.Collection(
+            localRows,
+            removed => Assert.Equal(IlDiffKind.Remove, removed.Kind),
+            added => Assert.Equal(IlDiffKind.Add, added.Kind));
+    }
+
+    [Fact]
     public void Printer_CompiledFixtureTokenRows_PreservesTypedOperandDisplay()
     {
         var diff = DiffFixtureDiff("FieldToken");
@@ -373,6 +456,11 @@ public class IlBodyDiffTests
     static bool IsBranchRow(IlDiffRow row)
         => row.Operation.OpcodeFamily.StartsWith("br", StringComparison.Ordinal);
 
+    static bool IsRawLocalRow(IlDiffRow row)
+        => row.Operation.Operand?.Kind == IlOperandIdentityKind.Slot
+            || row.Operation.OpcodeFamily.StartsWith("ldloc.", StringComparison.Ordinal)
+            || row.Operation.OpcodeFamily.StartsWith("stloc.", StringComparison.Ordinal);
+
     static void AssertTokenOperandPair(
         IlBodyDiffResult diff,
         string opcodeFamily,
@@ -404,6 +492,29 @@ public class IlBodyDiffTests
             && (operandFragment is null || row.Operation.Operand.Value.Contains(operandFragment, StringComparison.Ordinal)));
         return Assert.IsType<IlOperandIdentity>(row.Operation.Operand);
     }
+
+    static ExceptionRegionShape[] ExceptionRegionShapes(FixtureDefinition fixture, string name)
+    {
+        using var stream = File.OpenRead(fixture.AssemblyPath());
+        using var peReader = new PEReader(stream);
+        var metadataReader = peReader.GetMetadataReader();
+        var body = DiffFixtureMethodBody(peReader, metadataReader, name);
+        return body.ExceptionRegions
+            .Select(region => new ExceptionRegionShape(
+                region.Kind,
+                region.TryOffset,
+                region.TryLength,
+                region.HandlerOffset,
+                region.HandlerLength))
+            .ToArray();
+    }
+
+    readonly record struct ExceptionRegionShape(
+        ExceptionRegionKind Kind,
+        int TryOffset,
+        int TryLength,
+        int HandlerOffset,
+        int HandlerLength);
 
     static IlBodyDiffResult DiffFixtureDiff(string name)
     {
