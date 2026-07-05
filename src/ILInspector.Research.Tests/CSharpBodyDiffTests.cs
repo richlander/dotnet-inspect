@@ -36,6 +36,18 @@ public class CSharpBodyDiffTests
             row.Member.Contains("ConstantValue", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Add
             && row.Text.Contains("2", StringComparison.Ordinal));
+        var removedLine = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+        var addedLine = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.added");
+        var changedReturn = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.return-expression.changed");
+        Assert.NotEqual(removedLine.MemberRef.ModuleVersionId, addedLine.MemberRef.ModuleVersionId);
+        Assert.Equal(addedLine.MemberRef, changedReturn.MemberRef);
+        Assert.Equal(addedLine.TypeRef, changedReturn.TypeRef);
         Assert.All(diff.Rows.Where(row => row.Member.Contains("ConstantValue", StringComparison.Ordinal) && row.ChangeId.StartsWith("csharp.line.", StringComparison.Ordinal)), row =>
         {
             Assert.StartsWith("ConstantValue~", row.Anchor.StableSelector, StringComparison.Ordinal);
@@ -565,6 +577,7 @@ public class CSharpBodyDiffTests
         Assert.Equal("Old method has no C# body.", failure.Message);
         Assert.Equal(row.HunkId, failure.HunkId);
         Assert.Contains("BodyStateSample", failure.Member, StringComparison.Ordinal);
+        Assert.NotEqual(row.MemberRef.ModuleVersionId, failure.MemberRef.ModuleVersionId);
         Assert.Equal(CSharpDiffKind.Add, row.Kind);
         Assert.Equal("csharp.method.body-added", row.ChangeId);
         Assert.Equal("Added C# method body.", row.Message);

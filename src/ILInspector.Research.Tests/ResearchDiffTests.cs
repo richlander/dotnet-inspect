@@ -485,9 +485,12 @@ public class ResearchDiffTests
         var constant = Assert.Single(changedMembers, member => member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal));
         Assert.NotNull(constant.Subject.MetadataMember);
         Assert.NotEqual(Guid.Empty, constant.Subject.MetadataMember.ModuleVersionId);
-        var csharpEvidence = Assert.Single(constant.Evidence, evidence => evidence.ChangeId == "csharp.line.removed");
-        Assert.Equal(constant.Subject.MetadataMember, csharpEvidence.MetadataMember);
-        Assert.NotNull(csharpEvidence.CSharpRow);
+        var removedEvidence = Assert.Single(constant.Evidence, evidence => evidence.ChangeId == "csharp.line.removed");
+        var addedEvidence = Assert.Single(constant.Evidence, evidence => evidence.ChangeId == "csharp.line.added");
+        Assert.NotNull(removedEvidence.CSharpRow);
+        Assert.NotNull(addedEvidence.CSharpRow);
+        Assert.NotEqual(removedEvidence.MetadataMember?.ModuleVersionId, addedEvidence.MetadataMember?.ModuleVersionId);
+        Assert.Equal(constant.Subject.MetadataMember, addedEvidence.MetadataMember);
         Assert.DoesNotContain(changedMembers, member =>
             member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
     }
@@ -523,7 +526,11 @@ public class ResearchDiffTests
         Assert.Equal(ResearchDiffDirection.Added, evidence.Direction);
         Assert.NotNull(changed.Subject.Anchor);
         Assert.NotNull(changed.Subject.TypeAnchor);
-        Assert.Same(changed.Subject.Anchor, evidence.Anchor);
+        Assert.Equal(changed.Subject.Anchor, evidence.Anchor);
+        Assert.NotNull(evidence.MetadataMember);
+        Assert.NotNull(evidence.MetadataType);
+        Assert.Equal(evidence.CSharpFailureRow?.MemberRef, evidence.MetadataMember);
+        Assert.Equal(evidence.CSharpFailureRow?.TypeRef, evidence.MetadataType);
         Assert.StartsWith("BodyState~", changed.Subject.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.NotNull(evidence.CSharpDisplayFailureRow);
         Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, evidence.CSharpDisplayFailureRow.Kind);

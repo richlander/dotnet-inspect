@@ -2204,6 +2204,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_Value_SelectsMemberAnchorByPrintedName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--fields", "Member anchor", "--value", "--row", "1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("SerializeObject~", output.Trim(), StringComparison.Ordinal);
+        Assert.DoesNotContain("JsonConvert.cs", output);
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_PrintRowFetchesSourceFile()
     {
         var (exit, output, error) = await RunAppAsync(

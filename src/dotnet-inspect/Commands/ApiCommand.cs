@@ -954,7 +954,7 @@ public class ApiCommand
         var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
         return column?.ToLowerInvariant() switch
         {
-            "selector" => Uncode(row.Selector),
+            "selector" or "member anchor" or "member_anchor" => Uncode(row.Selector),
             "signature" => Uncode(row.Signature),
             "file" or "path" => Uncode(row.File),
             "line" => row.Line?.ToString(System.Globalization.CultureInfo.InvariantCulture),

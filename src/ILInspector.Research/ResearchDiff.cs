@@ -116,6 +116,7 @@ public sealed record ResearchDiffEvidence(
     IlDiffRow? IlRow = null,
     BodySignalDiffRow? BodySignalRow = null,
     CSharpDiffRow? CSharpRow = null,
+    CSharpDiffFailureRow? CSharpFailureRow = null,
     string? Signal = null,
     string? Shape = null,
     int? Magnitude = null,
@@ -804,6 +805,9 @@ public static class ResearchDiff
             Detail: failure.Detail ?? failure.Message,
             Category: ResearchDiffChangeCategory.CSharp,
             Anchor: failure.Anchor,
+            MetadataMember: failure.MemberRef,
+            MetadataType: failure.TypeRef,
+            CSharpFailureRow: failure,
             CSharpDisplayFailureRow: CSharpDiffPrinter.ToDisplayFailureRow(failure)));
     }
 
