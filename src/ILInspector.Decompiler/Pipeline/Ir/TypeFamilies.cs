@@ -174,6 +174,10 @@ public static class TypeFamilies
     static bool IsUnsignedInteger(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Byte" or "UInt16" or "Char" or "UInt32" or "UInt64" };
 
+    /// <summary>True for the signed fixed-width integer primitives (sbyte/short/int/long); nint excluded — platform width is unknown here.</summary>
+    public static bool IsSignedFixedWidthInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "SByte" or "Int16" or "Int32" or "Int64" };
+
     /// <summary>
     /// For a widening integer conversion to an unsigned <paramref name="target"/>, the
     /// unsigned sibling of <paramref name="source"/>'s width — the cast that
@@ -196,6 +200,37 @@ public static class TypeFamilies
                 _ => null,
             }
             : null;
+
+    /// <summary>
+    /// The unsigned sibling a SIGNED operand must be reinterpreted through when a
+    /// widening conversion to <paramref name="target"/> zero-extends it
+    /// (<c>conv.u8</c>/<c>conv.u</c> of a non-constant). The zero-extension
+    /// operates at the operand's IL STACK width — a sub-int operand is
+    /// sign-extended to int32 first — so an <c>sbyte s</c> widens as
+    /// <c>(ulong)(uint)s</c>, never <c>(ulong)(byte)s</c> (which would discard the
+    /// sign extension and compute the wrong value). A native-unsigned target
+    /// (<c>nuint</c>, <c>conv.u</c>) zero-extends the int32 stack value on 64-bit
+    /// and reinterprets it on 32-bit, so <c>(nuint)(uint)x</c> is faithful on both;
+    /// a <see cref="long"/> source is native-width and left alone. Null when no
+    /// widening reinterpret applies: an unsigned or non-fixed-width source, or a
+    /// <see cref="long"/> source into <see cref="ulong"/>/native (same stack width).
+    /// </summary>
+    public static TypeRef? WideningZeroExtendSibling(TypeRef? signedSource, TypeRef? target)
+    {
+        if (Width(signedSource) is not { } sourceWidth || !IsSignedFixedWidthInteger(signedSource))
+            return null;
+        // A native-unsigned target has no fixed width here, but conv.u of an
+        // int32-stack value zero-extends it, so an int32-stack signed source
+        // (width <= 4) takes the uint sibling regardless of platform width.
+        if (sourceWidth <= 4 && IsNativeUnsignedInteger(target))
+            return TypeRef.CoreLib("System", "UInt32");
+        var stackType = sourceWidth <= 4 ? TypeRef.CoreLib("System", "Int32") : TypeRef.CoreLib("System", "Int64");
+        return ZeroExtendingSource(stackType, target);
+    }
+
+    /// <summary>The native-sized unsigned integer primitive (<c>nuint</c>/<see cref="UIntPtr"/>).</summary>
+    static bool IsNativeUnsignedInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UIntPtr" };
 
     /// <summary>
     /// True when the C# <em>checked</em> conversion <paramref name="source"/> →
