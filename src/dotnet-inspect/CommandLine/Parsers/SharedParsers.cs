@@ -141,6 +141,16 @@ public static class SharedParsers
         if (probe != null)
             return probe;
 
+        // If qualified name resolution failed, try resolving the candidate as a bare
+        // CoreLib type. This covers generic types ("List<T>", "Span`1") as well as
+        // single-token simple/primitive type names ("Type", "Math", "string") that
+        // qualified resolution does not recognize on their own.
+        var coreLibProbe = typeCandidate.Contains('<') || typeCandidate.Contains('`') || !typeCandidate.Contains('.')
+            ? SourceResolver.TryResolveBareCoreLibTypeName(typeCandidate)
+            : null;
+        if (coreLibProbe is not null)
+            return coreLibProbe;
+
         if (allowPlatformPrefixFallback)
         {
             var runtimeLib = PlatformResolver.FindLibraryContainingType(typeCandidate);
@@ -148,13 +158,7 @@ public static class SharedParsers
                 return new SourceResolver.LocalProbeResult(runtimeLib, typeCandidate, SourceResolver.LocalSourceKind.Platform);
         }
 
-        // If qualified name resolution failed, try resolving the candidate as a bare
-        // CoreLib type. This covers generic types ("List<T>", "Span`1") as well as
-        // single-token simple/primitive type names ("Type", "Math", "string") that
-        // qualified resolution does not recognize on their own.
-        return typeCandidate.Contains('<') || typeCandidate.Contains('`') || !typeCandidate.Contains('.')
-            ? SourceResolver.TryResolveBareCoreLibTypeName(typeCandidate)
-            : null;
+        return null;
     }
 
     /// <summary>
