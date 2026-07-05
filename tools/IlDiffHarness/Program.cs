@@ -548,11 +548,11 @@ static IlDiffCardMarkdownView BuildMarkdownView(ImmutableArray<IlDiffPairCard> p
     return new IlDiffCardMarkdownView
     {
         Summary = SummaryRows(pairs.Length, card),
-        FailureBuckets = MarkdownBucketRows(card.FailureBuckets),
-        TopHunkKinds = MarkdownBucketRows(card.TopHunkKinds),
-        TopOpcodeFamilies = MarkdownBucketRows(card.TopOpcodeFamilies),
+        FailureBuckets = MarkdownBucketRows(card.FailureBuckets) ?? [],
+        TopHunkKinds = MarkdownBucketRows(card.TopHunkKinds) ?? [],
+        TopOpcodeFamilies = MarkdownBucketRows(card.TopOpcodeFamilies) ?? [],
         PairSummaries = [.. pairs.Select(pair => PairSummaryRow(pair))],
-        BaselineComparison = comparison is null ? null : BaselineRows(comparison),
+        BaselineComparison = comparison is null ? null : BaselineRows(comparison) ?? [],
         Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleMarkdownRow)],
     };
 }
