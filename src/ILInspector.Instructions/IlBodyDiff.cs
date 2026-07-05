@@ -589,7 +589,11 @@ public static class IlBodyDiff
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
         {
             string instance = signature.Header.IsInstance ? "instance " : "";
-            return $"{instance}{signature.ReturnType} {parent}::{name}{genericArgs}({string.Join(", ", signature.ParameterTypes)})";
+            string convention = CallingConventionPrefix(signature.Header.CallingConvention);
+            string arity = signature.GenericParameterCount > 0
+                ? $"`{signature.GenericParameterCount}"
+                : "";
+            return $"{instance}{convention}{signature.ReturnType} {parent}::{name}{arity}{genericArgs}({FormatParameterList(signature)})";
         }
 
         string FormatMemberParent(EntityHandle parent)
@@ -629,7 +633,7 @@ public static class IlBodyDiff
             return type.ResolutionScope.Kind switch
             {
                 HandleKind.AssemblyReference =>
-                    $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
+                    $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}",
                 HandleKind.TypeReference =>
                     $"{FormatTypeReference((TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
                 _ => $"[{CurrentAssemblyName()}]{fullName}",
@@ -695,7 +699,10 @@ public static class IlBodyDiff
         public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
             => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
         public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"method {signature.ReturnType} *({string.Join(", ", signature.ParameterTypes)})";
+        {
+            string convention = CallingConventionPrefix(signature.Header.CallingConvention);
+            return $"method {convention}{signature.ReturnType} *({FormatParameterList(signature)})";
+        }
 
         static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
         {
@@ -718,11 +725,53 @@ public static class IlBodyDiff
             return type.ResolutionScope.Kind switch
             {
                 HandleKind.AssemblyReference =>
-                    $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
+                    $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}",
                 HandleKind.TypeReference =>
                     $"{TypeName(reader, (TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
                 _ => fullName,
             };
         }
+    }
+
+    static string FormatParameterList(MethodSignature<string> signature)
+    {
+        if (signature.Header.CallingConvention != SignatureCallingConvention.VarArgs)
+            return string.Join(", ", signature.ParameterTypes);
+
+        var builder = ImmutableArray.CreateBuilder<string>(signature.ParameterTypes.Length + 1);
+        int requiredCount = Math.Clamp(signature.RequiredParameterCount, 0, signature.ParameterTypes.Length);
+        for (int i = 0; i < requiredCount; i++)
+            builder.Add(signature.ParameterTypes[i]);
+        builder.Add("...");
+        for (int i = requiredCount; i < signature.ParameterTypes.Length; i++)
+            builder.Add(signature.ParameterTypes[i]);
+        return string.Join(", ", builder);
+    }
+
+    static string CallingConventionPrefix(SignatureCallingConvention convention)
+    {
+        string text = convention switch
+        {
+            SignatureCallingConvention.Default => "",
+            SignatureCallingConvention.VarArgs => "vararg",
+            SignatureCallingConvention.CDecl => "unmanaged[Cdecl]",
+            SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
+            SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
+            SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+            _ => convention.ToString(),
+        };
+        return text.Length == 0 ? "" : $"{text} ";
+    }
+
+    static string AssemblyReferenceIdentity(MetadataReader reader, AssemblyReferenceHandle handle)
+    {
+        var reference = reader.GetAssemblyReference(handle);
+        string name = reader.GetString(reference.Name);
+        string culture = reference.Culture.IsNil ? "neutral" : reader.GetString(reference.Culture);
+        string token = reference.PublicKeyOrToken.IsNil
+            ? "null"
+            : Convert.ToHexString(reader.GetBlobBytes(reference.PublicKeyOrToken)).ToLowerInvariant();
+        string flags = reference.Flags == default ? "" : $", Flags={reference.Flags}";
+        return $"{name}, Version={reference.Version}, Culture={culture}, PublicKeyToken={token}{flags}";
     }
 }
