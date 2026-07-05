@@ -2001,19 +2001,41 @@ public sealed partial class CSharpPrinter
         return text.Length - 1;
     }
 
-    /// <summary>Returns the index of the closing <c>}</c> of the interpolation hole opening at <paramref name="open"/>, recursively skipping nested literals and braces.</summary>
+    /// <summary>
+    /// Returns the index of the closing <c>}</c> of the interpolation hole
+    /// opening at <paramref name="open"/>. The expression component's nested
+    /// literals and brackets are skipped as real syntax; a <c>:</c> at the
+    /// hole's top level begins the format component, which is literal text (a
+    /// bare <c>'</c> or an escaped <c>\"</c> there is a format character, not a
+    /// string delimiter — #2345 round-7 review) and runs to the closing brace.
+    /// </summary>
     static int SkipInterpolationHole(string text, int open)
     {
-        int braceDepth = 1;
+        int innerDepth = 0;
+        bool inFormat = false;
         for (int i = open + 1; i < text.Length; i++)
         {
             char ch = text[i];
+            if (inFormat)
+            {
+                if (ch == '}')
+                    return i;
+                continue;
+            }
             if (ch is '"' or '\'')
                 i = SkipLiteral(text, i);
-            else if (ch == '{')
-                braceDepth++;
-            else if (ch == '}' && --braceDepth == 0)
-                return i;
+            else if (ch is '(' or '[' or '{')
+                innerDepth++;
+            else if (ch is ')' or ']')
+                innerDepth--;
+            else if (ch == '}')
+            {
+                if (innerDepth == 0)
+                    return i;
+                innerDepth--;
+            }
+            else if (ch == ':' && innerDepth == 0)
+                inFormat = true;
         }
         return text.Length - 1;
     }

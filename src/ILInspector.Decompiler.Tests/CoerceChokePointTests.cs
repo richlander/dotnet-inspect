@@ -521,6 +521,44 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void CoalesceRightConditional_WithInterpolationFormatQuote_StillParenthesizes()
+    {
+        // #2345 round-7 (Gemini): an interpolation format specifier is literal
+        // text — a bare `'` (e.g. a DateTime custom format `hh 'o'`) or an
+        // escaped `\"` there is a format character, not a string delimiter. The
+        // hole skipper must not treat it as a nested literal, or it swallows the
+        // hole's `}` and the string's closing `"`, hiding the real top-level
+        // `??`-right ternary (left un-parenthesized → CS0019).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var interpolated = new InterpolatedStringExpression(
+            [new InterpolatedStringPart(null, 0, new InterpolationFormat(0, HasAlignment: false, "hh 'o''clock'"))],
+            [new LoadArgument(1, "x", objectType)]);
+        var comparison = new Comparison(ComparisonKind.NotEqual, isUnsigned: false, interpolated, new LoadArgument(0, "s", stringType));
+        var conditional = new Conditional(
+            comparison,
+            new LoadArgument(2, "b1", boolType),
+            new LoadArgument(3, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var value = new Coerce(boolType, conditional);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, value),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("s", stringType), new Parameter("x", objectType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [intType]);
+
+        AssertCompiles("public static int M(string s, object x, bool b1, bool b2)", body);
+    }
+
+    [Fact]
     public void CoalesceExpression_WithConditionalRight_ParenthesizesTernary()
     {
         // #2345 round-4 (Gemini): a coalesce right that renders as a bare
