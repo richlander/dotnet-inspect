@@ -1939,66 +1939,81 @@ public sealed partial class CSharpPrinter
     /// True when <paramref name="text"/> is a conditional expression at the top
     /// level — a <c>?</c> ternary operator (rendered space-flanked, so distinct
     /// from <c>??</c>, <c>?.</c>, <c>?[</c>, and a <c>T?</c> nullable suffix)
-    /// outside any bracket, string, or character literal. String/char literals
-    /// are skipped whole so an unbalanced bracket or a stray <c>?</c> inside a
-    /// literal cannot corrupt the depth count (#2345 round-5 review).
+    /// outside any bracket, string, or character literal. String/char literals —
+    /// including interpolated strings and their <c>{expr}</c> holes — are skipped
+    /// whole, so an unbalanced bracket or a stray <c>?</c> inside a literal cannot
+    /// corrupt the depth count (#2345 rounds 5-6 review).
     /// </summary>
     static bool HasTopLevelConditionalOperator(string text)
     {
         int depth = 0;
         for (int i = 0; i < text.Length; i++)
         {
-            switch (text[i])
+            char ch = text[i];
+            if (ch is '"' or '\'')
             {
-                case '"':
-                    // Verbatim when an `@` sits in the string prefix (`@"`, `$@"`,
-                    // `@$"`); those escape a quote as `""` rather than `\"`.
-                    i = SkipStringOrCharLiteral(text, i, '"',
-                        verbatim: i > 0 && (text[i - 1] == '@' || (i > 1 && text[i - 1] == '$' && text[i - 2] == '@')));
-                    break;
-                case '\'':
-                    i = SkipStringOrCharLiteral(text, i, '\'', verbatim: false);
-                    break;
-                case '(' or '[' or '{':
-                    depth++;
-                    break;
-                case ')' or ']' or '}':
-                    depth--;
-                    break;
-                case '?' when depth == 0
-                    && i > 0 && text[i - 1] == ' '
-                    && i + 1 < text.Length && text[i + 1] == ' ':
-                    return true;
+                i = SkipLiteral(text, i);
+                continue;
             }
+            if (ch is '(' or '[' or '{')
+                depth++;
+            else if (ch is ')' or ']' or '}')
+                depth--;
+            else if (ch == '?' && depth == 0
+                && i > 0 && text[i - 1] == ' '
+                && i + 1 < text.Length && text[i + 1] == ' ')
+                return true;
         }
         return false;
     }
 
-    /// <summary>Returns the index of the closing <paramref name="quote"/> of the literal that opens at <paramref name="open"/>, honoring <c>\</c> escapes (or <c>""</c> for verbatim strings).</summary>
-    static int SkipStringOrCharLiteral(string text, int open, char quote, bool verbatim)
+    /// <summary>
+    /// Returns the index of the closing quote of the string or character literal
+    /// opening at <paramref name="open"/>. Honors <c>\</c> escapes (or <c>""</c>
+    /// for verbatim strings) and, for interpolated strings, skips each
+    /// <c>{expr}</c> hole — with its nested literals — so a quote or brace inside
+    /// a hole is not mistaken for the string's terminator.
+    /// </summary>
+    static int SkipLiteral(string text, int open)
     {
+        char quote = text[open];
+        bool verbatim = open > 0 && (text[open - 1] == '@'
+            || (open > 1 && text[open - 1] == '$' && text[open - 2] == '@'));
+        bool interpolated = quote == '"' && open > 0 && (text[open - 1] == '$'
+            || (open > 1 && text[open - 1] == '@' && text[open - 2] == '$'));
         for (int i = open + 1; i < text.Length; i++)
         {
-            if (verbatim)
-            {
-                if (text[i] == quote)
-                {
-                    if (i + 1 < text.Length && text[i + 1] == quote)
-                    {
-                        i++;
-                        continue;
-                    }
-                    return i;
-                }
-            }
-            else if (text[i] == '\\')
-            {
+            char ch = text[i];
+            if (!verbatim && ch == '\\')
                 i++;
-            }
-            else if (text[i] == quote)
+            else if (verbatim && ch == quote && i + 1 < text.Length && text[i + 1] == quote)
+                i++;
+            else if (interpolated && ch == '{')
             {
-                return i;
+                if (i + 1 < text.Length && text[i + 1] == '{')
+                    i++;
+                else
+                    i = SkipInterpolationHole(text, i);
             }
+            else if (ch == quote)
+                return i;
+        }
+        return text.Length - 1;
+    }
+
+    /// <summary>Returns the index of the closing <c>}</c> of the interpolation hole opening at <paramref name="open"/>, recursively skipping nested literals and braces.</summary>
+    static int SkipInterpolationHole(string text, int open)
+    {
+        int braceDepth = 1;
+        for (int i = open + 1; i < text.Length; i++)
+        {
+            char ch = text[i];
+            if (ch is '"' or '\'')
+                i = SkipLiteral(text, i);
+            else if (ch == '{')
+                braceDepth++;
+            else if (ch == '}' && --braceDepth == 0)
+                return i;
         }
         return text.Length - 1;
     }

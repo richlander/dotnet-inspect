@@ -486,6 +486,41 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void CoalesceRightConditional_WithInterpolatedStringHole_StillParenthesizes()
+    {
+        // #2345 round-6 (GPT-5.5, Gemini): the literal skipper must parse
+        // interpolated-string holes, or a nested string with an unbalanced
+        // brace inside a hole (`$"{"("}"`) corrupts the depth count and the
+        // real top-level `??`-right ternary escapes un-parenthesized (CS0029).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var interpolated = new InterpolatedStringExpression(
+            [InterpolatedStringPart.FormattedValue(0)],
+            [new Constant("(", stringType)]);
+        var comparison = new Comparison(ComparisonKind.Equal, isUnsigned: false, interpolated, new LoadArgument(0, "s", stringType));
+        var conditional = new Conditional(
+            comparison,
+            new LoadArgument(1, "b1", boolType),
+            new LoadArgument(2, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var value = new Coerce(boolType, conditional);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, value),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("s", stringType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [intType]);
+
+        AssertCompiles("public static int M(string s, bool b1, bool b2)", body);
+    }
+
+    [Fact]
     public void CoalesceExpression_WithConditionalRight_ParenthesizesTernary()
     {
         // #2345 round-4 (Gemini): a coalesce right that renders as a bare
