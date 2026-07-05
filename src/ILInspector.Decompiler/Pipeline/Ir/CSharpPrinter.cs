@@ -1912,10 +1912,17 @@ public sealed partial class CSharpPrinter
             ? coerced
             // The bool-arm composition, mirroring ConditionalArm and
             // SwitchArmValueText (the #2145 one-rule-in-all-three discipline;
-            // #2345 review found the switch sibling missing it).
+            // #2345 review found the switch sibling missing it). Unlike those
+            // consumers, the coalesce right has no delimiter after it and `??`
+            // binds tighter than `?:` — the bare Int32/Int64 composition
+            // `n ?? b ? 1 : 0` reparses as `(n ?? b) ? 1 : 0`, CS0019 (#2345
+            // re-review, GPT-5.5) — so the bare ternary form parenthesizes;
+            // the cast form is already parenthesized by its cast.
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
                 && EffectiveType(right) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-                ? BoolToIntegerText(right, intTarget)
+                ? intTarget is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
+                    ? $"({Condition(right)} ? 1 : 0)"
+                    : BoolToIntegerText(right, intTarget)
                 : Operand(right);
 
     static TypeRef? NullableValueType(TypeRef? type)

@@ -290,6 +290,32 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool c, byte x)", body);
     }
 
+    // #2345 re-review canary (GPT-5.5): the coalesce right has no delimiter
+    // and `??` binds tighter than `?:` — the bare Int32 bool composition
+    // `n ?? b ? 1 : 0` reparses as `(n ?? b) ? 1 : 0` (CS0019). The bare
+    // ternary form must parenthesize: `n ?? (b ? 1 : 0)`.
+    [Fact]
+    public void Coalesce_WithBoolRightAtIntTarget_ParenthesizesComposition()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "n", nullableInt),
+            new LoadArgument(1, "b", boolType));
+        string body = RenderReturn(
+            coalesce,
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("b", boolType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("n ?? (b ? 1 : 0)", body);
+        Assert.DoesNotContain("?? b ?", body);
+        AssertCompiles("public static int M(int? n, bool b)", body);
+    }
+
     // #2345 review canary (GPT-5.5, finding 2): the switch-expression gate
     // admits bool arms via CanSpellBoolToInteger, so SwitchArmValueText must
     // compose them like ConditionalArm does — bare bool at a uint join is
