@@ -3,6 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Collections.Immutable;
 using ILInspector.Analysis;
+using ILInspector.Decompiler;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;

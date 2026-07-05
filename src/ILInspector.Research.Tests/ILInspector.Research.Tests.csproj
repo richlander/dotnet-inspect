@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />

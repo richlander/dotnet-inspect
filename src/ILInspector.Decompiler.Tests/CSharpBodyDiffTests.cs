@@ -1,6 +1,7 @@
 using DotnetInspector.Fixtures;
+using ILInspector.Decompiler;
 
-namespace ILInspector.Research.Tests;
+namespace ILInspector.Decompiler.Tests;
 
 public class CSharpBodyDiffTests
 {

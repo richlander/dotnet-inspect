@@ -5,13 +5,12 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Security.Cryptography;
 using System.Text;
-using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
-namespace ILInspector.Research;
+namespace ILInspector.Decompiler;
 
 public enum CSharpDiffKind
 {
@@ -183,7 +182,7 @@ public sealed record CSharpBodyDiffResult(
 }
 
 /// <summary>
-/// Research-owned C# body diff over the shipped decompiler output for matched
+/// Decompiler-owned C# body diff over the shipped decompiler output for matched
 /// method bodies.
 /// </summary>
 public static class CSharpBodyDiff
@@ -340,7 +339,7 @@ public static class CSharpBodyDiff
                 var parameters = signature.ParameterTypes.Select(CanonicalTypeName).ToImmutableArray();
                 int genericArity = method.GetGenericParameters().Count;
                 string methodGeneric = GenericParameterList(genericArity, isMethod: true);
-                string selectorName = ResearchDiff.ResearchMemberSelector.ForMetadataName(methodName, IsExtensionMethod(reader, type, method));
+                string selectorName = MemberSelectorForMetadataName(methodName, IsExtensionMethod(reader, type, method));
                 string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
                 string canonicalName = CanonicalMemberName(methodName);
                 string rawKey = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
@@ -838,6 +837,16 @@ public static class CSharpBodyDiff
 
         return false;
     }
+
+    static string MemberSelectorForMetadataName(string methodName, bool isExtensionMethod = false)
+        => methodName switch
+        {
+            ".ctor" => ".ctor",
+            _ when isExtensionMethod => $"extension:{methodName}",
+            _ when methodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{methodName}",
+            _ when methodName.Contains('.') => $"explicit:{methodName}",
+            _ => methodName,
+        };
 
     static bool MatchesTypeFilter(string typeFullName, string filter)
     {
