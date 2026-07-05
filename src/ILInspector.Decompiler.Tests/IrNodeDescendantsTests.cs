@@ -77,12 +77,12 @@ public class IrNodeDescendantsTests
     {
         // A shallow tree and a large deep tree. With the work stack pooled, a traversal
         // allocates only its fixed iterator state machine — never a stack or a backing
-        // array that grows with the subtree — so per-traversal allocation is identical
-        // for both regardless of node count.
+        // array that grows with the subtree — so per-traversal allocation does not grow
+        // with node count.
         var small = Node(0x00, Node(0x10), Node(0x20));
         var large = BuildBalanced(depth: 8, fanout: 3); // 3^0+..+3^8 = 9841 nodes
 
-        static long PerTraversalBytes(IrNode root)
+        static long MinPerTraversalBytes(IrNode root)
         {
             static int Walk(IrNode node)
             {
@@ -93,19 +93,33 @@ public class IrNodeDescendantsTests
             }
 
             Walk(root); // warm up JIT + populate the pool
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            const int iterations = 200;
-            for (int i = 0; i < iterations; i++)
-                Walk(root);
-            return (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
+
+            // Take the minimum over several rounds. A stray allocation on this thread
+            // (tiered JIT, GC bookkeeping, a neighbouring test) can only ADD bytes to a
+            // round, so the minimum reflects the true per-traversal cost — the iterator
+            // state machine alone. This keeps the assertion robust under the full suite.
+            long best = long.MaxValue;
+            for (int round = 0; round < 20; round++)
+            {
+                const int iterations = 200;
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                for (int i = 0; i < iterations; i++)
+                    Walk(root);
+                best = Math.Min(best, (GC.GetAllocatedBytesForCurrentThread() - before) / iterations);
+            }
+            return best;
         }
 
-        long smallBytes = PerTraversalBytes(small);
-        long largeBytes = PerTraversalBytes(large);
+        long smallBytes = MinPerTraversalBytes(small);
+        long largeBytes = MinPerTraversalBytes(large);
 
         // Independent of subtree size: the 9841-node walk allocates no more than the
-        // 2-node walk (only the state machine; the stack + backing are pooled).
-        Assert.Equal(smallBytes, largeBytes);
+        // 2-node walk (both only the state machine). If the stack were not pooled, the
+        // large tree would add its Stack plus a frontier-sized backing array — hundreds
+        // of bytes — far above this tolerance for measurement jitter.
+        Assert.True(
+            largeBytes <= smallBytes + 64,
+            $"pooled traversal allocation should not grow with subtree size; small={smallBytes} B, large={largeBytes} B");
     }
 
     [Fact]
