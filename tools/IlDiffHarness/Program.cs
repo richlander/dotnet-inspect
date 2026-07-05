@@ -90,7 +90,7 @@ if (pairsManifest is not null)
     {
         pairs.AddRange(ReadManifest(pairsManifest));
     }
-    catch (InvalidOperationException ex)
+    catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
     {
         Console.Error.WriteLine(ex.Message);
         return 2;
@@ -124,7 +124,7 @@ try
     Console.Write(FormatCard(cards, maxExamples));
     return 0;
 }
-catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException)
+catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or UnauthorizedAccessException)
 {
     Console.Error.WriteLine(ex.Message);
     return 2;
