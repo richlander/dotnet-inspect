@@ -18,11 +18,21 @@ public sealed record IlDiffDisplayRow(
     public string UnifiedLine => $"h{HunkId} {Marker} {Offset} {Operation}";
 }
 
+public sealed record IlDiffDisplayFailureRow(
+    IlDiffFailureKind Kind,
+    string Message,
+    string? Side,
+    string? Detail)
+{
+    public string UnifiedLine => $"IL diff failed: {Message}";
+}
+
 public sealed record IlDiffDisplayResult(
     string? Failure,
-    ImmutableArray<IlDiffDisplayRow> Rows)
+    ImmutableArray<IlDiffDisplayRow> Rows,
+    ImmutableArray<IlDiffDisplayFailureRow> FailureRows = default)
 {
-    public bool IsEmpty => Failure is null && Rows.IsDefaultOrEmpty;
+    public bool IsEmpty => Failure is null && Rows.IsDefaultOrEmpty && FailureRows.IsDefaultOrEmpty;
 }
 
 /// <summary>
@@ -49,12 +59,28 @@ public static class IlDiffPrinter
         return [.. rows.Select(ToDisplayRow)];
     }
 
+    public static IlDiffDisplayFailureRow ToDisplayFailureRow(IlDiffFailureRow row)
+        => new(row.Kind, row.Message, row.Side, row.Detail);
+
+    public static ImmutableArray<IlDiffDisplayFailureRow> ToDisplayFailureRows(IEnumerable<IlDiffFailureRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return [.. rows.Select(ToDisplayFailureRow)];
+    }
+
     public static IlDiffDisplayResult ToDisplayResult(IlBodyDiffResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
+        ImmutableArray<IlDiffDisplayFailureRow> failureRows = result.FailureRows.IsDefault
+            ? []
+            : ToDisplayFailureRows(result.FailureRows);
+        string? failure = !failureRows.IsDefaultOrEmpty
+            ? failureRows[0].UnifiedLine
+            : result.Failure is { Length: > 0 } legacyFailure ? $"IL diff failed: {legacyFailure}" : null;
         return new IlDiffDisplayResult(
-            result.Failure is { Length: > 0 } failure ? $"IL diff failed: {failure}" : null,
-            ToDisplayRows(result.Rows));
+            failure,
+            result.Rows.IsDefault ? [] : ToDisplayRows(result.Rows),
+            failureRows);
     }
 
     public static ImmutableArray<string> ToUnifiedLines(IlBodyDiffResult result)
@@ -66,6 +92,11 @@ public static class IlDiffPrinter
         var rows = display.Rows.IsDefault
             ? []
             : display.Rows.Select(row => row.UnifiedLine);
+        var failureRows = display.FailureRows.IsDefault
+            ? []
+            : display.FailureRows.Select(row => row.UnifiedLine);
+        if (failureRows.Any())
+            return [.. failureRows, .. rows];
         return display.Failure is { } failure
             ? [failure, .. rows]
             : [.. rows];

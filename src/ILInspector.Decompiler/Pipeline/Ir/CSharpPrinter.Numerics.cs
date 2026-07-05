@@ -1083,6 +1083,14 @@ public sealed partial class CSharpPrinter
             return $"({TypeText(target)})(&{Deref(addressConvert.Operand)})";
         }
         if (target is { Kind: TypeRefKind.Pointer }
+            && value is not Constant { Value: null }
+            && EffectiveType(value) is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" })
+        {
+            return IsZeroConstant(value)
+                ? $"({TypeText(target)})null"
+                : $"({TypeText(target)}){Operand(value)}";
+        }
+        if (target is { Kind: TypeRefKind.Pointer }
             && EffectiveType(value) is { Kind: TypeRefKind.Pointer } pointerSource
             && value is not Constant { Value: null }
             && !target.Equals(pointerSource))
@@ -1227,9 +1235,14 @@ public sealed partial class CSharpPrinter
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && SameNumericSlotWidth(conv.Target, target))
             return conv.Operand is Constant { Value: int or long } convConst
                 ? NumericConstant(convConst, target!)
-                : CheckedSafeCast(() => $"({TypeText(target!)}){Operand(conv.Operand)}");
-        return CheckedSafeCast(() => $"({TypeText(target!)}){Operand(value)}");
+                : CheckedSafeNumericCast(EffectiveType(conv.Operand), target!, () => $"({TypeText(target!)}){Operand(conv.Operand)}");
+        return CheckedSafeNumericCast(EffectiveType(value), target!, () => $"({TypeText(target!)}){Operand(value)}");
     }
+
+    string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)
+        => TypeFamilies.CheckedConversionCanThrow(source, target)
+            ? CheckedSafeCast(renderCast)
+            : renderCast();
 
     static IrExpression? AddressOfValue(IrExpression value)
         => value switch

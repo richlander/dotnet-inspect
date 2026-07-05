@@ -44,7 +44,7 @@ internal static class ReturnToSenderEvidence
             .Select(group => new ResearchSubjectDiff(group.Key, [.. group.SelectMany(Evidence)]))
             .Where(subject => subject.Evidence.Count > 0)
             .ToArray();
-        return new ResearchDiffResult(subjects);
+        return new ResearchDiffResult(subjects, Rows: []);
     }
 
     static ResearchSubjectKey SubjectKey(ReturnToSenderEvidenceRow row)
@@ -81,7 +81,21 @@ internal static class ReturnToSenderEvidence
         if (row.IlDiffDiagnostic is not { } diagnostic)
             yield break;
 
-        if (diagnostic.Failure is { Length: > 0 } failure)
+        var failureRows = diagnostic.FailureRows.IsDefault
+            ? []
+            : diagnostic.FailureRows;
+        foreach (var failureRow in failureRows)
+        {
+            yield return new ResearchDiffEvidence(
+                ResearchDiffMechanism.IlBody,
+                $"il.diff.{ResearchDiff.ToChangeIdPart(failureRow.Kind.ToString())}",
+                ResearchDiffDirection.Changed,
+                Detail: failureRow.Detail ?? failureRow.Message,
+                Category: ResearchDiffChangeCategory.IlBody,
+                IlDisplayFailureRow: failureRow);
+        }
+
+        if (failureRows.IsDefaultOrEmpty && diagnostic.Failure is { Length: > 0 } failure)
         {
             yield return new ResearchDiffEvidence(
                 ResearchDiffMechanism.IlBody,
@@ -111,7 +125,8 @@ internal static class ReturnToSenderEvidence
                 OldIlOffset: displayRow.Kind == IlDiffKind.Remove ? displayRow.RawOffset : null,
                 NewIlOffset: displayRow.Kind == IlDiffKind.Add ? displayRow.RawOffset : null,
                 Detail: displayRow.Message,
-                Category: ResearchDiffChangeCategory.IlBody);
+                Category: ResearchDiffChangeCategory.IlBody,
+                IlDisplayRows: [displayRow]);
         }
     }
 
@@ -123,4 +138,5 @@ internal static class ReturnToSenderEvidence
             GeneratedFixtureReturnToSenderStatus.Fail => "fail",
             _ => status.ToString().ToLowerInvariant(),
         };
+
 }

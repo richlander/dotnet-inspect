@@ -3096,7 +3096,18 @@ public sealed partial class CSharpPrinter
         {
             long literal = c.Value is int i ? i : (long)c.Value!;
             if (!TypeFamilies.ConstantFits(literal, convert.Target))
+            {
+                // A widening conversion to an unsigned target ZERO-extends the source
+                // (`conv.u8` of `ldc.i4.m1` is 0x00000000FFFFFFFF = uint.MaxValue),
+                // where a bare `(ulong)(-1)` sign-extends to ulong.MaxValue — a silent
+                // wrong value. Reinterpret the source's bits through its unsigned
+                // sibling so the value is faithful and the cast round-trips to the same
+                // `conv` opcode (#2101). `conv.i8` (signed target) keeps sign-extension.
+                if (literal < 0
+                    && TypeFamilies.ZeroExtendingSource(convert.Operand.ResultType, convert.Target) is { } zeroExtendSource)
+                    return $"unchecked(({TypeText(convert.Target)})({TypeText(zeroExtendSource)})({Expression(convert.Operand)}))";
                 return $"unchecked(({TypeText(convert.Target)})({Expression(convert.Operand)}))";
+            }
         }
         // conv.r.un and conv.ovf.*.un interpret the SOURCE as unsigned —
         // a signed operand needs its unsigned cast or the value is wrong.

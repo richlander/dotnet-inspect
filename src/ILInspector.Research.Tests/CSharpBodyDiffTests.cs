@@ -109,6 +109,9 @@ public class CSharpBodyDiffTests
         Assert.Equal(CSharpDiffKind.Remove, removed.Kind);
         Assert.Equal("7", removed.OldValue);
         Assert.Null(removed.NewValue);
+        Assert.Equal(CSharpDiffOperationKind.SwitchCase, removed.OldOperation?.Kind);
+        Assert.Equal("7", removed.OldOperation?.Value);
+        Assert.Null(removed.NewOperation);
         Assert.Equal("Removed switch case '7'", removed.Message);
 
         var added = Assert.Single(diff.Rows, row =>
@@ -117,6 +120,9 @@ public class CSharpBodyDiffTests
         Assert.Equal(CSharpDiffKind.Add, added.Kind);
         Assert.Null(added.OldValue);
         Assert.Equal("7", added.NewValue);
+        Assert.Null(added.OldOperation);
+        Assert.Equal(CSharpDiffOperationKind.SwitchCase, added.NewOperation?.Kind);
+        Assert.Equal("7", added.NewOperation?.Value);
         Assert.Equal("Added switch case '7'", added.Message);
 
         Assert.Contains(diff.Rows, row =>
@@ -141,6 +147,10 @@ public class CSharpBodyDiffTests
         Assert.Equal(CSharpDiffKind.Changed, row.Kind);
         Assert.Equal("value + 1", row.OldValue);
         Assert.Equal("value + 2", row.NewValue);
+        Assert.Equal(CSharpDiffOperationKind.ReturnExpression, row.OldOperation?.Kind);
+        Assert.Equal("value + 1", row.OldOperation?.Value);
+        Assert.Equal(CSharpDiffOperationKind.ReturnExpression, row.NewOperation?.Kind);
+        Assert.Equal("value + 2", row.NewOperation?.Value);
         Assert.Equal("Changed return expression from 'value + 1' to 'value + 2'", row.Message);
 
         Assert.Contains(diff.Rows, row =>
@@ -165,6 +175,10 @@ public class CSharpBodyDiffTests
         Assert.Equal(CSharpDiffKind.Changed, row.Kind);
         Assert.Contains("Sink(value)", row.OldValue);
         Assert.Contains("MaybeThrow(value)", row.NewValue);
+        Assert.Equal(CSharpDiffOperationKind.Invocation, row.OldOperation?.Kind);
+        Assert.Contains("Sink(value)", row.OldOperation?.Value);
+        Assert.Equal(CSharpDiffOperationKind.Invocation, row.NewOperation?.Kind);
+        Assert.Contains("MaybeThrow(value)", row.NewOperation?.Value);
         Assert.Contains("Changed call", row.Message);
 
         Assert.Contains(diff.Rows, row =>
@@ -247,6 +261,48 @@ public class CSharpBodyDiffTests
         Assert.Equal(CSharpDiffKind.Changed, row.Kind);
         Assert.Contains("Abs(value)", row.OldValue);
         Assert.Contains("Sign(value)", row.NewValue);
+    }
+
+    [Fact]
+    public void Printer_SemanticRows_RenderFromStructuredOperations()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+        var row = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("SemanticReturnExpression", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.return-expression.changed");
+
+        var display = CSharpDiffPrinter.ToDisplayRow(row);
+
+        Assert.Equal("~", display.Marker);
+        Assert.Equal(CSharpDiffOperationKind.ReturnExpression, display.OperationKind);
+        Assert.Equal("value + 1", display.OldValue);
+        Assert.Equal("value + 2", display.NewValue);
+        Assert.Equal("return value + 1 => return value + 2", display.Operation);
+        Assert.Contains("return value + 1 => return value + 2", display.UnifiedLine, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Printer_LineRows_RenderFromStructuredOperations()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+        var source = diff.Rows.Single(row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+
+        var display = CSharpDiffPrinter.ToDisplayRow(source);
+
+        Assert.Equal("-", display.Marker);
+        Assert.Equal(CSharpDiffOperationKind.Line, display.OperationKind);
+        Assert.Equal(source.Text, display.OldValue);
+        Assert.Null(display.NewValue);
+        Assert.Equal(source.Text, display.Operation);
+        Assert.Contains(source.Text, display.UnifiedLine, StringComparison.Ordinal);
     }
 
     [Fact]
