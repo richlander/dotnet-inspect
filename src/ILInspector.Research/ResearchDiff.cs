@@ -63,7 +63,9 @@ public sealed record ResearchDiffRow(
     IlDiffDisplayRow? IlDisplayRow = null,
     IlDiffDisplayFailureRow? IlDisplayFailureRow = null,
     BodySignalDiffRow? BodySignalRow = null,
-    CSharpDiffRow? CSharpRow = null);
+    CSharpDiffRow? CSharpRow = null,
+    CSharpDiffFailureRow? CSharpFailureRow = null,
+    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null);
 
 public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
@@ -111,7 +113,8 @@ public sealed record ResearchDiffEvidence(
     bool SubjectInBoth = true,
     bool InLoop = false,
     ImmutableArray<IlDiffDisplayRow> IlDisplayRows = default,
-    IlDiffDisplayFailureRow? IlDisplayFailureRow = null);
+    IlDiffDisplayFailureRow? IlDisplayFailureRow = null,
+    CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null);
 
 public sealed record ResearchSubjectDiff(
     ResearchSubjectKey Subject,
@@ -225,16 +228,27 @@ public static class ResearchDiff
     public static ResearchDiffResult FromCSharpBodyDiff(CSharpBodyDiffResult diff)
     {
         ArgumentNullException.ThrowIfNull(diff);
-        return new ResearchDiffResult(
-            [],
-            Rows:
-            [
-                .. diff.Rows.Select(row => new ResearchDiffRow(
-                    row.ChangeId,
-                    ResearchDiffEvidenceKind.CSharp,
-                    row.Message,
-                    CSharpRow: row))
-            ]);
+        var rows = ImmutableArray.CreateBuilder<ResearchDiffRow>();
+        if (!diff.FailureRows.IsDefaultOrEmpty)
+        {
+            rows.AddRange(diff.FailureRows.Select(row => new ResearchDiffRow(
+                $"csharp.diff.{ToKebabCase(row.Kind.ToString())}",
+                ResearchDiffEvidenceKind.CSharp,
+                row.Message,
+                CSharpFailureRow: row,
+                CSharpDisplayFailureRow: CSharpDiffPrinter.ToDisplayFailureRow(row))));
+        }
+
+        if (!diff.Rows.IsDefaultOrEmpty)
+        {
+            rows.AddRange(diff.Rows.Select(row => new ResearchDiffRow(
+                row.ChangeId,
+                ResearchDiffEvidenceKind.CSharp,
+                row.Message,
+                CSharpRow: row)));
+        }
+
+        return new ResearchDiffResult([], Rows: rows.ToImmutable());
     }
 
     public static ResearchDiffResult Combine(params ResearchDiffResult[] results)
@@ -624,7 +638,11 @@ public static class ResearchDiff
         if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
             return;
 
-        foreach (var row in CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters).Rows)
+        var diff = CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters);
+        foreach (var failure in diff.FailureRows.IsDefault ? [] : diff.FailureRows)
+            AddCSharpFailureEvidence(builder, failure);
+
+        foreach (var row in diff.Rows)
         {
             var subject = new ResearchSubjectKey(
                 ResearchDiffSubjectKind.Member,
@@ -647,6 +665,31 @@ public static class ResearchDiff
                 Detail: row.Message,
                 Category: ResearchDiffChangeCategory.CSharp));
         }
+    }
+
+    static void AddCSharpFailureEvidence(ResultBuilder builder, CSharpDiffFailureRow failure)
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchDiffSubjectKind.Member,
+            failure.Anchor.StableSelector,
+            $"{failure.Anchor.TypeFullName}.{failure.Anchor.MemberName}",
+            failure.Anchor.TypeFullName,
+            failure.Anchor.MemberName);
+        var direction = failure.Kind switch
+        {
+            CSharpDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,
+            CSharpDiffFailureKind.NewBodyMissing => ResearchDiffDirection.Removed,
+            _ => ResearchDiffDirection.Changed,
+        };
+        builder.Add(subject, new ResearchDiffEvidence(
+            ResearchDiffMechanism.CSharp,
+            $"csharp.diff.{ToKebabCase(failure.Kind.ToString())}",
+            direction,
+            OldValue: failure.Side == "old" ? failure.Detail ?? failure.Message : null,
+            NewValue: failure.Side == "new" ? failure.Detail ?? failure.Message : null,
+            Detail: failure.Detail ?? failure.Message,
+            Category: ResearchDiffChangeCategory.CSharp,
+            CSharpDisplayFailureRow: CSharpDiffPrinter.ToDisplayFailureRow(failure)));
     }
 
     static ApiSurface? ResolveApiSurface(ResearchDiffInput input, bool includeAll)
