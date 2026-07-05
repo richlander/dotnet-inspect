@@ -48,8 +48,10 @@ public static class CSharpConversionRules
             "UInt16" or "Char" => value is >= ushort.MinValue and <= ushort.MaxValue,
             "Int32" => value is >= int.MinValue and <= int.MaxValue,
             "UInt32" => value is >= uint.MinValue and <= uint.MaxValue,
-            "Int64" or "IntPtr" => true,
-            "UInt64" or "UIntPtr" => value >= 0,
+            "Int64" => true,
+            "UInt64" => value >= 0,
+            "IntPtr" => value is >= int.MinValue and <= int.MaxValue,
+            "UIntPtr" => value is >= 0 and <= uint.MaxValue,
             "Single" or "Double" => true,
             _ => false,
         },
@@ -85,6 +87,8 @@ public static class CSharpConversionRules
         if (source is null || target is null)
             return true;
         if (source.Equals(target))
+            return false;
+        if (IsImplicitIntegerWidening(source, target))
             return false;
         if (Width(source) is not { } sourceWidth || Width(target) is not { } targetWidth)
             return true;

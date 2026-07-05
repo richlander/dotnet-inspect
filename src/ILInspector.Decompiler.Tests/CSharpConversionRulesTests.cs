@@ -20,8 +20,12 @@ public sealed class CSharpConversionRulesTests
     {
         Assert.True(CSharpConversionRules.ConstantFits(0, Core("UInt32")));
         Assert.False(CSharpConversionRules.ConstantFits(-1, Core("UInt32")));
+        Assert.True(CSharpConversionRules.ConstantFits(int.MaxValue, Core("IntPtr")));
         Assert.True(CSharpConversionRules.ConstantFits(-1, Core("IntPtr")));
+        Assert.False(CSharpConversionRules.ConstantFits((long)int.MaxValue + 1, Core("IntPtr")));
+        Assert.True(CSharpConversionRules.ConstantFits(uint.MaxValue, Core("UIntPtr")));
         Assert.False(CSharpConversionRules.ConstantFits(-1, Core("UIntPtr")));
+        Assert.False(CSharpConversionRules.ConstantFits((long)uint.MaxValue + 1, Core("UIntPtr")));
     }
 
     [Fact]
@@ -39,9 +43,11 @@ public sealed class CSharpConversionRulesTests
     {
         Assert.False(CSharpConversionRules.CheckedConversionCanThrow(Core("Int32"), Core("Int64")));
         Assert.False(CSharpConversionRules.CheckedConversionCanThrow(Core("UInt32"), Core("Int64")));
+        Assert.False(CSharpConversionRules.CheckedConversionCanThrow(Core("IntPtr"), Core("Int64")));
+        Assert.False(CSharpConversionRules.CheckedConversionCanThrow(Core("UIntPtr"), Core("UInt64")));
         Assert.False(CSharpConversionRules.CheckedConversionCanThrow(Core("Byte"), Core("Char")));
         Assert.True(CSharpConversionRules.CheckedConversionCanThrow(Core("Int32"), Core("UInt32")));
         Assert.True(CSharpConversionRules.CheckedConversionCanThrow(Core("UInt32"), Core("Int32")));
-        Assert.True(CSharpConversionRules.CheckedConversionCanThrow(Core("IntPtr"), Core("Int64")));
+        Assert.True(CSharpConversionRules.CheckedConversionCanThrow(Core("UIntPtr"), Core("Int64")));
     }
 }
