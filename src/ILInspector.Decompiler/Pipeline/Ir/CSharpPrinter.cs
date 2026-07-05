@@ -3285,7 +3285,7 @@ public sealed partial class CSharpPrinter
             return true;    // float→integer always checks; unknown/pointer source: be safe
         if (source.Equals(convert.Target))
             return false;   // identity: no conv emitted
-        return !TypeFamilies.IsImplicitIntegerWidening(source, convert.Target);
+        return !CSharpConversionRules.IsImplicitIntegerWidening(source, convert.Target);
     }
 
     string ConvertBody(Convert convert, bool wrap, bool uncheckedOverflow)
@@ -3310,7 +3310,7 @@ public sealed partial class CSharpPrinter
             && TypeFamilies.IsNumericPrimitive(convert.Target))
         {
             long literal = c.Value is int i ? i : (long)c.Value!;
-            if (!TypeFamilies.ConstantFits(literal, convert.Target))
+            if (!CSharpConversionRules.ConstantFits(literal, convert.Target))
             {
                 // A widening conversion to an unsigned target ZERO-extends the source
                 // (`conv.u8` of `ldc.i4.m1` is 0x00000000FFFFFFFF = uint.MaxValue),

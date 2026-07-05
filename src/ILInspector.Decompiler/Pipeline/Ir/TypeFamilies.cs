@@ -132,16 +132,7 @@ public static class TypeFamilies
     /// is excluded: it shares the I4 family but `(int)b` is not even legal C#.
     /// </summary>
     public static bool NeedsNumericCast(TypeRef? source, TypeRef? target)
-    {
-        if (source is null || target is null || source.Equals(target))
-            return false;
-        if (IsBoolean(source) || IsBoolean(target) || !IsNumericPrimitive(source) || !IsNumericPrimitive(target))
-            return false;
-        var family = Of(source);
-        if (family is null || family != Of(target))
-            return false;   // same stack family only — guarantees a faithful reinterpretation
-        return !IsImplicitlyConvertible(source.Name, target.Name);
-    }
+        => CSharpConversionRules.NeedsNumericCast(source, target);
 
     public static bool IsBoolean(TypeRef? type)
         => type is { Name: "Boolean", Assembly: TypeRef.CoreLibrary, Namespace: "System" };
@@ -246,21 +237,7 @@ public static class TypeFamilies
     /// when the width is unknown, the wrap is the safe direction.
     /// </summary>
     public static bool CheckedConversionCanThrow(TypeRef? source, TypeRef? target)
-    {
-        if (source is null || target is null)
-            return true;
-        if (source.Equals(target))
-            return false;
-        if (Width(source) is not { } sourceWidth || Width(target) is not { } targetWidth)
-            return true;
-        bool sourceUnsigned = IsUnsignedInteger(source);
-        bool targetUnsigned = IsUnsignedInteger(target);
-        if (sourceUnsigned == targetUnsigned)
-            return targetWidth < sourceWidth;
-        if (sourceUnsigned)
-            return targetWidth <= sourceWidth;
-        return true;
-    }
+        => CSharpConversionRules.CheckedConversionCanThrow(source, target);
 
     /// <summary>
     /// True when an integer constant is in <paramref name="target"/>'s range, so
@@ -268,35 +245,8 @@ public static class TypeFamilies
     /// is needed. A value outside the range — a negative into unsigned, a bitmask
     /// wider than the target — does not convert bare and needs an unchecked cast.
     /// </summary>
-    public static bool ConstantFits(long value, TypeRef target) => target switch
-    {
-        { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } => target.Name switch
-        {
-            "SByte" => value is >= sbyte.MinValue and <= sbyte.MaxValue,
-            "Byte" => value is >= byte.MinValue and <= byte.MaxValue,
-            "Int16" => value is >= short.MinValue and <= short.MaxValue,
-            "UInt16" or "Char" => value is >= ushort.MinValue and <= ushort.MaxValue,
-            "Int32" => value is >= int.MinValue and <= int.MaxValue,
-            "UInt32" => value is >= uint.MinValue and <= uint.MaxValue,
-            "Int64" or "IntPtr" => true,
-            "UInt64" or "UIntPtr" => value >= 0,
-            "Single" or "Double" => true,
-            _ => false,
-        },
-        _ => false,
-    };
-
-    /// <summary>C#'s implicit numeric conversions within a stack family — the widenings that need no cast.</summary>
-    static bool IsImplicitlyConvertible(string source, string target) => (source, target) switch
-    {
-        ("SByte", "Int16" or "Int32") => true,
-        ("Byte", "Int16" or "UInt16" or "Int32" or "UInt32") => true,
-        ("Int16", "Int32") => true,
-        ("UInt16", "Int32" or "UInt32") => true,
-        ("Char", "UInt16" or "Int32" or "UInt32") => true,
-        ("Single", "Double") => true,
-        _ => false,
-    };
+    public static bool ConstantFits(long value, TypeRef target)
+        => CSharpConversionRules.ConstantFits(value, target);
 
     /// <summary>
     /// The full C# implicit numeric widening table between integer/native/char
@@ -311,19 +261,7 @@ public static class TypeFamilies
     /// (including <c>nint</c>/<c>nuint</c> and the <c>.un</c> overflow forms).
     /// </summary>
     public static bool IsImplicitIntegerWidening(TypeRef source, TypeRef target)
-        => IsIntegerLike(source) && IsIntegerLike(target) && (source.Name, target.Name) switch
-        {
-            ("SByte", "Int16" or "Int32" or "Int64" or "IntPtr") => true,
-            ("Byte", "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr") => true,
-            ("Int16", "Int32" or "Int64" or "IntPtr") => true,
-            ("UInt16", "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr") => true,
-            ("Char", "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr") => true,
-            ("Int32", "Int64" or "IntPtr") => true,
-            ("UInt32", "Int64" or "UInt64" or "UIntPtr") => true,
-            ("IntPtr", "Int64") => true,
-            ("UIntPtr", "UInt64") => true,
-            _ => false,
-        };
+        => CSharpConversionRules.IsImplicitIntegerWidening(source, target);
 
     /// <summary>The unsigned-counterpart TypeRef of a signed integer type; null when already unsigned, float, or unknown.</summary>
     public static TypeRef? UnsignedCounterpart(TypeRef? type) => UnsignedCastKeyword(type) switch
