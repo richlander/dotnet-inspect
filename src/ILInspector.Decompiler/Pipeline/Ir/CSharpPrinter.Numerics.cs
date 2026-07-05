@@ -1148,9 +1148,7 @@ public sealed partial class CSharpPrinter
             // and wider signed targets; narrow and unsigned targets need the
             // explicit cast — `(byte)(b ? 1 : 0)` (slice-5b round 4: denying
             // these severed single live ranges into unassigned reads).
-            return intTarget is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
-                ? $"{Condition(value)} ? 1 : 0"
-                : CheckedSafeCast($"({TypeText(intTarget)})({Condition(value)} ? 1 : 0)");
+            return BoolToIntegerText(value, intTarget);
         }
         if (value is Conditional conditional
             && target is { } conditionalTarget
@@ -1233,7 +1231,14 @@ public sealed partial class CSharpPrinter
         var condition = conditional.Condition is Conditional
             ? $"({Condition(conditional.Condition)})"
             : Condition(conditional.Condition);
-        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, target)} : {ConditionalArm(conditional.WhenFalse, target)}";
+        TypeRef? primitiveCoercionSourceType =
+            target is not null
+            && EffectiveType(conditional) is { } conditionalType
+            && !conditionalType.Equals(target)
+            && CanRenderPrimitiveConditionalForTarget(conditional, target)
+                ? conditionalType
+                : null;
+        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, target, primitiveCoercionSourceType)} : {ConditionalArm(conditional.WhenFalse, target, primitiveCoercionSourceType)}";
     }
 
     static bool IsFalseConstant(IrExpression expression)
@@ -1242,7 +1247,7 @@ public sealed partial class CSharpPrinter
     static bool IsBooleanLike(IrExpression expression)
         => expression.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary };
 
-    string ConditionalArm(IrExpression arm, TypeRef? target)
+    string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
         => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
             ? charText
             // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
@@ -1252,12 +1257,17 @@ public sealed partial class CSharpPrinter
             // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
             // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
             // and renders its member name via Operand.
-            : TryCoerceJoinArm(arm, target) is { } coercedArm
+            : TryCoerceJoinArm(arm, target, primitiveCoercionSourceType) is { } coercedArm
                 ? coercedArm
             : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
             && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-                ? $"({Condition(arm)} ? 1 : 0)"
+                ? BoolToIntegerText(arm, intTarget)
                 : Operand(arm);
+
+    string BoolToIntegerText(IrExpression value, TypeRef target)
+        => target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
+            ? $"{Condition(value)} ? 1 : 0"
+            : CheckedSafeCast($"({TypeText(target)})({Condition(value)} ? 1 : 0)");
 
     /// <summary>
     /// The one join-arm coercion, both directions: an integer-family arm at an
@@ -1268,7 +1278,7 @@ public sealed partial class CSharpPrinter
     /// second-family review found the rule present in only one of the three).
     /// Null when the arm needs no join coercion.
     /// </summary>
-    string? TryCoerceJoinArm(IrExpression arm, TypeRef? target)
+    string? TryCoerceJoinArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
     {
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
             return coerced;
@@ -1287,8 +1297,9 @@ public sealed partial class CSharpPrinter
         // ushort/char); a differing-width join is a narrowing the printer must not
         // silently introduce, so it is left to a real Convert node in the IL.
         if (target is { } numericTarget
-            && TypeFamilies.NeedsNumericCast(EffectiveType(arm), numericTarget)
-            && TypeFamilies.SameWidth(EffectiveType(arm), numericTarget))
+            && EffectiveType(arm) is { } armType
+            && TypeFamilies.NeedsNumericCast(armType, numericTarget)
+            && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
             return arm is Constant { Value: int or long } constArm
                 ? NumericConstant(constArm, numericTarget)
                 : CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
@@ -1307,12 +1318,46 @@ public sealed partial class CSharpPrinter
             || (IsEnumLikeInteger(target)
                 && IsIntegerArm(conditional.WhenTrue)
                 && IsIntegerArm(conditional.WhenFalse))
+            || CanRenderPrimitiveConditionalForTarget(conditional, target)
             || (IsKnownReferenceLike(target)
                 && CanAssignTo(conditional.WhenTrue, target)
                 && CanAssignTo(conditional.WhenFalse, target));
 
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
+
+    bool CanRenderPrimitiveConditionalForTarget(Conditional conditional, TypeRef target)
+        => EffectiveType(conditional) is { } conditionalType
+            && TypeFamilies.IsIntegerLike(conditionalType)
+            && TypeFamilies.IsIntegerLike(target)
+            && CoercionRendering.CanSpellSlotCoercion(
+                conditionalType,
+                target,
+                _function.TypeShapes,
+                _function.EnumUnderlyingTypes)
+            && CanRenderPrimitiveJoinArm(conditional.WhenTrue, target, conditionalType)
+            && CanRenderPrimitiveJoinArm(conditional.WhenFalse, target, conditionalType);
+
+    bool CanRenderPrimitiveJoinArm(IrExpression arm, TypeRef target, TypeRef coercionSourceType)
+        => EffectiveType(arm) is { } armType
+            && (CoercionRendering.CanSpellBoolToInteger(armType, target)
+                || (TypeFamilies.IsIntegerLike(armType)
+                    && (!TypeFamilies.NeedsNumericCast(armType, target)
+                        || CanCoercePrimitiveJoinArm(armType, target, coercionSourceType))));
+
+    bool CanCoercePrimitiveJoinArm(IrExpression arm, TypeRef target)
+        => EffectiveType(arm) is { } armType
+            && CanCoercePrimitiveJoinArm(armType, target, armType);
+
+    bool CanCoercePrimitiveJoinArm(TypeRef armType, TypeRef target, TypeRef coercionSourceType)
+        => TypeFamilies.IsIntegerLike(armType)
+            && TypeFamilies.IsIntegerLike(target)
+            && CoercionRendering.CanSpellSlotCoercion(
+                armType,
+                target,
+                _function.TypeShapes,
+                _function.EnumUnderlyingTypes)
+            && SameNumericSlotWidth(coercionSourceType, target);
 
     bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
         => IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value));

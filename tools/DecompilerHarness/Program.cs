@@ -32,6 +32,7 @@ static class Program
         bool sequential = false;
         string? renderAb = null;
         string? emitRenderAb = null;
+        bool idempotenceCheck = false;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -201,6 +202,7 @@ static class Program
                 case "--sequential": sequential = true; break;
                 case "--render-ab": renderAb = args[++i]; break;
                 case "--emit-render-ab": emitRenderAb = args[++i]; break;
+                case "--idempotence-check": idempotenceCheck = true; break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -289,6 +291,9 @@ static class Program
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
+
+        if (idempotenceCheck)
+            return IdempotenceSensor.Run(assemblies, maxExamples, corpusMethodCap, workers, sequential);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1420,6 +1425,10 @@ static class Program
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --idempotence-check     run the IR pipeline twice and report methods the
+                                second run still rewrites (ordering gaps / instability);
+                                bucketed by the pass that fired. Zero is the target.
+                                A 2x-pipeline lane — for scheduled/deep runs.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL

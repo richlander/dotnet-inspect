@@ -148,6 +148,51 @@ namespace DiffFixtureSample
             return 3;
         }
 
+        // V2 wraps equivalent work in a catch region.
+        public static int TryCatchAvailability(int value)
+        {
+            MaybeThrow(value);
+            return value + 1;
+        }
+
+        // V2 wraps equivalent work in a finally region.
+        public static int FinallyAvailability(int value)
+        {
+            Sink(value);
+            return value;
+        }
+
+        // V1/V2 both have a catch region, but V2 extends the protected range.
+        public static int TryCatchRegionShape(int value)
+        {
+            try
+            {
+                MaybeThrow(value);
+            }
+            catch (System.InvalidOperationException)
+            {
+                return -1;
+            }
+
+            return value;
+        }
+
+        // V1/V2 have repeated calls where only the second occurrence changes.
+        public static int RepeatedCallOneOccurrence(int first, int second)
+        {
+            return System.Math.Abs(first) + System.Math.Abs(second);
+        }
+
+        // V1/V2 are a slot/local near-miss: raw slot identity is still surfaced.
+        public static int SlotLocalShapeNearMiss(int value)
+        {
+            int first;
+            int second;
+            Assign(out first, value + 1);
+            Assign(out second, value + 2);
+            return first + second;
+        }
+
         // V1: safe body. V2 adds a visible unsafe operation.
         public static int AddsUnsafe(int value) => value;
 
@@ -157,6 +202,14 @@ namespace DiffFixtureSample
         public static int GenericParamBody<T>(T value) => 1;
 
         static int TokenTargetA(int value) => value + 1;
+
+        static void Assign(out int target, int value) => target = value;
+
+        static void MaybeThrow(int value)
+        {
+            if (value == int.MinValue)
+                throw new System.InvalidOperationException();
+        }
 
         static void Sink(int value)
         {

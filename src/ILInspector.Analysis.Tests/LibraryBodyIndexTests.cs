@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -1043,7 +1044,7 @@ public class LibraryBodyIndexTests
     [Fact]
     public void GoogleProtobufIdentity_AuthenticatesByPublicKeyToken()
     {
-        using (var pe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(ProtobufSpoofAssemblyPath())))
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(FixtureCatalog.AnalysisProtobuf.AssemblyPath())))
             Assert.False(FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(pe.GetMetadataReader()),
                 "an unsigned same-name assembly must not be treated as the real Google.Protobuf");
 
@@ -1054,15 +1055,6 @@ public class LibraryBodyIndexTests
         using var realPe = new System.Reflection.PortableExecutable.PEReader(System.IO.File.OpenRead(realProtobuf));
         Assert.True(FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(realPe.GetMetadataReader()),
             "the real strong-named Google.Protobuf must be authentic");
-    }
-
-    static string ProtobufSpoofAssemblyPath()
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName, "..", "..", "ILInspector.Analysis.ProtobufFixtures", outputDirectory.Name, "Google.Protobuf.dll"));
-        Assert.True(File.Exists(path), $"Expected protobuf spoof fixture at {path}");
-        return path;
     }
 
     static string? FindRealGoogleProtobufAssembly()
@@ -1083,7 +1075,7 @@ public class LibraryBodyIndexTests
         // Google.Protobuf.* bootstrap-shaped types and calls them from product code. The
         // protobuf generated-bootstrap predicates require real Google.Protobuf assembly
         // identity, so the calling product type must not be classified as generated (#1580).
-        var index = LibraryBodyIndex.Open(LookalikeFixturePath());
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
         var generated = index.GeneratedFrameworkTypeNames;
 
         const string lookalikeType = "ILInspector.Analysis.LookalikeFixtures.ProtobufBootstrapLookalike";
@@ -1828,7 +1820,7 @@ public class LibraryBodyIndexTests
         // The REAL framework RenderTreeBuilder (trusted public-key-token, from
         // Microsoft.AspNetCore.App) marks a method as Razor render plumbing, so its capturing
         // delegate is suppressed (intrinsic component-model cost, not actionable).
-        var index = LibraryBodyIndex.Open(RenderFixturePath());
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisRender.AssemblyPath());
 
         Assert.DoesNotContain(index.OptimizationOpportunities, o =>
             o.Method.Name == "RenderWithDelegateLoop");
@@ -3058,7 +3050,7 @@ public class LibraryBodyIndexTests
     [Fact]
     public void FrameworkApiPredicates_IgnoreUserDefinedLookalikes()
     {
-        var index = LibraryBodyIndex.Open(LookalikeFixturePath());
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
         var signals = index.GetMethodSignals();
 
         var fakeReflection = Assert.Single(index.Methods.Where(method =>
@@ -3075,62 +3067,6 @@ public class LibraryBodyIndexTests
             && opportunity.Shape == "temporary-byte-array-copy");
     }
 
-    static string LookalikeFixturePath()
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName,
-            "..",
-            "..",
-            "ILInspector.Analysis.LookalikeFixtures",
-            outputDirectory.Name,
-            "ILInspector.Analysis.LookalikeFixtures.dll"));
-        Assert.True(File.Exists(path), $"Expected lookalike fixture assembly at {path}");
-        return path;
-    }
-
-    static string FacadeFixturePath()
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName,
-            "..",
-            "..",
-            "ILInspector.Analysis.FacadeFixtures",
-            outputDirectory.Name,
-            "ILInspector.Analysis.FacadeFixtures.dll"));
-        Assert.True(File.Exists(path), $"Expected facade fixture assembly at {path}");
-        return path;
-    }
-
-    static string SpoofFixturePath()
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName,
-            "..",
-            "..",
-            "ILInspector.Analysis.SpoofFixtures",
-            outputDirectory.Name,
-            "System.Linq.dll"));
-        Assert.True(File.Exists(path), $"Expected spoof fixture assembly at {path}");
-        return path;
-    }
-
-    static string RenderFixturePath()
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName,
-            "..",
-            "..",
-            "ILInspector.Analysis.RenderFixtures",
-            outputDirectory.Name,
-            "ILInspector.Analysis.RenderFixtures.dll"));
-        Assert.True(File.Exists(path), $"Expected render fixture assembly at {path}");
-        return path;
-    }
-
     // #1708 Row A end-to-end. A real assembly literally named "System.Linq" (unsigned,
     // so no framework public-key-token) exposes a System.Linq.Enumerable.ToArray
     // lookalike. Simple-name identity accepted it as a framework copy; strong
@@ -3139,26 +3075,12 @@ public class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_CopyApis_RejectSimpleNameSpoofWithoutFrameworkKey()
     {
-        var index = LibraryBodyIndex.Open(SpoofFixturePath());
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisSpoofSystemLinq.AssemblyPath());
         var signals = index.GetMethodSignals();
         var method = Assert.Single(index.Methods.Where(m => m.Name == "CallsFakeEnumerableToArray"));
 
         int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
         Assert.Equal(0, copies);
-    }
-
-    static string SpoofRuntimeFixturePath()
-    {
-        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName,
-            "..",
-            "..",
-            "ILInspector.Analysis.SpoofRuntimeFixtures",
-            outputDirectory.Name,
-            "System.Runtime.dll"));
-        Assert.True(File.Exists(path), $"Expected runtime spoof fixture assembly at {path}");
-        return path;
     }
 
     // #1708 Row A, span-to-array opportunity path. An assembly named "System.Runtime"
@@ -3168,7 +3090,7 @@ public class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_SpanToArray_RejectSimpleNameSpoofWithoutFrameworkKey()
     {
-        var index = LibraryBodyIndex.Open(SpoofRuntimeFixturePath());
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisSpoofSystemRuntime.AssemblyPath());
 
         Assert.DoesNotContain(index.OptimizationOpportunities, o =>
             o.Method.Name == "CallsFakeSpanToArray" && o.Shape == "span-to-array-copy");
@@ -3180,7 +3102,7 @@ public class LibraryBodyIndexTests
     [InlineData("EnumerableToListCopy")]
     public void MethodSignals_CopyApis_RecognizeLegacyFacadeAssemblies(string methodName)
     {
-        var index = LibraryBodyIndex.Open(FacadeFixturePath());
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisFacade.AssemblyPath());
         var signals = index.GetMethodSignals();
         var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
 
@@ -3191,7 +3113,7 @@ public class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_Reflection_RecognizesLegacyFacadeExpressions()
     {
-        var index = LibraryBodyIndex.Open(FacadeFixturePath());
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisFacade.AssemblyPath());
         var signals = index.GetMethodSignals();
         var method = Assert.Single(index.Methods.Where(m => m.Name == "BuildsExpression"));
 
