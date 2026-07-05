@@ -41,17 +41,31 @@ the product-vs-tool boundary.
 ## How to read a dump
 
 Each stage is a block framed by a `====` header, containing the typed IR tree at
-that point, ending with a `// fidelity:` footer. The dump opens with the tree
-**after import** (IL turned into typed nodes, nothing raised yet) and prints the
-tree again **after every pass that ran**, terminating on the raised C# — which is
-**byte-identical to the product's `Decompiled Source`**. The last stage you read
-is exactly the artifact the quality gates grade; there is no drift between what
-you inspect and what is measured.
+that point, ending with a `// fidelity:` footer. The dump opens with a
+`reading guide`, then the tree **after import** (IL turned into typed nodes,
+nothing raised yet), then the tree again **after every pass that ran**,
+terminating on the raised C# — which is **byte-identical to the product's
+`Decompiled Source`**. The last stage you read is exactly the artifact the
+quality gates grade; there is no drift between what you inspect and what is
+measured.
+
+Every stage header carries an ordinal `[k/N]`; the terminal stage is tagged
+`[N/N · FINAL raised · fidelity …]`. Only that stage and the C# section are the
+result — the earlier stages are a per-pass trace that shows pre-raise IR (async
+state machines, un-raised nodes) by design, so a node appearing in an early stage
+is not the product output.
 
 A trimmed dump of `string.IsNullOrEmpty`:
 
 ```text
-==== IR (typed tree after import) ====
+==== reading guide ====
+// Result = the raised C# section plus the FINAL IR stage "IR (after coercion-insertion)"
+// (stage N/N, fidelity Full), tagged [FINAL raised] below.
+// The earlier IR stages are a per-pass trace and show pre-raise IR by design
+// (async state machines, un-raised nodes). A node in an early stage is not the
+// product output — read the final stage, not an intermediate one.
+
+==== IR (typed tree after import) ====  [1/N]
 Function bool IsNullOrEmpty(string value)
   BlockContainer
     Block IL_0000
@@ -69,13 +83,17 @@ Function bool IsNullOrEmpty(string value)
         Constant 1 (int)
 // fidelity: Full
 
-==== IR (after typed-constants) ====
+==== IR (after typed-constants) ====  [2/N]
 ... Constant 1 (int)  becomes  Constant True (bool) ...
 // fidelity: Full
 
   ... one block per pass: identity-convert, redundant-branch-elimination,
       eh-structuring, expression-inlining, ... structuring, boolean-folding,
       is-pattern, ... (passes that change nothing still print, unchanged) ...
+
+==== IR (after coercion-insertion) ====  [N/N · FINAL raised · fidelity Full]
+... the terminal IR tree ...
+// fidelity: Full
 
 ==== C# (raised — the shipped product output) ====
 return value is null || value.Length == 0;
@@ -85,7 +103,9 @@ return value is null || value.Length == 0;
 
 1. **Read the header.** `IR (typed tree after import)` is the ground-truth
    starting point. `IR (after <pass>)` is the tree *immediately after* that named
-   pass ran. The final `C# (raised — …)` block is the shipped output.
+   pass ran. The `[N/N · FINAL raised · …]` stage and the final
+   `C# (raised — …)` block are the shipped output; the `[k/N]` ordinal tells you
+   at a glance whether a stage is intermediate.
 2. **Find the first stage that is wrong.** Scan top-down. Every stage is a valid
    snapshot, so the **first** header after which the tree (or fidelity) goes bad
    names the culprit pass. Everything upstream of it is fine by construction.

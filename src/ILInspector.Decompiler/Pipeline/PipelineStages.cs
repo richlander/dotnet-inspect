@@ -36,13 +36,50 @@ public static class StageDump
     public static string Format(IReadOnlyList<PipelineStage> stages)
     {
         var sb = new StringBuilder();
-        foreach (var stage in stages)
+        if (stages.Count == 0)
+            return sb.ToString();
+
+        AppendReadingGuide(sb, stages);
+        for (int i = 0; i < stages.Count; i++)
         {
             sb.AppendLine();
-            sb.AppendLine($"==== {Title(stage.PassName)} ====");
-            sb.Append(stage.Projection);
+            sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity));
+            sb.Append(stages[i].Projection);
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The reading guide printed before a staged dump: the per-pass IR below is a
+    /// trace, so early stages show pre-raise IR (async state machines, un-raised
+    /// nodes) by design. The result is the raised C# section and the final IR
+    /// stage — the one tagged <c>FINAL raised</c>. A node in an early stage is not
+    /// the product output; the terminal stage and the C# are (issue #2270).
+    /// </summary>
+    static void AppendReadingGuide(StringBuilder sb, IReadOnlyList<PipelineStage> stages)
+    {
+        sb.AppendLine();
+        sb.AppendLine("==== reading guide ====");
+        sb.AppendLine($"// Result = the raised C# section plus the FINAL IR stage \"{Title(stages[^1].PassName)}\"");
+        sb.AppendLine($"// (stage {stages.Count}/{stages.Count}, fidelity {stages[^1].Fidelity}), tagged [FINAL raised] below.");
+        sb.AppendLine("// The earlier IR stages are a per-pass trace and show pre-raise IR by design");
+        sb.AppendLine("// (async state machines, un-raised nodes). A node in an early stage is not the");
+        sb.AppendLine("// product output — read the final stage, not an intermediate one.");
+    }
+
+    /// <summary>
+    /// A stage boundary header carrying its ordinal <c>[k/N]</c>, and for the last
+    /// stage a <c>FINAL raised</c> tag with fidelity, so grepping a stage never
+    /// mistakes an intermediate for the result (issue #2270). The base
+    /// <c>==== {title} ====</c> is preserved verbatim; the tag follows it.
+    /// </summary>
+    static string StageHeader(string title, int index, int count, DecompilationFidelity finalFidelity, string? suffix = null)
+    {
+        string body = suffix is null ? $"==== {title} ====" : $"==== {title} {suffix} ====";
+        string tag = index == count - 1
+            ? $"[{index + 1}/{count} · FINAL raised · fidelity {finalFidelity}]"
+            : $"[{index + 1}/{count}]";
+        return $"{body}  {tag}";
     }
 
     /// <summary>
@@ -59,8 +96,9 @@ public static class StageDump
         if (stages.Count == 0)
             return sb.ToString();
 
+        AppendReadingGuide(sb, stages);
         sb.AppendLine();
-        sb.AppendLine($"==== {Title(stages[0].PassName)} ====");
+        sb.AppendLine(StageHeader(Title(stages[0].PassName), 0, stages.Count, stages[^1].Fidelity));
         sb.Append(stages[0].Projection);
 
         for (int i = 1; i < stages.Count; i++)
@@ -69,10 +107,10 @@ public static class StageDump
             sb.AppendLine();
             if (hunks.Count == 0)
             {
-                sb.AppendLine($"==== {Title(stages[i].PassName)} (no change) ====");
+                sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix: "(no change)"));
                 continue;
             }
-            sb.AppendLine($"==== {Title(stages[i].PassName)} ====");
+            sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity));
             foreach (var line in hunks)
                 sb.AppendLine(line);
         }
