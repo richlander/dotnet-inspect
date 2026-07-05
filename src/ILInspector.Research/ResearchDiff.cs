@@ -615,8 +615,8 @@ public static class ResearchDiff
                     if (!oldAvailable && !newAvailable)
                         continue;
                     var subjectAnchor = !oldAvailable ? newAnchor ?? oldAnchor : oldAnchor ?? newAnchor;
-                    var failureAnchor = !oldAvailable ? oldAnchor ?? newAnchor : newAnchor ?? oldAnchor;
-                    var failureMethod = !oldAvailable ? oldMethod : newMethod;
+                    var failureAnchor = !oldAvailable ? newAnchor ?? oldAnchor : oldAnchor ?? newAnchor;
+                    var failureMethod = !oldAvailable ? newMethod : oldMethod;
                     var activeSubject = !oldAvailable
                         ? SubjectFromMethod(newMethod, subjectAnchor)
                         : SubjectFromMethod(oldMethod, subjectAnchor);
@@ -724,19 +724,29 @@ public static class ResearchDiff
     }
 
     static MemberAnchor? AnchorForFailure(IlDiffFailureRow failure, MemberAnchor? oldAnchor, MemberAnchor? newAnchor)
-        => failure.Side switch
+        => failure.Kind switch
         {
-            "old" => oldAnchor ?? newAnchor,
-            "new" => newAnchor ?? oldAnchor,
-            _ => newAnchor ?? oldAnchor,
+            IlDiffFailureKind.OldBodyMissing => newAnchor ?? oldAnchor,
+            IlDiffFailureKind.NewBodyMissing => oldAnchor ?? newAnchor,
+            _ => failure.Side switch
+            {
+                "old" => oldAnchor ?? newAnchor,
+                "new" => newAnchor ?? oldAnchor,
+                _ => newAnchor ?? oldAnchor,
+            }
         };
 
     static MetadataMemberRef MetadataMemberRefForFailure(IlDiffFailureRow failure, MethodIdentity oldMethod, MethodIdentity newMethod)
-        => failure.Side switch
+        => failure.Kind switch
         {
-            "old" => MetadataMemberRef(oldMethod),
-            "new" => MetadataMemberRef(newMethod),
-            _ => MetadataMemberRef(newMethod),
+            IlDiffFailureKind.OldBodyMissing => MetadataMemberRef(newMethod),
+            IlDiffFailureKind.NewBodyMissing => MetadataMemberRef(oldMethod),
+            _ => failure.Side switch
+            {
+                "old" => MetadataMemberRef(oldMethod),
+                "new" => MetadataMemberRef(newMethod),
+                _ => MetadataMemberRef(newMethod),
+            }
         };
 
     static void AddCSharpDiff(
