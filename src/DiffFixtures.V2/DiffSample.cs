@@ -160,6 +160,11 @@ namespace DiffFixtureSample
             return values[0];
         }
 
+        // Generic parameter rename from V1 must not break method identity.
+        public static TElement GenericIdentity<TElement>(TElement value) => value;
+
+        public static int GenericParamBody<T>(T value) => 2;
+
         static int TokenTargetB(int value) => value + 2;
 
         static void Sink(int value)
@@ -185,5 +190,151 @@ namespace DiffFixtureSample
         {
             public int Value = 1;
         }
+    }
+
+    public static class ExtensionSample
+    {
+        public static int Twice(this int value) => value * 3;
+    }
+
+    public class ProtectedSample
+    {
+        protected int ProtectedConstant() => 2;
+    }
+
+    public class GenericOverloadSample
+    {
+        public int M() => 2;
+        public int M<T>() => 10;
+    }
+
+    public class GenericTypeAritySample<T>
+    {
+        public int M() => 2;
+    }
+
+    public class GenericTypeAritySample<T1, T2>
+    {
+        public int M() => 10;
+    }
+
+    internal class InternalSurfaceSample
+    {
+        public int PublicBody() => 2;
+
+        public class NestedPublic
+        {
+            public int PublicBody() => 2;
+        }
+    }
+
+    public class NestedGenericOuter<T>
+    {
+        public class Inner<TInner>
+        {
+            public int M() => 2;
+        }
+    }
+
+    public class NestedGenericOuter<T1, T2>
+    {
+        public class Inner<TInner>
+        {
+            public int M() => 10;
+        }
+    }
+
+    public class ConstructorSample
+    {
+        readonly int _value;
+
+        public ConstructorSample()
+        {
+            _value = 2;
+        }
+
+        public int Value => _value;
+    }
+
+    public class ConstructorRemovalSample
+    {
+        public int Value => 0;
+    }
+
+    public readonly struct ConversionSample
+    {
+        readonly int _value;
+
+        public ConversionSample(int value)
+        {
+            _value = value;
+        }
+
+        public static implicit operator int(ConversionSample value) => value._value + 2;
+
+        public static implicit operator string(ConversionSample value) => "stable";
+    }
+
+    public readonly struct OperatorSample
+    {
+        readonly int _value;
+
+        public OperatorSample(int value)
+        {
+            _value = value;
+        }
+
+        public static OperatorSample operator +(OperatorSample left, OperatorSample right)
+            => new(left._value + right._value + 2);
+    }
+
+    public readonly struct CheckedConversionSample
+    {
+        readonly int _value;
+
+        public CheckedConversionSample(int value)
+        {
+            _value = value;
+        }
+
+        public static explicit operator int(CheckedConversionSample value) => value._value;
+
+        public static explicit operator checked int(CheckedConversionSample value) => checked(value._value + 2);
+    }
+
+    public class GenericParameterCollisionSample<T>
+    {
+        public int M<U>(T value) => 1;
+
+        public int M<U>(U value) => 20;
+    }
+
+    public class MethodRemovalSample
+    {
+    }
+
+    public class BodyStateSample
+    {
+        public int BodyState() => 2;
+    }
+
+    public interface IExplicitSurface
+    {
+        int Get();
+    }
+
+    public class ExplicitSurface : IExplicitSurface
+    {
+        int IExplicitSurface.Get() => 2;
+    }
+
+    internal interface IInternalExplicitSurface
+    {
+        int Get();
+    }
+
+    public class InternalExplicitSurface : IInternalExplicitSurface
+    {
+        int IInternalExplicitSurface.Get() => 2;
     }
 }

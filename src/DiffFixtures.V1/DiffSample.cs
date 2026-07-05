@@ -151,6 +151,11 @@ namespace DiffFixtureSample
         // V1: safe body. V2 adds a visible unsafe operation.
         public static int AddsUnsafe(int value) => value;
 
+        // Generic parameter rename in V2 must not break method identity.
+        public static T GenericIdentity<T>(T value) => value;
+
+        public static int GenericParamBody<T>(T value) => 1;
+
         static int TokenTargetA(int value) => value + 1;
 
         static void Sink(int value)
@@ -176,5 +181,161 @@ namespace DiffFixtureSample
         {
             public int Value = 1;
         }
+    }
+
+    public static class ExtensionSample
+    {
+        public static int Twice(this int value) => value * 2;
+    }
+
+    public class ProtectedSample
+    {
+        protected int ProtectedConstant() => 1;
+    }
+
+    public class GenericOverloadSample
+    {
+        public int M() => 1;
+        public int M<T>() => 10;
+    }
+
+    public class GenericTypeAritySample<T>
+    {
+        public int M() => 1;
+    }
+
+    public class GenericTypeAritySample<T1, T2>
+    {
+        public int M() => 10;
+    }
+
+    internal class InternalSurfaceSample
+    {
+        public int PublicBody() => 1;
+
+        public class NestedPublic
+        {
+            public int PublicBody() => 1;
+        }
+    }
+
+    public class NestedGenericOuter<T>
+    {
+        public class Inner<TInner>
+        {
+            public int M() => 1;
+        }
+    }
+
+    public class NestedGenericOuter<T1, T2>
+    {
+        public class Inner<TInner>
+        {
+            public int M() => 10;
+        }
+    }
+
+    public class ConstructorSample
+    {
+        readonly int _value;
+
+        public ConstructorSample()
+        {
+            _value = 1;
+        }
+
+        public int Value => _value;
+    }
+
+    public class ConstructorRemovalSample
+    {
+        readonly int _value;
+
+        public ConstructorRemovalSample(int value)
+        {
+            _value = value;
+        }
+
+        public int Value => _value;
+    }
+
+    public readonly struct ConversionSample
+    {
+        readonly int _value;
+
+        public ConversionSample(int value)
+        {
+            _value = value;
+        }
+
+        public static implicit operator int(ConversionSample value) => value._value + 1;
+
+        public static implicit operator string(ConversionSample value) => "stable";
+    }
+
+    public readonly struct OperatorSample
+    {
+        readonly int _value;
+
+        public OperatorSample(int value)
+        {
+            _value = value;
+        }
+
+        public static OperatorSample operator +(OperatorSample left, OperatorSample right)
+            => new(left._value + right._value + 1);
+    }
+
+    public readonly struct CheckedConversionSample
+    {
+        readonly int _value;
+
+        public CheckedConversionSample(int value)
+        {
+            _value = value;
+        }
+
+        public static explicit operator int(CheckedConversionSample value) => value._value;
+
+        public static explicit operator checked int(CheckedConversionSample value) => checked(value._value + 1);
+    }
+
+    public class GenericParameterCollisionSample<T>
+    {
+        public int M<U>(T value) => 1;
+
+        public int M<U>(U value) => 10;
+    }
+
+    public class MethodRemovalSample
+    {
+        public int Removed() => 1;
+
+        public int Removed(int value) => value + 1;
+    }
+
+    public abstract class BodyStateSample
+    {
+        public abstract int BodyState();
+    }
+
+    public interface IExplicitSurface
+    {
+        int Get();
+    }
+
+    public class ExplicitSurface : IExplicitSurface
+    {
+        int IExplicitSurface.Get() => 1;
+    }
+
+    internal interface IInternalExplicitSurface
+    {
+        int Get();
+    }
+
+    public class InternalExplicitSurface : IInternalExplicitSurface
+    {
+        int IInternalExplicitSurface.Get() => 1;
     }
 }
