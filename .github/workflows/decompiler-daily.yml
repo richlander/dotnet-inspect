@@ -77,6 +77,27 @@ jobs:
             --corpus-fidelity-cap 3 \
             --max-examples 3
 
+      - name: Run validity predicate scan
+        shell: bash
+        run: |
+          mapfile -t assemblies < corpus-assemblies.txt
+          mkdir -p artifacts/decompiler-daily
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --validity-predicate-scan \
+            --max-examples 10 \
+            | tee artifacts/decompiler-daily/validity-predicate-scan.txt
+
+      - name: Run uncapped validity sweep
+        shell: bash
+        run: |
+          mapfile -t assemblies < corpus-assemblies.txt
+          mkdir -p artifacts/decompiler-daily
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --validity-check \
+            --compile-cap all \
+            --max-examples 10 \
+            | tee artifacts/decompiler-daily/validity-check-uncapped.txt
+
       - name: Run assertion scan coverage report
         continue-on-error: true
         shell: bash
@@ -120,7 +141,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: decompiler-corpus-snapshot
-          path: artifacts/decompiler-daily/corpus-snapshot.json
+          path: artifacts/decompiler-daily/
           if-no-files-found: warn
 
       - name: Upload assertion scan report

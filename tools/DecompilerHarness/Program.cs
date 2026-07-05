@@ -39,6 +39,7 @@ static class Program
         bool listOverloads = false;
         bool byShape = false;
         bool validityCheck = false;
+        bool validityPredicateScan = false;
         int compileCap = 4000;
         bool assertions = false;
         bool assertionScan = false;
@@ -127,7 +128,8 @@ static class Program
                 case "--sample": sampleSize = int.Parse(args[++i]); break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
                 case "--validity-check": validityCheck = true; break;
-                case "--compile-cap": compileCap = int.Parse(args[++i]); break;
+                case "--validity-predicate-scan": validityPredicateScan = true; break;
+                case "--compile-cap": compileCap = ParseCompileCap(args[++i]); break;
                 case "--emit-assertion-violations": emitAssertionViolations = args[++i]; break;
                 case "--diff-assertion-violations": diffAssertionViolations = args[++i]; break;
                 case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
@@ -251,6 +253,8 @@ static class Program
 
         if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
+        if (validityPredicateScan)
+            return ValidityPredicateScan.Run(assemblies, maxExamples, workers, sequential);
 
         if (fidelityMethodDelta is not null)
         {
@@ -1340,6 +1344,13 @@ static class Program
         return 1;
     }
 
+    static int ParseCompileCap(string value)
+        => value.Equals("all", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("unbounded", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("uncapped", StringComparison.OrdinalIgnoreCase)
+            ? int.MaxValue
+            : int.Parse(value);
+
     static void PrintUsage() => Console.WriteLine("""
         usage: decompiler-harness [assembly-or-directory ...] [options]
 
@@ -1415,7 +1426,10 @@ static class Program
                                 cross-assembly RequiresUnsafe).
           --max-examples <n>    example methods per bucket (default 5)
           --validity-check       compile every decompiled body; report invalid C#
-          --compile-cap <n>     cap semantically-bound methods (default 4000)
+          --validity-predicate-scan
+                                exhaustively count cheap IR predicates for known
+                                validity-risk classes; no compilation.
+          --compile-cap <n|all> cap semantically-bound methods (default 4000)
           --emit-assertion-violations <f>
                                 with --assertion-scan, write per-method assertion
                                 violations to JSON file <f>.

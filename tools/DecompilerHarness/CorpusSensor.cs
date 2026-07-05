@@ -916,7 +916,8 @@ internal static class CorpusSensor
     {
         var validity = snapshot.ValidityCompileCap <= 0
             ? "validity not run"
-            : $"validity sampled {Coverage(snapshot.Metrics.SemanticCheckedMethods, snapshot.Metrics.TotalMethods)}";
+            : $"validity compiled {Coverage(snapshot.Metrics.SemanticCheckedMethods, snapshot.Metrics.TotalMethods)}"
+                + $" (compile-cap {CompileCapText(snapshot.ValidityCompileCap)}; per-sample, not corpus-wide)";
         var fidelity = snapshot.FidelityCompileCap <= 0
             ? "fidelity not run"
             : $"fidelity sampled {Coverage(snapshot.Metrics.Fidelity.CheckedMethods, snapshot.Metrics.TotalMethods)}";
@@ -952,7 +953,7 @@ internal static class CorpusSensor
         => $"{Number(numerator)}/{Number(denominator)}";
 
     static string FractionWithCoverage(int numerator, int denominator, int total)
-        => $"{Fraction(numerator, denominator)} — sampled {Coverage(denominator, total)}";
+        => $"{Fraction(numerator, denominator)} — compiled {Coverage(denominator, total)}";
 
     static string FidelityWithCoverage(FidelitySensorMetrics metrics, int total)
         => $"opcode-diff {Fraction(metrics.OpcodeDiffMethods, metrics.CheckedMethods)}, exact {Number(metrics.ExactMethods)}, recompile-failed {Number(metrics.RecompileFailMethods)}, context-failed {Number(metrics.ContextFailMethods)}; sampled {Coverage(metrics.CheckedMethods, total)}";
@@ -965,6 +966,9 @@ internal static class CorpusSensor
 
     static string CapText(int? cap)
         => cap is { } value ? Number(value) : "uncapped";
+
+    static string CompileCapText(int cap)
+        => cap == int.MaxValue ? "all" : Number(cap);
 
     static string Delta(int value)
         => value > 0 ? $"+{Number(value)}" : Number(value);

@@ -87,6 +87,7 @@ static class ValidityCheck
         int partialTotal = total - fullTotal;
         int fullMalformed = results.Count(r => r.IsFull && r.IsMalformed);
         int partialMalformed = results.Count(r => !r.IsFull && r.IsMalformed);
+        int semanticEligible = results.Count(r => r.IsFull && !r.IsMalformed);
         int semChecked = results.Count(r => r.SemanticChecked);
         int semDefect = results.Count(r => r.HasSemanticDefect);
         var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -121,7 +122,7 @@ static class ValidityCheck
         }
 
         Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
-            semChecked, semDefect, defectCodes, malformedExamples, defectExamples);
+            semanticEligible, semChecked, cap, semDefect, defectCodes, malformedExamples, defectExamples);
 
         if (methodDefects is not null && emitDefectsPath is not null)
             EmitDefects(emitDefectsPath, methodDefects);
@@ -336,17 +337,20 @@ static class ValidityCheck
 
     static void Report(
         int total, int fullTotal, int partialTotal, int fullMalformed, int partialMalformed,
-        int semChecked, int semDefect, SortedDictionary<string, int> defectCodes,
+        int semanticEligible, int semChecked, int cap, int semDefect, SortedDictionary<string, int> defectCodes,
         List<string> malformedExamples, List<string> defectExamples)
     {
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
+        string capText = cap == int.MaxValue ? "all" : cap.ToString();
         Console.WriteLine($"COMPILE-CHECK over {total} rendered methods ({fullTotal} Full, {partialTotal} Partial)");
         Console.WriteLine();
         Console.WriteLine("Syntactic validity (parse + statement legality — false-positive-free):");
         Console.WriteLine($"  Full malformed   : {fullMalformed} ({Pct(fullMalformed, fullTotal)} of Full) — the \"claimed good but won't parse\" set");
         Console.WriteLine($"  Partial malformed: {partialMalformed} ({Pct(partialMalformed, partialTotal)} of Partial) — expected: the diagnosed unsupported bits");
         Console.WriteLine();
-        Console.WriteLine($"Semantic binding (Full + syntactically-valid, capped at {semChecked} bound):");
+        Console.WriteLine($"Semantic binding (Full + syntactically-valid): compiled {semChecked} of {semanticEligible} eligible methods (compile-cap {capText})");
+        if (semChecked < semanticEligible)
+            Console.WriteLine("  NOTE: semantic findings are per-sample, not corpus-wide; raise --compile-cap or use --compile-cap all for an exhaustive binding sweep.");
         Console.WriteLine($"  with a non-binding-noise error: {semDefect} ({Pct(semDefect, semChecked)})");
         if (defectCodes.Count > 0)
         {
