@@ -132,6 +132,13 @@ public sealed partial class CSharpPrinter
         // the address. The `ref (T)x` form (the by-ref argument spelling) is
         // CS1525 "Invalid expression term 'ref'" in this value position.
         Unbox u => $"(({TypeText(u.Type)}){Operand(u.Operand)})",
+        // A bare negative constant misbinds as a member-access receiver:
+        // `-1.ToString()` parses as `-(1.ToString())` (CS0023). Operand treats a
+        // Constant as an atom, so a receiver whose literal leads with a unary
+        // `-`/`+` is parenthesized here (a string/char literal receiver is fine
+        // bare, so it is left alone) — mirroring the cast receiver handling and
+        // NeedsCastOperandParentheses (#2151).
+        Constant when Operand(receiver) is [('-' or '+'), ..] literal => $"({literal})",
         _ => Operand(receiver),
     };
 

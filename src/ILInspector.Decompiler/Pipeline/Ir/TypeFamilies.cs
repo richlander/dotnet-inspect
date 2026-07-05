@@ -171,8 +171,31 @@ public static class TypeFamilies
     public static bool SameWidth(TypeRef? a, TypeRef? b) => Width(a) is { } wa && wa == Width(b);
 
     /// <summary>True for the unsigned fixed-width integer primitives (char included; nuint excluded — platform width is unknown here).</summary>
-    static bool IsUnsignedInteger(TypeRef type)
+    static bool IsUnsignedInteger(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Byte" or "UInt16" or "Char" or "UInt32" or "UInt64" };
+
+    /// <summary>
+    /// For a widening integer conversion to an unsigned <paramref name="target"/>, the
+    /// unsigned sibling of <paramref name="source"/>'s width — the cast that
+    /// zero-extends a negative constant faithfully. `conv.u8` of an int32 is
+    /// <c>(ulong)(uint)x</c> (= <c>uint.MaxValue</c> for <c>ldc.i4.m1</c>), not the
+    /// sign-extended <c>(ulong)x</c> (= <c>ulong.MaxValue</c>). Null when no
+    /// zero-extension reinterpret applies: a same-or-narrower or native-width source,
+    /// a signed or native-width target, or a non-integer (#2101).
+    /// </summary>
+    public static TypeRef? ZeroExtendingSource(TypeRef? source, TypeRef? target)
+        => IsUnsignedInteger(target)
+            && Width(source) is { } sourceWidth
+            && Width(target) is { } targetWidth
+            && sourceWidth < targetWidth
+            ? sourceWidth switch
+            {
+                1 => TypeRef.CoreLib("System", "Byte"),
+                2 => TypeRef.CoreLib("System", "UInt16"),
+                4 => TypeRef.CoreLib("System", "UInt32"),
+                _ => null,
+            }
+            : null;
 
     /// <summary>
     /// True when the C# <em>checked</em> conversion <paramref name="source"/> →
