@@ -20,6 +20,29 @@ public enum CSharpDiffKind
     Changed,
 }
 
+public enum CSharpDiffOperationKind
+{
+    Line,
+    Method,
+    MethodBody,
+    DecompileFailure,
+    BodyDiffSkipped,
+    SwitchCase,
+    ReturnExpression,
+    Invocation,
+}
+
+public sealed record CSharpDiffOperation(CSharpDiffOperationKind Kind, string Value)
+{
+    public string Display => Kind switch
+    {
+        CSharpDiffOperationKind.SwitchCase => $"case {Value}",
+        CSharpDiffOperationKind.ReturnExpression => $"return {Value}",
+        CSharpDiffOperationKind.Invocation => Value,
+        _ => Value,
+    };
+}
+
 public sealed record CSharpDiffRow(
     string AssemblyIdentity,
     string StableMemberKey,
@@ -34,7 +57,9 @@ public sealed record CSharpDiffRow(
     string Fidelity,
     string Text,
     string? OldValue = null,
-    string? NewValue = null);
+    string? NewValue = null,
+    CSharpDiffOperation? OldOperation = null,
+    CSharpDiffOperation? NewOperation = null);
 
 public sealed record CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> Rows)
 {
@@ -833,6 +858,13 @@ public static class CSharpBodyDiff
             CSharpDiffKind.Remove => $"Removed C# line '{text}'",
             _ => $"Changed C# line '{text}'",
         };
+        var operationKind = OperationKind(changeId);
+        var oldOperation = kind is CSharpDiffKind.Remove or CSharpDiffKind.Changed
+            ? new CSharpDiffOperation(operationKind, oldValue ?? text)
+            : null;
+        var newOperation = kind is CSharpDiffKind.Add or CSharpDiffKind.Changed
+            ? new CSharpDiffOperation(operationKind, newValue ?? text)
+            : null;
         return new CSharpDiffRow(
             entry.StableAssemblyKey,
             entry.StableMemberKey,
@@ -847,7 +879,28 @@ public static class CSharpBodyDiff
             fidelity,
             text,
             oldValue,
-            newValue);
+            newValue,
+            oldOperation,
+            newOperation);
+    }
+
+    static CSharpDiffOperationKind OperationKind(string changeId)
+    {
+        if (changeId.StartsWith("csharp.switch.case.", StringComparison.Ordinal))
+            return CSharpDiffOperationKind.SwitchCase;
+        if (changeId == "csharp.return-expression.changed")
+            return CSharpDiffOperationKind.ReturnExpression;
+        if (changeId == "csharp.call.changed")
+            return CSharpDiffOperationKind.Invocation;
+        if (changeId is "csharp.method.added" or "csharp.method.removed")
+            return CSharpDiffOperationKind.Method;
+        if (changeId.StartsWith("csharp.method.", StringComparison.Ordinal))
+            return CSharpDiffOperationKind.MethodBody;
+        if (changeId == "csharp.decompile.failed")
+            return CSharpDiffOperationKind.DecompileFailure;
+        if (changeId == "csharp.body-diff.skipped")
+            return CSharpDiffOperationKind.BodyDiffSkipped;
+        return CSharpDiffOperationKind.Line;
     }
 
     static void AddSemanticRows(
