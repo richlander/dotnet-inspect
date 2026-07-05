@@ -326,9 +326,36 @@ public class CoerceChokePointTests
             [],
             [bytePointer]);
 
-        Assert.Contains("byte* V_0 = null;", body);
+        Assert.Contains("byte* V_0 = (byte*)null;", body);
         Assert.DoesNotContain("(nuint)0", body);
         AssertCompiles("public static unsafe void M()", body);
+    }
+
+    [Fact]
+    public void PointerArgument_NativeZero_RendersTypedNull()
+    {
+        // Gemini review: bare null is target-typed in a local initializer, but
+        // ambiguous at overloaded pointer call sites. Keep the pointer type.
+        var holder = TypeRef.Definition("synthetic", "", "Holder");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var nativeUInt = TypeRef.CoreLib("System", "UIntPtr");
+        var consume = new MethodRef(holder, "Consume", TypeRef.CoreLib("System", "Void"), [bytePointer], HasThis: false);
+        string body = RenderBody(
+            [new ExpressionStatement(new Call(
+                consume,
+                isVirtual: false,
+                [new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: true, new Constant(0, TypeRef.CoreLib("System", "Int32")))]))],
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            []);
+
+        Assert.Contains("Consume((byte*)null);", body);
+        Assert.DoesNotContain("Consume(null)", body);
+        Assert.DoesNotContain("(nuint)0", body);
+        AssertCompiles(
+            "public static unsafe void M()",
+            body,
+            "public static unsafe class Holder { public static void Consume(byte* p) { } public static void Consume(int* p) { } }");
     }
 
     [Fact]

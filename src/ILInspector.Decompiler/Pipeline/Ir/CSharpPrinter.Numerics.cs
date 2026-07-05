@@ -1058,7 +1058,7 @@ public sealed partial class CSharpPrinter
     {
         if (target is { Kind: TypeRefKind.Pointer } && IsZeroConstant(value))
         {
-            return "null";
+            return $"({TypeText(target)})null";
         }
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
