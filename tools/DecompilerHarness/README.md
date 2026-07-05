@@ -34,7 +34,15 @@ is now measured corpus-wide rather than eyeballed from `--dump --assertions`
 exemplars (known `PrinterOwned` residuals excluded). `--emit-assertion-violations`
 persists the survivor flag (snapshot schema v2), and `--diff-assertion-violations`
 reports a dedicated **survivor delta** so a newly surviving assertion is
-distinguished from a gained-but-discharged obligation.
+distinguished from a gained-but-discharged obligation. A pass-bug method (one that
+crashed before reaching a final stage) is reported as a third `unknown (pass bug,
+no final stage)` state — its violations are neither survivors nor discharged.
+
+Regenerate baselines after upgrading to snapshot schema v2: a v1 baseline records
+the survivor flag as false everywhere, so `--diff-assertion-violations` cannot
+compare survivor sets against it. The differ skips the survivor-delta section for a
+pre-v2 baseline (a v1-baseline survivor delta is a migration artifact, not a
+regression), and the regular violation delta is unaffected.
 
 For discharged obligations the scan also reports **obligation lifetime** — the
 number of pipeline stages from accrual (first appearance) to discharge (the stage
