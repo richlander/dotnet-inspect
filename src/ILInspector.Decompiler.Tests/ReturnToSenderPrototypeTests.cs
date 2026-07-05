@@ -183,6 +183,13 @@ public class ReturnToSenderPrototypeTests
                         && requirement.SourceFacts.Any(fact => fact.Id == "closure-root"
                             && fact.Producer == "roslyn"
                             && fact.Detail.StartsWith("CS0246", StringComparison.Ordinal)));
+                    var evidence = ReturnToSenderClosureEvidenceBuilder.FromPlan(first.Plan);
+                    Assert.Equal(2, evidence.RequiredTypes);
+                    Assert.Equal(1, evidence.RoslynRecoveredTypes);
+                    Assert.Contains(evidence.Requirements, requirement =>
+                        requirement.Type == "Helper"
+                        && requirement.RoslynRecovered
+                        && requirement.Facts.Any(fact => fact.StartsWith("roslyn/closure-root: CS0246", StringComparison.Ordinal)));
                 },
                 second =>
                 {

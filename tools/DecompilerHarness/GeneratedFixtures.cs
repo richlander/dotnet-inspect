@@ -2067,6 +2067,7 @@ internal sealed record GeneratedFixtureReturnToSenderResult(
     string? Detail,
     IlDiffDisplayResult? IlDiffDiagnostic,
     MemberAnchor? MemberAnchor,
+    ReturnToSenderClosureEvidence? ClosureEvidence,
     bool IsFrontier,
     string? Note)
 {
@@ -2201,6 +2202,7 @@ internal static class GeneratedFixtureRunner
                                 : actual.Detail,
                         actual.IlDiffDiagnostic,
                         actual.MemberAnchor,
+                        ReturnToSenderClosureEvidenceBuilder.FromPlan(actual.Plan),
                         target.IsFrontier,
                         target.Note));
                 }
@@ -2236,6 +2238,7 @@ internal static class GeneratedFixtureRunner
             Detail: null,
             IlDiffDiagnostic: null,
             MemberAnchor: null,
+            ClosureEvidence: null,
             target.IsFrontier,
             target.Note);
 
@@ -2382,6 +2385,17 @@ internal static class GeneratedFixtureRunner
                 sb.AppendLine($"  {subject.SubjectId}  rts={status}  detail={subject.Detail ?? "-"}");
                 foreach (var count in subject.ChangeCounts)
                     sb.AppendLine($"      {count.ChangeId}: {count.Count}");
+                if (subject.IlEvidence.Count != 0)
+                {
+                    sb.AppendLine("      il-display:");
+                    foreach (var evidence in subject.IlEvidence)
+                    {
+                        if (evidence.Failure is { } failure)
+                            sb.AppendLine($"        {evidence.ChangeId}: {failure.UnifiedLine}");
+                        foreach (var row in evidence.Rows)
+                            sb.AppendLine($"        {evidence.ChangeId}: {row.UnifiedLine}");
+                    }
+                }
             }
         }
 
@@ -2430,6 +2444,12 @@ internal static class GeneratedFixtureRunner
                     sb.AppendLine($"      {row.DisplayMember}  rts={actual}  bucket={row.Reason}");
                     if (row.MemberAnchor is not null)
                         sb.AppendLine($"      member: {row.MemberAnchor.StableSelector}  canonical={row.MemberAnchor.CanonicalSignature}");
+                    if (row.ClosureEvidence is not null)
+                    {
+                        sb.AppendLine(
+                            $"      closure: types={row.ClosureEvidence.RequiredTypes} members={row.ClosureEvidence.RequiredMembers} " +
+                            $"roslyn-types={row.ClosureEvidence.RoslynRecoveredTypes} roslyn-member-surfaces={row.ClosureEvidence.RoslynRecoveredMemberSurfaces}");
+                    }
                     if (!string.IsNullOrWhiteSpace(row.Detail))
                         sb.AppendLine($"      detail: {row.Detail}");
                     if (row.IlDiffDiagnostic is not null)
@@ -2476,13 +2496,92 @@ internal static class GeneratedFixtureRunner
         {
             ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
             AssemblyPath = File.Exists(run.AssemblyPath) ? run.AssemblyPath : null,
-            run.Results,
-            ResearchDiff = research,
+            Results = run.Results.Select(SerializableReturnToSenderResult).ToArray(),
+            ResearchDiff = SerializableResearchDiff(research),
             ResearchSummary = ReturnToSenderEvidence.Summarize(research, int.MaxValue),
             run.Passed,
         };
         return JsonSerializer.Serialize(payload, s_jsonOptions);
     }
+
+    static object SerializableReturnToSenderResult(GeneratedFixtureReturnToSenderResult result)
+        => new
+        {
+            result.FixtureId,
+            result.Type,
+            result.Method,
+            result.Overload,
+            result.Status,
+            result.ActualStatus,
+            result.Reason,
+            result.Detail,
+            IlDiffDiagnostic = SerializableIlDiffDisplayResult(result.IlDiffDiagnostic),
+            result.MemberAnchor,
+            result.ClosureEvidence,
+            result.IsFrontier,
+            result.Note,
+            result.DisplayMember,
+        };
+
+    static object? SerializableIlDiffDisplayResult(IlDiffDisplayResult? result)
+        => result is null
+            ? null
+            : new
+            {
+                result.Failure,
+                Rows = result.Rows.IsDefault ? Array.Empty<IlDiffDisplayRow>() : result.Rows.ToArray(),
+                FailureRows = result.FailureRows.IsDefault ? Array.Empty<IlDiffDisplayFailureRow>() : result.FailureRows.ToArray(),
+                result.IsEmpty,
+            };
+
+    static object SerializableResearchDiff(ResearchDiffResult research)
+        => new
+        {
+            research.ApiDiff,
+            Subjects = research.Subjects.Select(subject => new
+            {
+                subject.Subject,
+                Evidence = subject.Evidence.Select(SerializableEvidence).ToArray(),
+            }).ToArray(),
+            Rows = research.Rows.IsDefault
+                ? Array.Empty<object>()
+                : research.Rows.Select(row => (object)new
+                {
+                    row.ChangeId,
+                    row.EvidenceKind,
+                    row.Message,
+                    row.ApiChange,
+                    row.IlRow,
+                    row.IlFailureRow,
+                    row.IlDisplayRow,
+                    row.IlDisplayFailureRow,
+                    row.BodySignalRow,
+                    row.CSharpRow,
+                }).ToArray(),
+        };
+
+    static object SerializableEvidence(ResearchDiffEvidence evidence)
+        => new
+        {
+            evidence.Mechanism,
+            evidence.ChangeId,
+            evidence.Direction,
+            evidence.OldValue,
+            evidence.NewValue,
+            evidence.Delta,
+            evidence.OldIlOffset,
+            evidence.NewIlOffset,
+            evidence.Detail,
+            evidence.Category,
+            evidence.Signal,
+            evidence.Shape,
+            evidence.Magnitude,
+            evidence.DirectionScore,
+            evidence.SubjectInBoth,
+            evidence.InLoop,
+            IlDisplayRows = evidence.IlDisplayRows.IsDefault ? Array.Empty<IlDiffDisplayRow>() : evidence.IlDisplayRows.ToArray(),
+            evidence.IlDisplayFailureRow,
+        };
 
     public static string FormatList(IReadOnlyList<GeneratedFixtureDefinition> fixtures)
     {

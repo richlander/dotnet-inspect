@@ -27,9 +27,25 @@ public sealed record CSharpDiffDisplayRow(
         : $"h{HunkId} {Marker} {Operation}";
 }
 
-public sealed record CSharpDiffDisplayResult(ImmutableArray<CSharpDiffDisplayRow> Rows)
+public sealed record CSharpDiffDisplayFailureRow(
+    string AssemblyIdentity,
+    string StableMemberKey,
+    MemberAnchor Anchor,
+    string Member,
+    CSharpDiffFailureKind Kind,
+    string Message,
+    string? Side,
+    string? Detail,
+    int? HunkId)
 {
-    public bool IsEmpty => Rows.IsDefaultOrEmpty;
+    public string UnifiedLine => $"C# diff failed: {Message}";
+}
+
+public sealed record CSharpDiffDisplayResult(
+    ImmutableArray<CSharpDiffDisplayRow> Rows,
+    ImmutableArray<CSharpDiffDisplayFailureRow> FailureRows = default)
+{
+    public bool IsEmpty => Rows.IsDefaultOrEmpty && FailureRows.IsDefaultOrEmpty;
 }
 
 /// <summary>
@@ -66,10 +82,34 @@ public static class CSharpDiffPrinter
         return [.. rows.Select(ToDisplayRow)];
     }
 
+    public static CSharpDiffDisplayFailureRow ToDisplayFailureRow(CSharpDiffFailureRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        return new CSharpDiffDisplayFailureRow(
+            row.AssemblyIdentity,
+            row.StableMemberKey,
+            row.Anchor,
+            row.Member,
+            row.Kind,
+            row.Message,
+            row.Side,
+            row.Detail,
+            row.HunkId);
+    }
+
+    public static ImmutableArray<CSharpDiffDisplayFailureRow> ToDisplayFailureRows(IEnumerable<CSharpDiffFailureRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return [.. rows.Select(ToDisplayFailureRow)];
+    }
+
     public static CSharpDiffDisplayResult ToDisplayResult(CSharpBodyDiffResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
-        return new CSharpDiffDisplayResult(ToDisplayRows(result.Rows));
+        return new CSharpDiffDisplayResult(
+            result.Rows.IsDefault ? [] : ToDisplayRows(result.Rows),
+            result.FailureRows.IsDefault ? [] : ToDisplayFailureRows(result.FailureRows));
     }
 
     public static ImmutableArray<string> ToUnifiedLines(CSharpBodyDiffResult result)
@@ -78,9 +118,13 @@ public static class CSharpDiffPrinter
     public static ImmutableArray<string> ToUnifiedLines(CSharpDiffDisplayResult display)
     {
         ArgumentNullException.ThrowIfNull(display);
-        return display.Rows.IsDefault
+        var failureRows = display.FailureRows.IsDefault
             ? []
-            : [.. display.Rows.Select(row => row.UnifiedLine)];
+            : display.FailureRows.Select(row => row.UnifiedLine);
+        var rows = display.Rows.IsDefault
+            ? []
+            : display.Rows.Select(row => row.UnifiedLine);
+        return [.. failureRows, .. rows];
     }
 
     public static string RenderUnified(CSharpBodyDiffResult result)

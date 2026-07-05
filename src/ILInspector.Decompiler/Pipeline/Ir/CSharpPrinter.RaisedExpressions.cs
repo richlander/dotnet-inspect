@@ -132,7 +132,7 @@ public sealed partial class CSharpPrinter
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
-            var text = new CSharpPrinter(function).PrintBody(function).Trim();
+            var text = new CSharpPrinter(function, _options, CurrentScopeNames()).PrintBody(function).Trim();
             return string.Join(" ", text.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
         }
         finally

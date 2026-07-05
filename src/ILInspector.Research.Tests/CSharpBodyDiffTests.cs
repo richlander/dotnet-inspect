@@ -559,6 +559,12 @@ public class CSharpBodyDiffTests
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" });
 
         var row = Assert.Single(diff.Rows);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, failure.Kind);
+        Assert.Equal("old", failure.Side);
+        Assert.Equal("Old method has no C# body.", failure.Message);
+        Assert.Equal(row.HunkId, failure.HunkId);
+        Assert.Contains("BodyStateSample", failure.Member, StringComparison.Ordinal);
         Assert.Equal(CSharpDiffKind.Add, row.Kind);
         Assert.Equal("csharp.method.body-added", row.ChangeId);
         Assert.Equal("Added C# method body.", row.Message);
@@ -578,6 +584,12 @@ public class CSharpBodyDiffTests
         var diff = CSharpBodyDiff.CompareAssemblies(v2, v1, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" });
 
         var row = Assert.Single(diff.Rows);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(CSharpDiffFailureKind.NewBodyMissing, failure.Kind);
+        Assert.Equal("new", failure.Side);
+        Assert.Equal("New method has no C# body.", failure.Message);
+        Assert.Equal(row.HunkId, failure.HunkId);
+        Assert.Contains("BodyStateSample", failure.Member, StringComparison.Ordinal);
         Assert.Equal(CSharpDiffKind.Remove, row.Kind);
         Assert.Equal("csharp.method.body-removed", row.ChangeId);
         Assert.Equal("Removed C# method body.", row.Message);
@@ -586,6 +598,25 @@ public class CSharpBodyDiffTests
         Assert.Equal("/* method body removed */", row.OldOperation?.Value);
         Assert.Null(row.NewOperation);
         Assert.Null(row.SourceCoordinate);
+    }
+
+    [Fact]
+    public void Printer_FailureRows_RenderFromStructuredFailureRows()
+    {
+        var v1 = DiffFixturePath("DiffFixtures.V1");
+        var v2 = DiffFixturePath("DiffFixtures.V2");
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" });
+
+        var failure = Assert.Single(diff.FailureRows);
+        var display = CSharpDiffPrinter.ToDisplayFailureRow(failure);
+
+        Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, display.Kind);
+        Assert.Equal("old", display.Side);
+        Assert.Equal("Old method has no C# body.", display.Message);
+        Assert.Equal(failure.Detail, display.Detail);
+        Assert.Equal("C# diff failed: Old method has no C# body.", display.UnifiedLine);
+        Assert.Contains(display.UnifiedLine, CSharpDiffPrinter.RenderUnified(diff), StringComparison.Ordinal);
     }
 
     [Fact]

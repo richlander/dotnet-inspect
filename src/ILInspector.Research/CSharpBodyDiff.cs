@@ -142,9 +142,36 @@ public sealed record CSharpDiffRow(
         => new(assemblyIdentity, Guid.Empty, 0);
 }
 
-public sealed record CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> Rows)
+public enum CSharpDiffFailureKind
 {
-    public bool IsExact => Rows.IsEmpty;
+    OldBodyMissing,
+    NewBodyMissing,
+    OldDecompileFailure,
+    NewDecompileFailure,
+    BodyDiffSkipped,
+}
+
+public sealed record CSharpDiffFailureRow(
+    string AssemblyIdentity,
+    string StableMemberKey,
+    MemberAnchor Anchor,
+    string Member,
+    CSharpDiffFailureKind Kind,
+    string Message,
+    string? Side = null,
+    string? Detail = null,
+    int? HunkId = null);
+
+public sealed record CSharpBodyDiffResult(
+    ImmutableArray<CSharpDiffRow> Rows,
+    ImmutableArray<CSharpDiffFailureRow> FailureRows = default)
+{
+    public CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> rows)
+        : this(rows, FailureRows: [])
+    {
+    }
+
+    public bool IsExact => Rows.IsEmpty && (FailureRows.IsDefaultOrEmpty);
 }
 
 /// <summary>
@@ -172,6 +199,7 @@ public static class CSharpBodyDiff
         var oldMethods = BuildMethodIndex(oldPaths, includeNonPublic, typeFilters, memberAnchorsByToken);
         var newMethods = BuildMethodIndex(newPaths, includeNonPublic, typeFilters, memberAnchorsByToken);
         var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
+        var failureRows = ImmutableArray.CreateBuilder<CSharpDiffFailureRow>();
         var sources = new SourceCache();
         int hunkId = 0;
 
@@ -197,7 +225,7 @@ public static class CSharpBodyDiff
                 if (oldMethod.BodyFingerprint == newMethod.BodyFingerprint)
                     continue;
 
-                AddLineDiffRows(rows, oldMethod, Decompile(oldMethod, sources), Decompile(newMethod, sources), ref hunkId);
+                AddLineDiffRows(rows, failureRows, oldMethod, Decompile(oldMethod, sources), Decompile(newMethod, sources), ref hunkId);
             }
         }
         finally
@@ -205,7 +233,7 @@ public static class CSharpBodyDiff
             sources.Dispose();
         }
 
-        return new CSharpBodyDiffResult(rows.ToImmutable());
+        return new CSharpBodyDiffResult(rows.ToImmutable(), failureRows.ToImmutable());
     }
 
     static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(
@@ -862,6 +890,7 @@ public static class CSharpBodyDiff
 
     static void AddLineDiffRows(
         ImmutableArray<CSharpDiffRow>.Builder rows,
+        ImmutableArray<CSharpDiffFailureRow>.Builder failureRows,
         CSharpMethodEntry entry,
         CSharpMethodRender oldRender,
         CSharpMethodRender newRender,
@@ -874,7 +903,7 @@ public static class CSharpBodyDiff
 
         if (oldRender.State != CSharpMethodRenderState.Body || newRender.State != CSharpMethodRenderState.Body)
         {
-            AddRenderStateRows(rows, entry, oldRender, newRender, ref hunkId);
+            AddRenderStateRows(rows, failureRows, entry, oldRender, newRender, ref hunkId);
             return;
         }
 
@@ -882,6 +911,13 @@ public static class CSharpBodyDiff
         {
             int hunk = hunkId++;
             string message = $"/* C# diff skipped: old body has {oldLines.Length} lines, new body has {newLines.Length} lines; limit is {MaxLcsLines} */";
+            failureRows.Add(CreateFailureRow(
+                entry,
+                CSharpDiffFailureKind.BodyDiffSkipped,
+                "Skipped C# body diff.",
+                side: null,
+                detail: $"old body has {oldLines.Length} lines, new body has {newLines.Length} lines; limit is {MaxLcsLines}",
+                hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; old body exceeds line limit.", operationKind: CSharpDiffOperationKind.BodyDiffSkipped));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; new body exceeds line limit.", operationKind: CSharpDiffOperationKind.BodyDiffSkipped));
             return;
@@ -924,6 +960,7 @@ public static class CSharpBodyDiff
 
     static void AddRenderStateRows(
         ImmutableArray<CSharpDiffRow>.Builder rows,
+        ImmutableArray<CSharpDiffFailureRow>.Builder failureRows,
         CSharpMethodEntry entry,
         CSharpMethodRender oldRender,
         CSharpMethodRender newRender,
@@ -932,29 +969,101 @@ public static class CSharpBodyDiff
         int hunk = hunkId++;
         if (oldRender.State is CSharpMethodRenderState.Body && newRender.State is CSharpMethodRenderState.NoBody)
         {
+            failureRows.Add(CreateFailureRow(
+                entry,
+                CSharpDiffFailureKind.NewBodyMissing,
+                "New method has no C# body.",
+                side: "new",
+                detail: newRender.Lines[0],
+                hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
             return;
         }
 
         if (oldRender.State is CSharpMethodRenderState.NoBody && newRender.State is CSharpMethodRenderState.Body)
         {
+            failureRows.Add(CreateFailureRow(
+                entry,
+                CSharpDiffFailureKind.OldBodyMissing,
+                "Old method has no C# body.",
+                side: "old",
+                detail: oldRender.Lines[0],
+                hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
             return;
         }
 
         if (oldRender.State is CSharpMethodRenderState.Failed)
+        {
+            failureRows.Add(CreateFailureRow(
+                entry,
+                CSharpDiffFailureKind.OldDecompileFailure,
+                "Old method body decompilation failed.",
+                side: "old",
+                detail: oldRender.Lines[0],
+                hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.decompile.failed", "Old method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
+        }
+
         if (newRender.State is CSharpMethodRenderState.Failed)
+        {
+            failureRows.Add(CreateFailureRow(
+                entry,
+                CSharpDiffFailureKind.NewDecompileFailure,
+                "New method body decompilation failed.",
+                side: "new",
+                detail: newRender.Lines[0],
+                hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.decompile.failed", "New method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
+        }
+
         if (oldRender.State is CSharpMethodRenderState.NoBody)
+        {
+            failureRows.Add(CreateFailureRow(
+                entry,
+                CSharpDiffFailureKind.OldBodyMissing,
+                "Old method has no C# body.",
+                side: "old",
+                detail: oldRender.Lines[0],
+                hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.method.no-body", "Old method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
+        }
+
         if (newRender.State is CSharpMethodRenderState.NoBody)
+        {
+            failureRows.Add(CreateFailureRow(
+                entry,
+                CSharpDiffFailureKind.NewBodyMissing,
+                "New method has no C# body.",
+                side: "new",
+                detail: newRender.Lines[0],
+                hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.method.no-body", "New method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
+        }
+
         if (oldRender.State is CSharpMethodRenderState.Body)
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
         if (newRender.State is CSharpMethodRenderState.Body)
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
     }
+
+    static CSharpDiffFailureRow CreateFailureRow(
+        CSharpMethodEntry entry,
+        CSharpDiffFailureKind kind,
+        string message,
+        string? side,
+        string? detail,
+        int hunkId)
+        => new(
+            entry.StableAssemblyKey,
+            entry.StableMemberKey,
+            entry.Anchor,
+            entry.Display,
+            kind,
+            message,
+            side,
+            detail,
+            hunkId);
 
     static CSharpDiffRow CreateRow(
         CSharpMethodEntry entry,
