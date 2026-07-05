@@ -795,8 +795,11 @@ public sealed partial class CSharpPrinter
             foreach (var parameter in nested.Parameters)
                 names.Add(parameter.Name);
         foreach (var nested in _function.Descendants.OfType<LocalFunctionStatement>())
+        {
+            names.Add(nested.Name);
             foreach (var parameter in nested.Parameters)
                 names.Add(parameter.Name);
+        }
         if (includeLocals)
         {
             for (int i = 0; i < _function.Locals.Length; i++)

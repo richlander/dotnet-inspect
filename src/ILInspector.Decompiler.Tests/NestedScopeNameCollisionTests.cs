@@ -98,6 +98,32 @@ public class NestedScopeNameCollisionTests
     }
 
     [Fact]
+    public void OuterGeneratedName_AvoidsLocalFunctionName()
+    {
+        var localFunction = new LocalFunctionStatement(
+            "S_0",
+            Void,
+            [],
+            isStatic: false,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Body(new Return(null)));
+
+        string body = RenderBody(
+            [Int32],
+            new StoreStackSlot(0, new Constant(1, Int32)),
+            new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)),
+            localFunction);
+
+        Assert.Contains("int S_0_1 = 1;", body);
+        Assert.Contains("void S_0()", body);
+        Assert.DoesNotContain("int S_0 = 1;", body);
+        AssertCompiles(body);
+    }
+
+    [Fact]
     public void DeepNestedLambda_CarriesGrandparentReservedNames()
     {
         var innerBody = Body(
