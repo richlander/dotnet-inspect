@@ -8,6 +8,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -112,7 +115,8 @@ internal static class RenderAbSensor
     static int Compare(Dictionary<string, string> baseline, Dictionary<string, string> current, int maxExamples)
     {
         int total = 0, changed = 0, added = 0, removed = 0;
-        var diffs = new List<(string Key, string Before, string After)>();
+        var byClass = new Dictionary<DiffClass, int> { [DiffClass.Structural] = 0, [DiffClass.ParenEquivalent] = 0, [DiffClass.Unparsed] = 0 };
+        var diffs = new List<(string Key, string Before, string After, DiffClass Class)>();
 
         foreach (var kvp in current)
         {
@@ -124,8 +128,10 @@ internal static class RenderAbSensor
             else if (before != kvp.Value)
             {
                 changed++;
+                var diffClass = Classify(before, kvp.Value);
+                byClass[diffClass]++;
                 if (diffs.Count < maxExamples * 10) // Collect some for examples
-                    diffs.Add((kvp.Key, before, kvp.Value));
+                    diffs.Add((kvp.Key, before, kvp.Value, diffClass));
             }
         }
 
@@ -136,7 +142,9 @@ internal static class RenderAbSensor
         }
 
         Console.WriteLine($"Render A/B Check: {total} methods evaluated");
-        Console.WriteLine($"Changed: {changed}");
+        Console.WriteLine(changed == 0
+            ? "Changed: 0"
+            : $"Changed: {changed} (structural: {byClass[DiffClass.Structural]}, paren-equivalent: {byClass[DiffClass.ParenEquivalent]}, unparsed: {byClass[DiffClass.Unparsed]})");
         Console.WriteLine($"Added:   {added}");
         Console.WriteLine($"Removed: {removed}");
 
@@ -148,11 +156,11 @@ internal static class RenderAbSensor
 
         Console.WriteLine("\n==== Selected Regressions ====");
         int printed = 0;
-        foreach (var diff in diffs)
+        foreach (var diff in diffs.OrderBy(d => d.Class))
         {
             if (printed >= maxExamples)
                 break;
-            Console.WriteLine($"\nMethod: {diff.Key}");
+            Console.WriteLine($"\nMethod: {diff.Key} [{DiffClassLabel(diff.Class)}]");
             Console.WriteLine("--- Baseline ---");
             Console.WriteLine(diff.Before);
             Console.WriteLine("--- Current ---");
@@ -161,5 +169,54 @@ internal static class RenderAbSensor
         }
 
         return 1;
+    }
+
+    /// <summary>
+    /// Diff classes for a changed render, ordered by severity — the example
+    /// printer shows structural changes first. Structural: the two sides parse
+    /// to different trees, a real spelling change. ParenEquivalent: identical
+    /// trees modulo <see cref="ParenthesizedExpressionSyntax"/> — parenthesis
+    /// placement only, the churn class the precedence model (#2376) is allowed
+    /// to produce without changing meaning. Unparsed: at least one side has
+    /// syntax errors, so no equivalence claim is made.
+    /// </summary>
+    enum DiffClass { Structural, Unparsed, ParenEquivalent }
+
+    static string DiffClassLabel(DiffClass diffClass) => diffClass switch
+    {
+        DiffClass.Structural => "structural",
+        DiffClass.ParenEquivalent => "paren-equivalent",
+        _ => "unparsed",
+    };
+
+    static DiffClass Classify(string before, string after)
+    {
+        var beforeRoot = ParseBody(before);
+        var afterRoot = ParseBody(after);
+        if (beforeRoot is null || afterRoot is null)
+            return DiffClass.Unparsed;
+        var stripper = new ParenStripper();
+        return SyntaxFactory.AreEquivalent(stripper.Visit(beforeRoot), stripper.Visit(afterRoot), topLevel: false)
+            ? DiffClass.ParenEquivalent
+            : DiffClass.Structural;
+    }
+
+    /// <summary>
+    /// Parses a rendered method body inside an async shell — `await` only
+    /// lexes as a keyword in an async context, while yield, labels, and local
+    /// functions are statement-legal anywhere. Parse-only: the gate is syntax
+    /// diagnostics, never semantics. Null when the body does not parse.
+    /// </summary>
+    static SyntaxNode? ParseBody(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText($"class C {{ async void M() {{\n{body}\n}} }}");
+        var root = tree.GetRoot();
+        return tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error) ? null : root;
+    }
+
+    sealed class ParenStripper : CSharpSyntaxRewriter
+    {
+        public override SyntaxNode? VisitParenthesizedExpression(ParenthesizedExpressionSyntax node)
+            => Visit(node.Expression);
     }
 }
