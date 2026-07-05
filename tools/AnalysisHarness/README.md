@@ -114,24 +114,32 @@ maintainer-owned upkeep: they are documented conventions, not automatic CI gates
 ## Leak triage corpus sensor (#1992)
 
 `--leak-triage` sweeps the fail-closed ArrayPool leak-triage analyzer
-(`LeakTriageAnalyzer`) over a corpus and reports where it fires:
+(`LeakTriageAnalyzer`) over a corpus and reports where it fires, as a
+[Markout](https://github.com/richlander/markout) card:
 
 ```bash
-dotnet "$DLL" --leak-triage assemblies.txt --top 5          # findings, shape histogram, examples
-dotnet "$DLL" --leak-triage assemblies.txt --json
+dotnet "$DLL" --leak-triage assemblies.txt --top 5          # Markdown card (default)
+dotnet "$DLL" --leak-triage assemblies.txt --tsv            # section-tagged TSV
+dotnet "$DLL" --leak-triage assemblies.txt --jsonl          # one heterogeneous JSON record per row
 ```
 
-It prints the total findings, the shape histogram (`arraypool-rent-not-returned`,
-`arraypool-use-after-return`, `arraypool-double-return`), and example methods per assembly
-(`--top` bounds examples). Each assembly is bounded by a per-assembly timeout.
+The card has three sections — a **Summary** (assemblies / opened / failed / timed out / total
+findings), a **By shape** histogram (`arraypool-rent-not-returned`, `arraypool-use-after-return`,
+`arraypool-double-return`), and **Findings** (assembly / shape / method, `--top` bounding examples
+per assembly). One declarative Markout model renders the dense Markdown table and decomposes into
+section-tagged TSV/JSONL. It is a single-run census with no baseline, so it uses plain sectioned
+rows, not composite/delta cells; a `--diff-baseline` mode against a committed snapshot is the
+natural home for those (`Change`/`[MarkoutDelta]`). Each assembly is bounded by a per-assembly
+timeout, and any per-assembly input failure (a directory path, a truncated PE) becomes an
+`Opened=false` row rather than crashing the sweep.
 
 This is the evidence engine that must earn any user-facing `Leak Triage` section: the analyzer
-is precision-first (it fails closed on incomplete CFG/RD, non-`Shared` pools, aliases, field
-stores, cross-method ownership, and ambiguous uses), so an **empty card on real code means
-recall — not a product section — is the next lever**. A 2026-07-05 run over CoreLib,
-`Microsoft.CodeAnalysis`, and `Microsoft.CodeAnalysis.CSharp` produced **0 findings** (all gates
-suppressed), while the fixture assembly's three known-misuse methods surfaced exactly once each.
-Wire the section only once this card shows non-zero, high-precision rows on real assemblies.
+fails closed on incomplete CFG/RD, non-`Shared` pools, aliases, field stores, cross-method
+ownership, and ambiguous uses, so an **empty card on real code means recall — not a product
+section — is the next lever**. A 2026-07-05 run over CoreLib, `Microsoft.CodeAnalysis`, and
+`Microsoft.CodeAnalysis.CSharp` produced **0 findings** (all gates suppressed), while the fixture
+assembly's three known-misuse methods surfaced exactly once each. Wire the section only once this
+card shows non-zero, high-precision rows on real assemblies.
 
 ## Allocation convergence parity
 

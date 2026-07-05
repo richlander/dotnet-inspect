@@ -1,9 +1,12 @@
-using System.Text;
-using System.Text.Json;
+using Markout;
+using Markout.Formatting;
 
 using ILInspector.Analysis;
 
 namespace ILInspector.AnalysisHarness;
+
+/// <summary>One example finding: its shape and the method it fired on.</summary>
+public sealed record LeakTriageExample(string Shape, string Method);
 
 /// <summary>Per-assembly leak-triage result: whether it opened, its finding count, and the shapes hit with a few example methods.</summary>
 public sealed record LeakTriageAssembly(
@@ -12,7 +15,7 @@ public sealed record LeakTriageAssembly(
     bool TimedOut,
     int Findings,
     IReadOnlyDictionary<string, int> Shapes,
-    IReadOnlyList<string> Examples);
+    IReadOnlyList<LeakTriageExample> Examples);
 
 /// <summary>A leak-triage corpus report: per-assembly rows plus aggregate shape totals.</summary>
 public sealed record LeakTriageReport(
@@ -20,18 +23,20 @@ public sealed record LeakTriageReport(
     IReadOnlyDictionary<string, int> TotalsByShape,
     int Total);
 
+public enum LeakTriageFormat { Markdown, Tsv, Jsonl }
+
 /// <summary>
 /// The leak-triage corpus sensor: sweeps <see cref="LeakTriageAnalyzer"/> over a fixed corpus
-/// and reports where the fail-closed ArrayPool analysis fires — total findings, the shape
+/// and reports where the fail-closed ArrayPool analysis fires - total findings, the shape
 /// histogram, and example methods per shape. This is the evidence engine that must show a
 /// non-zero, high-precision signal before any user-facing `Leak Triage` section is wired
 /// (#1992): the analyzer is precision-first, so an empty corpus card means recall, not the
-/// section, is the next lever. There is no product surface here — the harness measures.
+/// section, is the next lever. There is no product surface here - the harness measures. The
+/// card is a single-run census with no baseline, so it renders as plain sectioned rows (no
+/// composite/delta cells); a `--diff-baseline` mode is the natural home for those.
 /// </summary>
 public static class LeakTriageSensor
 {
-    static readonly JsonSerializerOptions s_json = new() { WriteIndented = true };
-
     public static LeakTriageReport Measure(IReadOnlyList<string> assemblyPaths, int perAssemblyTimeoutSeconds = 120, int examplesPerAssembly = 5)
     {
         var assemblies = new List<LeakTriageAssembly>(assemblyPaths.Count);
@@ -67,56 +72,154 @@ public static class LeakTriageSensor
         {
             var findings = LeakTriageAnalyzer.AnalyzeAssembly(path);
             var shapes = new SortedDictionary<string, int>(StringComparer.Ordinal);
-            var examples = new List<string>();
+            var examples = new List<LeakTriageExample>();
             foreach (var finding in findings)
             {
                 shapes[finding.Shape] = shapes.GetValueOrDefault(finding.Shape) + 1;
                 if (examples.Count < examplesPerAssembly)
-                    examples.Add($"{finding.Shape}  {finding.Method.DeclaringType.Name}::{finding.Method.Name}");
+                    examples.Add(new LeakTriageExample(finding.Shape, $"{finding.Method.DeclaringType.Name}::{finding.Method.Name}"));
             }
             return new LeakTriageAssembly(name, Opened: true, TimedOut: false, findings.Length, shapes, examples);
         }
-        catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or ArgumentException)
+        // This is the per-assembly boundary running on a background thread, so ANY unhandled
+        // failure would terminate the whole sweep (a corpus path that is a directory throws
+        // UnauthorizedAccessException, a truncated PE throws BadImageFormatException, etc.). A
+        // sensor over arbitrary user-supplied paths must convert every input failure into a
+        // failed row and keep sweeping.
+        catch (Exception)
         {
             return new LeakTriageAssembly(name, Opened: false, TimedOut: false, 0, new Dictionary<string, int>(), []);
         }
     }
 
-    public static string FormatCard(LeakTriageReport report, int maxExamples)
+    public static string Format(LeakTriageReport report, int maxExamples, LeakTriageFormat format)
     {
-        var sb = new StringBuilder();
-        int opened = report.Assemblies.Count(a => a.Opened);
-        int failed = report.Assemblies.Count(a => !a.Opened && !a.TimedOut);
-        int timedOut = report.Assemblies.Count(a => a.TimedOut);
-
-        sb.AppendLine($"LEAK TRIAGE CORPUS SENSOR over {report.Assemblies.Count} assemblies ({opened} opened, {failed} failed, {timedOut} timed out)");
-        sb.AppendLine($"  total findings: {report.Total}");
-        if (report.TotalsByShape.Count == 0)
+        var output = new StringWriter();
+        if (format == LeakTriageFormat.Markdown)
         {
-            sb.AppendLine("  by shape: (none — the fail-closed gates suppressed every candidate; broaden recall, not the section)");
+            MarkoutSerializer.Serialize(
+                BuildMarkdownView(report, maxExamples),
+                output,
+                new MarkdownFormatter(),
+                LeakTriageViewContext.Default,
+                new MarkoutWriterOptions());
         }
         else
         {
-            sb.AppendLine("  by shape:");
-            foreach (var (shape, count) in report.TotalsByShape.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal))
-                sb.AppendLine($"    {count,6}  {shape}");
+            MarkoutSerializer.Serialize(
+                BuildTableView(report, maxExamples),
+                output,
+                new TableFormatter(showHeader: true),
+                LeakTriageViewContext.Default,
+                format == LeakTriageFormat.Tsv
+                    ? new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv }
+                    : new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl });
         }
 
-        var withFindings = report.Assemblies.Where(a => a.Findings > 0).ToList();
-        if (withFindings.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Assemblies with findings:");
-            foreach (var assembly in withFindings.OrderByDescending(a => a.Findings))
-            {
-                sb.AppendLine($"  {assembly.Name}: {assembly.Findings}");
-                foreach (var example in assembly.Examples.Take(maxExamples))
-                    sb.AppendLine($"      {example}");
-            }
-        }
-
-        return sb.ToString();
+        string rendered = output.ToString();
+        return format == LeakTriageFormat.Jsonl
+            ? string.Join(Environment.NewLine, rendered.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries)) + Environment.NewLine
+            : rendered;
     }
 
-    public static string ToJson(LeakTriageReport report) => JsonSerializer.Serialize(report, s_json);
+    static IReadOnlyList<(string Metric, string Value)> SummaryRows(LeakTriageReport report)
+        => new (string, string)[]
+        {
+            ("assemblies", report.Assemblies.Count.ToString()),
+            ("opened", report.Assemblies.Count(a => a.Opened).ToString()),
+            ("failed", report.Assemblies.Count(a => !a.Opened && !a.TimedOut).ToString()),
+            ("timed out", report.Assemblies.Count(a => a.TimedOut).ToString()),
+            ("total findings", report.Total.ToString()),
+        };
+
+    static IReadOnlyList<(string Shape, string Count)> ShapeRows(LeakTriageReport report)
+        => [.. report.TotalsByShape
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => (kv.Key, kv.Value.ToString()))];
+
+    static IReadOnlyList<(string Assembly, string Shape, string Method)> FindingRows(LeakTriageReport report, int maxExamples)
+        => [.. report.Assemblies
+            .Where(a => a.Findings > 0)
+            .OrderByDescending(a => a.Findings)
+            .SelectMany(a => a.Examples.Take(maxExamples).Select(e => (a.Name, e.Shape, e.Method)))];
+
+    static LeakTriageCardMarkdownView BuildMarkdownView(LeakTriageReport report, int maxExamples)
+        => new()
+        {
+            Summary = [.. SummaryRows(report).Select(r => new LeakTriageMetricRow(r.Metric, r.Value))],
+            ByShape = [.. ShapeRows(report).Select(r => new LeakTriageShapeRow(r.Shape, r.Count))],
+            Findings = [.. FindingRows(report, maxExamples).Select(r => new LeakTriageFindingRow(r.Assembly, r.Shape, r.Method))],
+        };
+
+    static LeakTriageCardTableView BuildTableView(LeakTriageReport report, int maxExamples)
+        => new()
+        {
+            Summary = [.. SummaryRows(report).Select(r => new LeakTriageSectionMetricRow("Summary", r.Metric, r.Value))],
+            ByShape = [.. ShapeRows(report).Select(r => new LeakTriageSectionShapeRow("By shape", r.Shape, r.Count))],
+            Findings = [.. FindingRows(report, maxExamples).Select(r => new LeakTriageSectionFindingRow("Findings", r.Assembly, r.Shape, r.Method))],
+        };
+}
+
+[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+sealed class LeakTriageCardMarkdownView
+{
+    [MarkoutIgnore]
+    public string Title => "Leak Triage Corpus Sensor";
+
+    [MarkoutSection(Name = "Summary")]
+    public List<LeakTriageMetricRow>? Summary { get; init; }
+
+    [MarkoutSection(Name = "By shape", EmptyText = "None - the fail-closed gates suppressed every candidate; broaden recall, not the section.")]
+    public List<LeakTriageShapeRow>? ByShape { get; init; }
+
+    [MarkoutSection(Name = "Findings", EmptyText = "None")]
+    public List<LeakTriageFindingRow>? Findings { get; init; }
+}
+
+[MarkoutSerializable]
+sealed class LeakTriageCardTableView
+{
+    [MarkoutIgnore]
+    public string Title => "Leak Triage Corpus Sensor";
+
+    [MarkoutSection(Name = "Summary")]
+    public List<LeakTriageSectionMetricRow>? Summary { get; init; }
+
+    [MarkoutSection(Name = "By shape")]
+    public List<LeakTriageSectionShapeRow>? ByShape { get; init; }
+
+    [MarkoutSection(Name = "Findings")]
+    public List<LeakTriageSectionFindingRow>? Findings { get; init; }
+}
+
+[MarkoutSerializable]
+sealed record LeakTriageMetricRow(string Metric, string Count);
+
+[MarkoutSerializable]
+sealed record LeakTriageSectionMetricRow(string Section, string Metric, string Count);
+
+[MarkoutSerializable]
+sealed record LeakTriageShapeRow(string Shape, string Count);
+
+[MarkoutSerializable]
+sealed record LeakTriageSectionShapeRow(string Section, string Shape, string Count);
+
+[MarkoutSerializable]
+sealed record LeakTriageFindingRow(string Assembly, string Shape, string Method);
+
+[MarkoutSerializable]
+sealed record LeakTriageSectionFindingRow(string Section, string Assembly, string Shape, string Method);
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(LeakTriageCardMarkdownView))]
+[MarkoutContext(typeof(LeakTriageCardTableView))]
+[MarkoutContext(typeof(LeakTriageMetricRow))]
+[MarkoutContext(typeof(LeakTriageSectionMetricRow))]
+[MarkoutContext(typeof(LeakTriageShapeRow))]
+[MarkoutContext(typeof(LeakTriageSectionShapeRow))]
+[MarkoutContext(typeof(LeakTriageFindingRow))]
+[MarkoutContext(typeof(LeakTriageSectionFindingRow))]
+partial class LeakTriageViewContext : MarkoutSerializerContext
+{
 }
