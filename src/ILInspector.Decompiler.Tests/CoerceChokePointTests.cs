@@ -172,6 +172,34 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void NativeIntegerJoinArm_ReinterpretsToMergedType()
+    {
+        // #2334: nint/nuint are same platform width even though fixed-width
+        // SameWidth cannot answer that statically. The join arm still needs the
+        // reinterpret cast or C# reports CS0029.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intPtrType = TypeRef.CoreLib("System", "IntPtr");
+        var uintPtrType = TypeRef.CoreLib("System", "UIntPtr");
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "u", uintPtrType),
+            new LoadArgument(2, "i", intPtrType))
+        {
+            MergedType = uintPtrType,
+        };
+
+        string body = RenderReturn(
+            conditional,
+            uintPtrType,
+            [new Parameter("flag", boolType), new Parameter("u", uintPtrType), new Parameter("i", intPtrType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("flag ? u : (nuint)i", body);
+        Assert.DoesNotContain(": i;", body);
+        AssertCompiles("public static nuint M(bool flag, nuint u, nint i)", body);
+    }
+
+    [Fact]
     public void Conditional_WithBoolArmAtPrimitiveStoreTarget_CastsComposedBoolArm()
     {
         // Gemini review: bool remains outside the primitive conditional's
@@ -1030,6 +1058,35 @@ public class CoerceChokePointTests
         Assert.Contains("c ? l : x", body);
         Assert.DoesNotContain("(long)x", body);
         AssertCompiles("public static long M(bool c, long l, int x)", body);
+    }
+
+    [Fact]
+    public void IntBackedEnumArm_AtLongMergedType_WidensWithCast()
+    {
+        // #2337: the enum->integer join-arm branch must admit the same
+        // value-preserving I4->I8 widening that CoerceText permits. A bare enum
+        // arm at a long join is CS0029.
+        var enumType = TypeRef.Definition("synthetic", "", "IFlags");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Constant(1L, longType),
+            new LoadArgument(1, "f", enumType))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            longType,
+            [new Parameter("c", boolType), new Parameter("f", enumType)],
+            enumType,
+            underlying: intType);
+
+        Assert.Contains(": (long)f", body);
+        Assert.DoesNotContain(": f;", body);
+        AssertCompiles("public static long M(bool c, IFlags f)", body, "public enum IFlags { }");
     }
 
     // work-2302 review (both reviewers, blocking): the unchecked(...) wrapper
