@@ -1280,9 +1280,7 @@ public sealed partial class CSharpPrinter
 
     string ConditionalText(Conditional conditional, TypeRef? target)
     {
-        if (IsFalseConstant(conditional.WhenFalse)
-            && IsBooleanLike(conditional)
-            && IsBooleanLike(conditional.WhenTrue))
+        if (SpellsAsLogicalAnd(conditional))
         {
             return Condition(new LogicalBinary(
                 LogicalKind.And,
@@ -1386,6 +1384,19 @@ public sealed partial class CSharpPrinter
     static bool IsBooleanLike(IrExpression expression)
         => expression.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary };
 
+    /// <summary>
+    /// Whether <see cref="ConditionalText(Conditional, TypeRef?)"/> spells this
+    /// conditional as a short-circuit <c>&amp;&amp;</c> instead of a ternary —
+    /// the one place a Conditional NODE renders at ConditionalAnd precedence.
+    /// The fold and <see cref="RenderedCondition"/>'s classification share this
+    /// predicate so the spelling decision and its precedence report cannot
+    /// drift apart (the capability-gate discipline from #2345).
+    /// </summary>
+    static bool SpellsAsLogicalAnd(Conditional conditional)
+        => IsFalseConstant(conditional.WhenFalse)
+            && IsBooleanLike(conditional)
+            && IsBooleanLike(conditional.WhenTrue);
+
     string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
         => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
             ? charText
@@ -1430,6 +1441,9 @@ public sealed partial class CSharpPrinter
     /// of what that text actually is. A Conditional hidden behind a stale
     /// Coerce/Convert still renders as a bare ternary, so the wrapper strips
     /// for classification — the node-type blindness that cost #2345 round 5.
+    /// A Conditional the printer folds to <c>&amp;&amp;</c> (bool diamond with
+    /// a false arm, <see cref="SpellsAsLogicalAnd"/>) reports the fold's
+    /// precedence, not the node's — the text has no ternary in it.
     /// </summary>
     Rendered RenderedCondition(IrExpression value)
     {
@@ -1438,7 +1452,10 @@ public sealed partial class CSharpPrinter
             stripped = coerce.Operand;
         while (stripped is Convert { IsChecked: false } outer && TypeFamilies.IsBoolean(EffectiveType(outer.Operand)))
             stripped = outer.Operand;
-        return new Rendered(Condition(value), CSharpPrecedence.Of(stripped));
+        var precedence = stripped is Conditional folded && SpellsAsLogicalAnd(folded)
+            ? Precedence.ConditionalAnd
+            : CSharpPrecedence.Of(stripped);
+        return new Rendered(Condition(value), precedence);
     }
 
     /// <summary>

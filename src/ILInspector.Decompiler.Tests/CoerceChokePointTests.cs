@@ -203,6 +203,39 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool flag, bool b, int tick)", body);
     }
 
+    // #2376 phase-1 canary (corpus witness CommonConversion::.ctor): a bool
+    // diamond with a false arm folds to `&&` (SpellsAsLogicalAnd), so as the
+    // condition of a composed `? 1 : 0` it renders BARE — classifying the
+    // Conditional node instead of its folded spelling wrapped it,
+    // `(exists && true) ? 1 : 0`, the one churn class in the scanner
+    // retirement A/B (6 of 135k corpus methods).
+    [Fact]
+    public void FoldedLogicalCondition_OfBoolToInteger_RendersBare()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var diamond = new Conditional(
+            new LoadArgument(0, "exists", boolType),
+            new Constant(true, boolType),
+            new Constant(false, boolType))
+        {
+            MergedType = boolType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, diamond),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("exists", boolType)],
+            [intType]);
+
+        Assert.Contains("exists && true ? 1 : 0", body);
+        Assert.DoesNotContain("(exists && true)", body);
+        AssertCompiles("public static int M(bool exists)", body);
+    }
+
     // #2345 review canary (GPT-5.5, finding 1): a stale Coerce{int} over a
     // BOOL arm at an ENUM join must keep the enum/bool composition path —
     // the integer-only guard on Coerce re-targeting; preempting
