@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
+using ILInspector.Research;
 using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis;
@@ -2352,6 +2353,38 @@ internal static class GeneratedFixtureRunner
         sb.AppendLine($"  Skipped: {skippedTargets}");
         sb.AppendLine($"  Failed : {failedTargets}");
 
+        var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
+        var researchSummary = ReturnToSenderEvidence.Summarize(research, maxExamples);
+        var researchEvidence = research.Subjects.SelectMany(subject => subject.Evidence).ToArray();
+        if (researchEvidence.Length != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Research evidence:");
+            sb.AppendLine($"  Subjects : {research.Subjects.Count}");
+            sb.AppendLine($"  RTS rows : {researchEvidence.Count(row => row.Mechanism == ResearchDiffMechanism.ReturnToSender)}");
+            sb.AppendLine($"  IL rows  : {researchEvidence.Count(row => row.Mechanism == ResearchDiffMechanism.IlBody)}");
+            foreach (var group in researchEvidence
+                .GroupBy(row => row.ChangeId, StringComparer.Ordinal)
+                .OrderByDescending(group => group.Count())
+                .ThenBy(group => group.Key, StringComparer.Ordinal))
+            {
+                sb.AppendLine($"  {group.Key}: {group.Count()}");
+            }
+        }
+
+        if (researchSummary.ActionableSubjects.Count != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Actionable subjects (first {researchSummary.ActionableSubjects.Count}):");
+            foreach (var subject in researchSummary.ActionableSubjects)
+            {
+                string status = subject.CompileBackStatus ?? subject.RtsStatus ?? "unknown";
+                sb.AppendLine($"  {subject.SubjectId}  rts={status}  detail={subject.Detail ?? "-"}");
+                foreach (var count in subject.ChangeCounts)
+                    sb.AppendLine($"      {count.ChangeId}: {count.Count}");
+            }
+        }
+
         var skipBuckets = run.Results
             .Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Skip)
             .GroupBy(row => row.Reason, StringComparer.Ordinal)
@@ -2438,11 +2471,14 @@ internal static class GeneratedFixtureRunner
 
     public static string FormatReturnToSenderCatalogJson(GeneratedFixtureReturnToSenderRunResult run)
     {
+        var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
         var payload = new
         {
             ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
             AssemblyPath = File.Exists(run.AssemblyPath) ? run.AssemblyPath : null,
             run.Results,
+            ResearchDiff = research,
+            ResearchSummary = ReturnToSenderEvidence.Summarize(research, int.MaxValue),
             run.Passed,
         };
         return JsonSerializer.Serialize(payload, s_jsonOptions);

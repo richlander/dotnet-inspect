@@ -122,6 +122,70 @@ public class ResearchDiffTests
         Assert.Equal("il.operation.added", row.ChangeId);
         Assert.Equal(ilRow.Message, row.Message);
         Assert.Same(ilRow, row.IlRow);
+        Assert.NotNull(row.IlDisplayRow);
+        Assert.Equal(3, row.IlDisplayRow.HunkId);
+        Assert.Equal("+", row.IlDisplayRow.Marker);
+        Assert.Equal("IL_0000", row.IlDisplayRow.Offset);
+        Assert.Equal("ldc.i4", row.IlDisplayRow.OpcodeFamily);
+        Assert.Equal(IlOperandIdentityKind.Immediate, row.IlDisplayRow.OperandKind);
+        Assert.Equal("2", row.IlDisplayRow.OperandValue);
+        Assert.Equal("h3 + IL_0000 ldc.i4 2", row.IlDisplayRow.UnifiedLine);
+    }
+
+    [Fact]
+    public void FromIlBodyDiff_PreservesProducerFailureRow()
+    {
+        var il = IlBodyDiffResult.NewBodyMissing("metadata row absent");
+
+        var diff = ResearchDiff.FromIlBodyDiff(il);
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal("il.diff.new-body-missing", row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.IlBody, row.EvidenceKind);
+        Assert.Equal("new body missing", row.Message);
+        var failure = Assert.IsType<IlDiffFailureRow>(row.IlFailureRow);
+        Assert.Equal(IlDiffFailureKind.NewBodyMissing, failure.Kind);
+        Assert.Equal("new", failure.Side);
+        Assert.Equal("metadata row absent", failure.Detail);
+        Assert.NotNull(row.IlDisplayFailureRow);
+        Assert.Equal(IlDiffFailureKind.NewBodyMissing, row.IlDisplayFailureRow.Kind);
+        Assert.Equal("new body missing", row.IlDisplayFailureRow.Message);
+        Assert.Equal("new", row.IlDisplayFailureRow.Side);
+        Assert.Equal("metadata row absent", row.IlDisplayFailureRow.Detail);
+        Assert.Equal("IL diff failed: new body missing", row.IlDisplayFailureRow.UnifiedLine);
+    }
+
+    [Fact]
+    public void FromIlBodyDiff_PreservesFailureAndPartialOperationRows()
+    {
+        var operation = new CanonicalIlOperation(
+            Offset: 0,
+            OpcodeFamily: "nop",
+            Operand: null);
+        var ilRow = new IlDiffRow(0, IlDiffKind.Remove, operation, "Removed IL operation 'nop'");
+        var il = IlBodyDiffResult.UnsupportedBoundary(
+            "unsupported canonicalization boundary",
+            [ilRow],
+            detail: "slot identity");
+
+        var diff = ResearchDiff.FromIlBodyDiff(il);
+
+        Assert.Collection(
+            diff.Rows,
+            failure =>
+            {
+                Assert.Equal("il.diff.unsupported-boundary", failure.ChangeId);
+                Assert.NotNull(failure.IlFailureRow);
+                Assert.Null(failure.IlRow);
+            },
+            operationRow =>
+            {
+                Assert.Equal("il.operation.removed", operationRow.ChangeId);
+                Assert.Same(ilRow, operationRow.IlRow);
+                Assert.NotNull(operationRow.IlDisplayRow);
+                Assert.Equal("h0 - IL_0000 nop", operationRow.IlDisplayRow.UnifiedLine);
+                Assert.Null(operationRow.IlFailureRow);
+            });
     }
 
     [Fact]
@@ -222,6 +286,18 @@ public class ResearchDiffTests
             && member.HasChange("il.hunk.changed"));
         Assert.DoesNotContain(changedMembers, member =>
             member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
+
+        var constantValue = Assert.Single(changedMembers, member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal));
+        var ilEvidence = Assert.Single(constantValue.Evidence, evidence => evidence.ChangeId == "il.hunk.changed");
+        Assert.NotEmpty(ilEvidence.IlDisplayRows);
+        Assert.Contains(ilEvidence.IlDisplayRows, row =>
+            row.Kind == IlDiffKind.Remove
+            && row.Marker == "-"
+            && row.OpcodeFamily == "ldc.i4"
+            && row.OperandKind == IlOperandIdentityKind.Immediate
+            && row.OperandValue == "1"
+            && row.UnifiedLine.Contains("ldc.i4 1", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -1,6 +1,8 @@
 using DotnetInspector.Fixtures;
 using ILInspector.Instructions;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Analysis.Tests;
@@ -219,6 +221,159 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_MethodReferenceVarargSentinelChange_ReportsOperandChange()
+    {
+        var oldImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddVoidMethodSignature(
+                    metadata,
+                    SignatureCallingConvention.Default,
+                    parameterCount: 2,
+                    encodeParameters: parameters =>
+                    {
+                        parameters.AddParameter().Type().Int32();
+                        parameters.AddParameter().Type().Int32();
+                    })));
+        var newImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddVoidMethodSignature(
+                    metadata,
+                    SignatureCallingConvention.VarArgs,
+                    parameterCount: 2,
+                    encodeParameters: parameters =>
+                    {
+                        parameters.AddParameter().Type().Int32();
+                        var varargs = parameters.StartVarArgs();
+                        varargs.AddParameter().Type().Int32();
+                    })));
+
+        var diff = SyntheticEntryDiff(oldImage, newImage);
+
+        var removed = SingleTokenOperand(diff, IlDiffKind.Remove, "call", "::M(");
+        var added = SingleTokenOperand(diff, IlDiffKind.Add, "call", "::M(");
+        Assert.DoesNotContain("vararg", removed.Value, StringComparison.Ordinal);
+        Assert.Contains("(int32, int32)", removed.Value, StringComparison.Ordinal);
+        Assert.Contains("vararg void", added.Value, StringComparison.Ordinal);
+        Assert.Contains("(int32, ..., int32)", added.Value, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compare_MethodReferenceVarargSentinelSplitChange_ReportsOperandChange()
+    {
+        var oldImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddVoidMethodSignature(
+                    metadata,
+                    SignatureCallingConvention.VarArgs,
+                    parameterCount: 2,
+                    encodeParameters: parameters =>
+                    {
+                        parameters.AddParameter().Type().Int32();
+                        var varargs = parameters.StartVarArgs();
+                        varargs.AddParameter().Type().Int32();
+                    })));
+        var newImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddVoidMethodSignature(
+                    metadata,
+                    SignatureCallingConvention.VarArgs,
+                    parameterCount: 2,
+                    encodeParameters: parameters =>
+                    {
+                        parameters.AddParameter().Type().Int32();
+                        parameters.AddParameter().Type().Int32();
+                        _ = parameters.StartVarArgs();
+                    })));
+
+        var diff = SyntheticEntryDiff(oldImage, newImage);
+
+        _ = SingleTokenOperand(diff, IlDiffKind.Remove, "call", "(int32, ..., int32)");
+        _ = SingleTokenOperand(diff, IlDiffKind.Add, "call", "(int32, int32, ...)");
+    }
+
+    [Fact]
+    public void Compare_FunctionPointerCallingConventionChange_ReportsOperandChange()
+    {
+        var oldImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddFunctionPointerParameterSignature(metadata, SignatureCallingConvention.CDecl)));
+        var newImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddFunctionPointerParameterSignature(metadata, SignatureCallingConvention.StdCall)));
+
+        var diff = SyntheticEntryDiff(oldImage, newImage);
+
+        _ = SingleTokenOperand(diff, IlDiffKind.Remove, "call", "method unmanaged[Cdecl] void *()");
+        _ = SingleTokenOperand(diff, IlDiffKind.Add, "call", "method unmanaged[Stdcall] void *()");
+    }
+
+    [Fact]
+    public void Compare_FunctionPointerUnmanagedModifierConventionChange_ReportsOperandChange()
+    {
+        var oldImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddUnmanagedFunctionPointerParameterSignature(metadata, "CallConvCdecl")));
+        var newImage = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, parentType) => metadata.AddMemberReference(
+                parentType,
+                metadata.GetOrAddString("M"),
+                AddUnmanagedFunctionPointerParameterSignature(metadata, "CallConvStdcall")));
+
+        var diff = SyntheticEntryDiff(oldImage, newImage);
+
+        var removed = SingleTokenOperand(diff, IlDiffKind.Remove, "call", "CallConvCdecl");
+        var added = SingleTokenOperand(diff, IlDiffKind.Add, "call", "CallConvStdcall");
+        Assert.Contains("method unmanaged", removed.Value, StringComparison.Ordinal);
+        Assert.Contains("method unmanaged", added.Value, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compare_MethodTokenGenericArityChange_ReportsOperandChange()
+    {
+        var oldImage = BuildGenericMethodTokenImage(genericArity: 1);
+        var newImage = BuildGenericMethodTokenImage(genericArity: 2);
+
+        var diff = SyntheticEntryDiff(oldImage, newImage);
+
+        _ = SingleTokenOperand(diff, IlDiffKind.Remove, "ldtoken", "::M`1(");
+        _ = SingleTokenOperand(diff, IlDiffKind.Add, "ldtoken", "::M`2(");
+    }
+
+    [Fact]
+    public void Compare_AssemblyReferenceVersionChange_ReportsOperandChange()
+    {
+        var oldImage = BuildAssemblyReferenceCallImage(new Version(1, 0, 0, 0));
+        var newImage = BuildAssemblyReferenceCallImage(new Version(2, 0, 0, 0));
+
+        var diff = SyntheticEntryDiff(oldImage, newImage);
+
+        _ = SingleTokenOperand(diff, IlDiffKind.Remove, "call", "[Dep, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]N.T::M(");
+        _ = SingleTokenOperand(diff, IlDiffKind.Add, "call", "[Dep, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null]N.T::M(");
+    }
+
+    [Fact]
     public void Compare_CompiledFixtureSwitchRetarget_ReportsChangedSwitch()
     {
         var diff = DiffFixtureDiff("SwitchRetarget");
@@ -348,6 +503,10 @@ public class IlBodyDiffTests
         Assert.False(diff.IsExact);
         Assert.NotNull(diff.Failure);
         Assert.Contains("requires a MetadataReader-backed comparison", diff.Failure, StringComparison.Ordinal);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.TokenResolutionFailure, failure.Kind);
+        Assert.Equal("old", failure.Side);
+        Assert.Contains("requires a MetadataReader-backed comparison", failure.Message, StringComparison.Ordinal);
         Assert.Empty(diff.Rows);
     }
 
@@ -451,6 +610,9 @@ public class IlBodyDiffTests
 
         Assert.False(diff.IsExact);
         Assert.NotNull(diff.Failure);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.DecodeFailure, failure.Kind);
+        Assert.Equal("old", failure.Side);
     }
 
     static bool IsBranchRow(IlDiffRow row)
@@ -549,6 +711,206 @@ public class IlBodyDiffTests
         }
 
         throw new InvalidOperationException($"Could not find method '{name}'.");
+    }
+
+    enum SyntheticTokenInstruction
+    {
+        Call,
+        LdToken,
+    }
+
+    static byte[] BuildGenericMethodTokenImage(int genericArity)
+        => BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.LdToken,
+            (metadata, _) =>
+            {
+                var target = metadata.AddMethodDefinition(
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("M"),
+                    AddVoidMethodSignature(metadata, SignatureCallingConvention.Default, genericParameterCount: genericArity),
+                    bodyOffset: 0,
+                    parameterList: MetadataTokens.ParameterHandle(1));
+                for (int i = 0; i < genericArity; i++)
+                {
+                    metadata.AddGenericParameter(
+                        target,
+                        GenericParameterAttributes.None,
+                        metadata.GetOrAddString($"T{i}"),
+                        i);
+                }
+
+                return target;
+            });
+
+    static byte[] BuildAssemblyReferenceCallImage(Version dependencyVersion)
+        => BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.Call,
+            (metadata, _) =>
+            {
+                var dependency = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Dep"),
+                    dependencyVersion,
+                    culture: default,
+                    publicKeyOrToken: default,
+                    flags: default,
+                    hashValue: default);
+                var type = metadata.AddTypeReference(
+                    dependency,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("T"));
+                return metadata.AddMemberReference(
+                    type,
+                    metadata.GetOrAddString("M"),
+                    AddVoidMethodSignature(metadata));
+            });
+
+    static byte[] BuildSyntheticEntryImage(
+        SyntheticTokenInstruction tokenInstruction,
+        Func<MetadataBuilder, TypeDefinitionHandle, EntityHandle> addToken)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Synthetic.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        var type = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var token = addToken(metadata, type);
+
+        var il = new BlobBuilder();
+        var instructions = new InstructionEncoder(il, new ControlFlowBuilder());
+        switch (tokenInstruction)
+        {
+            case SyntheticTokenInstruction.Call:
+                instructions.Call(token);
+                instructions.OpCode(ILOpCode.Ret);
+                break;
+            case SyntheticTokenInstruction.LdToken:
+                instructions.OpCode(ILOpCode.Ldtoken);
+                instructions.Token(token);
+                instructions.OpCode(ILOpCode.Pop);
+                instructions.OpCode(ILOpCode.Ret);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(tokenInstruction), tokenInstruction, null);
+        }
+
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int entryBodyOffset = bodyEncoder.AddMethodBody(instructions, maxStack: 8);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Entry"),
+            AddVoidMethodSignature(metadata),
+            entryBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static BlobHandle AddFunctionPointerParameterSignature(
+        MetadataBuilder metadata,
+        SignatureCallingConvention functionPointerConvention)
+        => AddVoidMethodSignature(
+            metadata,
+            SignatureCallingConvention.Default,
+            parameterCount: 1,
+            encodeParameters: parameters =>
+            {
+                var pointer = parameters
+                    .AddParameter()
+                    .Type()
+                    .FunctionPointer(functionPointerConvention, FunctionPointerAttributes.None);
+                pointer.Parameters(0, returnType => returnType.Void(), _ => { });
+            });
+
+    static BlobHandle AddUnmanagedFunctionPointerParameterSignature(
+        MetadataBuilder metadata,
+        string callConvTypeName)
+        => AddVoidMethodSignature(
+            metadata,
+            SignatureCallingConvention.Default,
+            parameterCount: 1,
+            encodeParameters: parameters =>
+            {
+                var systemRuntime = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("System.Runtime"),
+                    new Version(11, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: default,
+                    flags: default,
+                    hashValue: default);
+                var modifier = metadata.AddTypeReference(
+                    systemRuntime,
+                    metadata.GetOrAddString("System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString(callConvTypeName));
+                var pointer = parameters
+                    .AddParameter()
+                    .Type()
+                    .FunctionPointer(SignatureCallingConvention.Unmanaged, FunctionPointerAttributes.None);
+                pointer.Parameters(
+                    0,
+                    returnType =>
+                    {
+                        returnType.CustomModifiers().AddModifier(modifier, isOptional: true);
+                        returnType.Void();
+                    },
+                    _ => { });
+            });
+
+    static BlobHandle AddVoidMethodSignature(
+        MetadataBuilder metadata,
+        SignatureCallingConvention convention = SignatureCallingConvention.Default,
+        int genericParameterCount = 0,
+        int parameterCount = 0,
+        Action<ParametersEncoder>? encodeParameters = null)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(convention, genericParameterCount, isInstanceMethod: false)
+            .Parameters(
+                parameterCount,
+                returnType => returnType.Void(),
+                parameters => encodeParameters?.Invoke(parameters));
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static IlBodyDiffResult SyntheticEntryDiff(byte[] oldImage, byte[] newImage)
+    {
+        using var oldStream = new MemoryStream(oldImage);
+        using var newStream = new MemoryStream(newImage);
+        using var oldPe = new PEReader(oldStream);
+        using var newPe = new PEReader(newStream);
+        var oldReader = oldPe.GetMetadataReader();
+        var newReader = newPe.GetMetadataReader();
+        return IlBodyDiff.Compare(
+            oldReader,
+            DiffFixtureMethodBody(oldPe, oldReader, "Entry"),
+            newReader,
+            DiffFixtureMethodBody(newPe, newReader, "Entry"));
     }
 
 }

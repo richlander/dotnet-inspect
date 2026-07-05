@@ -105,13 +105,13 @@ static IlDiffCard BuildCard(
     {
         if (!oldMethods.TryGetValue(key, out var oldHandle))
         {
-            Increment(failures, "old body missing");
+            IncrementFailure(failures, IlBodyDiffResult.OldBodyMissing());
             continue;
         }
 
         if (!newMethods.TryGetValue(key, out var newHandle))
         {
-            Increment(failures, "new body missing");
+            IncrementFailure(failures, IlBodyDiffResult.NewBodyMissing());
             continue;
         }
 
@@ -121,12 +121,12 @@ static IlDiffCard BuildCard(
             continue;
         if (oldMethod.RelativeVirtualAddress == 0)
         {
-            Increment(failures, "old body missing");
+            IncrementFailure(failures, IlBodyDiffResult.OldBodyMissing("method has no body"));
             continue;
         }
         if (newMethod.RelativeVirtualAddress == 0)
         {
-            Increment(failures, "new body missing");
+            IncrementFailure(failures, IlBodyDiffResult.NewBodyMissing("method has no body"));
             continue;
         }
 
@@ -148,12 +148,14 @@ static IlDiffCard BuildCard(
         if (self.IsExact)
             selfDiffExact++;
         else
-            Increment(failures, self.Failure ?? "self-diff not exact");
+            IncrementFailure(failures, self.FailureRows.IsDefaultOrEmpty
+                ? IlBodyDiffResult.UnsupportedBoundary(self.Failure ?? "self-diff not exact")
+                : self);
 
         var diff = IlBodyDiff.Compare(oldReader, oldBody, newReader, newBody);
-        if (diff.Failure is { Length: > 0 } failure)
+        if (!diff.FailureRows.IsDefaultOrEmpty || diff.Failure is { Length: > 0 })
         {
-            Increment(failures, failure);
+            IncrementFailure(failures, diff);
             continue;
         }
 
@@ -230,6 +232,18 @@ static ImmutableArray<CardBucket> Top(Dictionary<string, int> counts)
 
 static void Increment(Dictionary<string, int> counts, string key)
     => counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
+
+static void IncrementFailure(Dictionary<string, int> counts, IlBodyDiffResult result)
+{
+    if (!result.FailureRows.IsDefaultOrEmpty)
+    {
+        foreach (var failure in result.FailureRows)
+            Increment(counts, failure.Message);
+        return;
+    }
+
+    Increment(counts, result.Failure ?? "unknown failure");
+}
 
 static string FormatCard(string oldName, string newName, IlDiffCard card)
 {

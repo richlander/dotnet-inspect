@@ -20,6 +20,29 @@ public enum CSharpDiffKind
     Changed,
 }
 
+public enum CSharpDiffOperationKind
+{
+    Line,
+    Method,
+    MethodBody,
+    DecompileFailure,
+    BodyDiffSkipped,
+    SwitchCase,
+    ReturnExpression,
+    Invocation,
+}
+
+public sealed record CSharpDiffOperation(CSharpDiffOperationKind Kind, string Value)
+{
+    public string Display => Kind switch
+    {
+        CSharpDiffOperationKind.SwitchCase => $"case {Value}",
+        CSharpDiffOperationKind.ReturnExpression => $"return {Value}",
+        CSharpDiffOperationKind.Invocation => Value,
+        _ => Value,
+    };
+}
+
 public sealed record CSharpDiffRow(
     string AssemblyIdentity,
     string StableMemberKey,
@@ -34,7 +57,78 @@ public sealed record CSharpDiffRow(
     string Fidelity,
     string Text,
     string? OldValue = null,
-    string? NewValue = null);
+    string? NewValue = null,
+    CSharpDiffOperation? OldOperation = null,
+    CSharpDiffOperation? NewOperation = null)
+{
+    public CSharpDiffRow(
+        string assemblyIdentity,
+        string stableMemberKey,
+        MemberAnchor anchor,
+        string member,
+        string changeId,
+        string message,
+        int hunkId,
+        CSharpDiffKind kind,
+        int? line,
+        string? sourceCoordinate,
+        string fidelity,
+        string text)
+        : this(
+            assemblyIdentity,
+            stableMemberKey,
+            anchor,
+            member,
+            changeId,
+            message,
+            hunkId,
+            kind,
+            line,
+            sourceCoordinate,
+            fidelity,
+            text,
+            OldValue: null,
+            NewValue: null,
+            OldOperation: null,
+            NewOperation: null)
+    {
+    }
+
+    public CSharpDiffRow(
+        string assemblyIdentity,
+        string stableMemberKey,
+        MemberAnchor anchor,
+        string member,
+        string changeId,
+        string message,
+        int hunkId,
+        CSharpDiffKind kind,
+        int? line,
+        string? sourceCoordinate,
+        string fidelity,
+        string text,
+        string? oldValue,
+        string? newValue)
+        : this(
+            assemblyIdentity,
+            stableMemberKey,
+            anchor,
+            member,
+            changeId,
+            message,
+            hunkId,
+            kind,
+            line,
+            sourceCoordinate,
+            fidelity,
+            text,
+            oldValue,
+            newValue,
+            OldOperation: null,
+            NewOperation: null)
+    {
+    }
+}
 
 public sealed record CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> Rows)
 {
@@ -699,7 +793,7 @@ public static class CSharpBodyDiff
         string text = kind == CSharpDiffKind.Add ? "/* method added */" : "/* method removed */";
         string changeId = kind == CSharpDiffKind.Add ? "csharp.method.added" : "csharp.method.removed";
         string message = kind == CSharpDiffKind.Add ? "Added C# method." : "Removed C# method.";
-        rows.Add(CreateRow(entry, hunk, kind, null, "NotRun", text, changeId, message));
+        rows.Add(CreateRow(entry, hunk, kind, null, "NotRun", text, changeId, message, operationKind: CSharpDiffOperationKind.Method));
     }
 
     static void AddLineDiffRows(
@@ -724,8 +818,8 @@ public static class CSharpBodyDiff
         {
             int hunk = hunkId++;
             string message = $"/* C# diff skipped: old body has {oldLines.Length} lines, new body has {newLines.Length} lines; limit is {MaxLcsLines} */";
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; old body exceeds line limit."));
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; new body exceeds line limit."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; old body exceeds line limit.", operationKind: CSharpDiffOperationKind.BodyDiffSkipped));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; new body exceeds line limit.", operationKind: CSharpDiffOperationKind.BodyDiffSkipped));
             return;
         }
 
@@ -774,28 +868,28 @@ public static class CSharpBodyDiff
         int hunk = hunkId++;
         if (oldRender.State is CSharpMethodRenderState.Body && newRender.State is CSharpMethodRenderState.NoBody)
         {
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
             return;
         }
 
         if (oldRender.State is CSharpMethodRenderState.NoBody && newRender.State is CSharpMethodRenderState.Body)
         {
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
             return;
         }
 
         if (oldRender.State is CSharpMethodRenderState.Failed)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.decompile.failed", "Old method body decompilation failed."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.decompile.failed", "Old method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
         if (newRender.State is CSharpMethodRenderState.Failed)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.decompile.failed", "New method body decompilation failed."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.decompile.failed", "New method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
         if (oldRender.State is CSharpMethodRenderState.NoBody)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.method.no-body", "Old method has no C# body."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.method.no-body", "Old method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
         if (newRender.State is CSharpMethodRenderState.NoBody)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.method.no-body", "New method has no C# body."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.method.no-body", "New method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
         if (oldRender.State is CSharpMethodRenderState.Body)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
         if (newRender.State is CSharpMethodRenderState.Body)
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body."));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
     }
 
     static CSharpDiffRow CreateRow(
@@ -806,8 +900,9 @@ public static class CSharpBodyDiff
         string fidelity,
         string text,
         string? changeId = null,
-        string? message = null)
-        => CreateRow(entry, hunk, kind, line, fidelity, text, changeId, message, oldValue: null, newValue: null);
+        string? message = null,
+        CSharpDiffOperationKind operationKind = CSharpDiffOperationKind.Line)
+        => CreateRow(entry, hunk, kind, line, fidelity, text, changeId, message, oldValue: null, newValue: null, operationKind);
 
     static CSharpDiffRow CreateRow(
         CSharpMethodEntry entry,
@@ -819,7 +914,8 @@ public static class CSharpBodyDiff
         string? changeId,
         string? message,
         string? oldValue,
-        string? newValue)
+        string? newValue,
+        CSharpDiffOperationKind operationKind = CSharpDiffOperationKind.Line)
     {
         changeId ??= kind switch
         {
@@ -833,6 +929,12 @@ public static class CSharpBodyDiff
             CSharpDiffKind.Remove => $"Removed C# line '{text}'",
             _ => $"Changed C# line '{text}'",
         };
+        var oldOperation = kind is CSharpDiffKind.Remove or CSharpDiffKind.Changed
+            ? new CSharpDiffOperation(operationKind, oldValue ?? text)
+            : null;
+        var newOperation = kind is CSharpDiffKind.Add or CSharpDiffKind.Changed
+            ? new CSharpDiffOperation(operationKind, newValue ?? text)
+            : null;
         return new CSharpDiffRow(
             entry.StableAssemblyKey,
             entry.StableMemberKey,
@@ -847,7 +949,9 @@ public static class CSharpBodyDiff
             fidelity,
             text,
             oldValue,
-            newValue);
+            newValue,
+            oldOperation,
+            newOperation);
     }
 
     static void AddSemanticRows(
@@ -878,7 +982,8 @@ public static class CSharpBodyDiff
                     "csharp.switch.case.removed",
                     $"Removed switch case '{label}'",
                     oldValue: label,
-                    newValue: null));
+                    newValue: null,
+                    operationKind: CSharpDiffOperationKind.SwitchCase));
             }
         }
 
@@ -896,7 +1001,8 @@ public static class CSharpBodyDiff
                     "csharp.switch.case.added",
                     $"Added switch case '{label}'",
                     oldValue: null,
-                    newValue: label));
+                    newValue: label,
+                    operationKind: CSharpDiffOperationKind.SwitchCase));
             }
         }
 
@@ -911,6 +1017,7 @@ public static class CSharpBodyDiff
             newStart,
             newEnd,
             TryParseReturnExpression,
+            CSharpDiffOperationKind.ReturnExpression,
             "csharp.return-expression.changed",
             static (oldValue, newValue) => $"Changed return expression from '{oldValue}' to '{newValue}'");
 
@@ -925,6 +1032,7 @@ public static class CSharpBodyDiff
             newStart,
             newEnd,
             TryParseCallExpression,
+            CSharpDiffOperationKind.Invocation,
             "csharp.call.changed",
             static (oldValue, newValue) => $"Changed call from '{oldValue}' to '{newValue}'");
     }
@@ -942,6 +1050,7 @@ public static class CSharpBodyDiff
         int newStart,
         int newEnd,
         TryParseLine parser,
+        CSharpDiffOperationKind operationKind,
         string changeId,
         Func<string, string, string> messageFactory)
     {
@@ -967,7 +1076,8 @@ public static class CSharpBodyDiff
                 changeId,
                 messageFactory(oldValue.Value, newValue.Value),
                 oldValue.Value,
-                newValue.Value));
+                newValue.Value,
+                operationKind));
         }
     }
 

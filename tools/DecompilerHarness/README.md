@@ -144,6 +144,9 @@ machine-readable list/results, and
 The `rts.*` fixtures are focused ReturnToSender parity-burndown probes; for
 example `rts.attribute-shell` protects attribute type shells that must preserve a
 spellable `System.Attribute` base before attribute usages can compile.
+Use `--return-to-sender-fixtures rts.candidates` with `--return-to-sender`,
+`--return-to-sender-ab`, or `--return-to-sender-source-probe` to add built
+fixture assemblies from `FixtureCatalog` as inputs without generating source.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape

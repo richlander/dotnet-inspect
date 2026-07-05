@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -36,10 +37,42 @@ public sealed record IlDiffRow(
     CanonicalIlOperation Operation,
     string Message);
 
+public enum IlDiffFailureKind
+{
+    OldBodyMissing,
+    NewBodyMissing,
+    DecodeFailure,
+    TokenResolutionFailure,
+    UnsupportedBoundary,
+}
+
+public sealed record IlDiffFailureRow(
+    IlDiffFailureKind Kind,
+    string Message,
+    string? Side = null,
+    string? Detail = null);
+
 public sealed record IlBodyDiffResult(
     bool IsExact,
     string? Failure,
-    ImmutableArray<IlDiffRow> Rows);
+    ImmutableArray<IlDiffRow> Rows,
+    ImmutableArray<IlDiffFailureRow> FailureRows = default)
+{
+    public static IlBodyDiffResult OldBodyMissing(string? detail = null)
+        => Failed(IlDiffFailureKind.OldBodyMissing, "old body missing", side: "old", detail);
+
+    public static IlBodyDiffResult NewBodyMissing(string? detail = null)
+        => Failed(IlDiffFailureKind.NewBodyMissing, "new body missing", side: "new", detail);
+
+    public static IlBodyDiffResult UnsupportedBoundary(string message, string? detail = null)
+        => Failed(IlDiffFailureKind.UnsupportedBoundary, message, side: null, detail);
+
+    public static IlBodyDiffResult UnsupportedBoundary(string message, ImmutableArray<IlDiffRow> rows, string? detail = null)
+        => new(false, message, rows, [new IlDiffFailureRow(IlDiffFailureKind.UnsupportedBoundary, message, null, detail)]);
+
+    public static IlBodyDiffResult Failed(IlDiffFailureKind kind, string message, string? side = null, string? detail = null)
+        => new(false, message, [], [new IlDiffFailureRow(kind, message, side, detail)]);
+}
 
 /// <summary>
 /// Low-level IL body diff substrate over decoded instruction streams.
@@ -77,16 +110,28 @@ public static class IlBodyDiff
         ArgumentNullException.ThrowIfNull(newBody);
 
         if (!oldBody.IsComplete)
-            return new IlBodyDiffResult(false, oldBody.Blocks.IncompleteReason ?? "old body decode failed", []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.DecodeFailure,
+                oldBody.Blocks.IncompleteReason ?? "old body decode failed",
+                side: "old");
         if (!newBody.IsComplete)
-            return new IlBodyDiffResult(false, newBody.Blocks.IncompleteReason ?? "new body decode failed", []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.DecodeFailure,
+                newBody.Blocks.IncompleteReason ?? "new body decode failed",
+                side: "new");
 
         var oldInstructions = oldBody.Instructions;
         var newInstructions = newBody.Instructions;
         if (!TryBuildOperations(oldInstructions, oldResolver, "old", out var oldOperations, out var oldFailure))
-            return new IlBodyDiffResult(false, oldFailure, []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.TokenResolutionFailure,
+                oldFailure ?? "old body token resolution failed",
+                side: "old");
         if (!TryBuildOperations(newInstructions, newResolver, "new", out var newOperations, out var newFailure))
-            return new IlBodyDiffResult(false, newFailure, []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.TokenResolutionFailure,
+                newFailure ?? "new body token resolution failed",
+                side: "new");
         var lcs = LongestCommonSubsequence(oldOperations, newOperations);
         var oldToNew = BuildAlignmentMap(lcs, oldOperations.Length, newOperations.Length);
         var rows = ImmutableArray.CreateBuilder<IlDiffRow>();
@@ -545,7 +590,11 @@ public static class IlBodyDiff
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
         {
             string instance = signature.Header.IsInstance ? "instance " : "";
-            return $"{instance}{signature.ReturnType} {parent}::{name}{genericArgs}({string.Join(", ", signature.ParameterTypes)})";
+            string convention = CallingConventionPrefix(signature.Header.CallingConvention);
+            string arity = signature.GenericParameterCount > 0
+                ? $"`{signature.GenericParameterCount}"
+                : "";
+            return $"{instance}{convention}{signature.ReturnType} {parent}::{name}{arity}{genericArgs}({FormatParameterList(signature)})";
         }
 
         string FormatMemberParent(EntityHandle parent)
@@ -585,7 +634,7 @@ public static class IlBodyDiff
             return type.ResolutionScope.Kind switch
             {
                 HandleKind.AssemblyReference =>
-                    $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
+                    $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}",
                 HandleKind.TypeReference =>
                     $"{FormatTypeReference((TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
                 _ => $"[{CurrentAssemblyName()}]{fullName}",
@@ -651,7 +700,10 @@ public static class IlBodyDiff
         public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
             => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
         public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"method {signature.ReturnType} *({string.Join(", ", signature.ParameterTypes)})";
+        {
+            string convention = CallingConventionPrefix(signature.Header.CallingConvention);
+            return $"method {convention}{signature.ReturnType} *({FormatParameterList(signature)})";
+        }
 
         static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
         {
@@ -674,11 +726,55 @@ public static class IlBodyDiff
             return type.ResolutionScope.Kind switch
             {
                 HandleKind.AssemblyReference =>
-                    $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
+                    $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}",
                 HandleKind.TypeReference =>
                     $"{TypeName(reader, (TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
                 _ => fullName,
             };
         }
+    }
+
+    static string FormatParameterList(MethodSignature<string> signature)
+    {
+        if (signature.Header.CallingConvention != SignatureCallingConvention.VarArgs)
+            return string.Join(", ", signature.ParameterTypes);
+
+        var builder = ImmutableArray.CreateBuilder<string>(signature.ParameterTypes.Length + 1);
+        int requiredCount = Math.Clamp(signature.RequiredParameterCount, 0, signature.ParameterTypes.Length);
+        for (int i = 0; i < requiredCount; i++)
+            builder.Add(signature.ParameterTypes[i]);
+        builder.Add("...");
+        for (int i = requiredCount; i < signature.ParameterTypes.Length; i++)
+            builder.Add(signature.ParameterTypes[i]);
+        return string.Join(", ", builder);
+    }
+
+    static string CallingConventionPrefix(SignatureCallingConvention convention)
+    {
+        string text = convention switch
+        {
+            SignatureCallingConvention.Default => "",
+            SignatureCallingConvention.VarArgs => "vararg",
+            SignatureCallingConvention.CDecl => "unmanaged[Cdecl]",
+            SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
+            SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
+            SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+            SignatureCallingConvention.Unmanaged => "unmanaged",
+            _ => convention.ToString(),
+        };
+        return text.Length == 0 ? "" : $"{text} ";
+    }
+
+    static string AssemblyReferenceIdentity(MetadataReader reader, AssemblyReferenceHandle handle)
+    {
+        var reference = reader.GetAssemblyReference(handle);
+        string name = reader.GetString(reference.Name);
+        string culture = reference.Culture.IsNil ? "neutral" : reader.GetString(reference.Culture);
+        string keyOrToken = reference.PublicKeyOrToken.IsNil
+            ? "null"
+            : Convert.ToHexString(reader.GetBlobBytes(reference.PublicKeyOrToken)).ToLowerInvariant();
+        string keyLabel = (reference.Flags & AssemblyFlags.PublicKey) != 0 ? "PublicKey" : "PublicKeyToken";
+        string flags = reference.Flags == default ? "" : $", Flags={reference.Flags}";
+        return $"{name}, Version={reference.Version}, Culture={culture}, {keyLabel}={keyOrToken}{flags}";
     }
 }
