@@ -270,7 +270,11 @@ public sealed record BlockGraph(
                 : handlerBlock;
 
             foreach (int block in BlocksInRange(region.TryStart, region.TryEnd))
+            {
+                if (lastByBlock[block]?.LeavesRegion == true)
+                    continue;
                 successorsByBlock[block].Add(exceptionEntryBlock);
+            }
 
             if (region.Kind == HandlerKind.Filter)
             {
@@ -291,22 +295,69 @@ public sealed record BlockGraph(
             }
 
             if (region.Kind == HandlerKind.Finally)
+                AddFinallyLeaveEdges(region);
+        }
+
+        void AddFinallyLeaveEdges(ExceptionRegionModel region)
+        {
+            foreach (var instruction in instructions)
             {
-                var leaveTargets = LeaveTargetsLeaving(region, instructions).ToArray();
-                if (leaveTargets.Length == 0)
+                if (!instruction.LeavesRegion || !region.ContainsTry(instruction.Offset))
                     continue;
-                foreach (int block in BlocksInRange(region.HandlerStart, region.HandlerEnd))
+
+                foreach (int target in instruction.BranchTargets)
                 {
-                    if (lastByBlock[block] is not { OpCode: ILOpCode.Endfinally })
+                    if (region.ContainsTry(target))
                         continue;
-                    foreach (int target in leaveTargets)
+
+                    var crossedFinallyRegions = CrossedFinallyRegions(instruction.Offset, target).ToArray();
+                    if (crossedFinallyRegions.Length == 0 || !crossedFinallyRegions[0].Equals(region))
+                        continue;
+
+                    RedirectLeaveToFirstFinally(instruction, target, crossedFinallyRegions[0]);
+                    for (int i = 0; i < crossedFinallyRegions.Length; i++)
                     {
-                        if (offsetToBlock.TryGetValue(target, out int targetBlock))
-                            successorsByBlock[block].Add(targetBlock);
-                        else
-                            externalByBlock[block].Add(target);
+                        var current = crossedFinallyRegions[i];
+                        int nextTarget = i + 1 < crossedFinallyRegions.Length
+                            ? crossedFinallyRegions[i + 1].HandlerStart
+                            : target;
+                        AddEndfinallyEdges(current, nextTarget);
                     }
                 }
+            }
+        }
+
+        IEnumerable<ExceptionRegionModel> CrossedFinallyRegions(int leaveOffset, int target)
+            => regions
+                .Where(candidate => candidate.Kind == HandlerKind.Finally
+                                    && candidate.ContainsTry(leaveOffset)
+                                    && !candidate.ContainsTry(target))
+                .OrderBy(candidate => candidate.TryEnd - candidate.TryStart)
+                .ThenByDescending(candidate => candidate.TryStart);
+
+        void RedirectLeaveToFirstFinally(DecodedInstruction leave, int finalTarget, ExceptionRegionModel firstFinally)
+        {
+            if (!offsetToBlock.TryGetValue(leave.Offset, out int leaveBlock))
+                return;
+
+            if (offsetToBlock.TryGetValue(finalTarget, out int finalTargetBlock))
+                successorsByBlock[leaveBlock].RemoveAll(block => block == finalTargetBlock);
+            else
+                externalByBlock[leaveBlock].RemoveAll(target => target == finalTarget);
+
+            successorsByBlock[leaveBlock].Add(offsetToBlock[firstFinally.HandlerStart]);
+        }
+
+        void AddEndfinallyEdges(ExceptionRegionModel finallyRegion, int target)
+        {
+            foreach (int block in BlocksInRange(finallyRegion.HandlerStart, finallyRegion.HandlerEnd))
+            {
+                if (lastByBlock[block] is not { OpCode: ILOpCode.Endfinally })
+                    continue;
+                if (offsetToBlock.TryGetValue(target, out int targetBlock))
+                    successorsByBlock[block].Add(targetBlock);
+                else
+                    externalByBlock[block].Add(target);
             }
         }
 
@@ -315,18 +366,6 @@ public sealed record BlockGraph(
             for (int i = 0; i < blockStarts.Length; i++)
                 if (blockStarts[i] >= start && blockStarts[i] < end)
                     yield return i;
-        }
-    }
-
-    static IEnumerable<int> LeaveTargetsLeaving(ExceptionRegionModel region, ImmutableArray<DecodedInstruction> instructions)
-    {
-        foreach (var instruction in instructions)
-        {
-            if (!instruction.LeavesRegion || !region.ContainsTry(instruction.Offset))
-                continue;
-            foreach (int target in instruction.BranchTargets)
-                if (!region.ContainsTry(target))
-                    yield return target;
         }
     }
 

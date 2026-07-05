@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 
 using ILInspector.Instructions;
 
@@ -100,6 +102,110 @@ public class BlockGraphTests
         Assert.Equal([3], graph.Blocks[1].Edges.Successors);
         Assert.Equal([3], graph.Blocks[2].Edges.Successors);
     }
+
+    [Fact]
+    public void Leave_exiting_single_try_finally_flows_through_finally_before_target()
+    {
+        var method = DecodeFixture(nameof(BlockGraphEhFixtures.SingleLeave));
+        var graph = method.Blocks;
+
+        Assert.True(graph.IsComplete);
+        var leave = SingleLeaveInstruction(method);
+        var region = Assert.Single(graph.Regions, region => region.Kind == HandlerKind.Finally);
+        int target = Assert.Single(leave.BranchTargets);
+
+        Assert.Equal([region.HandlerStart], SuccessorStarts(graph, graph.BlockIndexAt(leave.Offset)));
+        Assert.Equal([target], SuccessorStarts(graph, EndfinallyBlock(graph, method, region)));
+    }
+
+    [Fact]
+    public void Leave_exiting_nested_try_finally_chains_finally_handlers_innermost_to_outermost()
+    {
+        var method = DecodeFixture(nameof(BlockGraphEhFixtures.NestedLeave));
+        var graph = method.Blocks;
+
+        Assert.True(graph.IsComplete);
+        var leave = SingleLeaveInstruction(method);
+        var regions = graph.Regions
+            .Where(region => region.Kind == HandlerKind.Finally)
+            .OrderBy(region => region.TryEnd - region.TryStart)
+            .ToArray();
+        Assert.Equal(2, regions.Length);
+        var inner = regions[0];
+        var outer = regions[1];
+        int target = Assert.Single(leave.BranchTargets);
+
+        Assert.Equal([inner.HandlerStart], SuccessorStarts(graph, graph.BlockIndexAt(leave.Offset)));
+        Assert.Equal([outer.HandlerStart], SuccessorStarts(graph, EndfinallyBlock(graph, method, inner)));
+        Assert.Equal([target], SuccessorStarts(graph, EndfinallyBlock(graph, method, outer)));
+    }
+
+    static DecodedInstruction SingleLeaveInstruction(MethodInstructions method)
+        => Assert.Single(method.Instructions, instruction => instruction.OpCode is ILOpCode.Leave or ILOpCode.Leave_s);
+
+    static int EndfinallyBlock(BlockGraph graph, MethodInstructions method, ExceptionRegionModel region)
+        => Assert.Single(graph.Blocks, block =>
+            block.Start >= region.HandlerStart
+            && block.Start < region.HandlerEnd
+            && method.InstructionAt(block.Start)?.OpCode == ILOpCode.Endfinally).Index;
+
+    static int[] SuccessorStarts(BlockGraph graph, int block)
+        => [.. graph.Blocks[block].Edges.Successors.Select(successor => graph.Blocks[successor].Start).Order()];
+
+    static MethodInstructions DecodeFixture(string methodName)
+    {
+        using var stream = File.OpenRead(typeof(BlockGraphEhFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var metadataToken = typeof(BlockGraphEhFixtures).GetMethod(methodName)!.MetadataToken;
+        var method = reader.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.EntityHandle(metadataToken));
+        return MethodInstructions.Decode(peReader.GetMethodBody(method.RelativeVirtualAddress));
+    }
+}
+
+public static class BlockGraphEhFixtures
+{
+    static int s_sink;
+
+    public static void SingleLeave()
+    {
+        try
+        {
+            goto Done;
+        }
+        finally
+        {
+            Sink(1);
+        }
+
+    Done:
+        Sink(2);
+    }
+
+    public static void NestedLeave()
+    {
+        try
+        {
+            try
+            {
+                goto Done;
+            }
+            finally
+            {
+                Sink(1);
+            }
+        }
+        finally
+        {
+            Sink(2);
+        }
+
+    Done:
+        Sink(3);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void Sink(int value) => s_sink += value;
 }
 
 public class StackTypeInterpreterTests
