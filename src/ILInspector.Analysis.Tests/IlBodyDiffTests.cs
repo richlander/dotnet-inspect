@@ -261,7 +261,7 @@ public class IlBodyDiffTests
     }
 
     [Fact]
-    public void Compare_CompiledFixtureTryCatchRegionShape_RecordsRegionNearMiss()
+    public void Compare_CompiledFixtureTryCatchRegionShape_SurfacesOperationRows()
     {
         var oldRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.Old, "TryCatchRegionShape"));
         var newRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.New, "TryCatchRegionShape"));
@@ -305,12 +305,13 @@ public class IlBodyDiffTests
 
         Assert.False(diff.IsExact);
         Assert.Null(diff.Failure);
-        Assert.Contains(diff.Rows, row =>
-            row.Kind == IlDiffKind.Remove
-            && IsRawLocalRow(row));
-        Assert.Contains(diff.Rows, row =>
-            row.Kind == IlDiffKind.Add
-            && IsRawLocalRow(row));
+        var localRows = diff.Rows
+            .Where(IsRawLocalRow)
+            .ToArray();
+        Assert.Collection(
+            localRows,
+            removed => Assert.Equal(IlDiffKind.Remove, removed.Kind),
+            added => Assert.Equal(IlDiffKind.Add, added.Kind));
     }
 
     [Fact]
