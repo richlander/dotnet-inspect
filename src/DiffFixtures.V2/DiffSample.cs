@@ -212,6 +212,41 @@ namespace DiffFixtureSample
             return first + second;
         }
 
+        public static int SemanticSwitchCase(int value)
+        {
+            switch (value)
+            {
+                case 0:
+                    goto Zero;
+                case 2:
+                    goto Two;
+                case 3:
+                    goto Three;
+                default:
+                    return -1;
+            }
+
+        Zero:
+            return 10;
+
+        Two:
+            return 12;
+
+        Three:
+            return 13;
+        }
+
+        public static int SemanticReturnExpression(int value)
+        {
+            return value + 2;
+        }
+
+        public static int SemanticCallChange(int value)
+        {
+            MaybeThrow(value);
+            return value;
+        }
+
         // V2: visible unsafe operation added relative to V1.
         public static unsafe int AddsUnsafe(int value)
         {

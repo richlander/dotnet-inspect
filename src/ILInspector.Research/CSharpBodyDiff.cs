@@ -17,6 +17,7 @@ public enum CSharpDiffKind
 {
     Remove,
     Add,
+    Changed,
 }
 
 public sealed record CSharpDiffRow(
@@ -31,7 +32,9 @@ public sealed record CSharpDiffRow(
     int? Line,
     string? SourceCoordinate,
     string Fidelity,
-    string Text);
+    string Text,
+    string? OldValue = null,
+    string? NewValue = null);
 
 public sealed record CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> Rows)
 {
@@ -754,6 +757,7 @@ public static class CSharpBodyDiff
             return;
 
         int hunk = hunkId++;
+        AddSemanticRows(rows, entry, hunk, oldRender, oldStart, oldEnd, newRender, newStart, newEnd);
         for (int i = oldStart; i < oldEnd; i++)
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, i + 1, oldRender.Fidelity.ToString(), oldRender.Lines[i]));
         for (int i = newStart; i < newEnd; i++)
@@ -803,11 +807,32 @@ public static class CSharpBodyDiff
         string text,
         string? changeId = null,
         string? message = null)
+        => CreateRow(entry, hunk, kind, line, fidelity, text, changeId, message, oldValue: null, newValue: null);
+
+    static CSharpDiffRow CreateRow(
+        CSharpMethodEntry entry,
+        int hunk,
+        CSharpDiffKind kind,
+        int? line,
+        string fidelity,
+        string text,
+        string? changeId,
+        string? message,
+        string? oldValue,
+        string? newValue)
     {
-        changeId ??= kind == CSharpDiffKind.Add ? "csharp.line.added" : "csharp.line.removed";
-        message ??= kind == CSharpDiffKind.Add
-            ? $"Added C# line '{text}'"
-            : $"Removed C# line '{text}'";
+        changeId ??= kind switch
+        {
+            CSharpDiffKind.Add => "csharp.line.added",
+            CSharpDiffKind.Remove => "csharp.line.removed",
+            _ => "csharp.line.changed",
+        };
+        message ??= kind switch
+        {
+            CSharpDiffKind.Add => $"Added C# line '{text}'",
+            CSharpDiffKind.Remove => $"Removed C# line '{text}'",
+            _ => $"Changed C# line '{text}'",
+        };
         return new CSharpDiffRow(
             entry.StableAssemblyKey,
             entry.StableMemberKey,
@@ -820,7 +845,166 @@ public static class CSharpBodyDiff
             line,
             line is null ? null : $"line:{line.Value}",
             fidelity,
-            text);
+            text,
+            oldValue,
+            newValue);
+    }
+
+    static void AddSemanticRows(
+        ImmutableArray<CSharpDiffRow>.Builder rows,
+        CSharpMethodEntry entry,
+        int hunk,
+        CSharpMethodRender oldRender,
+        int oldStart,
+        int oldEnd,
+        CSharpMethodRender newRender,
+        int newStart,
+        int newEnd)
+    {
+        if (oldRender.Fidelity != DecompilationFidelity.Full || newRender.Fidelity != DecompilationFidelity.Full)
+            return;
+
+        for (int i = oldStart; i < oldEnd; i++)
+        {
+            if (TryParseSwitchCase(oldRender.Lines[i], out var label))
+            {
+                rows.Add(CreateRow(
+                    entry,
+                    hunk,
+                    CSharpDiffKind.Remove,
+                    i + 1,
+                    oldRender.Fidelity.ToString(),
+                    oldRender.Lines[i],
+                    "csharp.switch.case.removed",
+                    $"Removed switch case '{label}'",
+                    oldValue: label,
+                    newValue: null));
+            }
+        }
+
+        for (int i = newStart; i < newEnd; i++)
+        {
+            if (TryParseSwitchCase(newRender.Lines[i], out var label))
+            {
+                rows.Add(CreateRow(
+                    entry,
+                    hunk,
+                    CSharpDiffKind.Add,
+                    i + 1,
+                    newRender.Fidelity.ToString(),
+                    newRender.Lines[i],
+                    "csharp.switch.case.added",
+                    $"Added switch case '{label}'",
+                    oldValue: null,
+                    newValue: label));
+            }
+        }
+
+        var oldReturn = FirstParsed(oldRender.Lines, oldStart, oldEnd, TryParseReturnExpression);
+        var newReturn = FirstParsed(newRender.Lines, newStart, newEnd, TryParseReturnExpression);
+        if (oldReturn is { } oldRet && newReturn is { } newRet && oldRet.Value != newRet.Value)
+        {
+            rows.Add(CreateRow(
+                entry,
+                hunk,
+                CSharpDiffKind.Changed,
+                newRet.Line,
+                newRender.Fidelity.ToString(),
+                newRender.Lines[newRet.Line - 1],
+                "csharp.return-expression.changed",
+                $"Changed return expression from '{oldRet.Value}' to '{newRet.Value}'",
+                oldRet.Value,
+                newRet.Value));
+        }
+
+        var oldCall = FirstParsed(oldRender.Lines, oldStart, oldEnd, TryParseCallExpression);
+        var newCall = FirstParsed(newRender.Lines, newStart, newEnd, TryParseCallExpression);
+        if (oldCall is { } oldCallValue && newCall is { } newCallValue && oldCallValue.Value != newCallValue.Value)
+        {
+            rows.Add(CreateRow(
+                entry,
+                hunk,
+                CSharpDiffKind.Changed,
+                newCallValue.Line,
+                newRender.Fidelity.ToString(),
+                newRender.Lines[newCallValue.Line - 1],
+                "csharp.call.changed",
+                $"Changed call from '{oldCallValue.Value}' to '{newCallValue.Value}'",
+                oldCallValue.Value,
+                newCallValue.Value));
+        }
+    }
+
+    delegate bool TryParseLine(string line, out string value);
+
+    static (int Line, string Value)? FirstParsed(string[] lines, int start, int end, TryParseLine parser)
+    {
+        for (int i = start; i < end; i++)
+            if (parser(lines[i], out var value))
+                return (i + 1, value);
+        return null;
+    }
+
+    static bool TryParseSwitchCase(string line, out string label)
+    {
+        var trimmed = line.Trim();
+        if (!trimmed.StartsWith("case ", StringComparison.Ordinal) || !trimmed.EndsWith(":", StringComparison.Ordinal))
+        {
+            label = "";
+            return false;
+        }
+
+        label = trimmed["case ".Length..^1].Trim();
+        return label.Length > 0;
+    }
+
+    static bool TryParseReturnExpression(string line, out string expression)
+    {
+        var trimmed = line.Trim();
+        if (!trimmed.StartsWith("return ", StringComparison.Ordinal) || !trimmed.EndsWith(";", StringComparison.Ordinal))
+        {
+            expression = "";
+            return false;
+        }
+
+        expression = trimmed["return ".Length..^1].Trim();
+        return expression.Length > 0;
+    }
+
+    static bool TryParseCallExpression(string line, out string call)
+    {
+        call = "";
+        var trimmed = line.Trim();
+        if (trimmed.StartsWith("return ", StringComparison.Ordinal)
+            || trimmed.StartsWith("if ", StringComparison.Ordinal)
+            || trimmed.StartsWith("if(", StringComparison.Ordinal)
+            || trimmed.StartsWith("for ", StringComparison.Ordinal)
+            || trimmed.StartsWith("for(", StringComparison.Ordinal)
+            || trimmed.StartsWith("while ", StringComparison.Ordinal)
+            || trimmed.StartsWith("while(", StringComparison.Ordinal)
+            || trimmed.StartsWith("switch ", StringComparison.Ordinal)
+            || trimmed.StartsWith("switch(", StringComparison.Ordinal)
+            || trimmed.StartsWith("catch ", StringComparison.Ordinal)
+            || trimmed.StartsWith("catch(", StringComparison.Ordinal)
+            || !trimmed.EndsWith(";", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var paren = trimmed.IndexOf('(');
+        if (paren <= 0)
+            return false;
+        var head = trimmed[..paren].Trim();
+        var lastSpace = head.LastIndexOf(' ');
+        if (lastSpace >= 0)
+            head = head[(lastSpace + 1)..];
+        if (head.Length == 0 || head is "new" or "return")
+            return false;
+        var end = trimmed.LastIndexOf(')');
+        if (end < paren)
+            return false;
+        call = trimmed[..(end + 1)].Trim();
+        return true;
     }
 
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(IReadOnlyList<string> oldLines, IReadOnlyList<string> newLines)
