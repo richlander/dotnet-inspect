@@ -1009,6 +1009,33 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void NuintArm_AtNintMergedType_TakesNativeReinterpretCast()
+    {
+        // #2334 reverse direction: platform-sized signed/unsigned siblings have
+        // the same runtime width even though TypeFamilies.Width is null. The
+        // join-arm coercion must therefore use SameNumericSlotWidth, not
+        // fixed-width SameWidth.
+        var nintType = TypeRef.CoreLib("System", "IntPtr");
+        var nuintType = TypeRef.CoreLib("System", "UIntPtr");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "i", nintType),
+            new LoadArgument(2, "u", nuintType))
+        {
+            MergedType = nintType,
+        };
+        string body = RenderReturn(
+            conditional,
+            nintType,
+            [new Parameter("c", boolType), new Parameter("i", nintType), new Parameter("u", nuintType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? i : (nint)u", body);
+        AssertCompiles("public static nint M(bool c, nint i, nuint u)", body);
+    }
+
+    [Fact]
     public void InRangeConstantArm_AtUnsignedMergedType_StaysBare()
     {
         // C#'s implicit constant conversion covers in-range constants — the
