@@ -12,6 +12,7 @@ using System.Reflection.PortableExecutable;
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]
+[Collection(ConsoleMutatorCollection.Name)]
 public class ReturnToSenderPrototypeTests
 {
     [Fact]

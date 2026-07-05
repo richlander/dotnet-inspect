@@ -1608,11 +1608,33 @@ public class CSharpPrinterTests
     [Fact]
     public void ConvertOfOutOfRangeConstant_UsesUnchecked()
     {
-        // conv.u8 of ldc.i4.m1 (ulong.MaxValue): the plain (ulong)-1 is CS0221,
-        // so the conversion reinterprets the bits with unchecked.
+        // conv.u8 of ldc.i4.m1 ZERO-extends the int32 source: the value is
+        // 0x00000000FFFFFFFF = uint.MaxValue, NOT the sign-extended ulong.MaxValue.
+        // A bare `(ulong)(-1)` sign-extends (= ulong.MaxValue) — a silent wrong
+        // value — so the unsigned widening reinterprets through the unsigned source
+        // sibling: `(ulong)(uint)(-1)` = uint.MaxValue, round-tripping to conv.u8 (#2101).
         var conv = new ILInspector.Decompiler.Pipeline.Convert(
             TypeRef.CoreLib("System", "UInt64"), isChecked: false, isUnsigned: false,
             new Constant(-1, TypeRef.CoreLib("System", "Int32")));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(conv));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "UInt64"), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return unchecked((ulong)(uint)(-1));", CSharpPrinter.Print(function).Output!.Trim());
+    }
+
+    [Fact]
+    public void SameWidthUnsignedReinterpretOfNegativeConstant_StaysBare()
+    {
+        // A same-width reinterpret (long -> ulong) has no zero/sign-extension
+        // choice, so the fix must NOT insert a `(uint)` sibling — `(ulong)(-1)`
+        // is the faithful bit reinterpret (#2101 boundary).
+        var conv = new ILInspector.Decompiler.Pipeline.Convert(
+            TypeRef.CoreLib("System", "UInt64"), isChecked: false, isUnsigned: false,
+            new Constant(-1, TypeRef.CoreLib("System", "Int64")));
         var container = new BlockContainer();
         var block = new Block(0);
         container.Add(block);

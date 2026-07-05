@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using DotnetInspector.Core;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
@@ -39,6 +40,7 @@ static class Program
         bool listOverloads = false;
         bool byShape = false;
         bool validityCheck = false;
+        bool validityPredicateScan = false;
         int compileCap = 4000;
         bool assertions = false;
         bool assertionScan = false;
@@ -53,6 +55,7 @@ static class Program
         bool returnToSenderAb = false;
         bool returnToSenderCatalog = false;
         bool returnToSenderSourceProbe = false;
+        string? returnToSenderFixtureGroup = null;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
         bool gaps = false;
@@ -127,7 +130,8 @@ static class Program
                 case "--sample": sampleSize = int.Parse(args[++i]); break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
                 case "--validity-check": validityCheck = true; break;
-                case "--compile-cap": compileCap = int.Parse(args[++i]); break;
+                case "--validity-predicate-scan": validityPredicateScan = true; break;
+                case "--compile-cap": compileCap = ParseCompileCap(args[++i]); break;
                 case "--emit-assertion-violations": emitAssertionViolations = args[++i]; break;
                 case "--diff-assertion-violations": diffAssertionViolations = args[++i]; break;
                 case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
@@ -136,6 +140,7 @@ static class Program
                 case "--return-to-sender": returnToSender = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;
                 case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
+                case "--return-to-sender-fixtures": returnToSenderFixtureGroup = args[++i]; break;
                 case "--return-to-sender-catalog":
                     returnToSenderCatalog = true;
                     if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
@@ -217,12 +222,29 @@ static class Program
 
         if (returnToSenderCatalog)
         {
+            if (returnToSenderFixtureGroup is not null)
+                return Fail("--return-to-sender-fixtures supplies built assemblies; do not use it with --return-to-sender-catalog.");
             if (inputs.Count > 0)
                 return Fail("--return-to-sender-catalog generates its own temporary input assembly; do not pass assembly paths.");
             return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, maxExamples);
         }
 
+        if (returnToSenderFixtureGroup is not null
+            && !(returnToSender || returnToSenderAb || returnToSenderSourceProbe))
+        {
+            return Fail("--return-to-sender-fixtures requires --return-to-sender, --return-to-sender-ab, or --return-to-sender-source-probe.");
+        }
+
         using var packageInputs = ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly);
+        IReadOnlyList<string> fixtureInputs;
+        try
+        {
+            fixtureInputs = ResolveFixtureAssemblies(returnToSenderFixtureGroup);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return Fail(ex.Message);
+        }
 
         if (emitInverseLedger is not null)
         {
@@ -231,9 +253,13 @@ static class Program
             return 0;
         }
 
-        var assemblies = inputs.Count == 0 && packages.Count > 0
-            ? packageInputs.Assemblies.ToList()
-            : ResolveAssemblies(inputs).Concat(packageInputs.Assemblies).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var assemblies = inputs.Count == 0 && packages.Count == 0 && fixtureInputs.Count == 0
+            ? ResolveAssemblies(inputs)
+            : ResolveAssemblies(inputs, includeDefault: false)
+                .Concat(packageInputs.Assemblies)
+                .Concat(fixtureInputs)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
@@ -251,6 +277,8 @@ static class Program
 
         if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
+        if (validityPredicateScan)
+            return ValidityPredicateScan.Run(assemblies, maxExamples, workers, sequential);
 
         if (fidelityMethodDelta is not null)
         {
@@ -1218,10 +1246,15 @@ static class Program
         return parts.Count == 0 ? "-" : string.Join(", ", parts);
     }
 
-    static List<string> ResolveAssemblies(List<string> inputs)
+    static IReadOnlyList<string> ResolveFixtureAssemblies(string? groupId)
+        => groupId is null
+            ? []
+            : FixtureCatalog.Group(groupId).AssemblyPaths();
+
+    static List<string> ResolveAssemblies(List<string> inputs, bool includeDefault = true)
     {
         if (inputs.Count == 0)
-            return [typeof(object).Assembly.Location];
+            return includeDefault ? [typeof(object).Assembly.Location] : [];
 
         List<string> result = [];
         foreach (var input in inputs)
@@ -1340,6 +1373,13 @@ static class Program
         return 1;
     }
 
+    static int ParseCompileCap(string value)
+        => value.Equals("all", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("unbounded", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("uncapped", StringComparison.OrdinalIgnoreCase)
+            ? int.MaxValue
+            : int.Parse(value);
+
     static void PrintUsage() => Console.WriteLine("""
         usage: decompiler-harness [assembly-or-directory ...] [options]
 
@@ -1415,7 +1455,10 @@ static class Program
                                 cross-assembly RequiresUnsafe).
           --max-examples <n>    example methods per bucket (default 5)
           --validity-check       compile every decompiled body; report invalid C#
-          --compile-cap <n>     cap semantically-bound methods (default 4000)
+          --validity-predicate-scan
+                                exhaustively count cheap IR predicates for known
+                                validity-risk classes; no compilation.
+          --compile-cap <n|all> cap semantically-bound methods (default 4000)
           --emit-assertion-violations <f>
                                 with --assertion-scan, write per-method assertion
                                 violations to JSON file <f>.
@@ -1440,6 +1483,11 @@ static class Program
                                 input assemblies, run ReturnToSender over those
                                 targets, and report missing-fragment/source
                                 buckets alongside compile-back status.
+          --return-to-sender-fixtures <group>
+                                add built fixture assemblies from a FixtureCatalog
+                                group (for example rts.candidates) as inputs for
+                                --return-to-sender, --return-to-sender-ab, or
+                                --return-to-sender-source-probe.
           --return-to-sender-catalog [selector]
                                 compile the generated fixture catalog, run
                                 ReturnToSender over supported property getters,

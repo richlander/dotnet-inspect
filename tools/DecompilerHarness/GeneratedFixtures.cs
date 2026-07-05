@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
+using ILInspector.Research;
 using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis;
@@ -2352,6 +2353,24 @@ internal static class GeneratedFixtureRunner
         sb.AppendLine($"  Skipped: {skippedTargets}");
         sb.AppendLine($"  Failed : {failedTargets}");
 
+        var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
+        var researchEvidence = research.Subjects.SelectMany(subject => subject.Evidence).ToArray();
+        if (researchEvidence.Length != 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Research evidence:");
+            sb.AppendLine($"  Subjects : {research.Subjects.Count}");
+            sb.AppendLine($"  RTS rows : {researchEvidence.Count(row => row.Mechanism == ResearchDiffMechanism.ReturnToSender)}");
+            sb.AppendLine($"  IL rows  : {researchEvidence.Count(row => row.Mechanism == ResearchDiffMechanism.IlBody)}");
+            foreach (var group in researchEvidence
+                .GroupBy(row => row.ChangeId, StringComparer.Ordinal)
+                .OrderByDescending(group => group.Count())
+                .ThenBy(group => group.Key, StringComparer.Ordinal))
+            {
+                sb.AppendLine($"  {group.Key}: {group.Count()}");
+            }
+        }
+
         var skipBuckets = run.Results
             .Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Skip)
             .GroupBy(row => row.Reason, StringComparer.Ordinal)
@@ -2443,6 +2462,7 @@ internal static class GeneratedFixtureRunner
             ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
             AssemblyPath = File.Exists(run.AssemblyPath) ? run.AssemblyPath : null,
             run.Results,
+            ResearchDiff = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run)),
             run.Passed,
         };
         return JsonSerializer.Serialize(payload, s_jsonOptions);

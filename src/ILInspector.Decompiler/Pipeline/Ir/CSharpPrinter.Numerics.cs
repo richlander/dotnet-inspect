@@ -164,9 +164,35 @@ public sealed partial class CSharpPrinter
     /// <c>conv.ovf.*.un</c> it never had if it falls inside a <c>checked</c> context,
     /// silently adding an overflow check; the wrapper keeps the reinterpretation
     /// range-check-free. A no-op outside a checked region.
+    ///
+    /// The cast text renders THROUGH the thunk with the checked context
+    /// CLEARED whenever the wrapper will apply: nested checked nodes
+    /// (<c>add.ovf</c>/<c>conv.ovf</c>) omit their own <c>checked(...)</c>
+    /// under an ambient checked region, so wrapping their pre-rendered text in
+    /// <c>unchecked(...)</c> silently turned their overflow checks off —
+    /// <c>unchecked((uint)(a + b))</c> where the IL demands
+    /// <c>unchecked((uint)checked(a + b))</c> (work-2302 review, both
+    /// reviewers, product-path repro). Clearing the flag makes the nested
+    /// nodes re-emit their explicit wrappers; only the reinterpret itself goes
+    /// unchecked.
     /// </summary>
-    string CheckedSafeCast(string castText, bool force = false)
-        => _checkedContext || force ? $"unchecked({castText})" : castText;
+    string CheckedSafeCast(Func<string> renderCast, bool force = false)
+    {
+        if (!_checkedContext && !force)
+            return renderCast();
+        bool enclosing = _checkedContext;
+        _checkedContext = false;
+        string castText;
+        try
+        {
+            castText = renderCast();
+        }
+        finally
+        {
+            _checkedContext = enclosing;
+        }
+        return $"unchecked({castText})";
+    }
 
     /// <summary>
     /// Casts an integer operand to the enum type it is compared or combined with
@@ -184,7 +210,7 @@ public sealed partial class CSharpPrinter
             || value is Constant { Value: long lv } && lv < 0;
         bool forceUnchecked = MayOverflowEnumBackingType(value, enumType);
         return CheckedSafeCast(
-            $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
+            () => $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}",
             force: forceUnchecked);
     }
 
@@ -223,7 +249,7 @@ public sealed partial class CSharpPrinter
         if (enumSide is null || !IsEnumLikeInteger(enumSide))
             return null;
         if (TypeFamilies.IsBoolean(EffectiveType(value)))
-            return CheckedSafeCast($"({TypeText(enumSide)})({Condition(value)} ? 1 : 0)");
+            return CheckedSafeCast(() => $"({TypeText(enumSide)})({Condition(value)} ? 1 : 0)");
         if (value.ResultType is not { } valueType || !TypeFamilies.IsIntegerLike(valueType))
             return null;
         return value is Constant { Value: int or long } konst
@@ -690,9 +716,8 @@ public sealed partial class CSharpPrinter
         var unsigned = TypeFamilies.UnsignedCounterpart(EffectiveType(operand));
         if (unsigned is null)
             return Operand(operand);
-        string cast = $"({TypeText(unsigned)}){Operand(operand)}";
         bool constantOutOfRange = wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !TypeFamilies.ConstantFits(value, unsigned);
-        return CheckedSafeCast(cast, force: constantOutOfRange);
+        return CheckedSafeCast(() => $"({TypeText(unsigned)}){Operand(operand)}", force: constantOutOfRange);
     }
 
     /// <summary>
@@ -761,7 +786,7 @@ public sealed partial class CSharpPrinter
     // already carries its own narrowing Convert (int32-typed by the time it lands
     // here), and small ints widen to int implicitly, so neither needs a cast.
     string IntShiftCount(IrExpression count)
-        => NeedsIntShiftCast(EffectiveType(count)) ? CheckedSafeCast($"(int){Operand(count)}") : Operand(count);
+        => NeedsIntShiftCast(EffectiveType(count)) ? CheckedSafeCast(() => $"(int){Operand(count)}") : Operand(count);
 
     bool NeedsIntShiftCast(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" }
@@ -989,8 +1014,9 @@ public sealed partial class CSharpPrinter
         string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
         if (cast is null)
             return Operand(operand);
-        string text = $"({cast}){Operand(operand)}";
-        return checkedSafe ? CheckedSafeCast(text, force: IsOutOfRangeUnsignedConstant(operand)) : text;
+        return checkedSafe
+            ? CheckedSafeCast(() => $"({cast}){Operand(operand)}", force: IsOutOfRangeUnsignedConstant(operand))
+            : $"({cast}){Operand(operand)}";
     }
 
     /// <summary>
@@ -1009,12 +1035,11 @@ public sealed partial class CSharpPrinter
         var signed = TypeFamilies.SignedCounterpart(EffectiveType(operand));
         if (signed is null)
             return Operand(operand);
-        string cast = $"({TypeText(signed)}){Operand(operand)}";
         // A constant unsigned operand's value may exceed the signed range
         // (e.g. (long)ulong.MaxValue), which is CS0221 without unchecked; the
         // unsigned value, not the peeled signed value, is what overflows, so wrap
         // any constant operand defensively (a no-op for a fitting constant).
-        return CheckedSafeCast(cast, force: TryGetIntegerConstant(operand, out _));
+        return CheckedSafeCast(() => $"({TypeText(signed)}){Operand(operand)}", force: TryGetIntegerConstant(operand, out _));
     }
 
     /// <summary>
@@ -1056,6 +1081,14 @@ public sealed partial class CSharpPrinter
             } addressConvert)
         {
             return $"({TypeText(target)})(&{Deref(addressConvert.Operand)})";
+        }
+        if (target is { Kind: TypeRefKind.Pointer }
+            && value is not Constant { Value: null }
+            && EffectiveType(value) is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" })
+        {
+            return IsZeroConstant(value)
+                ? $"({TypeText(target)})null"
+                : $"({TypeText(target)}){Operand(value)}";
         }
         if (target is { Kind: TypeRefKind.Pointer }
             && EffectiveType(value) is { Kind: TypeRefKind.Pointer } pointerSource
@@ -1100,7 +1133,16 @@ public sealed partial class CSharpPrinter
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes))
         {
-            return $"({TypeText(primitiveTarget)}){Operand(value)}";
+            // Wrap only when the checked underlying->target conversion can
+            // actually throw (cross-signedness, signed->unsigned): an
+            // identity/widening enum cast is overflow-free in checked C# too,
+            // and wrapping it is noise — `checked((int)intBackedEnum + 1)`
+            // must stay bare (work-2302 CI canary). A missing value__ assumes
+            // the I4-signed shape, matching EnumSemanticFamily.
+            var underlying = EnumUnderlyingType(EffectiveType(value)) ?? TypeRef.CoreLib("System", "Int32");
+            return TypeFamilies.CheckedConversionCanThrow(underlying, primitiveTarget)
+                ? CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}")
+                : $"({TypeText(primitiveTarget)}){Operand(value)}";
         }
         // Enum → enum: C# permits the explicit conversion between any two enum
         // types directly. Reached when a slot join carries one enum and a
@@ -1114,7 +1156,7 @@ public sealed partial class CSharpPrinter
                 _function.TypeShapes,
                 _function.EnumUnderlyingTypes))
         {
-            return CheckedSafeCast($"({TypeText(enumToEnumTarget)}){Operand(value)}");
+            return CheckedSafeCast(() => $"({TypeText(enumToEnumTarget)}){Operand(value)}");
         }
         // The same cast, for a cross-assembly enum. ClassifyShape only sees types
         // defined in the inspected assembly, so a framework enum like
@@ -1186,12 +1228,21 @@ public sealed partial class CSharpPrinter
         // char slot) is subsumed by the boundary cast: emit one cast to the
         // target on the conversion's operand, not (char)((ushort)x). An
         // out-of-range constant operand still needs the unchecked spelling.
+        // The remaining casts are same-width reinterprets (cross-signedness or
+        // sibling-width): inside a lexical checked region a bare spelling
+        // recompiles to a conv.ovf the IL never had (#2301), so they route
+        // through CheckedSafeCast like the enum reinterprets above.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && SameNumericSlotWidth(conv.Target, target))
             return conv.Operand is Constant { Value: int or long } convConst
                 ? NumericConstant(convConst, target!)
-                : $"({TypeText(target!)}){Operand(conv.Operand)}";
-        return $"({TypeText(target!)}){Operand(value)}";
+                : CheckedSafeNumericCast(EffectiveType(conv.Operand), target!, () => $"({TypeText(target!)}){Operand(conv.Operand)}");
+        return CheckedSafeNumericCast(EffectiveType(value), target!, () => $"({TypeText(target!)}){Operand(value)}");
     }
+
+    string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)
+        => TypeFamilies.CheckedConversionCanThrow(source, target)
+            ? CheckedSafeCast(renderCast)
+            : renderCast();
 
     static IrExpression? AddressOfValue(IrExpression value)
         => value switch
@@ -1267,16 +1318,17 @@ public sealed partial class CSharpPrinter
     string BoolToIntegerText(IrExpression value, TypeRef target)
         => target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
             ? $"{Condition(value)} ? 1 : 0"
-            : CheckedSafeCast($"({TypeText(target)})({Condition(value)} ? 1 : 0)");
+            : CheckedSafeCast(() => $"({TypeText(target)})({Condition(value)} ? 1 : 0)");
 
     /// <summary>
-    /// The one join-arm coercion, both directions: an integer-family arm at an
-    /// enum-typed join takes the enum cast/name (<see cref="TryCoerceEnumOperand"/>),
-    /// and an enum arm at an integer-typed join takes the underlying cast —
+    /// The one join-arm coercion, all three directions: an integer-family arm
+    /// at an enum-typed join takes the enum cast/name (<see cref="TryCoerceEnumOperand"/>),
+    /// an enum arm at an integer-typed join takes the underlying cast —
     /// `c ? E.One : e` merged as int is CS0266 bare, in a conditional arm, a
     /// switch-expression arm, or a coalesce right side alike (#2145; slice-4
-    /// second-family review found the rule present in only one of the three).
-    /// Null when the arm needs no join coercion.
+    /// second-family review found the rule present in only one of the three) —
+    /// and a primitive arm at a same-family primitive join takes the
+    /// reinterpret cast (#2302). Null when the arm needs no join coercion.
     /// </summary>
     string? TryCoerceJoinArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
     {
@@ -1285,24 +1337,38 @@ public sealed partial class CSharpPrinter
         // Same stack family only: `(int)longBackedEnum` would truncate. The
         // importer's family merge should never build such a join, but the cast
         // must not be the place that finds out (slice-4 review's verify item).
+        // The same checked-region discipline as the enum->primitive CoerceText
+        // exit (#2333, this PR's round-3 review): a uint-backed enum arm cast
+        // to int recompiles to conv.ovf.i4.un inside a lexical checked region
+        // — a throw the IL never had — so throw-capable underlying->target
+        // pairs wrap; identity/widening pairs stay bare.
         if (target is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget)
             && EnumUnderlyingType(EffectiveType(arm)) is { } underlying
             && TypeFamilies.Of(underlying) == TypeFamilies.Of(integerTarget))
-            return $"({TypeText(integerTarget)}){Operand(arm)}";
+        {
+            return TypeFamilies.CheckedConversionCanThrow(underlying, integerTarget)
+                ? CheckedSafeCast(() => $"({TypeText(integerTarget)}){Operand(arm)}")
+                : $"({TypeText(integerTarget)}){Operand(arm)}";
+        }
         // A same-WIDTH cross-signedness arm at a numeric join is CS0266 bare (a `uint`
         // arm at an `int` join). Reinterpret its bits with the join cast — unchecked
         // inside a checked region so the value-preserving reinterpretation cannot become
-        // a runtime overflow (#2302, #2301). SameWidth keeps this to the genuinely
-        // lossless sibling casts (int/uint, short/ushort, byte/sbyte, long/ulong,
-        // ushort/char); a differing-width join is a narrowing the printer must not
-        // silently introduce, so it is left to a real Convert node in the IL.
+        // a runtime overflow (#2302, #2301; #2310's SameWidth scope merged with this
+        // branch's thunk-form CheckedSafeCast, whose operand renders outside the
+        // checked context so nested checked nodes keep their own wrappers). SameWidth
+        // keeps this to the genuinely lossless sibling casts (int/uint, short/ushort,
+        // byte/sbyte, long/ulong, ushort/char); a differing-width join is a narrowing
+        // the printer must not silently introduce, so it is left to a real Convert
+        // node in the IL.
         if (target is { } numericTarget
             && EffectiveType(arm) is { } armType
             && TypeFamilies.NeedsNumericCast(armType, numericTarget)
             && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
+        {
             return arm is Constant { Value: int or long } constArm
                 ? NumericConstant(constArm, numericTarget)
-                : CheckedSafeCast($"({TypeText(numericTarget)}){Operand(arm)}");
+                : CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
+        }
         return null;
     }
 

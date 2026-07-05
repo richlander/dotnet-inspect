@@ -17,7 +17,8 @@ public enum ResearchDiffMechanism
     BodySignals = 2,
     IlBody = 4,
     CSharp = 8,
-    AllAvailable = Api | BodySignals | IlBody | CSharp,
+    ReturnToSender = 16,
+    AllAvailable = Api | BodySignals | IlBody | CSharp | ReturnToSender,
 }
 
 public enum ResearchDiffSubjectKind
@@ -41,6 +42,7 @@ public enum ResearchDiffChangeCategory
     BodySignal,
     IlBody,
     CSharp,
+    RoundTrip,
 }
 
 public enum ResearchDiffEvidenceKind
@@ -58,6 +60,7 @@ public sealed record ResearchDiffRow(
     ApiChange? ApiChange = null,
     IlDiffRow? IlRow = null,
     IlDiffDisplayRow? IlDisplayRow = null,
+    IlDiffFailureRow? IlFailureRow = null,
     BodySignalDiffRow? BodySignalRow = null,
     CSharpDiffRow? CSharpRow = null);
 
@@ -180,28 +183,35 @@ public static class ResearchDiff
     public static ResearchDiffResult FromIlBodyDiff(IlBodyDiffResult diff)
     {
         ArgumentNullException.ThrowIfNull(diff);
-        if (diff.Failure is { Length: > 0 } failure)
+        var rows = ImmutableArray.CreateBuilder<ResearchDiffRow>();
+        if (!diff.FailureRows.IsDefaultOrEmpty)
         {
-            return new ResearchDiffResult(
-                [],
-                Rows: [new ResearchDiffRow("il.diff.failed", ResearchDiffEvidenceKind.IlBody, failure)]);
+            rows.AddRange(diff.FailureRows.Select(row => new ResearchDiffRow(
+                $"il.diff.{ToKebabCase(row.Kind.ToString())}",
+                ResearchDiffEvidenceKind.IlBody,
+                row.Message,
+                IlFailureRow: row)));
+        }
+        else if (diff.Failure is { Length: > 0 } failure)
+        {
+            rows.Add(new ResearchDiffRow("il.diff.failed", ResearchDiffEvidenceKind.IlBody, failure));
         }
 
-        return new ResearchDiffResult(
-            [],
-            Rows:
-            [
-                .. diff.Rows.Select(row =>
-                {
-                    var display = IlDiffPrinter.ToDisplayRow(row);
-                    return new ResearchDiffRow(
-                        $"il.operation.{ChangeIdSuffix(row.Kind)}",
-                        ResearchDiffEvidenceKind.IlBody,
-                        display.Message,
-                        IlRow: row,
-                        IlDisplayRow: display);
-                })
-            ]);
+        if (!diff.Rows.IsDefaultOrEmpty)
+        {
+            rows.AddRange(diff.Rows.Select(row =>
+            {
+                var display = IlDiffPrinter.ToDisplayRow(row);
+                return new ResearchDiffRow(
+                    $"il.operation.{ChangeIdSuffix(row.Kind)}",
+                    ResearchDiffEvidenceKind.IlBody,
+                    display.Message,
+                    IlRow: row,
+                    IlDisplayRow: display);
+            }));
+        }
+
+        return new ResearchDiffResult([], Rows: rows.ToImmutable());
     }
 
     public static ResearchDiffResult FromBodySignalDiff(BodySignalDiffResult diff)
@@ -543,35 +553,41 @@ public static class ResearchDiff
                     if (!oldAvailable && !newAvailable)
                         continue;
                     var activeAnchor = !oldAvailable ? newAnchor : oldAnchor;
+                    var activeMethod = !oldAvailable ? newMethod : oldMethod;
                     var activeSubject = !oldAvailable
                         ? SubjectFromMethod(newMethod, activeAnchor)
                         : SubjectFromMethod(oldMethod, activeAnchor);
-                    builder.Add(activeSubject, new ResearchDiffEvidence(
-                        ResearchDiffMechanism.IlBody,
-                        !oldAvailable ? "il.body.added" : "il.body.removed",
-                        !oldAvailable ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed,
-                        OldValue: oldReason,
-                        NewValue: newReason,
-                        Category: ResearchDiffChangeCategory.IlBody,
-                        Anchor: activeAnchor,
-                        MetadataMember: MetadataMemberRef(!oldAvailable ? newMethod : oldMethod)));
+                    AddIlFailureEvidence(
+                        builder,
+                        activeSubject,
+                        !oldAvailable
+                            ? IlBodyDiffResult.OldBodyMissing(oldReason).FailureRows[0]
+                            : IlBodyDiffResult.NewBodyMissing(newReason).FailureRows[0],
+                        activeAnchor,
+                        MetadataMemberRef(activeMethod));
                     continue;
                 }
 
                 var diff = IlBodyDiff.Compare(oldBody!, newBody!);
                 if (diff.IsExact)
                     continue;
-                if (!string.IsNullOrEmpty(diff.Failure))
+                if (!diff.FailureRows.IsDefaultOrEmpty)
                 {
-                    builder.Add(subject, new ResearchDiffEvidence(
-                        ResearchDiffMechanism.IlBody,
-                        "il.body.decode-failed",
-                        ResearchDiffDirection.Changed,
-                        Detail: diff.Failure,
-                        Category: ResearchDiffChangeCategory.IlBody,
-                        Anchor: newAnchor ?? oldAnchor,
-                        MetadataMember: MetadataMemberRef(newMethod)));
-                    continue;
+                    foreach (var failure in diff.FailureRows)
+                        AddIlFailureEvidence(builder, subject, failure, newAnchor ?? oldAnchor, MetadataMemberRef(newMethod));
+                    if (diff.Rows.IsDefaultOrEmpty)
+                        continue;
+                }
+                else if (!string.IsNullOrEmpty(diff.Failure))
+                {
+                    AddIlFailureEvidence(
+                        builder,
+                        subject,
+                        new IlDiffFailureRow(IlDiffFailureKind.DecodeFailure, diff.Failure),
+                        newAnchor ?? oldAnchor,
+                        MetadataMemberRef(newMethod));
+                    if (diff.Rows.IsDefaultOrEmpty)
+                        continue;
                 }
 
                 foreach (var hunk in diff.Rows.GroupBy(row => row.HunkId).OrderBy(group => group.Key))
@@ -631,6 +647,31 @@ public static class ResearchDiff
         return anchors;
     }
 
+    static void AddIlFailureEvidence(
+        ResultBuilder builder,
+        ResearchSubjectKey subject,
+        IlDiffFailureRow failure,
+        MemberAnchor? anchor = null,
+        MetadataMemberRef? metadataMember = null)
+    {
+        var direction = failure.Kind switch
+        {
+            IlDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,
+            IlDiffFailureKind.NewBodyMissing => ResearchDiffDirection.Removed,
+            _ => ResearchDiffDirection.Changed,
+        };
+        builder.Add(subject, new ResearchDiffEvidence(
+            ResearchDiffMechanism.IlBody,
+            $"il.diff.{ToKebabCase(failure.Kind.ToString())}",
+            direction,
+            OldValue: failure.Side == "old" ? failure.Detail ?? failure.Message : null,
+            NewValue: failure.Side == "new" ? failure.Detail ?? failure.Message : null,
+            Detail: failure.Detail ?? failure.Message,
+            Category: ResearchDiffChangeCategory.IlBody,
+            Anchor: anchor,
+            MetadataMember: metadataMember));
+    }
+
     static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
     {
         if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
@@ -648,13 +689,18 @@ public static class ResearchDiff
                 row.Anchor,
                 row.MemberRef,
                 row.TypeRef);
-            var direction = row.Kind == CSharpDiffKind.Add ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
+            var direction = row.Kind switch
+            {
+                CSharpDiffKind.Add => ResearchDiffDirection.Added,
+                CSharpDiffKind.Remove => ResearchDiffDirection.Removed,
+                _ => ResearchDiffDirection.Changed,
+            };
             builder.Add(subject, new ResearchDiffEvidence(
                 ResearchDiffMechanism.CSharp,
                 row.ChangeId,
                 direction,
-                OldValue: direction == ResearchDiffDirection.Removed ? row.Text : null,
-                NewValue: direction == ResearchDiffDirection.Added ? row.Text : null,
+                OldValue: row.OldOperation?.Value ?? row.OldValue ?? (direction == ResearchDiffDirection.Removed ? row.Text : null),
+                NewValue: row.NewOperation?.Value ?? row.NewValue ?? (direction == ResearchDiffDirection.Added ? row.Text : null),
                 Detail: row.Message,
                 Category: ResearchDiffChangeCategory.CSharp,
                 Anchor: row.Anchor,
