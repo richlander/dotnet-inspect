@@ -89,7 +89,9 @@ public sealed record ResearchSubjectKey(
     string? TypeName = null,
     string? MemberName = null,
     TypeAnchor? TypeAnchor = null,
-    MemberAnchor? Anchor = null);
+    MemberAnchor? Anchor = null,
+    MetadataMemberRef? MetadataMember = null,
+    MetadataTypeRef? MetadataType = null);
 
 public sealed record ResearchDiffEvidence(
     ResearchDiffMechanism Mechanism,
@@ -103,6 +105,8 @@ public sealed record ResearchDiffEvidence(
     string? Detail = null,
     ResearchDiffChangeCategory Category = ResearchDiffChangeCategory.Unknown,
     MemberAnchor? Anchor = null,
+    MetadataMemberRef? MetadataMember = null,
+    MetadataTypeRef? MetadataType = null,
     IlDiffRow? IlRow = null,
     IReadOnlyList<IlDiffDisplayRow>? IlDisplayRows = null,
     CSharpDiffRow? CSharpRow = null,
@@ -549,7 +553,8 @@ public static class ResearchDiff
                         OldValue: oldReason,
                         NewValue: newReason,
                         Category: ResearchDiffChangeCategory.IlBody,
-                        Anchor: activeAnchor));
+                        Anchor: activeAnchor,
+                        MetadataMember: MetadataMemberRef(!oldAvailable ? newMethod : oldMethod)));
                     continue;
                 }
 
@@ -564,7 +569,8 @@ public static class ResearchDiff
                         ResearchDiffDirection.Changed,
                         Detail: diff.Failure,
                         Category: ResearchDiffChangeCategory.IlBody,
-                        Anchor: newAnchor ?? oldAnchor));
+                        Anchor: newAnchor ?? oldAnchor,
+                        MetadataMember: MetadataMemberRef(newMethod)));
                     continue;
                 }
 
@@ -594,6 +600,7 @@ public static class ResearchDiff
                         Detail: FormatDisplayLines(displayRows),
                         Category: ResearchDiffChangeCategory.IlBody,
                         Anchor: newAnchor ?? oldAnchor,
+                        MetadataMember: MetadataMemberRef(newMethod),
                         IlDisplayRows: displayRows));
                 }
             }
@@ -638,7 +645,9 @@ public static class ResearchDiff
                 row.Anchor.TypeFullName,
                 row.Anchor.MemberName,
                 new TypeAnchor(row.Anchor.TypeFullName),
-                row.Anchor);
+                row.Anchor,
+                row.MemberRef,
+                row.TypeRef);
             var direction = row.Kind == CSharpDiffKind.Add ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
             builder.Add(subject, new ResearchDiffEvidence(
                 ResearchDiffMechanism.CSharp,
@@ -649,6 +658,8 @@ public static class ResearchDiff
                 Detail: row.Message,
                 Category: ResearchDiffChangeCategory.CSharp,
                 Anchor: row.Anchor,
+                MetadataMember: row.MemberRef,
+                MetadataType: row.TypeRef,
                 CSharpRow: row));
         }
     }
@@ -806,8 +817,12 @@ public static class ResearchDiff
             typeName,
             memberName,
             new TypeAnchor(anchor?.TypeFullName ?? typeName),
-            anchor);
+            anchor,
+            MetadataMemberRef(method));
     }
+
+    static MetadataMemberRef MetadataMemberRef(MethodIdentity method)
+        => new(method.AssemblyName, method.ModuleVersionId, method.MetadataToken);
 
     static string ApiTypeName(TypeRef type)
         => type.Kind switch

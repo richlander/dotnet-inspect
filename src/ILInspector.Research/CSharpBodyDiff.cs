@@ -23,6 +23,8 @@ public sealed record CSharpDiffRow(
     string AssemblyIdentity,
     string StableMemberKey,
     MemberAnchor Anchor,
+    MetadataTypeRef TypeRef,
+    MetadataMemberRef MemberRef,
     string Member,
     string ChangeId,
     string Message,
@@ -192,6 +194,7 @@ public static class CSharpBodyDiff
                 string apiMemberName = ApiMemberName(reader, methodName, method);
                 string anchorCanonical = $"M:{ApiTypeName(reader, typeHandle)}.{apiMemberName}{ApiParameterList(apiSignature.ParameterTypes)}";
                 int methodToken = MetadataTokens.GetToken(methodHandle);
+                var moduleVersionId = ModuleVersionId(reader);
                 var anchor = anchorsByToken.TryGetValue(methodToken, out var metadataAnchor)
                     ? metadataAnchor
                     : CreateMemberAnchor(ApiTypeName(reader, typeHandle), selectorName, apiMemberName, anchorCanonical);
@@ -202,6 +205,8 @@ public static class CSharpBodyDiff
                     source.AssemblyName,
                     stableAssemblyKey,
                     anchor,
+                    new MetadataTypeRef(source.AssemblyName, moduleVersionId, MetadataTokens.GetToken(typeHandle)),
+                    new MetadataMemberRef(source.AssemblyName, moduleVersionId, methodToken),
                     rawKey,
                     $"{stableAssemblyKey}|{rawKey}",
                     DuplicateDiscriminator(reader, method),
@@ -241,6 +246,12 @@ public static class CSharpBodyDiff
 
     static string GenericAritySuffix(int arity)
         => arity == 0 ? "" : $"`{arity}";
+
+    static Guid ModuleVersionId(MetadataReader reader)
+    {
+        var module = reader.GetModuleDefinition();
+        return reader.GetGuid(module.Mvid);
+    }
 
     static string CanonicalMemberName(string methodName)
         => methodName == ".ctor" ? "#ctor" : methodName;
@@ -845,6 +856,8 @@ public static class CSharpBodyDiff
             entry.StableAssemblyKey,
             entry.StableMemberKey,
             entry.Anchor,
+            entry.TypeRef,
+            entry.MemberRef,
             entry.Display,
             changeId,
             message,
@@ -906,6 +919,8 @@ public static class CSharpBodyDiff
         string AssemblyName,
         string StableAssemblyKey,
         MemberAnchor Anchor,
+        MetadataTypeRef TypeRef,
+        MetadataMemberRef MemberRef,
         string RawKey,
         string StableMemberKey,
         string DuplicateDiscriminator,

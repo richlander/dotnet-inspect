@@ -252,10 +252,14 @@ public class ResearchDiffTests
             && member.HasChange("il.hunk.changed"));
         var constant = Assert.Single(changedMembers, member => member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal));
         Assert.NotNull(constant.Subject.Anchor);
+        Assert.NotNull(constant.Subject.MetadataMember);
+        Assert.NotEqual(Guid.Empty, constant.Subject.MetadataMember.ModuleVersionId);
+        Assert.StartsWith("0x06", constant.Subject.MetadataMember.Token, StringComparison.Ordinal);
         Assert.StartsWith("ConstantValue~", constant.Subject.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.Equal("M:DiffFixtureSample.DiffSample.ConstantValue()", constant.Subject.Anchor.CanonicalSignature);
         var ilEvidence = Assert.Single(constant.Evidence, evidence => evidence.ChangeId == "il.hunk.changed");
         Assert.Same(constant.Subject.Anchor, ilEvidence.Anchor);
+        Assert.Equal(constant.Subject.MetadataMember, ilEvidence.MetadataMember);
         Assert.NotNull(ilEvidence.IlDisplayRows);
         Assert.Contains(ilEvidence.IlDisplayRows!, row => row.Marker == "-" && row.Message.Contains("Removed IL operation", StringComparison.Ordinal));
         Assert.Contains(ilEvidence.IlDisplayRows!, row => row.Marker == "+" && row.Message.Contains("Added IL operation", StringComparison.Ordinal));
@@ -280,6 +284,12 @@ public class ResearchDiffTests
         Assert.Contains(changedMembers, member =>
             member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
             && member.HasChange("csharp.line.added"));
+        var constant = Assert.Single(changedMembers, member => member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal));
+        Assert.NotNull(constant.Subject.MetadataMember);
+        Assert.NotEqual(Guid.Empty, constant.Subject.MetadataMember.ModuleVersionId);
+        var csharpEvidence = Assert.Single(constant.Evidence, evidence => evidence.ChangeId == "csharp.line.removed");
+        Assert.Equal(constant.Subject.MetadataMember, csharpEvidence.MetadataMember);
+        Assert.NotNull(csharpEvidence.CSharpRow);
         Assert.DoesNotContain(changedMembers, member =>
             member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
     }
