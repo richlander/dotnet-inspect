@@ -49,4 +49,6 @@ Use `--emit-snapshot <file>` to write stable JSON card data for a run. Use
 `--diff-baseline <file>` to compare the current run against a previous snapshot.
 Baseline comparisons return exit code `1` for regressions (more failures, new
 failure buckets, or fewer self-diff-empty bodies) and report changed-body,
-hunk-kind, and opcode-family drift as non-failing drift.
+hunk-kind, and opcode-family drift as non-failing drift. Baseline output also
+includes a Markout composite-cell data card that renders baseline/current
+changes compactly in Markdown and decomposes them into typed fields in JSONL.
