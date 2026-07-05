@@ -4,12 +4,14 @@ using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
 using Markout;
+using Markout.Formatting;
 
 const string Usage =
     """
     il-diff-harness <old-assembly> <new-assembly> [--max-examples N]
     il-diff-harness --pair <old-assembly> <new-assembly> [--pair <old-assembly> <new-assembly>...] [--max-examples N]
     il-diff-harness --pairs <manifest.tsv> [--max-examples N]
+    il-diff-harness ... [--format markdown|tsv|jsonl]
 
       Emits a small IL Diff card over paired assemblies:
       - compared body count and self-diff empty count;
@@ -32,6 +34,7 @@ if (args.Contains("--help") || args.Contains("-h"))
 var pairs = new List<AssemblyPair>();
 string? pairsManifest = null;
 int maxExamples = 5;
+OutputFormat outputFormat = OutputFormat.Markdown;
 
 if (args.Length >= 2 && !args[0].StartsWith("-", StringComparison.Ordinal) && !args[1].StartsWith("-", StringComparison.Ordinal))
 {
@@ -62,6 +65,13 @@ for (int i = pairs.Count == 0 ? 0 : 2; i < args.Length; i++)
             if (i + 1 >= args.Length || !int.TryParse(args[++i], out maxExamples) || maxExamples < 0)
             {
                 Console.Error.WriteLine("--max-examples requires a non-negative integer.");
+                return 2;
+            }
+            break;
+        case "--format":
+            if (i + 1 >= args.Length || !TryParseOutputFormat(args[++i], out outputFormat))
+            {
+                Console.Error.WriteLine("--format requires one of: markdown, tsv, jsonl.");
                 return 2;
             }
             break;
@@ -121,7 +131,7 @@ foreach (var pair in pairs)
 try
 {
     var cards = pairs.Select(pair => BuildPairCard(pair, maxExamples)).ToImmutableArray();
-    Console.Write(FormatCard(cards, maxExamples));
+    Console.Write(FormatCard(cards, maxExamples, outputFormat));
     return 0;
 }
 catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or UnauthorizedAccessException)
@@ -151,6 +161,18 @@ static IEnumerable<AssemblyPair> ReadManifest(string manifestPath)
 
 static string ResolveManifestPath(string manifestDirectory, string path)
     => Path.IsPathFullyQualified(path) ? path : Path.GetFullPath(Path.Combine(manifestDirectory, path));
+
+static bool TryParseOutputFormat(string value, out OutputFormat format)
+{
+    format = value.ToLowerInvariant() switch
+    {
+        "markdown" or "md" => OutputFormat.Markdown,
+        "tsv" => OutputFormat.Tsv,
+        "jsonl" => OutputFormat.Jsonl,
+        _ => (OutputFormat)(-1),
+    };
+    return format is OutputFormat.Markdown or OutputFormat.Tsv or OutputFormat.Jsonl;
+}
 
 static IlDiffPairCard BuildPairCard(AssemblyPair pair, int maxExamples)
 {
@@ -330,41 +352,93 @@ static void IncrementFailure(Dictionary<string, int> counts, IlBodyDiffResult re
     Increment(counts, result.Failure ?? "unknown failure");
 }
 
-static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
+static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, OutputFormat format)
 {
     var card = Aggregate(pairs, maxExamples);
     var output = new StringWriter();
-    var writer = new MarkoutWriter(output, new MarkdownFormatter());
-    writer.WriteHeading(1, "IL Diff Card");
-    writer.WriteHeading(2, "Summary");
-    writer.WriteTable(
-        ["Metric", "Count"],
-        [
-            ["Pairs", pairs.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Compared bodies", card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Self-diff empty", card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Pair exact empty", card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Changed bodies", card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            ["Failures", card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-        ]);
-    AppendBuckets(writer, "Failure buckets", card.FailureBuckets);
-    AppendBuckets(writer, "Top hunk kinds", card.TopHunkKinds);
-    AppendBuckets(writer, "Top opcode families", card.TopOpcodeFamilies);
-    AppendPairSummaries(writer, pairs);
+    var writer = CreateWriter(output, format);
+    if (format == OutputFormat.Markdown)
+    {
+        writer.WriteHeading(1, "IL Diff Card");
+        writer.WriteHeading(2, "Summary");
+    }
+
+    AppendSummary(writer, format, pairs.Length, card);
+    AppendBuckets(writer, format, "Failure buckets", card.FailureBuckets);
+    AppendBuckets(writer, format, "Top hunk kinds", card.TopHunkKinds);
+    AppendBuckets(writer, format, "Top opcode families", card.TopOpcodeFamilies);
+    AppendPairSummaries(writer, format, pairs);
     if (!card.Examples.IsDefaultOrEmpty)
     {
-        writer.WriteHeading(2, "Examples");
-        foreach (var example in card.Examples)
+        if (format == OutputFormat.Markdown)
         {
-            writer.WriteHeading(3, example.Method);
-            writer.WriteCodeStart("diff");
-            writer.WriteParagraph(example.UnifiedDiff);
-            writer.WriteCodeEnd();
+            writer.WriteHeading(2, "Examples");
+            foreach (var example in card.Examples)
+            {
+                writer.WriteHeading(3, example.Method);
+                writer.WriteCodeStart("diff");
+                writer.WriteParagraph(example.UnifiedDiff);
+                writer.WriteCodeEnd();
+            }
+        }
+        else
+        {
+            writer.WriteTable(
+                ["Section", "Example", "Unified diff"],
+                card.Examples.Select(example => new[] { "Examples", example.Method, example.UnifiedDiff }));
         }
     }
 
     writer.Flush();
-    return output.ToString();
+    string rendered = output.ToString();
+    return format == OutputFormat.Jsonl
+        ? string.Join(
+            Environment.NewLine,
+            rendered.ReplaceLineEndings("\n")
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)) + Environment.NewLine
+        : rendered;
+}
+
+static MarkoutWriter CreateWriter(TextWriter output, OutputFormat format)
+    => format switch
+    {
+        OutputFormat.Markdown => new MarkoutWriter(output, new MarkdownFormatter()),
+        OutputFormat.Tsv => new MarkoutWriter(output, new TableFormatter(showHeader: true), new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv }),
+        OutputFormat.Jsonl => new MarkoutWriter(output, new TableFormatter(showHeader: true), new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl }),
+        _ => throw new InvalidOperationException($"Unsupported output format '{format}'."),
+    };
+
+static void AppendSummary(MarkoutWriter writer, OutputFormat format, int pairCount, IlDiffCard card)
+{
+    var rows = new[]
+    {
+        ("Pairs", pairCount),
+        ("Compared bodies", card.ComparedBodyCount),
+        ("Self-diff empty", card.SelfDiffExactCount),
+        ("Pair exact empty", card.PairExactCount),
+        ("Changed bodies", card.ChangedBodyCount),
+        ("Failures", card.FailureCount),
+    };
+    if (format == OutputFormat.Markdown)
+    {
+        writer.WriteTable(
+            ["Metric", "Count"],
+            rows.Select(row => new[]
+            {
+                row.Item1,
+                row.Item2.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            }));
+        return;
+    }
+
+    writer.WriteTable(
+        ["Section", "Metric", "Count"],
+        rows.Select(row => new[]
+        {
+            "Summary",
+            row.Item1,
+            row.Item2.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        }));
 }
 
 static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
@@ -415,15 +489,19 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
         examples.ToImmutable());
 }
 
-static void AppendPairSummaries(MarkoutWriter writer, ImmutableArray<IlDiffPairCard> pairs)
+static void AppendPairSummaries(MarkoutWriter writer, OutputFormat format, ImmutableArray<IlDiffPairCard> pairs)
 {
-    writer.WriteHeading(2, "Pair summaries");
+    if (format == OutputFormat.Markdown)
+        writer.WriteHeading(2, "Pair summaries");
+    string[] headers = format == OutputFormat.Markdown
+        ? ["Old", "New", "Compared", "Self-diff empty", "Pair exact empty", "Changed", "Failures"]
+        : ["Section", "Old", "New", "Compared", "Self-diff empty", "Pair exact empty", "Changed", "Failures"];
     writer.WriteTable(
-        ["Old", "New", "Compared", "Self-diff empty", "Pair exact empty", "Changed", "Failures"],
+        headers,
         pairs.Select(pair =>
         {
             var card = pair.Card;
-            return new[]
+            var row = new[]
             {
                 DisplayPath(pair.OldPath),
                 DisplayPath(pair.NewPath),
@@ -433,6 +511,7 @@ static void AppendPairSummaries(MarkoutWriter writer, ImmutableArray<IlDiffPairC
                 card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
+            return format == OutputFormat.Markdown ? row : ["Pair summaries", .. row];
         }));
 }
 
@@ -445,27 +524,41 @@ static string DisplayPath(string path)
         : relative;
 }
 
-static void AppendBuckets(MarkoutWriter writer, string title, ImmutableArray<CardBucket> buckets)
+static void AppendBuckets(MarkoutWriter writer, OutputFormat format, string title, ImmutableArray<CardBucket> buckets)
 {
-    writer.WriteHeading(2, title);
+    bool markdown = format == OutputFormat.Markdown;
+    if (markdown)
+        writer.WriteHeading(2, title);
     if (buckets.IsDefaultOrEmpty)
     {
         writer.WriteParagraph("None");
         return;
     }
 
+    string[] headers = markdown ? ["Bucket", "Count"] : ["Section", "Bucket", "Count"];
     writer.WriteTable(
-        ["Bucket", "Count"],
-        buckets.Take(10).Select(bucket => new[]
+        headers,
+        buckets.Take(10).Select(bucket =>
         {
-            bucket.Name,
-            bucket.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            var row = new[]
+            {
+                bucket.Name,
+                bucket.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
+            return markdown ? row : [title, .. row];
         }));
 }
 
 sealed record AssemblyPair(string OldPath, string NewPath);
 
 sealed record IlDiffPairCard(string OldPath, string NewPath, IlDiffCard Card);
+
+enum OutputFormat
+{
+    Markdown,
+    Tsv,
+    Jsonl,
+}
 
 sealed record IlDiffCard(
     int ComparedBodyCount,
