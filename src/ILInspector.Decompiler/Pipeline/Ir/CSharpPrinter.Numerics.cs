@@ -1056,6 +1056,10 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CoerceText(IrExpression value, TypeRef? target)
     {
+        if (target is { Kind: TypeRefKind.Pointer } && IsZeroConstant(value))
+        {
+            return "null";
+        }
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
             && AddressOfValue(value) is { } address)
@@ -1227,9 +1231,14 @@ public sealed partial class CSharpPrinter
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && SameNumericSlotWidth(conv.Target, target))
             return conv.Operand is Constant { Value: int or long } convConst
                 ? NumericConstant(convConst, target!)
-                : CheckedSafeCast(() => $"({TypeText(target!)}){Operand(conv.Operand)}");
-        return CheckedSafeCast(() => $"({TypeText(target!)}){Operand(value)}");
+                : CheckedSafeNumericCast(EffectiveType(conv.Operand), target!, () => $"({TypeText(target!)}){Operand(conv.Operand)}");
+        return CheckedSafeNumericCast(EffectiveType(value), target!, () => $"({TypeText(target!)}){Operand(value)}");
     }
+
+    string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)
+        => TypeFamilies.CheckedConversionCanThrow(source, target)
+            ? CheckedSafeCast(renderCast)
+            : renderCast();
 
     static IrExpression? AddressOfValue(IrExpression value)
         => value switch

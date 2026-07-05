@@ -311,6 +311,80 @@ public class CoerceChokePointTests
         AssertCompiles("public static LEnum M()", body, "public enum LEnum : long { Low = 0, High = 2 }");
     }
 
+    [Fact]
+    public void PointerTarget_NativeZero_RendersNull()
+    {
+        // #2338 A1: CoreLib UnmanagedMemoryAccessor initializes byte* locals
+        // from `ldc.i4.0; conv.u`. Rendering the native zero as `(nuint)0` at a
+        // pointer target is CS0266; the pointer null spelling is valid and
+        // matches the IL null pointer.
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var nativeUInt = TypeRef.CoreLib("System", "UIntPtr");
+        string body = RenderBody(
+            [new StoreLocal(0, bytePointer, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: true, new Constant(0, TypeRef.CoreLib("System", "Int32"))))],
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            [bytePointer]);
+
+        Assert.Contains("byte* V_0 = null;", body);
+        Assert.DoesNotContain("(nuint)0", body);
+        AssertCompiles("public static unsafe void M()", body);
+    }
+
+    [Fact]
+    public void NonThrowingNumericCoerce_InCheckedRegion_DoesNotWrapUnchecked()
+    {
+        // #2338 B3: byte->char is explicit but cannot throw in checked C#.
+        // The cast is required, the unchecked wrapper is pure noise.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var charType = TypeRef.CoreLib("System", "Char");
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(0, "x", intType),
+            new Coerce(charType, new LoadArgument(1, "b", byteType)));
+
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [new Parameter("x", intType), new Parameter("b", byteType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("(char)b", body);
+        Assert.DoesNotContain("unchecked((char)b)", body);
+        AssertCompiles("public static int M(int x, byte b)", body);
+    }
+
+    [Fact]
+    public void NonThrowingSubsumedConvert_InCheckedRegion_DoesNotWrapUnchecked()
+    {
+        // Same no-throw rule through the Convert-subsumed exit:
+        // conv.u2 feeding a char target can spell as one `(char)b` cast.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var ushortType = TypeRef.CoreLib("System", "UInt16");
+        var charType = TypeRef.CoreLib("System", "Char");
+        var checkedAdd = new Binary(
+            BinaryKind.Add,
+            isChecked: true,
+            isUnsigned: false,
+            new LoadArgument(0, "x", intType),
+            new Coerce(charType, new ILInspector.Decompiler.Pipeline.Convert(ushortType, isChecked: false, isUnsigned: false, new LoadArgument(1, "b", byteType))));
+
+        string body = RenderReturn(
+            checkedAdd,
+            intType,
+            [new Parameter("x", intType), new Parameter("b", byteType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("(char)b", body);
+        Assert.DoesNotContain("unchecked((char)b)", body);
+        Assert.DoesNotContain("(char)((ushort)b)", body);
+        AssertCompiles("public static int M(int x, byte b)", body);
+    }
+
     // #2302 canaries: the join-arm rule's third direction — a primitive arm at
     // a same-family primitive MergedType it cannot reach implicitly. The
     // pre-F1 fold shipped these bare (CS0029/CS0266); the latent class needs
