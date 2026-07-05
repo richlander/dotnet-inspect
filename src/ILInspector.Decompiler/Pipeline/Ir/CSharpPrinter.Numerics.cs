@@ -224,7 +224,7 @@ public sealed partial class CSharpPrinter
         if (TypeFamilies.IsBoolean(EffectiveType(value)))
             return renderCast();
         var underlying = EnumUnderlyingType(enumType);
-        return underlying is not null && !TypeFamilies.CheckedConversionCanThrow(EffectiveType(value), underlying)
+        return underlying is not null && !CSharpConversionRules.CheckedConversionCanThrow(EffectiveType(value), underlying)
             ? renderCast()
             : CheckedSafeCast(renderCast);
     }
@@ -284,7 +284,7 @@ public sealed partial class CSharpPrinter
         // A known backing width: the cast is a constant-expression conversion, so it
         // needs `unchecked` exactly when the value is out of that width's range.
         if (EnumUnderlyingType(enumType) is { } underlying)
-            return !TypeFamilies.ConstantFits(literal, underlying);
+            return !CSharpConversionRules.ConstantFits(literal, underlying);
         // A cross-assembly enum: the width is genuinely unknown and framework enums
         // are often byte/sbyte-backed [Flags], so conservatively assume the narrowest
         // (sbyte) backing and wrap a negative or a value above sbyte's max.
@@ -294,7 +294,7 @@ public sealed partial class CSharpPrinter
         // `value__` field): assume C#'s default `int` backing, so an int-range value
         // (including a negative high-bit constant like int.MinValue) stays a bare
         // cast and only a genuinely out-of-int value is wrapped.
-        return !TypeFamilies.ConstantFits(literal, TypeRef.CoreLib("System", "Int32"));
+        return !CSharpConversionRules.ConstantFits(literal, TypeRef.CoreLib("System", "Int32"));
     }
 
     // The integer literal an enum cast will carry, seeing through a widening
@@ -464,7 +464,7 @@ public sealed partial class CSharpPrinter
                 // An explicit cast of an out-of-range constant to unsigned, e.g. `(uint)(-1)`.
                 if (TypeFamilies.IsUnsignedIntegerPrimitive(target)
                     && TryGetIntegerConstant(convert.Operand, out long value)
-                    && !TypeFamilies.ConstantFits(value, target))
+                    && !CSharpConversionRules.ConstantFits(value, target))
                     return true;
                 return SubtreeReinterpretsOutOfRangeConstant(convert.Operand);
             case Binary binary:
@@ -731,7 +731,7 @@ public sealed partial class CSharpPrinter
         var unsigned = TypeFamilies.UnsignedCounterpart(EffectiveType(operand));
         if (unsigned is null)
             return Operand(operand);
-        bool constantOutOfRange = wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !TypeFamilies.ConstantFits(value, unsigned);
+        bool constantOutOfRange = wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !CSharpConversionRules.ConstantFits(value, unsigned);
         return CheckedSafeCast(() => $"({TypeText(unsigned)}){Operand(operand)}", force: constantOutOfRange);
     }
 
@@ -745,7 +745,7 @@ public sealed partial class CSharpPrinter
         var unsigned = TypeFamilies.UnsignedCounterpart(EffectiveType(operand));
         return unsigned is not null
             && TryGetIntegerConstant(operand, out long value)
-            && !TypeFamilies.ConstantFits(value, unsigned);
+            && !CSharpConversionRules.ConstantFits(value, unsigned);
     }
 
     /// <summary>Whether an operand reduces (through unchecked conv nodes, and nested unchecked +/-/* of constants) to a C# integer constant expression.</summary>
@@ -1065,7 +1065,7 @@ public sealed partial class CSharpPrinter
     /// typed sink spells its value through here — never an open-coded cast — so
     /// the cast/`unchecked` rules live once. The cast reinterprets bits the
     /// evaluation stack already carries (same family), so it is faithful to the
-    /// IL — see <see cref="TypeFamilies.NeedsNumericCast"/>. Operand positions
+    /// IL — see <see cref="CSharpConversionRules.NeedsNumericCast"/>. Operand positions
     /// reconciling against an enum sibling use <see cref="TryCoerceEnumOperand"/>,
     /// the operand-shaped door into the same rules.
     /// </summary>
@@ -1155,7 +1155,7 @@ public sealed partial class CSharpPrinter
             // must stay bare (work-2302 CI canary). A missing value__ assumes
             // the I4-signed shape, matching EnumSemanticFamily.
             var underlying = EnumUnderlyingType(EffectiveType(value)) ?? TypeRef.CoreLib("System", "Int32");
-            return TypeFamilies.CheckedConversionCanThrow(underlying, primitiveTarget)
+            return CSharpConversionRules.CheckedConversionCanThrow(underlying, primitiveTarget)
                 ? CheckedSafeCast(() => $"({TypeText(primitiveTarget)}){Operand(value)}")
                 : $"({TypeText(primitiveTarget)}){Operand(value)}";
         }
@@ -1237,7 +1237,7 @@ public sealed partial class CSharpPrinter
         // unchecked cast (uint.MaxValue's `ldc.i4.m1` → unchecked((uint)(-1))).
         if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
             return NumericConstant(konst, t);
-        if (!TypeFamilies.NeedsNumericCast(EffectiveType(value), target))
+        if (!CSharpConversionRules.NeedsNumericCast(EffectiveType(value), target))
             return Expression(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
@@ -1255,7 +1255,7 @@ public sealed partial class CSharpPrinter
     }
 
     string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)
-        => TypeFamilies.CheckedConversionCanThrow(source, target)
+        => CSharpConversionRules.CheckedConversionCanThrow(source, target)
             ? CheckedSafeCast(renderCast)
             : renderCast();
 
@@ -1352,7 +1352,7 @@ public sealed partial class CSharpPrinter
         if (bareTypes.Any(t => t is null))
             return false;
         bool hasNatural = bareTypes.Any(candidate => bareTypes.All(other =>
-            other!.Equals(candidate!) || TypeFamilies.IsImplicitIntegerWidening(other!, candidate!)));
+            other!.Equals(candidate!) || CSharpConversionRules.IsImplicitIntegerWidening(other!, candidate!)));
         return !hasNatural && arms.All(arm => ArmConvertsImplicitlyAt(arm, target));
     }
 
@@ -1372,7 +1372,7 @@ public sealed partial class CSharpPrinter
         if (ArmRendersBareSafelyAt(arm, target))
             return true;
         return arm is Constant { Value: int or long } konst
-            && TypeFamilies.ConstantFits(konst.Value is int i ? i : (long)konst.Value!, target);
+            && CSharpConversionRules.ConstantFits(konst.Value is int i ? i : (long)konst.Value!, target);
     }
 
     static bool IsFalseConstant(IrExpression expression)
@@ -1460,7 +1460,7 @@ public sealed partial class CSharpPrinter
                 _function.EnumUnderlyingTypes))
         {
             var underlying = EnumUnderlyingType(enumArmType) ?? TypeRef.CoreLib("System", "Int32");
-            return TypeFamilies.CheckedConversionCanThrow(underlying, integerTarget)
+            return CSharpConversionRules.CheckedConversionCanThrow(underlying, integerTarget)
                 ? CheckedSafeCast(() => $"({TypeText(integerTarget)}){Operand(arm)}")
                 : $"({TypeText(integerTarget)}){Operand(arm)}";
         }
@@ -1490,15 +1490,15 @@ public sealed partial class CSharpPrinter
             if (arm is Constant { Value: int or long } konst)
             {
                 long payload = konst.Value is int ci ? ci : (long)konst.Value!;
-                if (!TypeFamilies.ConstantFits(payload, numericTarget))
+                if (!CSharpConversionRules.ConstantFits(payload, numericTarget))
                     return NumericConstant(konst, numericTarget);
                 var bareType = TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64");
-                return !joinHasExactTypedArm || TypeFamilies.IsImplicitIntegerWidening(numericTarget, bareType)
+                return !joinHasExactTypedArm || CSharpConversionRules.IsImplicitIntegerWidening(numericTarget, bareType)
                     ? $"({TypeText(numericTarget)}){(payload < 0 ? $"({Expression(konst)})" : Expression(konst))}"
                     : null;
             }
             if (EffectiveType(arm) is { } armType
-                && TypeFamilies.NeedsNumericCast(armType, numericTarget)
+                && CSharpConversionRules.NeedsNumericCast(armType, numericTarget)
                 && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
             {
                 return CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
@@ -1528,7 +1528,7 @@ public sealed partial class CSharpPrinter
             ? TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64")
             : EffectiveType(arm);
         return armType is not null
-            && (armType.Equals(target) || TypeFamilies.IsImplicitIntegerWidening(armType, target));
+            && (armType.Equals(target) || CSharpConversionRules.IsImplicitIntegerWidening(armType, target));
     }
 
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
@@ -1581,7 +1581,7 @@ public sealed partial class CSharpPrinter
         => EffectiveType(arm) is { } armType
             && (CoercionRendering.CanSpellBoolToInteger(armType, target)
                 || (TypeFamilies.IsIntegerLike(armType)
-                    && (!TypeFamilies.NeedsNumericCast(armType, target)
+                    && (!CSharpConversionRules.NeedsNumericCast(armType, target)
                         || CanCoercePrimitiveJoinArm(armType, target, coercionSourceType))));
 
     bool CanCoercePrimitiveJoinArm(IrExpression arm, TypeRef target)
@@ -1648,7 +1648,7 @@ public sealed partial class CSharpPrinter
     string NumericConstant(Constant konst, TypeRef target)
     {
         long literal = konst.Value is int i ? i : (long)konst.Value!;
-        return TypeFamilies.ConstantFits(literal, target)
+        return CSharpConversionRules.ConstantFits(literal, target)
             ? Expression(konst)
             : $"unchecked(({TypeText(target)})({Expression(konst)}))";
     }
