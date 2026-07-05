@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\runfaster\runfaster.csproj" />
     <ProjectReference Include="Fixtures\RunFaster.AllocationFixture\RunFaster.AllocationFixture.csproj" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
   </ItemGroup>
 
   <ItemGroup>
