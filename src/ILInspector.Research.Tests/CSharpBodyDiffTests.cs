@@ -29,9 +29,14 @@ public class CSharpBodyDiffTests
             && row.Text.Contains("1", StringComparison.Ordinal));
         Assert.Contains(diff.Rows, row =>
             row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.return-expression.changed"
+            && row.OldValue == "1"
+            && row.NewValue == "2");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Add
             && row.Text.Contains("2", StringComparison.Ordinal));
-        Assert.All(diff.Rows.Where(row => row.Member.Contains("ConstantValue", StringComparison.Ordinal)), row =>
+        Assert.All(diff.Rows.Where(row => row.Member.Contains("ConstantValue", StringComparison.Ordinal) && row.ChangeId.StartsWith("csharp.line.", StringComparison.Ordinal)), row =>
         {
             Assert.StartsWith("ConstantValue~", row.Anchor.StableSelector, StringComparison.Ordinal);
             Assert.StartsWith("M:DiffFixtureSample.DiffSample.ConstantValue()", row.Anchor.CanonicalSignature, StringComparison.Ordinal);
@@ -88,6 +93,160 @@ public class CSharpBodyDiffTests
             row.Member.Contains("StringToken", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Add
             && row.Text.Contains("\"beta\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticSwitchCaseRowsPreserveLineFallback()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        var removed = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("SemanticSwitchCase", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.switch.case.removed");
+        Assert.Equal(CSharpDiffKind.Remove, removed.Kind);
+        Assert.Equal("7", removed.OldValue);
+        Assert.Null(removed.NewValue);
+        Assert.Equal("Removed switch case '7'", removed.Message);
+
+        var added = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("SemanticSwitchCase", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.switch.case.added");
+        Assert.Equal(CSharpDiffKind.Add, added.Kind);
+        Assert.Null(added.OldValue);
+        Assert.Equal("7", added.NewValue);
+        Assert.Equal("Added switch case '7'", added.Message);
+
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticSwitchCase", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticSwitchCase", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.added");
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticReturnExpressionChangedRowPreservesLineFallback()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        var row = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("SemanticReturnExpression", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.return-expression.changed");
+        Assert.Equal(CSharpDiffKind.Changed, row.Kind);
+        Assert.Equal("value + 1", row.OldValue);
+        Assert.Equal("value + 2", row.NewValue);
+        Assert.Equal("Changed return expression from 'value + 1' to 'value + 2'", row.Message);
+
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticReturnExpression", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticReturnExpression", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.added");
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticCallChangedRowPreservesLineFallback()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        var row = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("SemanticCallChange", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.call.changed");
+        Assert.Equal(CSharpDiffKind.Changed, row.Kind);
+        Assert.Contains("Sink(value)", row.OldValue);
+        Assert.Contains("MaybeThrow(value)", row.NewValue);
+        Assert.Contains("Changed call", row.Message);
+
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallChange", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallChange", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.added");
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticMultiCallHunkEmitsAllChangedRows()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        var rows = diff.Rows
+            .Where(row => row.Member.Contains("SemanticMultiCallChange", StringComparison.Ordinal)
+                && row.ChangeId == "csharp.call.changed")
+            .OrderBy(row => row.Line)
+            .ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.Equal("DiffSample.Sink(value)", rows[0].OldValue);
+        Assert.Equal("DiffSample.MaybeThrow(value)", rows[0].NewValue);
+        Assert.Equal("DiffSample.Sink(value + 1)", rows[1].OldValue);
+        Assert.Equal("DiffSample.MaybeThrow(value + 1)", rows[1].NewValue);
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticCallIgnoresStringLiteralParentheses()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        Assert.DoesNotContain(diff.Rows, row =>
+            row.Member.Contains("SemanticCallStringLiteralNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.call.changed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallStringLiteralNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallStringLiteralNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.added");
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticCallIgnoresArithmeticGroupingParentheses()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        Assert.DoesNotContain(diff.Rows, row =>
+            row.Member.Contains("SemanticCallArithmeticGroupingNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.call.changed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallArithmeticGroupingNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallArithmeticGroupingNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.added");
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticCallExtractsTrailingExpressionInvocation()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        var row = Assert.Single(diff.Rows, row =>
+            row.Member.Contains("SemanticCallTrailingExpression", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.call.changed");
+        Assert.Equal(CSharpDiffKind.Changed, row.Kind);
+        Assert.Contains("Abs(value)", row.OldValue);
+        Assert.Contains("Sign(value)", row.NewValue);
     }
 
     [Fact]

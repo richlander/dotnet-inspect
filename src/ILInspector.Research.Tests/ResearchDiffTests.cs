@@ -245,6 +245,22 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_CSharp_QuerySemanticReturnExpressionChange()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.Display.Contains("SemanticReturnExpression", StringComparison.Ordinal)
+            && member.HasChange("csharp.return-expression.changed")));
+        var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.return-expression.changed");
+        Assert.Equal("value + 1", evidence.OldValue);
+        Assert.Equal("value + 2", evidence.NewValue);
+    }
+
+    [Fact]
     public void CompareAssemblies_CSharpAndApiEvidence_GroupOnMemberAnchor()
     {
         var diff = ResearchDiff.CompareAssemblies(
