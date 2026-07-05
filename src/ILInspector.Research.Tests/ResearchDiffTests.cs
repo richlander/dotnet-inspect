@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.Instructions;
 
