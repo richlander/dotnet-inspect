@@ -125,6 +125,54 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromIlBodyDiff_PreservesProducerFailureRow()
+    {
+        var il = IlBodyDiffResult.NewBodyMissing("metadata row absent");
+
+        var diff = ResearchDiff.FromIlBodyDiff(il);
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal("il.diff.new-body-missing", row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.IlBody, row.EvidenceKind);
+        Assert.Equal("new body missing", row.Message);
+        var failure = Assert.IsType<IlDiffFailureRow>(row.IlFailureRow);
+        Assert.Equal(IlDiffFailureKind.NewBodyMissing, failure.Kind);
+        Assert.Equal("new", failure.Side);
+        Assert.Equal("metadata row absent", failure.Detail);
+    }
+
+    [Fact]
+    public void FromIlBodyDiff_PreservesFailureAndPartialOperationRows()
+    {
+        var operation = new CanonicalIlOperation(
+            Offset: 0,
+            OpcodeFamily: "nop",
+            Operand: null);
+        var ilRow = new IlDiffRow(0, IlDiffKind.Remove, operation, "Removed IL operation 'nop'");
+        var il = IlBodyDiffResult.UnsupportedBoundary(
+            "unsupported canonicalization boundary",
+            [ilRow],
+            detail: "slot identity");
+
+        var diff = ResearchDiff.FromIlBodyDiff(il);
+
+        Assert.Collection(
+            diff.Rows,
+            failure =>
+            {
+                Assert.Equal("il.diff.unsupported-boundary", failure.ChangeId);
+                Assert.NotNull(failure.IlFailureRow);
+                Assert.Null(failure.IlRow);
+            },
+            operationRow =>
+            {
+                Assert.Equal("il.operation.removed", operationRow.ChangeId);
+                Assert.Same(ilRow, operationRow.IlRow);
+                Assert.Null(operationRow.IlFailureRow);
+            });
+    }
+
+    [Fact]
     public void FromCSharpBodyDiff_PreservesProducerMessageAndTypedRow()
     {
         var csharpRow = Assert.Single(CSharpBodyDiff.CompareAssemblies(
