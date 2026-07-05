@@ -102,12 +102,53 @@ public class ReturnToSenderEvidenceTests
             item.Mechanism == ResearchDiffMechanism.IlBody
             && item.ChangeId == "il.operation.removed"
             && item.OldValue == "ldc.i4 1"
-            && item.OldIlOffset == 1);
+            && item.OldIlOffset == 1
+            && item.IlDisplayRows.Length == 1
+            && item.IlDisplayRows[0].UnifiedLine == "h1 - IL_0001 ldc.i4 1");
         Assert.Contains(subject.Evidence, item =>
             item.Mechanism == ResearchDiffMechanism.IlBody
             && item.ChangeId == "il.operation.added"
             && item.NewValue == "ldc.i4 2"
-            && item.NewIlOffset == 1);
+            && item.NewIlOffset == 1
+            && item.IlDisplayRows.Length == 1
+            && item.IlDisplayRows[0].UnifiedLine == "h1 + IL_0001 ldc.i4 2");
         Assert.DoesNotContain(subject.Evidence, item => item.ChangeId == "il.operation.context");
+    }
+
+    [Fact]
+    public void ToResearchDiff_ProjectsStructuredIlDiffFailureRows()
+    {
+        var anchor = new MemberAnchor(
+            "Method1~abcdef1234",
+            "M:TestType.Method1()",
+            "abcdef1234",
+            "TestType",
+            "Method1");
+        var failure = new IlDiffDisplayFailureRow(
+            IlDiffFailureKind.NewBodyMissing,
+            "new body missing",
+            Side: "new",
+            Detail: "method has no body");
+        var evidence = new ReturnToSenderEvidenceRow(
+            anchor,
+            "TestType",
+            "Method1",
+            Overload: 0,
+            GeneratedFixtureReturnToSenderStatus.Fail,
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            "opcode-diff",
+            Detail: null,
+            IlDiffDiagnostic: new IlDiffDisplayResult(
+                Failure: failure.UnifiedLine,
+                Rows: [],
+                FailureRows: [failure]));
+
+        var research = ReturnToSenderEvidence.ToResearchDiff([evidence]);
+
+        var subject = Assert.Single(research.Subjects);
+        var ilFailure = Assert.Single(subject.Evidence, item => item.ChangeId == "il.diff.new-body-missing");
+        Assert.Equal(ResearchDiffMechanism.IlBody, ilFailure.Mechanism);
+        Assert.Equal("method has no body", ilFailure.Detail);
+        Assert.Same(failure, ilFailure.IlDisplayFailureRow);
     }
 }
