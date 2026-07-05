@@ -1645,6 +1645,93 @@ public class CSharpPrinterTests
         Assert.Equal("return unchecked((ulong)(-1));", CSharpPrinter.Print(function).Output!.Trim());
     }
 
+    [Fact]
+    public void ConvertU8OfSignedInt_InsertsUnsignedSibling()
+    {
+        // conv.u8 of a non-constant SIGNED int zero-extends the 32-bit stack value;
+        // a bare `(ulong)i` sign-extends (wrong value for negative i). `(ulong)(uint)i`
+        // reinterprets faithfully and round-trips to conv.u8 (#2336).
+        Assert.Equal("return (ulong)(uint)i;", RenderConvertReturn("UInt64", "Int32"));
+    }
+
+    [Fact]
+    public void ConvertU8OfSbyte_ZeroExtendsAtStackWidth_NotDeclaredWidth()
+    {
+        // A sub-int operand is sign-extended to int32 on the CIL stack BEFORE
+        // conv.u8, so the zero-extension is at the stack width: `(ulong)(uint)s`,
+        // never `(ulong)(byte)s` (= 255 for sbyte -1, the wrong value) (#2336).
+        Assert.Equal("return (ulong)(uint)s;", RenderConvertReturn("UInt64", "SByte", "s"));
+    }
+
+    [Fact]
+    public void ConvertU8OfUnsignedOperand_StaysBare()
+    {
+        // An already-unsigned operand's `(ulong)u` already zero-extends — inserting
+        // a redundant `(uint)` would be churn, so the fix must not fire (#2336).
+        Assert.Equal("return (ulong)u;", RenderConvertReturn("UInt64", "UInt32", "u"));
+    }
+
+    [Fact]
+    public void ConvertToNuintOfSignedInt_InsertsUnsignedSibling()
+    {
+        // conv.u (native unsigned) of a signed int zero-extends the 32-bit stack
+        // value on 64-bit; `(nuint)(uint)i` is faithful on both platform widths (#2336).
+        Assert.Equal("return (nuint)(uint)i;", RenderConvertReturn("UIntPtr", "Int32"));
+    }
+
+    [Fact]
+    public void ConvertU8OfLong_StaysBare()
+    {
+        // A long source is already the ulong stack width, so `(ulong)l` is a faithful
+        // reinterpret with no zero/sign-extension choice — the fix must not fire (#2336).
+        Assert.Equal("return (ulong)l;", RenderConvertReturn("UInt64", "Int64", "l"));
+    }
+
+    [Fact]
+    public void SignedWidenToLong_StaysBare()
+    {
+        // A SIGNED target keeps sign-extension (conv.i8): `(long)i` is faithful, the
+        // fix only applies to unsigned/native widening targets (#2336).
+        Assert.Equal("return (long)i;", RenderConvertReturn("Int64", "Int32"));
+    }
+
+    [Fact]
+    public void CheckedConvOvfU8OfSignedInt_StaysBare()
+    {
+        // conv.ovf.u8 (checked) of a signed int throws for a negative value, so
+        // `checked((ulong)i)` already matches it; inserting `(uint)` would recompile
+        // to conv.ovf.u4;conv.u8 (wrong opcodes), so the fix must not fire (#2336).
+        var source = TypeRef.CoreLib("System", "Int32");
+        var conv = new ILInspector.Decompiler.Pipeline.Convert(
+            TypeRef.CoreLib("System", "UInt64"), isChecked: true, isUnsigned: false,
+            new LoadArgument(0, "i", source));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(conv));
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "UInt64"), [new Parameter("i", source)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return checked((ulong)i);", CSharpPrinter.Print(function).Output!.Trim());
+    }
+
+    static string RenderConvertReturn(string targetType, string sourceType, string paramName = "i")
+    {
+        var source = TypeRef.CoreLib("System", sourceType);
+        var conv = new ILInspector.Decompiler.Pipeline.Convert(
+            TypeRef.CoreLib("System", targetType), isChecked: false, isUnsigned: false,
+            new LoadArgument(0, paramName, source));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(conv));
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", targetType), [new Parameter(paramName, source)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
     static string ReturnConstant(int value, string constType, string returnType)
     {
         var container = new BlockContainer();
