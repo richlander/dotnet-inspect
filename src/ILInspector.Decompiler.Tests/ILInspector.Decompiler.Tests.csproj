@@ -73,6 +73,8 @@
              Link="GeneratedFixtures.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ValidityCheck.cs"
              Link="ValidityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ValidityPredicateScan.cs"
+             Link="ValidityPredicateScan.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AssertionEvaluator.cs"
              Link="AssertionEvaluator.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AssertionPrinter.cs"

@@ -750,8 +750,8 @@ internal static class CorpusSensor
                 Delta(current.Metrics.FullMalformedMethods - baseline.Metrics.FullMalformedMethods));
             PrintMetric(
                 "Semantic defects (-)",
-                FractionWithCoverage(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods, baseline.Metrics.TotalMethods),
-                FractionWithCoverage(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods, current.Metrics.TotalMethods),
+                FractionWithCoverage(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods),
+                FractionWithCoverage(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods),
                 Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
         }
         if (current.FidelityCompileCap > 0)
@@ -916,7 +916,8 @@ internal static class CorpusSensor
     {
         var validity = snapshot.ValidityCompileCap <= 0
             ? "validity not run"
-            : $"validity sampled {Coverage(snapshot.Metrics.SemanticCheckedMethods, snapshot.Metrics.TotalMethods)}";
+            : $"validity compiled {Number(snapshot.Metrics.SemanticCheckedMethods)} methods"
+                + ValidityCompileCapNote(snapshot.ValidityCompileCap);
         var fidelity = snapshot.FidelityCompileCap <= 0
             ? "fidelity not run"
             : $"fidelity sampled {Coverage(snapshot.Metrics.Fidelity.CheckedMethods, snapshot.Metrics.TotalMethods)}";
@@ -951,8 +952,8 @@ internal static class CorpusSensor
     static string Fraction(int numerator, int denominator)
         => $"{Number(numerator)}/{Number(denominator)}";
 
-    static string FractionWithCoverage(int numerator, int denominator, int total)
-        => $"{Fraction(numerator, denominator)} — sampled {Coverage(denominator, total)}";
+    static string FractionWithCoverage(int numerator, int denominator)
+        => $"{Fraction(numerator, denominator)} — {Number(denominator)} compiled methods";
 
     static string FidelityWithCoverage(FidelitySensorMetrics metrics, int total)
         => $"opcode-diff {Fraction(metrics.OpcodeDiffMethods, metrics.CheckedMethods)}, exact {Number(metrics.ExactMethods)}, recompile-failed {Number(metrics.RecompileFailMethods)}, context-failed {Number(metrics.ContextFailMethods)}; sampled {Coverage(metrics.CheckedMethods, total)}";
@@ -965,6 +966,14 @@ internal static class CorpusSensor
 
     static string CapText(int? cap)
         => cap is { } value ? Number(value) : "uncapped";
+
+    static string CompileCapText(int cap)
+        => cap == int.MaxValue ? "all" : Number(cap);
+
+    static string ValidityCompileCapNote(int cap)
+        => cap == int.MaxValue
+            ? " (compile-cap all; exhaustive binding sweep)"
+            : $" (compile-cap {CompileCapText(cap)}; per-sample, not corpus-wide)";
 
     static string Delta(int value)
         => value > 0 ? $"+{Number(value)}" : Number(value);
