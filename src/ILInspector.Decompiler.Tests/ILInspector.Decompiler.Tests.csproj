@@ -69,6 +69,8 @@
              Link="ReturnToSender.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderEvidence.cs"
              Link="ReturnToSenderEvidence.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderClosureEvidence.cs"
+             Link="ReturnToSenderClosureEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\GeneratedFixtures.cs"
              Link="GeneratedFixtures.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ValidityCheck.cs"
