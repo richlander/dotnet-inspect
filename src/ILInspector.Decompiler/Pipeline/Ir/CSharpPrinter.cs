@@ -1915,10 +1915,10 @@ public sealed partial class CSharpPrinter
         // `n ?? c ? a : b` which C# parses as `(n ?? c) ? a : b` (CS0019/CS0029).
         // A bare top-level ternary reaches here from the bool→int composition
         // (`b ? 1 : 0`), a stale-`Coerce` over a conditional, or a conditional
-        // right rendered without `Operand`'s parentheses (#2345 rounds 3-4).
+        // right rendered without `Operand`'s parentheses (#2345 rounds 3-5).
         // Conditional/switch arms need no such guard — their `:`/`=>` delimiters
         // already bracket the ternary.
-        return HasTopLevelConditionalOperator(text) ? $"({text})" : text;
+        return ParenthesizeConditional(text);
     }
 
     string CoalesceRightCore(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType)
@@ -1931,11 +1931,17 @@ public sealed partial class CSharpPrinter
                 ? BoolToIntegerText(right, intTarget)
                 : Operand(right);
 
+    /// <summary>Parenthesizes <paramref name="text"/> when it renders a top-level conditional expression, otherwise returns it unchanged.</summary>
+    static string ParenthesizeConditional(string text)
+        => HasTopLevelConditionalOperator(text) ? $"({text})" : text;
+
     /// <summary>
     /// True when <paramref name="text"/> is a conditional expression at the top
     /// level — a <c>?</c> ternary operator (rendered space-flanked, so distinct
-    /// from <c>??</c>, <c>?.</c>, <c>?[</c>) outside any bracket. Used to decide
-    /// whether a coalesce right operand needs parentheses.
+    /// from <c>??</c>, <c>?.</c>, <c>?[</c>, and a <c>T?</c> nullable suffix)
+    /// outside any bracket, string, or character literal. String/char literals
+    /// are skipped whole so an unbalanced bracket or a stray <c>?</c> inside a
+    /// literal cannot corrupt the depth count (#2345 round-5 review).
     /// </summary>
     static bool HasTopLevelConditionalOperator(string text)
     {
@@ -1944,6 +1950,15 @@ public sealed partial class CSharpPrinter
         {
             switch (text[i])
             {
+                case '"':
+                    // Verbatim when an `@` sits in the string prefix (`@"`, `$@"`,
+                    // `@$"`); those escape a quote as `""` rather than `\"`.
+                    i = SkipStringOrCharLiteral(text, i, '"',
+                        verbatim: i > 0 && (text[i - 1] == '@' || (i > 1 && text[i - 1] == '$' && text[i - 2] == '@')));
+                    break;
+                case '\'':
+                    i = SkipStringOrCharLiteral(text, i, '\'', verbatim: false);
+                    break;
                 case '(' or '[' or '{':
                     depth++;
                     break;
@@ -1957,6 +1972,35 @@ public sealed partial class CSharpPrinter
             }
         }
         return false;
+    }
+
+    /// <summary>Returns the index of the closing <paramref name="quote"/> of the literal that opens at <paramref name="open"/>, honoring <c>\</c> escapes (or <c>""</c> for verbatim strings).</summary>
+    static int SkipStringOrCharLiteral(string text, int open, char quote, bool verbatim)
+    {
+        for (int i = open + 1; i < text.Length; i++)
+        {
+            if (verbatim)
+            {
+                if (text[i] == quote)
+                {
+                    if (i + 1 < text.Length && text[i + 1] == quote)
+                    {
+                        i++;
+                        continue;
+                    }
+                    return i;
+                }
+            }
+            else if (text[i] == '\\')
+            {
+                i++;
+            }
+            else if (text[i] == quote)
+            {
+                return i;
+            }
+        }
+        return text.Length - 1;
     }
 
     static TypeRef? NullableValueType(TypeRef? type)

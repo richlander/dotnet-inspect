@@ -1293,10 +1293,10 @@ public sealed partial class CSharpPrinter
         // `?:` is right-associative, so a conditional in the condition position
         // reassociates without parentheses (`(a ? b : c) ? d : e` would reparse
         // as `a ? b : (c ? d : e)`). The arms render through Operand, which
-        // already wraps a nested conditional where needed.
-        var condition = conditional.Condition is Conditional
-            ? $"({Condition(conditional.Condition)})"
-            : Condition(conditional.Condition);
+        // already wraps a nested conditional where needed. A conditional can
+        // hide behind a stale `Coerce`/`Convert`, so parenthesize off the
+        // rendered condition text, not the node type (#2345 round-5).
+        var condition = ParenthesizeConditional(Condition(conditional.Condition));
         // Two-stage join decision (#2306 unified with #2322): first the
         // join-level bare-vs-spell call (EffectiveJoinTarget — neutralizes the
         // target when the bare arm set is valid C#, so zero churn); then, in
@@ -1406,11 +1406,13 @@ public sealed partial class CSharpPrinter
     {
         // The condition of the composed `?:` must out-bind `?:` itself. Every
         // bool-valued form Condition() produces already does (comparisons,
-        // `&&`/`||`, `!x`, `??`, calls) EXCEPT a nested conditional, which
-        // renders bare `c ? b1 : b2` and reassociates into the composition
+        // `&&`/`||`, `!x`, `??`, calls) EXCEPT a conditional, which renders bare
+        // `c ? b1 : b2` and reassociates into the composition
         // (`c ? b1 : b2 ? 1 : 0` is `c ? b1 : (b2 ? 1 : 0)`, a bool/int arm
-        // mismatch — #2345 round-4, GPT-5.5). Parenthesize that one case.
-        string condition = value is Conditional ? $"({Condition(value)})" : Condition(value);
+        // mismatch — #2345 rounds 4-5). A conditional can hide behind a stale
+        // `Coerce`/`Convert`, so parenthesize off the rendered text, not the
+        // node type (GPT-5.5 round-5).
+        string condition = ParenthesizeConditional(Condition(value));
         return target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
             ? $"{condition} ? 1 : 0"
             : CheckedSafeCast(() => $"({TypeText(target)})({condition} ? 1 : 0)");

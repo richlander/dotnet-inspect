@@ -395,6 +395,97 @@ public class CoerceChokePointTests
     }
 
     [Fact]
+    public void BoolCompositionOfCoerceWrappedConditional_ParenthesizesCondition()
+    {
+        // #2345 round-5 (GPT-5.5): a conditional can hide behind a stale
+        // `Coerce`, so parenthesizing on `value is Conditional` misses
+        // `Coerce(bool, Conditional)` — `Condition()` still renders it bare
+        // `c ? b1 : b2`, producing `c ? b1 : b2 ? 1 : 0` (CS0029). The guard
+        // keys off the rendered condition text, not the node type.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var inner = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "b1", boolType),
+            new LoadArgument(2, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var value = new Coerce(boolType, inner);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, value),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("c", boolType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [intType]);
+
+        Assert.Contains("(c ? b1 : b2)", body);
+        AssertCompiles("public static int M(bool c, bool b1, bool b2)", body);
+    }
+
+    [Fact]
+    public void CoalesceRightConditional_WithBracketInStringLiteral_StillParenthesizes()
+    {
+        // #2345 round-5 (Gemini): the top-level-conditional scan must skip
+        // string/char literals, or an unbalanced bracket inside a literal
+        // (`s == "("`) corrupts its depth count and the `??` right ternary is
+        // left un-parenthesized (`n ?? s == "(" ? 1 : 2`, CS0019).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [intType]);
+        var conditional = new Conditional(
+            new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadArgument(1, "s", stringType), new Constant("(", stringType)),
+            new Constant(1, intType),
+            new Constant(2, intType))
+        {
+            MergedType = intType,
+        };
+        var coalesce = new Coalesce(new LoadArgument(0, "n", nullableInt), conditional);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, coalesce),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("n", nullableInt), new Parameter("s", stringType)],
+            [intType]);
+
+        Assert.DoesNotContain("?? s ==", body);
+        AssertCompiles("public static int M(int? n, string s)", body);
+    }
+
+    [Fact]
+    public void CoalesceRightStringLiteral_WithQuestionMark_StaysBare()
+    {
+        // #2345 round-5 (Gemini): a coalesce right that is a plain string
+        // literal containing a space-flanked `?` must NOT be mistaken for a
+        // conditional and wrapped — `s ?? "is it ? "`, not `s ?? ("is it ? ")`.
+        var stringType = TypeRef.CoreLib("System", "String");
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "s", stringType),
+            new Constant("is it ? ", stringType));
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, stringType, coalesce),
+                new Return(new LoadLocal(0, stringType)),
+            ],
+            stringType,
+            [new Parameter("s", stringType)],
+            [stringType]);
+
+        Assert.DoesNotContain("(\"is it ? \")", body);
+        AssertCompiles("public static string M(string s)", body);
+    }
+
+    [Fact]
     public void CoalesceExpression_WithConditionalRight_ParenthesizesTernary()
     {
         // #2345 round-4 (Gemini): a coalesce right that renders as a bare
