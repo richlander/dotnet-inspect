@@ -673,6 +673,32 @@ internal static class AssertionScan
         return match.Success ? match.Groups["sink"].Value : "(unknown)";
     }
 
+    /// <summary>
+    /// The three mutually-exclusive violation states of a scan. Discharged
+    /// obligations and final-stage survivors (UNSOUND) are drawn only from
+    /// methods that completed the pipeline; a pass-bug method never reached a
+    /// real final stage, so its violations are UNKNOWN — folding them into either
+    /// bucket misreads a crash as a soundness or construction signal (#2285).
+    /// </summary>
+    internal readonly record struct ViolationStates(
+        IReadOnlyList<ViolationSite> Survivors,
+        int SurvivorMethods,
+        IReadOnlyList<ViolationSite> Discharged,
+        int UnknownViolations,
+        int UnknownMethods);
+
+    internal static ViolationStates ClassifyViolationStates(IReadOnlyList<MethodResult> methodsWithViolations)
+    {
+        var completed = methodsWithViolations.Where(m => m.PassBug is null).ToArray();
+        var passBug = methodsWithViolations.Where(m => m.PassBug is not null).ToArray();
+        return new ViolationStates(
+            Survivors: completed.SelectMany(m => m.Violations).Where(v => v.FinalStageSurvivor).ToArray(),
+            SurvivorMethods: completed.Count(m => m.Violations.Any(v => v.FinalStageSurvivor)),
+            Discharged: completed.SelectMany(m => m.Violations).Where(v => !v.FinalStageSurvivor).ToArray(),
+            UnknownViolations: passBug.Sum(m => m.Violations.Count),
+            UnknownMethods: passBug.Length);
+    }
+
     static void Report(Result result, int maxExamples, int? sampleSize)
     {
         int total = result.Methods.Count;
@@ -692,10 +718,20 @@ internal static class AssertionScan
         // the pipeline working as designed. The survivor count is the real
         // soundness number; "final stage is zero" for the wrappable population is
         // the target (known PrinterOwned residuals excluded). See #2269.
-        var survivors = methodsWithViolations.SelectMany(m => m.Violations).Where(v => v.FinalStageSurvivor).ToArray();
-        int survivorMethods = methodsWithViolations.Count(m => m.Violations.Any(v => v.FinalStageSurvivor));
-        Console.WriteLine($"  final-stage survivors (UNSOUND): {survivors.Length} across {survivorMethods} method(s)");
-        Console.WriteLine($"  discharged obligations         : {violationCount - survivors.Length}");
+        // A pass-bug method never reached a real final stage, so its violations
+        // are UNKNOWN — neither final-stage survivors (UNSOUND) nor discharged
+        // obligations. Counting them either way misreads a pipeline crash as a
+        // soundness or construction signal, so the survivor/discharge tallies
+        // (and the histograms and lifetime stats below) restrict to methods that
+        // completed the pipeline and the crash residue is a third, explicit
+        // state (#2285; the --diff lane already excludes pass bugs).
+        var states = ClassifyViolationStates(methodsWithViolations);
+        var survivors = states.Survivors;
+        var discharged = states.Discharged;
+        Console.WriteLine($"  final-stage survivors (UNSOUND): {survivors.Count} across {states.SurvivorMethods} method(s)");
+        Console.WriteLine($"  discharged obligations         : {discharged.Count}");
+        if (states.UnknownViolations > 0)
+            Console.WriteLine($"  unknown (pass bug, no final stage): {states.UnknownViolations} across {states.UnknownMethods} method(s)");
         Console.WriteLine();
 
         PrintHistogram("By sink type:", methodsWithViolations.SelectMany(m => m.Violations).GroupBy(v => v.SinkType));
@@ -703,7 +739,7 @@ internal static class AssertionScan
         PrintHistogram("By node:", methodsWithViolations.SelectMany(m => m.Violations).GroupBy(v => v.Node));
         PrintHistogram("By predicate:", methodsWithViolations.SelectMany(m => m.Violations).GroupBy(v => v.Predicate));
 
-        if (survivors.Length > 0)
+        if (survivors.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine("Final-stage survivors (UNSOUND — the soundness signal):");
@@ -714,10 +750,10 @@ internal static class AssertionScan
         // Obligation lifetime — stages from accrual to discharge — is a
         // construction-quality signal: a short lifetime means a pass decided the
         // type early, a long one means it retrofitted the claim late. Only
-        // discharged obligations have a lifetime (survivors never discharge). See
-        // docs/design/assertion-lane-effects.md.
-        var discharged = methodsWithViolations.SelectMany(m => m.Violations).Where(v => !v.FinalStageSurvivor).ToArray();
-        if (discharged.Length > 0)
+        // discharged obligations have a lifetime (survivors never discharge, and
+        // pass-bug residue is UNKNOWN, not discharged — both are excluded above).
+        // See docs/design/assertion-lane-effects.md.
+        if (discharged.Count > 0)
         {
             var lifetimes = discharged.Select(v => v.LifetimeStages).ToArray();
             Console.WriteLine();
@@ -870,12 +906,33 @@ internal static class AssertionScan
 
         // The survivor deltas are the load-bearing soundness signal: a newly
         // surviving assertion (UNSOUND) is a real regression, distinct from a
-        // gained-but-discharged obligation. See #2269.
+        // gained-but-discharged obligation. See #2269. The FinalStageSurvivor
+        // flag arrived in snapshot schema v2, so a v1 baseline deserializes every
+        // record with it false — comparing survivor sets against it would report
+        // every current survivor as newly gained. Skip that section (and say why)
+        // rather than emit a migration artifact as a regression (#2285).
         Console.WriteLine();
         Console.WriteLine("Final-stage survivors (UNSOUND) delta:");
-        PrintDiffSide("  SURVIVOR REGRESSED (method gained a final-stage survivor)", survivorGained);
-        PrintDiffSide("  SURVIVOR IMPROVED (method discharged a former survivor)", survivorLost);
+        if (SurvivorDeltaComparable(baseline.SchemaVersion))
+        {
+            PrintDiffSide("  SURVIVOR REGRESSED (method gained a final-stage survivor)", survivorGained);
+            PrintDiffSide("  SURVIVOR IMPROVED (method discharged a former survivor)", survivorLost);
+        }
+        else
+        {
+            Console.WriteLine($"  (skipped: baseline schema v{baseline.SchemaVersion} predates the survivor flag (v2).");
+            Console.WriteLine("   Regenerate the baseline with the current tool; a v1-baseline survivor delta is a");
+            Console.WriteLine("   migration artifact, not a regression.)");
+        }
     }
+
+    /// <summary>
+    /// Whether a baseline's survivor set is comparable to the current run. The
+    /// <c>FinalStageSurvivor</c> flag is a schema-v2 field; a v1 (or older)
+    /// baseline records it as false everywhere, so a survivor delta against it is
+    /// a migration artifact rather than a real regression (#2285).
+    /// </summary>
+    internal static bool SurvivorDeltaComparable(int baselineSchemaVersion) => baselineSchemaVersion >= 2;
 
     static void PrintDiffSide(string title, SortedDictionary<string, List<string>> byViolation)
     {

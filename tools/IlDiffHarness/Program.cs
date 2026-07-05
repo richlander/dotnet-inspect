@@ -1,13 +1,15 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using System.Text;
 
 using ILInspector.Instructions;
+using Markout;
 
 const string Usage =
     """
     il-diff-harness <old-assembly> <new-assembly> [--max-examples N]
+    il-diff-harness --pair <old-assembly> <new-assembly> [--pair <old-assembly> <new-assembly>...] [--max-examples N]
+    il-diff-harness --pairs <manifest.tsv> [--max-examples N]
 
       Emits a small IL Diff card over paired assemblies:
       - compared body count and self-diff empty count;
@@ -15,6 +17,10 @@ const string Usage =
       - failure count and buckets;
       - top hunk kinds and opcode families;
       - capped examples rendered through IlDiffPrinter.
+
+      Pair manifests use one old/new assembly pair per line, separated by a tab.
+      Empty lines and lines beginning with # are ignored. Relative paths are
+      resolved from the manifest directory.
     """;
 
 if (args.Contains("--help") || args.Contains("-h"))
@@ -23,19 +29,35 @@ if (args.Contains("--help") || args.Contains("-h"))
     return 0;
 }
 
-if (args.Length < 2)
+var pairs = new List<AssemblyPair>();
+string? pairsManifest = null;
+int maxExamples = 5;
+
+if (args.Length >= 2 && !args[0].StartsWith("-", StringComparison.Ordinal) && !args[1].StartsWith("-", StringComparison.Ordinal))
 {
-    Console.Error.WriteLine(Usage);
-    return 2;
+    pairs.Add(new AssemblyPair(args[0], args[1]));
 }
 
-string oldAssembly = args[0];
-string newAssembly = args[1];
-int maxExamples = 5;
-for (int i = 2; i < args.Length; i++)
+for (int i = pairs.Count == 0 ? 0 : 2; i < args.Length; i++)
 {
     switch (args[i])
     {
+        case "--pair":
+            if (i + 2 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal) || args[i + 2].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("--pair requires old and new assembly paths.");
+                return 2;
+            }
+            pairs.Add(new AssemblyPair(args[++i], args[++i]));
+            break;
+        case "--pairs":
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("--pairs requires a manifest path.");
+                return 2;
+            }
+            pairsManifest = args[++i];
+            break;
         case "--max-examples":
             if (i + 1 >= args.Length || !int.TryParse(args[++i], out maxExamples) || maxExamples < 0)
             {
@@ -50,35 +72,96 @@ for (int i = 2; i < args.Length; i++)
     }
 }
 
-if (!File.Exists(oldAssembly))
+if (pairsManifest is not null)
 {
-    Console.Error.WriteLine($"Old assembly not found: {oldAssembly}");
+    if (pairs.Count != 0)
+    {
+        Console.Error.WriteLine("--pairs cannot be combined with positional pairs or --pair.");
+        return 2;
+    }
+
+    if (!File.Exists(pairsManifest))
+    {
+        Console.Error.WriteLine($"Pair manifest not found: {pairsManifest}");
+        return 2;
+    }
+
+    try
+    {
+        pairs.AddRange(ReadManifest(pairsManifest));
+    }
+    catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
+}
+
+if (pairs.Count == 0)
+{
+    Console.Error.WriteLine(Usage);
     return 2;
 }
 
-if (!File.Exists(newAssembly))
+foreach (var pair in pairs)
 {
-    Console.Error.WriteLine($"New assembly not found: {newAssembly}");
-    return 2;
+    if (!File.Exists(pair.OldPath))
+    {
+        Console.Error.WriteLine($"Old assembly not found: {pair.OldPath}");
+        return 2;
+    }
+
+    if (!File.Exists(pair.NewPath))
+    {
+        Console.Error.WriteLine($"New assembly not found: {pair.NewPath}");
+        return 2;
+    }
 }
 
 try
 {
-    using var oldFile = File.OpenRead(oldAssembly);
-    using var newFile = File.OpenRead(newAssembly);
+    var cards = pairs.Select(pair => BuildPairCard(pair, maxExamples)).ToImmutableArray();
+    Console.Write(FormatCard(cards, maxExamples));
+    return 0;
+}
+catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException or UnauthorizedAccessException)
+{
+    Console.Error.WriteLine(ex.Message);
+    return 2;
+}
+
+static IEnumerable<AssemblyPair> ReadManifest(string manifestPath)
+{
+    string manifestDirectory = Path.GetDirectoryName(Path.GetFullPath(manifestPath)) ?? Directory.GetCurrentDirectory();
+    int lineNumber = 0;
+    foreach (var rawLine in File.ReadLines(manifestPath))
+    {
+        lineNumber++;
+        string line = rawLine.Trim();
+        if (line.Length == 0 || line.StartsWith('#'))
+            continue;
+
+        var parts = line.Split('\t', StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
+            throw new InvalidOperationException($"Invalid pair manifest line {lineNumber}: expected old<TAB>new.");
+
+        yield return new AssemblyPair(ResolveManifestPath(manifestDirectory, parts[0]), ResolveManifestPath(manifestDirectory, parts[1]));
+    }
+}
+
+static string ResolveManifestPath(string manifestDirectory, string path)
+    => Path.IsPathFullyQualified(path) ? path : Path.GetFullPath(Path.Combine(manifestDirectory, path));
+
+static IlDiffPairCard BuildPairCard(AssemblyPair pair, int maxExamples)
+{
+    using var oldFile = File.OpenRead(pair.OldPath);
+    using var newFile = File.OpenRead(pair.NewPath);
     using var oldPe = new PEReader(oldFile);
     using var newPe = new PEReader(newFile);
     var oldReader = oldPe.GetMetadataReader();
     var newReader = newPe.GetMetadataReader();
-
     var card = BuildCard(oldPe, oldReader, newPe, newReader, maxExamples);
-    Console.Write(FormatCard(Path.GetFileName(oldAssembly), Path.GetFileName(newAssembly), card));
-    return 0;
-}
-catch (Exception ex) when (ex is BadImageFormatException or IOException or InvalidOperationException)
-{
-    Console.Error.WriteLine(ex.Message);
-    return 2;
+    return new IlDiffPairCard(pair.OldPath, pair.NewPath, card);
 }
 
 static IlDiffCard BuildCard(
@@ -182,9 +265,9 @@ static IlDiffCard BuildCard(
         pairExact,
         changed,
         failures.Values.Sum(),
-        Top(failures),
-        Top(hunkKinds),
-        Top(opcodeFamilies),
+        Buckets(failures),
+        Buckets(hunkKinds),
+        Buckets(opcodeFamilies),
         examples.ToImmutable());
 }
 
@@ -223,15 +306,17 @@ static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
     return ns.Length == 0 ? name : $"{ns}.{name}";
 }
 
-static ImmutableArray<CardBucket> Top(Dictionary<string, int> counts)
+static ImmutableArray<CardBucket> Buckets(Dictionary<string, int> counts)
     => [.. counts
         .OrderByDescending(pair => pair.Value)
         .ThenBy(pair => pair.Key, StringComparer.Ordinal)
-        .Take(10)
         .Select(pair => new CardBucket(pair.Key, pair.Value))];
 
 static void Increment(Dictionary<string, int> counts, string key)
     => counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
+
+static void IncrementBy(Dictionary<string, int> counts, string key, int amount)
+    => counts[key] = counts.TryGetValue(key, out int count) ? count + amount : amount;
 
 static void IncrementFailure(Dictionary<string, int> counts, IlBodyDiffResult result)
 {
@@ -245,58 +330,142 @@ static void IncrementFailure(Dictionary<string, int> counts, IlBodyDiffResult re
     Increment(counts, result.Failure ?? "unknown failure");
 }
 
-static string FormatCard(string oldName, string newName, IlDiffCard card)
+static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
 {
-    var builder = new StringBuilder();
-    builder.AppendLine("# IL Diff Card");
-    builder.AppendLine();
-    builder.AppendLine($"Old: `{oldName}`");
-    builder.AppendLine($"New: `{newName}`");
-    builder.AppendLine();
-    builder.AppendLine("| Metric | Count |");
-    builder.AppendLine("| --- | ---: |");
-    builder.AppendLine($"| Compared bodies | {card.ComparedBodyCount} |");
-    builder.AppendLine($"| Self-diff empty | {card.SelfDiffExactCount} |");
-    builder.AppendLine($"| Pair exact empty | {card.PairExactCount} |");
-    builder.AppendLine($"| Changed bodies | {card.ChangedBodyCount} |");
-    builder.AppendLine($"| Failures | {card.FailureCount} |");
-    AppendBuckets(builder, "Failure buckets", card.FailureBuckets);
-    AppendBuckets(builder, "Top hunk kinds", card.TopHunkKinds);
-    AppendBuckets(builder, "Top opcode families", card.TopOpcodeFamilies);
+    var card = Aggregate(pairs, maxExamples);
+    var output = new StringWriter();
+    var writer = new MarkoutWriter(output, new MarkdownFormatter());
+    writer.WriteHeading(1, "IL Diff Card");
+    writer.WriteHeading(2, "Summary");
+    writer.WriteTable(
+        ["Metric", "Count"],
+        [
+            ["Pairs", pairs.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Compared bodies", card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Self-diff empty", card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Pair exact empty", card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Changed bodies", card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Failures", card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+        ]);
+    AppendBuckets(writer, "Failure buckets", card.FailureBuckets);
+    AppendBuckets(writer, "Top hunk kinds", card.TopHunkKinds);
+    AppendBuckets(writer, "Top opcode families", card.TopOpcodeFamilies);
+    AppendPairSummaries(writer, pairs);
     if (!card.Examples.IsDefaultOrEmpty)
     {
-        builder.AppendLine();
-        builder.AppendLine("## Examples");
+        writer.WriteHeading(2, "Examples");
         foreach (var example in card.Examples)
         {
-            builder.AppendLine();
-            builder.AppendLine($"### `{example.Method}`");
-            builder.AppendLine();
-            builder.AppendLine("```diff");
-            builder.AppendLine(example.UnifiedDiff);
-            builder.AppendLine("```");
+            writer.WriteHeading(3, example.Method);
+            writer.WriteCodeStart("diff");
+            writer.WriteParagraph(example.UnifiedDiff);
+            writer.WriteCodeEnd();
         }
     }
 
-    return builder.ToString();
+    writer.Flush();
+    return output.ToString();
 }
 
-static void AppendBuckets(StringBuilder builder, string title, ImmutableArray<CardBucket> buckets)
+static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
 {
-    builder.AppendLine();
-    builder.AppendLine($"## {title}");
-    builder.AppendLine();
+    var failures = new Dictionary<string, int>(StringComparer.Ordinal);
+    var hunkKinds = new Dictionary<string, int>(StringComparer.Ordinal);
+    var opcodeFamilies = new Dictionary<string, int>(StringComparer.Ordinal);
+    var examples = ImmutableArray.CreateBuilder<IlDiffExample>();
+    int compared = 0;
+    int selfDiffExact = 0;
+    int pairExact = 0;
+    int changed = 0;
+    int failureCount = 0;
+
+    foreach (var pair in pairs)
+    {
+        compared += pair.Card.ComparedBodyCount;
+        selfDiffExact += pair.Card.SelfDiffExactCount;
+        pairExact += pair.Card.PairExactCount;
+        changed += pair.Card.ChangedBodyCount;
+        failureCount += pair.Card.FailureCount;
+        foreach (var bucket in pair.Card.FailureBuckets)
+            IncrementBy(failures, bucket.Name, bucket.Count);
+        foreach (var bucket in pair.Card.TopHunkKinds)
+            IncrementBy(hunkKinds, bucket.Name, bucket.Count);
+        foreach (var bucket in pair.Card.TopOpcodeFamilies)
+            IncrementBy(opcodeFamilies, bucket.Name, bucket.Count);
+        foreach (var example in pair.Card.Examples)
+        {
+            if (examples.Count >= maxExamples)
+                break;
+            examples.Add(example with
+            {
+                Method = $"{DisplayPath(pair.OldPath)} to {DisplayPath(pair.NewPath)} :: {example.Method}"
+            });
+        }
+    }
+
+    return new IlDiffCard(
+        compared,
+        selfDiffExact,
+        pairExact,
+        changed,
+        failureCount,
+        Buckets(failures),
+        Buckets(hunkKinds),
+        Buckets(opcodeFamilies),
+        examples.ToImmutable());
+}
+
+static void AppendPairSummaries(MarkoutWriter writer, ImmutableArray<IlDiffPairCard> pairs)
+{
+    writer.WriteHeading(2, "Pair summaries");
+    writer.WriteTable(
+        ["Old", "New", "Compared", "Self-diff empty", "Pair exact empty", "Changed", "Failures"],
+        pairs.Select(pair =>
+        {
+            var card = pair.Card;
+            return new[]
+            {
+                DisplayPath(pair.OldPath),
+                DisplayPath(pair.NewPath),
+                card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
+        }));
+}
+
+static string DisplayPath(string path)
+{
+    string fullPath = Path.GetFullPath(path);
+    string relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), fullPath);
+    return relative.StartsWith("..", StringComparison.Ordinal)
+        ? fullPath
+        : relative;
+}
+
+static void AppendBuckets(MarkoutWriter writer, string title, ImmutableArray<CardBucket> buckets)
+{
+    writer.WriteHeading(2, title);
     if (buckets.IsDefaultOrEmpty)
     {
-        builder.AppendLine("_None_");
+        writer.WriteParagraph("None");
         return;
     }
 
-    builder.AppendLine("| Bucket | Count |");
-    builder.AppendLine("| --- | ---: |");
-    foreach (var bucket in buckets)
-        builder.AppendLine($"| `{bucket.Name}` | {bucket.Count} |");
+    writer.WriteTable(
+        ["Bucket", "Count"],
+        buckets.Take(10).Select(bucket => new[]
+        {
+            bucket.Name,
+            bucket.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        }));
 }
+
+sealed record AssemblyPair(string OldPath, string NewPath);
+
+sealed record IlDiffPairCard(string OldPath, string NewPath, IlDiffCard Card);
 
 sealed record IlDiffCard(
     int ComparedBodyCount,

@@ -207,6 +207,29 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromCSharpBodyDiff_PreservesProducerFailureRow()
+    {
+        var csharp = CSharpBodyDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" });
+        var failureRow = Assert.Single(csharp.FailureRows);
+
+        var diff = ResearchDiff.FromCSharpBodyDiff(csharp);
+
+        var row = Assert.Single(diff.Rows, row => row.CSharpFailureRow is not null);
+        Assert.Equal("csharp.diff.old-body-missing", row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.CSharp, row.EvidenceKind);
+        Assert.Equal(failureRow.Message, row.Message);
+        Assert.Same(failureRow, row.CSharpFailureRow);
+        Assert.NotNull(row.CSharpDisplayFailureRow);
+        Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, row.CSharpDisplayFailureRow.Kind);
+        Assert.Equal("old", row.CSharpDisplayFailureRow.Side);
+        Assert.Equal("C# diff failed: Old method has no C# body.", row.CSharpDisplayFailureRow.UnifiedLine);
+        Assert.Contains(diff.Rows, row => row.CSharpRow is not null && row.ChangeId == "csharp.method.body-added");
+    }
+
+    [Fact]
     public void Combine_PreservesStructuredApiDiff()
     {
         var oldSurface = Surface("Widget", Member("Existing"));
@@ -334,6 +357,26 @@ public class ResearchDiffTests
         var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.return-expression.changed");
         Assert.Equal("value + 1", evidence.OldValue);
         Assert.Equal("value + 2", evidence.NewValue);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharp_QueryFailureRows()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.Display.Contains("BodyStateSample", StringComparison.Ordinal)
+            && member.HasChange("csharp.diff.old-body-missing")));
+        var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.diff.old-body-missing");
+        Assert.Equal(ResearchDiffDirection.Added, evidence.Direction);
+        Assert.NotNull(evidence.CSharpDisplayFailureRow);
+        Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, evidence.CSharpDisplayFailureRow.Kind);
+        Assert.Equal("old", evidence.CSharpDisplayFailureRow.Side);
+        Assert.Equal("C# diff failed: Old method has no C# body.", evidence.CSharpDisplayFailureRow.UnifiedLine);
+        Assert.Contains(changed.Evidence, evidence => evidence.ChangeId == "csharp.method.body-added");
     }
 
     [Fact]

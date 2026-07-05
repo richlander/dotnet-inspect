@@ -290,6 +290,7 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool c, byte x)", body);
     }
 
+
     // #2345 review canary (GPT-5.5, finding 2): the switch-expression gate
     // admits bool arms via CanSpellBoolToInteger, so SwitchArmValueText must
     // compose them like ConditionalArm does — bare bool at a uint join is
