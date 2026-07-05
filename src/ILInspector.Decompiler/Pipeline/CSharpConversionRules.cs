@@ -78,6 +78,34 @@ public static class CSharpConversionRules
         };
 
     /// <summary>
+    /// C# implicit numeric assignment conversions, including the float/double
+    /// widenings the integer-only predicates intentionally exclude.
+    /// </summary>
+    public static bool IsImplicitNumericAssignment(TypeRef source, TypeRef target)
+    {
+        if (!TypeFamilies.IsNumericPrimitive(source) || !TypeFamilies.IsNumericPrimitive(target))
+            return false;
+        return (source.Name, target.Name) switch
+        {
+            ("SByte", "Int16" or "Int32" or "Int64" or "Single" or "Double") => true,
+            ("Byte", "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Int16", "Int32" or "Int64" or "Single" or "Double") => true,
+            ("UInt16", "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Char", "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Int32", "Int64" or "Single" or "Double") => true,
+            ("UInt32", "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Int64" or "UInt64", "Single" or "Double") => true,
+            ("SByte" or "Int16" or "Int32", "IntPtr") => true,
+            ("Byte" or "UInt16" or "Char" or "UInt32", "UIntPtr") => true,
+            ("Byte" or "UInt16" or "Char", "IntPtr") => true,
+            ("IntPtr", "Int64" or "Single" or "Double") => true,
+            ("UIntPtr", "UInt64" or "Single" or "Double") => true,
+            ("Single", "Double") => true,
+            _ => false,
+        };
+    }
+
+    /// <summary>
     /// True when the C# checked conversion can throw for some value. Synthesized
     /// reinterpret casts in a lexical checked context need <c>unchecked(...)</c>
     /// exactly for these pairs.
