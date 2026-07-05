@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using System.Text;
 
 using ILInspector.Instructions;
+using Markout;
 
 const string Usage =
     """
@@ -333,38 +333,38 @@ static void IncrementFailure(Dictionary<string, int> counts, IlBodyDiffResult re
 static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
 {
     var card = Aggregate(pairs, maxExamples);
-    var builder = new StringBuilder();
-    builder.AppendLine("# IL Diff Card");
-    builder.AppendLine();
-    builder.AppendLine($"Pairs: {pairs.Length}");
-    builder.AppendLine();
-    builder.AppendLine("| Metric | Count |");
-    builder.AppendLine("| --- | ---: |");
-    builder.AppendLine($"| Compared bodies | {card.ComparedBodyCount} |");
-    builder.AppendLine($"| Self-diff empty | {card.SelfDiffExactCount} |");
-    builder.AppendLine($"| Pair exact empty | {card.PairExactCount} |");
-    builder.AppendLine($"| Changed bodies | {card.ChangedBodyCount} |");
-    builder.AppendLine($"| Failures | {card.FailureCount} |");
-    AppendBuckets(builder, "Failure buckets", card.FailureBuckets);
-    AppendBuckets(builder, "Top hunk kinds", card.TopHunkKinds);
-    AppendBuckets(builder, "Top opcode families", card.TopOpcodeFamilies);
-    AppendPairSummaries(builder, pairs);
+    var output = new StringWriter();
+    var writer = new MarkoutWriter(output, new MarkdownFormatter());
+    writer.WriteHeading(1, "IL Diff Card");
+    writer.WriteHeading(2, "Summary");
+    writer.WriteTable(
+        ["Metric", "Count"],
+        [
+            ["Pairs", pairs.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Compared bodies", card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Self-diff empty", card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Pair exact empty", card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Changed bodies", card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            ["Failures", card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+        ]);
+    AppendBuckets(writer, "Failure buckets", card.FailureBuckets);
+    AppendBuckets(writer, "Top hunk kinds", card.TopHunkKinds);
+    AppendBuckets(writer, "Top opcode families", card.TopOpcodeFamilies);
+    AppendPairSummaries(writer, pairs);
     if (!card.Examples.IsDefaultOrEmpty)
     {
-        builder.AppendLine();
-        builder.AppendLine("## Examples");
+        writer.WriteHeading(2, "Examples");
         foreach (var example in card.Examples)
         {
-            builder.AppendLine();
-            builder.AppendLine($"### `{example.Method}`");
-            builder.AppendLine();
-            builder.AppendLine("```diff");
-            builder.AppendLine(example.UnifiedDiff);
-            builder.AppendLine("```");
+            writer.WriteHeading(3, example.Method);
+            writer.WriteCodeStart("diff");
+            writer.WriteParagraph(example.UnifiedDiff);
+            writer.WriteCodeEnd();
         }
     }
 
-    return builder.ToString();
+    writer.Flush();
+    return output.ToString();
 }
 
 static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
@@ -398,7 +398,7 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
                 break;
             examples.Add(example with
             {
-                Method = $"{DisplayPath(pair.OldPath)} -> {DisplayPath(pair.NewPath)} :: {example.Method}"
+                Method = $"{DisplayPath(pair.OldPath)} to {DisplayPath(pair.NewPath)} :: {example.Method}"
             });
         }
     }
@@ -415,19 +415,25 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
         examples.ToImmutable());
 }
 
-static void AppendPairSummaries(StringBuilder builder, ImmutableArray<IlDiffPairCard> pairs)
+static void AppendPairSummaries(MarkoutWriter writer, ImmutableArray<IlDiffPairCard> pairs)
 {
-    builder.AppendLine();
-    builder.AppendLine("## Pair summaries");
-    builder.AppendLine();
-    builder.AppendLine("| Old | New | Compared | Self-diff empty | Pair exact empty | Changed | Failures |");
-    builder.AppendLine("| --- | --- | ---: | ---: | ---: | ---: | ---: |");
-    foreach (var pair in pairs)
-    {
-        var card = pair.Card;
-        builder.AppendLine(
-            $"| `{DisplayPath(pair.OldPath)}` | `{DisplayPath(pair.NewPath)}` | {card.ComparedBodyCount} | {card.SelfDiffExactCount} | {card.PairExactCount} | {card.ChangedBodyCount} | {card.FailureCount} |");
-    }
+    writer.WriteHeading(2, "Pair summaries");
+    writer.WriteTable(
+        ["Old", "New", "Compared", "Self-diff empty", "Pair exact empty", "Changed", "Failures"],
+        pairs.Select(pair =>
+        {
+            var card = pair.Card;
+            return new[]
+            {
+                DisplayPath(pair.OldPath),
+                DisplayPath(pair.NewPath),
+                card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
+        }));
 }
 
 static string DisplayPath(string path)
@@ -439,21 +445,22 @@ static string DisplayPath(string path)
         : relative;
 }
 
-static void AppendBuckets(StringBuilder builder, string title, ImmutableArray<CardBucket> buckets)
+static void AppendBuckets(MarkoutWriter writer, string title, ImmutableArray<CardBucket> buckets)
 {
-    builder.AppendLine();
-    builder.AppendLine($"## {title}");
-    builder.AppendLine();
+    writer.WriteHeading(2, title);
     if (buckets.IsDefaultOrEmpty)
     {
-        builder.AppendLine("_None_");
+        writer.WriteParagraph("None");
         return;
     }
 
-    builder.AppendLine("| Bucket | Count |");
-    builder.AppendLine("| --- | ---: |");
-    foreach (var bucket in buckets.Take(10))
-        builder.AppendLine($"| `{bucket.Name}` | {bucket.Count} |");
+    writer.WriteTable(
+        ["Bucket", "Count"],
+        buckets.Take(10).Select(bucket => new[]
+        {
+            bucket.Name,
+            bucket.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        }));
 }
 
 sealed record AssemblyPair(string OldPath, string NewPath);
