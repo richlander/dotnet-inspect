@@ -60,6 +60,8 @@ public sealed record ResearchDiffRow(
     ApiChange? ApiChange = null,
     IlDiffRow? IlRow = null,
     IlDiffFailureRow? IlFailureRow = null,
+    IlDiffDisplayRow? IlDisplayRow = null,
+    IlDiffDisplayFailureRow? IlDisplayFailureRow = null,
     BodySignalDiffRow? BodySignalRow = null,
     CSharpDiffRow? CSharpRow = null);
 
@@ -107,7 +109,9 @@ public sealed record ResearchDiffEvidence(
     int? Magnitude = null,
     int DirectionScore = 0,
     bool SubjectInBoth = true,
-    bool InLoop = false);
+    bool InLoop = false,
+    ImmutableArray<IlDiffDisplayRow> IlDisplayRows = default,
+    IlDiffDisplayFailureRow? IlDisplayFailureRow = null);
 
 public sealed record ResearchSubjectDiff(
     ResearchSubjectKey Subject,
@@ -150,6 +154,9 @@ public sealed record ResearchDiffResult(
 
 public static class ResearchDiff
 {
+    public static string ToChangeIdPart(string value)
+        => ToKebabCase(value);
+
     public static ResearchDiffResult FromApiDiff(ApiDiff diff)
     {
         ArgumentNullException.ThrowIfNull(diff);
@@ -179,7 +186,8 @@ public static class ResearchDiff
                 $"il.diff.{ToKebabCase(row.Kind.ToString())}",
                 ResearchDiffEvidenceKind.IlBody,
                 row.Message,
-                IlFailureRow: row)));
+                IlFailureRow: row,
+                IlDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(row))));
         }
         else if (diff.Failure is { Length: > 0 } failure)
         {
@@ -192,7 +200,8 @@ public static class ResearchDiff
                 $"il.operation.{ChangeIdSuffix(row.Kind)}",
                 ResearchDiffEvidenceKind.IlBody,
                 row.Message,
-                IlRow: row)));
+                IlRow: row,
+                IlDisplayRow: IlDiffPrinter.ToDisplayRow(row))));
         }
 
         return new ResearchDiffResult([], Rows: rows.ToImmutable());
@@ -565,6 +574,7 @@ public static class ResearchDiff
                 {
                     var removed = hunk.Where(row => row.Kind == IlDiffKind.Remove).ToArray();
                     var added = hunk.Where(row => row.Kind == IlDiffKind.Add).ToArray();
+                    var displayRows = hunk.Select(IlDiffPrinter.ToDisplayRow).ToImmutableArray();
                     var direction = removed.Length == 0
                         ? ResearchDiffDirection.Added
                         : added.Length == 0
@@ -583,7 +593,8 @@ public static class ResearchDiff
                         NewValue: FormatOperations(added),
                         OldIlOffset: removed.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
                         NewIlOffset: added.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
-                        Category: ResearchDiffChangeCategory.IlBody));
+                        Category: ResearchDiffChangeCategory.IlBody,
+                        IlDisplayRows: displayRows));
                 }
             }
         }
@@ -604,7 +615,8 @@ public static class ResearchDiff
             OldValue: failure.Side == "old" ? failure.Detail ?? failure.Message : null,
             NewValue: failure.Side == "new" ? failure.Detail ?? failure.Message : null,
             Detail: failure.Detail ?? failure.Message,
-            Category: ResearchDiffChangeCategory.IlBody));
+            Category: ResearchDiffChangeCategory.IlBody,
+            IlDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(failure)));
     }
 
     static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
