@@ -247,6 +247,19 @@ namespace DiffFixtureSample
             return value;
         }
 
+        public static int SemanticMultiCallChange(int value)
+        {
+            MaybeThrow(value);
+            MaybeThrow(value + 1);
+            return value;
+        }
+
+        public static string SemanticCallStringLiteralNearMiss()
+        {
+            string value = "Jane (Doe)";
+            return value;
+        }
+
         // V2: visible unsafe operation added relative to V1.
         public static unsafe int AddsUnsafe(int value)
         {

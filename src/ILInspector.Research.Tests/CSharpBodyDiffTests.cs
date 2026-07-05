@@ -176,6 +176,45 @@ public class CSharpBodyDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_SemanticMultiCallHunkEmitsAllChangedRows()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        var rows = diff.Rows
+            .Where(row => row.Member.Contains("SemanticMultiCallChange", StringComparison.Ordinal)
+                && row.ChangeId == "csharp.call.changed")
+            .OrderBy(row => row.Line)
+            .ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.Equal("DiffSample.Sink(value)", rows[0].OldValue);
+        Assert.Equal("DiffSample.MaybeThrow(value)", rows[0].NewValue);
+        Assert.Equal("DiffSample.Sink(value + 1)", rows[1].OldValue);
+        Assert.Equal("DiffSample.MaybeThrow(value + 1)", rows[1].NewValue);
+    }
+
+    [Fact]
+    public void CompareAssemblies_SemanticCallIgnoresStringLiteralParentheses()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+
+        Assert.DoesNotContain(diff.Rows, row =>
+            row.Member.Contains("SemanticCallStringLiteralNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.call.changed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallStringLiteralNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+        Assert.Contains(diff.Rows, row =>
+            row.Member.Contains("SemanticCallStringLiteralNearMiss", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.added");
+    }
+
+    [Fact]
     public void CompareAssemblies_ProtectedMethodsAreIncludedInDefaultSurface()
     {
         var v1 = DiffFixturePath("DiffFixtures.V1");
