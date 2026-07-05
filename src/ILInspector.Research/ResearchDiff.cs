@@ -308,7 +308,7 @@ public static class ResearchDiff
             AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters, anchors);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.IlBody))
-            AddIlBodyDiff(builder, oldInput, newInput, anchors);
+            AddIlBodyDiff(builder, oldInput, newInput, options.TypeFilters, anchors);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.CSharp))
             AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters, anchors);
@@ -355,14 +355,17 @@ public static class ResearchDiff
             var newAnchors = anchors.Get(pair.New.Path);
             AddAnalysisSignalDiff(builder, pair.Old.Index, pair.New.Index, typeFilters, oldAnchors, newAnchors);
 
-            var oldSubjects = MethodSubjectsByBodySignalKey(pair.Old.Index, oldAnchors);
-            var newSubjects = MethodSubjectsByBodySignalKey(pair.New.Index, newAnchors);
+            var oldSubjects = MethodSubjectsByBodySignalKey(pair.Old.Index, oldAnchors, typeFilters);
+            var newSubjects = MethodSubjectsByBodySignalKey(pair.New.Index, newAnchors, typeFilters);
             foreach (var row in BodySignalDiff.CompareUnsafe(pair.Old.Index, pair.New.Index).Rows)
             {
                 var direction = row.Kind == BodySignalDiffKind.Added ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
                 var subject = direction == ResearchDiffDirection.Added
-                    ? newSubjects.GetValueOrDefault(row.Member) ?? oldSubjects.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member)
-                    : oldSubjects.GetValueOrDefault(row.Member) ?? newSubjects.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member);
+                    ? newSubjects.GetValueOrDefault(row.Member) ?? oldSubjects.GetValueOrDefault(row.Member)
+                    : oldSubjects.GetValueOrDefault(row.Member) ?? newSubjects.GetValueOrDefault(row.Member);
+                if (subject is null && typeFilters is { Count: > 0 })
+                    continue;
+                subject ??= UnknownMemberSubject(row.Member);
                 var suffix = direction == ResearchDiffDirection.Added ? "added" : "removed";
                 builder.Add(subject, new ResearchDiffEvidence(
                     ResearchDiffMechanism.BodySignals,
@@ -589,6 +592,7 @@ public static class ResearchDiff
         ResultBuilder builder,
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
+        IReadOnlySet<string>? typeFilters,
         MemberAnchorCache anchors)
     {
         foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
@@ -605,6 +609,11 @@ public static class ResearchDiff
             {
                 var oldMethod = oldMethods[key];
                 var newMethod = newMethods[key];
+                if (!MatchesTypeFilters(oldMethod.DeclaringType.ToQualifiedDisplayString(), typeFilters)
+                    && !MatchesTypeFilters(newMethod.DeclaringType.ToQualifiedDisplayString(), typeFilters))
+                {
+                    continue;
+                }
                 var oldAnchor = oldAnchors.GetValueOrDefault(oldMethod.MetadataToken);
                 var newAnchor = newAnchors.GetValueOrDefault(newMethod.MetadataToken);
                 var subject = SubjectFromMethod(newMethod, newAnchor ?? oldAnchor);
@@ -869,8 +878,10 @@ public static class ResearchDiff
 
     static Dictionary<string, ResearchSubjectKey> MethodSubjectsByBodySignalKey(
         LibraryBodyIndex index,
-        IReadOnlyDictionary<int, MemberAnchor> anchors)
+        IReadOnlyDictionary<int, MemberAnchor> anchors,
+        IReadOnlySet<string>? typeFilters = null)
         => index.Methods
+            .Where(method => MatchesTypeFilters(method.DeclaringType.ToQualifiedDisplayString(), typeFilters))
             .GroupBy(BodySignalMethodKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => SubjectFromMethod(group.Last(), anchors.GetValueOrDefault(group.Last().MetadataToken)), StringComparer.Ordinal);
 
