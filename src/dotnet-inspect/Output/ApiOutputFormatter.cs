@@ -918,6 +918,7 @@ public static class ApiOutputFormatter
 
             rows.Add(new MemberIndexRow(
                 MarkoutInline.Code(anchor.Format(MemberAnchorFormat.StableSelector)),
+                MarkoutInline.Code(anchor.Format(MemberAnchorFormat.StableSelector)),
                 MarkoutInline.Code(anchor.Format(MemberAnchorFormat.CanonicalSignature)),
                 anchor.Fingerprint));
         }

@@ -656,6 +656,9 @@ public class DiffCommand
             return null;
 
         var candidates = type.Members
+            .OrderBy(member => ApiOutputFormatter.GetMemberSortOrder(member.Kind))
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
             .Select(member => (Member: member, Anchor: ApiMemberIdentity.GetMemberAnchor(type, member)))
             .Where(pair => string.Equals(ApiMemberIdentity.GetMemberSelectorName(pair.Member), selectorName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(pair.Member.Name, selectorName, StringComparison.OrdinalIgnoreCase))

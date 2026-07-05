@@ -3165,6 +3165,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_NarrowedMethods_TsvAcceptsLegacyStableProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "-S", "Member Index",
+            "--columns", "Stable", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("selector", output);
+        Assert.Contains("Serialize~", output);
+    }
+
+    [Fact]
     public async Task Member_NarrowedMethods_TableRendersOverloadRows()
     {
         var (exit, output, error) = await RunAppAsync(

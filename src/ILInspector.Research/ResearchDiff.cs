@@ -281,7 +281,7 @@ public static class ResearchDiff
         ArgumentNullException.ThrowIfNull(results);
         var builder = new ResultBuilder
         {
-            ApiDiff = results.FirstOrDefault(result => result.ApiDiff is not null)?.ApiDiff
+            ApiDiff = MergeApiDiffs(results.Select(result => result.ApiDiff).Where(diff => diff is not null)!)
         };
 
         foreach (var subject in results.SelectMany(result => result.Subjects))
@@ -292,6 +292,21 @@ public static class ResearchDiff
 
         var combined = builder.ToResult();
         return combined with { Rows = [.. results.SelectMany(result => result.Rows.IsDefault ? [] : result.Rows)] };
+    }
+
+    static ApiDiff? MergeApiDiffs(IEnumerable<ApiDiff> diffs)
+    {
+        var typeDiffs = diffs.SelectMany(diff => diff.TypeDiffs).ToArray();
+        if (typeDiffs.Length == 0)
+            return null;
+
+        return new ApiDiff
+        {
+            TypeDiffs = typeDiffs,
+            TotalBreaking = typeDiffs.Sum(type => type.BreakingCount),
+            TotalAdditive = typeDiffs.Sum(type => type.AdditiveCount),
+            TotalPotentiallyBreaking = typeDiffs.Sum(type => type.PotentiallyBreakingCount),
+        };
     }
 
     public static ResearchDiffResult CompareAssemblies(string oldAssemblyPath, string newAssemblyPath, ResearchDiffOptions? options = null)
@@ -338,9 +353,9 @@ public static class ResearchDiff
         if (oldSurface is null || newSurface is null)
             return;
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(apiScope));
+        var diff = FilterApiDiff(ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(apiScope)), typeFilters);
         builder.ApiDiff = diff;
-        foreach (var typeDiff in diff.TypeDiffs.Where(typeDiff => MatchesTypeFilters(typeDiff.TypeFullName, typeFilters)))
+        foreach (var typeDiff in diff.TypeDiffs)
         {
             foreach (var change in typeDiff.Changes)
             {
@@ -355,6 +370,21 @@ public static class ResearchDiff
                     Category: ToResearchCategory(change.Category)));
             }
         }
+    }
+
+    static ApiDiff FilterApiDiff(ApiDiff diff, IReadOnlySet<string>? typeFilters)
+    {
+        if (typeFilters is not { Count: > 0 })
+            return diff;
+
+        var typeDiffs = diff.TypeDiffs.Where(typeDiff => MatchesTypeFilters(typeDiff.TypeFullName, typeFilters)).ToArray();
+        return new ApiDiff
+        {
+            TypeDiffs = typeDiffs,
+            TotalBreaking = typeDiffs.Sum(type => type.BreakingCount),
+            TotalAdditive = typeDiffs.Sum(type => type.AdditiveCount),
+            TotalPotentiallyBreaking = typeDiffs.Sum(type => type.PotentiallyBreakingCount),
+        };
     }
 
     static void AddBodySignalDiff(
@@ -994,7 +1024,7 @@ public static class ResearchDiff
         var parameters = string.Join(",", method.ParameterTypes.Select(ApiTypeName));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var methodGeneric = ApiMethodGenericList(method);
-        var returnSuffix = "";
+        var returnSuffix = IsConversionOperator(method.Name) ? $"~{ApiTypeName(method.ReturnType)}" : "";
         var canonical = $"M:{typeName}.{methodName}{methodGeneric}({parameters}){returnSuffix}";
         var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(

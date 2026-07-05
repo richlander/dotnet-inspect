@@ -277,8 +277,24 @@ public class ResearchDiffTests
 
         var combined = ResearchDiff.Combine(apiResult, ilResult);
 
-        Assert.Same(api, combined.ApiDiff);
+        Assert.NotNull(combined.ApiDiff);
+        Assert.Equal(api.TypeDiffs, combined.ApiDiff.TypeDiffs);
         Assert.Single(combined.Rows);
+    }
+
+    [Fact]
+    public void Combine_MergesMultipleStructuredApiDiffs()
+    {
+        var widgetApi = ApiDiffAnalyzer.Compare(Surface("Widget", Member("Existing")), Surface("Widget", Member("Existing"), Member("AddedWidget")));
+        var gadgetApi = ApiDiffAnalyzer.Compare(Surface("Gadget", Member("Existing")), Surface("Gadget", Member("Existing"), Member("AddedGadget")));
+        var widgetResult = ResearchDiff.FromApiDiff(widgetApi);
+        var gadgetResult = ResearchDiff.FromApiDiff(gadgetApi);
+
+        var combined = ResearchDiff.Combine(widgetResult, gadgetResult);
+
+        Assert.NotNull(combined.ApiDiff);
+        Assert.Contains(combined.ApiDiff.TypeDiffs, type => type.TypeFullName == "Sample.Widget");
+        Assert.Contains(combined.ApiDiff.TypeDiffs, type => type.TypeFullName == "Sample.Gadget");
     }
 
     [Fact]
@@ -397,6 +413,7 @@ public class ResearchDiffTests
             new ResearchDiffOptions(ResearchDiffMechanism.Api, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Other" }));
 
         Assert.Empty(diff.Subjects);
+        Assert.Empty(diff.ApiDiff!.TypeDiffs);
     }
 
     [Fact]
