@@ -11,6 +11,8 @@ public class ReturnToSenderEvidenceTests
     [Fact]
     public void FromCatalog_PreservesExactRtsStatusAndMemberAnchor()
     {
+        Assert.True(ResearchDiffMechanism.AllAvailable.HasFlag(ResearchDiffMechanism.ReturnToSender));
+
         var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
             [GeneratedFixtureCatalog.MinimalPropertyLiteral]);
 
