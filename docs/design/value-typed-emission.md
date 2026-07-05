@@ -441,7 +441,9 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    slot-carried values (the unifier owns their type until instance 2), lambda
    returns (delegate `Invoke` signature not yet resolved), merge-node values
    (CoerceText's own targeted branches render them, statement-position
-   formatting included), `Box` operands (the unbox-over-box spelling renders
+   formatting included; primitive same-family `Conditional` values route
+   through `CoercionRendering.CanSpellSlotCoercion` and distribute target
+   casts into arms), `Box` operands (the unbox-over-box spelling renders
    through `ConvertText`, and a bare constant under `(object)` boxes the
    literal's own type), `StoreIndirect` targets (printer's `IndirectStoreType`
    not yet shared), `switch` labels (outside the rewritable tree), and operand

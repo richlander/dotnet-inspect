@@ -2426,7 +2426,31 @@ public sealed class LibraryBodyIndex
                 signature.ReturnType,
                 MetadataTokens.GetToken(methodHandle),
                 (methodDef.Attributes & MethodAttributes.Static) != 0,
-                ComputeCallerUnsafeMode(typeHandle, methodDef, signature.ParameterTypes, signature.ReturnType));
+                IsExtensionMethod(typeHandle, methodDef),
+                ComputeCallerUnsafeMode(typeHandle, methodDef, signature.ParameterTypes, signature.ReturnType),
+                methodDef.GetGenericParameters().Count,
+                GenericParameterNames(methodDef));
+        }
+
+        ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)
+        {
+            var handles = methodDef.GetGenericParameters();
+            if (handles.Count == 0)
+                return [];
+            var names = ImmutableArray.CreateBuilder<string>(handles.Count);
+            foreach (var handle in handles)
+                names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
+            return names.MoveToImmutable();
+        }
+
+        bool IsExtensionMethod(TypeDefinitionHandle typeHandle, MethodDefinition methodDef)
+        {
+            var type = _reader.GetTypeDefinition(typeHandle);
+            return (type.Attributes & TypeAttributes.Abstract) != 0
+                && (type.Attributes & TypeAttributes.Sealed) != 0
+                && (methodDef.Attributes & MethodAttributes.Static) != 0
+                && AttributeReader.HasExtensionAttribute(_reader, type.GetCustomAttributes())
+                && AttributeReader.HasExtensionAttribute(_reader, methodDef.GetCustomAttributes());
         }
 
         // Mirrors Roslyn's PEMethodSymbol.CallerUnsafeMode: a member "requires

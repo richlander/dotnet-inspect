@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Research;
 
@@ -16,7 +17,7 @@ public enum ResearchDiffMechanism
     BodySignals = 2,
     IlBody = 4,
     CSharp = 8,
-    AllAvailable = Api | BodySignals | IlBody,
+    AllAvailable = Api | BodySignals | IlBody | CSharp,
 }
 
 public enum ResearchDiffSubjectKind
@@ -47,6 +48,7 @@ public enum ResearchDiffEvidenceKind
     MetadataApi,
     IlBody,
     BodySignal,
+    CSharp,
 }
 
 public sealed record ResearchDiffRow(
@@ -55,7 +57,8 @@ public sealed record ResearchDiffRow(
     string Message,
     ApiChange? ApiChange = null,
     IlDiffRow? IlRow = null,
-    BodySignalDiffRow? BodySignalRow = null);
+    BodySignalDiffRow? BodySignalRow = null,
+    CSharpDiffRow? CSharpRow = null);
 
 public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
@@ -200,6 +203,21 @@ public static class ResearchDiff
             ]);
     }
 
+    public static ResearchDiffResult FromCSharpBodyDiff(CSharpBodyDiffResult diff)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        return new ResearchDiffResult(
+            [],
+            Rows:
+            [
+                .. diff.Rows.Select(row => new ResearchDiffRow(
+                    row.ChangeId,
+                    ResearchDiffEvidenceKind.CSharp,
+                    row.Message,
+                    CSharpRow: row))
+            ]);
+    }
+
     public static ResearchDiffResult Combine(params ResearchDiffResult[] results)
     {
         ArgumentNullException.ThrowIfNull(results);
@@ -232,6 +250,9 @@ public static class ResearchDiff
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.IlBody))
             AddIlBodyDiff(builder, oldInput, newInput);
+
+        if (options.Mechanisms.HasFlag(ResearchDiffMechanism.CSharp))
+            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters);
 
         return builder.ToResult();
     }
@@ -553,6 +574,31 @@ public static class ResearchDiff
         }
     }
 
+    static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
+    {
+        if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
+            return;
+
+        foreach (var row in CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters).Rows)
+        {
+            var subject = new ResearchSubjectKey(
+                ResearchDiffSubjectKind.Member,
+                row.Anchor.StableSelector,
+                $"{row.Anchor.TypeFullName}.{row.Anchor.MemberName}",
+                row.Anchor.TypeFullName,
+                row.Anchor.MemberName);
+            var direction = row.Kind == CSharpDiffKind.Add ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
+            builder.Add(subject, new ResearchDiffEvidence(
+                ResearchDiffMechanism.CSharp,
+                row.ChangeId,
+                direction,
+                OldValue: direction == ResearchDiffDirection.Removed ? row.Text : null,
+                NewValue: direction == ResearchDiffDirection.Added ? row.Text : null,
+                Detail: row.Message,
+                Category: ResearchDiffChangeCategory.CSharp));
+        }
+    }
+
     static ApiSurface? ResolveApiSurface(ResearchDiffInput input, bool includeAll)
     {
         if (input.ApiSurface is not null)
@@ -676,24 +722,72 @@ public static class ResearchDiff
     {
         var typeName = method.DeclaringType.ToQualifiedDisplayString();
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
-        var parameters = string.Join(",", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
+        var selectorName = ResearchMemberSelector.ForMetadataName(method.Name, method.IsExtension);
+        var parameters = string.Join(",", method.ParameterTypes.Select(ApiTypeName));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
+        var methodGeneric = ApiMethodGenericList(method);
+        var returnSuffix = "";
+        var canonical = $"M:{typeName}.{memberName}{methodGeneric}({parameters}){returnSuffix}";
+        var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
-            $"member:M:{typeName}.{memberName}({parameters})",
+            $"{selectorName}~{fingerprint}",
             $"{typeName}.{memberName}({displayParameters})",
             typeName,
             memberName);
     }
 
+    static string ApiTypeName(TypeRef type)
+        => type.Kind switch
+        {
+            TypeRefKind.Definition => type.Namespace.Length == 0
+                ? type.Name.Replace("+", ".", StringComparison.Ordinal)
+                : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
+            TypeRefKind.GenericInstance => $"{ApiTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(ApiTypeName))}>",
+            TypeRefKind.SzArray => $"{ApiTypeName(type.ElementType!)}[]",
+            TypeRefKind.Array => $"{ApiTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
+            TypeRefKind.ByRef => $"{ApiTypeName(type.ElementType!)}&",
+            TypeRefKind.Pointer => $"{ApiTypeName(type.ElementType!)}*",
+            TypeRefKind.Pinned => $"pinned {ApiTypeName(type.ElementType!)}",
+            TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+                => type.GenericParameterName.Length == 0 ? $"!{type.GenericParameterIndex}" : type.GenericParameterName,
+            _ => type.ToQualifiedDisplayString(),
+        };
+
+    static string ApiMethodGenericList(MethodIdentity method)
+    {
+        if (method.GenericArity == 0)
+            return "";
+        return $"<{string.Join(",", Enumerable.Range(0, method.GenericArity).Select(index =>
+            index < method.GenericParameterNames.Length && method.GenericParameterNames[index].Length > 0
+                ? method.GenericParameterNames[index]
+                : $"!!{index}"))}>";
+    }
+
+    static bool IsConversionOperator(string methodName)
+        => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+
     static ResearchSubjectKey UnknownMemberSubject(string key)
         => new(ResearchDiffSubjectKind.Member, $"member:{key}", key);
 
+    internal static class ResearchMemberSelector
+    {
+        public static string ForMetadataName(string methodName, bool isExtensionMethod = false)
+            => methodName switch
+            {
+                ".ctor" => ".ctor",
+                _ when isExtensionMethod => $"extension:{methodName}",
+                _ when methodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{methodName}",
+                _ when methodName.Contains('.') => $"explicit:{methodName}",
+                _ => methodName,
+            };
+    }
+
     static string BodySignalMethodKey(MethodIdentity method)
-        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
+        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static string MethodMatchKey(MethodIdentity method)
-        => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
+        => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static Dictionary<string, MethodIdentity> MethodLookup(LibraryBodyIndex index)
     {
@@ -812,7 +906,7 @@ public static class ResearchDiff
 
     sealed class ResultBuilder
     {
-        readonly Dictionary<ResearchSubjectKey, List<ResearchDiffEvidence>> _rows = [];
+        readonly Dictionary<ResearchSubjectKey, List<ResearchDiffEvidence>> _rows = new(ResearchSubjectKeyIdentityComparer.Instance);
 
         public ApiDiff? ApiDiff { get; set; }
 
@@ -837,6 +931,21 @@ public static class ResearchDiff
                     .ThenBy(evidence => evidence.NewIlOffset)]))],
                 ApiDiff,
                 Rows: []);
+    }
+
+    sealed class ResearchSubjectKeyIdentityComparer : IEqualityComparer<ResearchSubjectKey>
+    {
+        public static ResearchSubjectKeyIdentityComparer Instance { get; } = new();
+
+        public bool Equals(ResearchSubjectKey? x, ResearchSubjectKey? y)
+            => ReferenceEquals(x, y)
+               || (x is not null
+                   && y is not null
+                   && x.Kind == y.Kind
+                   && string.Equals(x.Id, y.Id, StringComparison.Ordinal));
+
+        public int GetHashCode(ResearchSubjectKey obj)
+            => HashCode.Combine(obj.Kind, StringComparer.Ordinal.GetHashCode(obj.Id));
     }
 
     sealed class MethodBodyLookup : IDisposable

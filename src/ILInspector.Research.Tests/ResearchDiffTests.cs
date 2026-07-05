@@ -125,6 +125,24 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromCSharpBodyDiff_PreservesProducerMessageAndTypedRow()
+    {
+        var csharpRow = Assert.Single(CSharpBodyDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorSample" }).Rows,
+            row => row.ChangeId == "csharp.line.removed");
+
+        var diff = ResearchDiff.FromCSharpBodyDiff(new CSharpBodyDiffResult([csharpRow]));
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal(csharpRow.ChangeId, row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.CSharp, row.EvidenceKind);
+        Assert.Equal(csharpRow.Message, row.Message);
+        Assert.Same(csharpRow, row.CSharpRow);
+    }
+
+    [Fact]
     public void Combine_PreservesStructuredApiDiff()
     {
         var oldSurface = Surface("Widget", Member("Existing"));
@@ -204,6 +222,181 @@ public class ResearchDiffTests
             && member.HasChange("il.hunk.changed"));
         Assert.DoesNotContain(changedMembers, member =>
             member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharp_QueryImplementationChanges()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        var changedMembers = diff.MembersWhere(member => member.ImplementationChanged);
+
+        Assert.Contains(changedMembers, member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
+            && member.HasChange("csharp.line.removed"));
+        Assert.Contains(changedMembers, member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
+            && member.HasChange("csharp.line.added"));
+        Assert.DoesNotContain(changedMembers, member =>
+            member.Subject.Display.Contains("Stable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndApiEvidence_GroupOnMemberAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "Removed"
+            && member.HasMechanism(ResearchDiffMechanism.Api)
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)));
+
+        Assert.StartsWith("Removed~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndApiEvidence_GroupOnOverloadAnchorDespiteDisplayDifferences()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
+
+        Assert.Contains(diff.MembersWhere(member =>
+            member.Subject.MemberName == "Removed"
+            && member.HasMechanism(ResearchDiffMechanism.Api)
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)), member =>
+            member.Subject.Id.StartsWith("Removed~", StringComparison.Ordinal)
+            && member.Evidence.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.CSharp && evidence.OldValue?.Contains("method removed", StringComparison.Ordinal) == true));
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndApiEvidence_GroupOnConstructorAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorRemovalSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == ".ctor"
+            && member.HasMechanism(ResearchDiffMechanism.Api)
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)));
+
+        Assert.StartsWith(".ctor~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnOperatorAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OperatorSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "op_Addition"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("operator:op_Addition~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnConversionOperatorAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConversionSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "op_Implicit"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("operator:op_Implicit~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnGenericMethodAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "GenericParamBody"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("GenericParamBody~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnExtensionAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExtensionSample" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "Twice"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("extension:Twice~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CSharpAndIlEvidence_GroupOnExplicitImplementationAnchor()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExplicitSurface" }));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "DiffFixtureSample.IExplicitSurface.Get"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("explicit:DiffFixtureSample.IExplicitSurface.Get~", changed.Subject.Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareAssemblies_DefaultMechanisms_IncludeCSharpChanges()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath());
+
+        Assert.Contains(diff.MembersWhere(member => member.ImplementationChanged), member =>
+            member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
+            && member.HasMechanism(ResearchDiffMechanism.CSharp));
+    }
+
+    [Fact]
+    public void CompareAssemblies_DefaultMechanisms_GroupCSharpAndIlEvidence()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath());
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.MemberName == "ConstantValue"
+            && member.HasMechanism(ResearchDiffMechanism.CSharp)
+            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+
+        Assert.StartsWith("ConstantValue~", changed.Subject.Id, StringComparison.Ordinal);
     }
 
     static ApiSurface Surface(string typeName, params ApiMember[] members)

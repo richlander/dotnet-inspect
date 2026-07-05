@@ -171,6 +171,173 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_CompiledFixtureFieldTokenChange_ReportsFieldOperandChanges()
+    {
+        var diff = DiffFixtureDiff("FieldToken");
+
+        AssertTokenOperandPair(diff, "stfld", "::InstanceA", "::InstanceB");
+        AssertTokenOperandPair(diff, "ldfld", "::InstanceA", "::InstanceB");
+        AssertTokenOperandPair(diff, "stsfld", "::StaticA", "::StaticB");
+        AssertTokenOperandPair(diff, "ldsfld", "::StaticA", "::StaticB");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureTypeTokenChange_ReportsTypeOperandChanges()
+    {
+        var diff = DiffFixtureDiff("TypeTokenShapes");
+
+        AssertTokenOperandPair(diff, "ldtoken", "TypeTokenA", "TypeTokenB");
+        AssertTokenOperandPair(diff, "isinst", "TypeTokenA", "TypeTokenB");
+        AssertTokenOperandPair(diff, "castclass", "TypeTokenA", "TypeTokenB");
+        AssertTokenOperandPair(diff, "newarr", "TypeTokenA", "TypeTokenB");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureBoxTokenChange_ReportsBoxAndUnboxOperandChanges()
+    {
+        var diff = DiffFixtureDiff("BoxToken");
+
+        AssertTokenOperandPair(diff, "box", "System.Int16", "System.Int64");
+        AssertTokenOperandPair(diff, "unbox.any", "System.Int16", "System.Int64");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureTokenOpcodes_ReportsTokenVariants()
+    {
+        var typeDiff = DiffFixtureDiff("LdTokenType");
+        AssertTokenOperandPair(typeDiff, "ldtoken", "TypeTokenA", "TypeTokenB");
+
+        var fieldDiff = DiffFixtureDiff("LdTokenField");
+        var removedFieldToken = SingleTokenOperand(fieldDiff, IlDiffKind.Remove, "ldtoken", "field ");
+        var addedFieldToken = SingleTokenOperand(fieldDiff, IlDiffKind.Add, "ldtoken", "field ");
+        Assert.Contains("<PrivateImplementationDetails>", removedFieldToken.Value, StringComparison.Ordinal);
+        Assert.Contains("<PrivateImplementationDetails>", addedFieldToken.Value, StringComparison.Ordinal);
+        Assert.NotEqual(removedFieldToken.Value, addedFieldToken.Value);
+
+        var methodDiff = DiffFixtureDiff("MethodToken");
+        AssertTokenOperandPair(methodDiff, "ldftn", "::TokenTargetA(", "::TokenTargetB(");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureSwitchRetarget_ReportsChangedSwitch()
+    {
+        var diff = DiffFixtureDiff("SwitchRetarget");
+
+        var removedSwitchTargets = SingleOperand(diff, IlDiffKind.Remove, "switch", IlOperandIdentityKind.SwitchTargets);
+        var addedSwitchTargets = SingleOperand(diff, IlDiffKind.Add, "switch", IlOperandIdentityKind.SwitchTargets);
+        Assert.Equal(
+            removedSwitchTargets.Value.Split(',').Length,
+            addedSwitchTargets.Value.Split(',').Length);
+        Assert.NotEqual(removedSwitchTargets.Value, addedSwitchTargets.Value);
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureTryCatchAvailability_SurfacesOperationRows()
+    {
+        Assert.Empty(ExceptionRegionShapes(FixtureCatalog.DiffPair.Old, "TryCatchAvailability"));
+        var newRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.New, "TryCatchAvailability"));
+        Assert.Equal(ExceptionRegionKind.Catch, newRegion.Kind);
+
+        var diff = DiffFixtureDiff("TryCatchAvailability");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "leave");
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "pop");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureFinallyAvailability_SurfacesOperationRows()
+    {
+        Assert.Empty(ExceptionRegionShapes(FixtureCatalog.DiffPair.Old, "FinallyAvailability"));
+        var newRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.New, "FinallyAvailability"));
+        Assert.Equal(ExceptionRegionKind.Finally, newRegion.Kind);
+
+        var diff = DiffFixtureDiff("FinallyAvailability");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "endfinally");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureTryCatchRegionShape_SurfacesOperationRows()
+    {
+        var oldRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.Old, "TryCatchRegionShape"));
+        var newRegion = Assert.Single(ExceptionRegionShapes(FixtureCatalog.DiffPair.New, "TryCatchRegionShape"));
+        Assert.Equal(ExceptionRegionKind.Catch, oldRegion.Kind);
+        Assert.Equal(ExceptionRegionKind.Catch, newRegion.Kind);
+        Assert.NotEqual(oldRegion.TryLength, newRegion.TryLength);
+
+        var diff = DiffFixtureDiff("TryCatchRegionShape");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "call");
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureRepeatedCallOneOccurrence_ReportsOnlyChangedCall()
+    {
+        var diff = DiffFixtureDiff("RepeatedCallOneOccurrence");
+
+        var callRows = diff.Rows
+            .Where(row => row.Operation.OpcodeFamily == "call")
+            .ToArray();
+        Assert.Collection(
+            callRows,
+            removed =>
+            {
+                Assert.Equal(IlDiffKind.Remove, removed.Kind);
+                Assert.Contains("::Abs(", removed.Operation.Operand?.Value, StringComparison.Ordinal);
+            },
+            added =>
+            {
+                Assert.Equal(IlDiffKind.Add, added.Kind);
+                Assert.Contains("::Sign(", added.Operation.Operand?.Value, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
+    public void Compare_CompiledFixtureSlotLocalShapeNearMiss_SurfacesRawSlotRows()
+    {
+        var diff = DiffFixtureDiff("SlotLocalShapeNearMiss");
+
+        Assert.False(diff.IsExact);
+        Assert.Null(diff.Failure);
+        var localRows = diff.Rows
+            .Where(IsRawLocalRow)
+            .ToArray();
+        Assert.Collection(
+            localRows,
+            removed => Assert.Equal(IlDiffKind.Remove, removed.Kind),
+            added => Assert.Equal(IlDiffKind.Add, added.Kind));
+    }
+
+    [Fact]
+    public void Printer_CompiledFixtureTokenRows_PreservesTypedOperandDisplay()
+    {
+        var diff = DiffFixtureDiff("FieldToken");
+        var source = diff.Rows.Single(row =>
+            row.Kind == IlDiffKind.Remove
+            && row.Operation.OpcodeFamily == "stfld"
+            && row.Operation.Operand?.Value.Contains("::InstanceA", StringComparison.Ordinal) == true);
+
+        var display = IlDiffPrinter.ToDisplayRow(source);
+
+        Assert.Equal(source.HunkId, display.HunkId);
+        Assert.Equal(source.Kind, display.Kind);
+        Assert.Equal(source.Operation.Offset, display.RawOffset);
+        Assert.Equal(source.Operation.OpcodeFamily, display.OpcodeFamily);
+        Assert.Equal(IlOperandIdentityKind.Token, display.OperandKind);
+        Assert.Equal(source.Operation.Operand?.Value, display.OperandValue);
+        Assert.Equal(source.Operation.Display, display.Operation);
+        Assert.Equal(source.Message, display.Message);
+        Assert.Contains("stfld", display.UnifiedLine, StringComparison.Ordinal);
+        Assert.Contains("::InstanceA", display.UnifiedLine, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Compare_TokenOperandWithoutMetadata_FailsClosed()
     {
         var left = DiffFixtureMethod(FixtureCatalog.DiffPair.Old, "StringToken");
@@ -288,6 +455,66 @@ public class IlBodyDiffTests
 
     static bool IsBranchRow(IlDiffRow row)
         => row.Operation.OpcodeFamily.StartsWith("br", StringComparison.Ordinal);
+
+    static bool IsRawLocalRow(IlDiffRow row)
+        => row.Operation.Operand?.Kind == IlOperandIdentityKind.Slot
+            || row.Operation.OpcodeFamily.StartsWith("ldloc.", StringComparison.Ordinal)
+            || row.Operation.OpcodeFamily.StartsWith("stloc.", StringComparison.Ordinal);
+
+    static void AssertTokenOperandPair(
+        IlBodyDiffResult diff,
+        string opcodeFamily,
+        string removedOperandFragment,
+        string addedOperandFragment)
+    {
+        _ = SingleTokenOperand(diff, IlDiffKind.Remove, opcodeFamily, removedOperandFragment);
+        _ = SingleTokenOperand(diff, IlDiffKind.Add, opcodeFamily, addedOperandFragment);
+    }
+
+    static IlOperandIdentity SingleTokenOperand(
+        IlBodyDiffResult diff,
+        IlDiffKind kind,
+        string opcodeFamily,
+        string operandFragment)
+        => SingleOperand(diff, kind, opcodeFamily, IlOperandIdentityKind.Token, operandFragment);
+
+    static IlOperandIdentity SingleOperand(
+        IlBodyDiffResult diff,
+        IlDiffKind kind,
+        string opcodeFamily,
+        IlOperandIdentityKind operandKind,
+        string? operandFragment = null)
+    {
+        var row = Assert.Single(diff.Rows, row =>
+            row.Kind == kind
+            && row.Operation.OpcodeFamily == opcodeFamily
+            && row.Operation.Operand?.Kind == operandKind
+            && (operandFragment is null || row.Operation.Operand.Value.Contains(operandFragment, StringComparison.Ordinal)));
+        return Assert.IsType<IlOperandIdentity>(row.Operation.Operand);
+    }
+
+    static ExceptionRegionShape[] ExceptionRegionShapes(FixtureDefinition fixture, string name)
+    {
+        using var stream = File.OpenRead(fixture.AssemblyPath());
+        using var peReader = new PEReader(stream);
+        var metadataReader = peReader.GetMetadataReader();
+        var body = DiffFixtureMethodBody(peReader, metadataReader, name);
+        return body.ExceptionRegions
+            .Select(region => new ExceptionRegionShape(
+                region.Kind,
+                region.TryOffset,
+                region.TryLength,
+                region.HandlerOffset,
+                region.HandlerLength))
+            .ToArray();
+    }
+
+    readonly record struct ExceptionRegionShape(
+        ExceptionRegionKind Kind,
+        int TryOffset,
+        int TryLength,
+        int HandlerOffset,
+        int HandlerLength);
 
     static IlBodyDiffResult DiffFixtureDiff(string name)
     {

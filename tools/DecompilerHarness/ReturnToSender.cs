@@ -9,6 +9,7 @@ using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -29,7 +30,8 @@ static class ReturnToSender
         string RecompiledOpcodes,
         string? Detail,
         string TargetBody = "",
-        IlDiffDisplayResult? IlDiffDiagnostic = null);
+        IlDiffDisplayResult? IlDiffDiagnostic = null,
+        MemberAnchor? MemberAnchor = null);
 
     public sealed record RequestedTarget(string Type, string Method, int Overload);
 
@@ -339,6 +341,7 @@ static class ReturnToSender
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        var memberAnchors = MemberAnchorsByMethodToken(pe);
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -380,7 +383,15 @@ static class ReturnToSender
                 if (getter.RelativeVirtualAddress == 0)
                     continue;
 
-                results.Add(CompileBackPropertyGetterOrContextFail(assemblyPath, pe, reader, source, typeHandle, propertyHandle, accessors.Getter));
+                results.Add(CompileBackPropertyGetterOrContextFail(
+                    assemblyPath,
+                    pe,
+                    reader,
+                    source,
+                    typeHandle,
+                    propertyHandle,
+                    accessors.Getter,
+                    MemberAnchorFor(memberAnchors, accessors.Getter)));
                 if (results.Count >= maxTargets)
                     return results;
             }
@@ -404,6 +415,7 @@ static class ReturnToSender
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        var memberAnchors = MemberAnchorsByMethodToken(pe);
         var typeHandles = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
             .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
@@ -433,7 +445,8 @@ static class ReturnToSender
                     source,
                     typeHandle,
                     propertyTarget.Property,
-                    propertyTarget.Getter));
+                    propertyTarget.Getter,
+                    MemberAnchorFor(memberAnchors, propertyTarget.Getter)));
                 continue;
             }
 
@@ -446,12 +459,22 @@ static class ReturnToSender
                     source,
                     typeHandle,
                     setterTarget.Property,
-                    setterTarget.Setter));
+                    setterTarget.Setter,
+                    MemberAnchorFor(memberAnchors, setterTarget.Setter)));
                 continue;
             }
 
             if (TryFindMethod(reader, typeDef, target.Method, target.Overload) is { } methodHandle)
-                results.Add(CompileBackMethodOrContextFail(assemblyPath, pe, reader, source, typeHandle, methodHandle));
+            {
+                results.Add(CompileBackMethodOrContextFail(
+                    assemblyPath,
+                    pe,
+                    reader,
+                    source,
+                    typeHandle,
+                    methodHandle,
+                    MemberAnchorFor(memberAnchors, methodHandle)));
+            }
         }
 
         return results;
@@ -537,15 +560,16 @@ static class ReturnToSender
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
-        MethodDefinitionHandle getterHandle)
+        MethodDefinitionHandle getterHandle,
+        MemberAnchor? memberAnchor)
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle);
+            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}");
+            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
         }
     }
 
@@ -555,15 +579,16 @@ static class ReturnToSender
         MetadataReader reader,
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle methodHandle)
+        MethodDefinitionHandle methodHandle,
+        MemberAnchor? memberAnchor)
     {
         try
         {
-            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle);
+            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, methodHandle, $"{ex.GetType().Name}: {ex.Message}");
+            return ContextFailResult(assemblyPath, reader, typeHandle, methodHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
         }
     }
 
@@ -574,15 +599,16 @@ static class ReturnToSender
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
-        MethodDefinitionHandle setterHandle)
+        MethodDefinitionHandle setterHandle,
+        MemberAnchor? memberAnchor)
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle);
+            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, setterHandle, $"{ex.GetType().Name}: {ex.Message}");
+            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, setterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
         }
     }
 
@@ -593,7 +619,8 @@ static class ReturnToSender
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
-        MethodDefinitionHandle getterHandle)
+        MethodDefinitionHandle getterHandle,
+        MemberAnchor? memberAnchor)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var property = reader.GetPropertyDefinition(propertyHandle);
@@ -693,7 +720,8 @@ static class ReturnToSender
                     string.Join(" ", recompiledOps),
                     null,
                     TargetBody: printed.Output,
-                    IlDiffDiagnostic: ilDiffDiagnostic);
+                    IlDiffDiagnostic: ilDiffDiagnostic,
+                    MemberAnchor: memberAnchor);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -745,7 +773,8 @@ static class ReturnToSender
         MetadataReader reader,
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle methodHandle)
+        MethodDefinitionHandle methodHandle,
+        MemberAnchor? memberAnchor)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
@@ -843,7 +872,8 @@ static class ReturnToSender
                     string.Join(" ", recompiledOps),
                     null,
                     TargetBody: printed.Output,
-                    IlDiffDiagnostic: ilDiffDiagnostic);
+                    IlDiffDiagnostic: ilDiffDiagnostic,
+                    MemberAnchor: memberAnchor);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -895,7 +925,8 @@ static class ReturnToSender
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
-        MethodDefinitionHandle setterHandle)
+        MethodDefinitionHandle setterHandle,
+        MemberAnchor? memberAnchor)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var setter = reader.GetMethodDefinition(setterHandle);
@@ -994,7 +1025,8 @@ static class ReturnToSender
                     string.Join(" ", recompiledOps),
                     null,
                     TargetBody: printed.Output,
-                    IlDiffDiagnostic: ilDiffDiagnostic);
+                    IlDiffDiagnostic: ilDiffDiagnostic,
+                    MemberAnchor: memberAnchor);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -1046,7 +1078,8 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle getterHandle,
-        string detail)
+        string detail,
+        MemberAnchor? memberAnchor)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var getter = reader.GetMethodDefinition(getterHandle);
@@ -1096,7 +1129,8 @@ static class ReturnToSender
             FidelityCheck.CompileBackStatus.ContextFail,
             "",
             "",
-            detail);
+            detail,
+            MemberAnchor: memberAnchor);
     }
 
     static Result ContextFailResult(
@@ -1104,7 +1138,8 @@ static class ReturnToSender
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
-        string detail)
+        string detail,
+        MemberAnchor? memberAnchor)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
@@ -1118,8 +1153,32 @@ static class ReturnToSender
             [],
             [],
             []);
-        return new Result(plan, "", FidelityCheck.CompileBackStatus.ContextFail, "", "", detail);
+        return new Result(plan, "", FidelityCheck.CompileBackStatus.ContextFail, "", "", detail, MemberAnchor: memberAnchor);
     }
+
+    static IReadOnlyDictionary<int, MemberAnchor> MemberAnchorsByMethodToken(PEReader pe)
+    {
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
+        var result = new Dictionary<int, MemberAnchor>();
+        foreach (var type in surface.Types)
+        {
+            foreach (var member in type.Members)
+            {
+                var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+                if (member.MetadataToken is { } token)
+                    result[token] = anchor;
+                if (member.GetterToken is { } getter)
+                    result[getter] = anchor;
+                if (member.SetterToken is { } setter)
+                    result[setter] = anchor;
+            }
+        }
+
+        return result;
+    }
+
+    static MemberAnchor? MemberAnchorFor(IReadOnlyDictionary<int, MemberAnchor> anchors, MethodDefinitionHandle methodHandle)
+        => anchors.TryGetValue(MetadataTokens.GetToken(methodHandle), out var anchor) ? anchor : null;
 
     static int OverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string methodName)
     {
