@@ -125,6 +125,23 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromIlBodyDiff_PreservesProducerFailureRow()
+    {
+        var il = IlBodyDiffResult.NewBodyMissing("metadata row absent");
+
+        var diff = ResearchDiff.FromIlBodyDiff(il);
+
+        var row = Assert.Single(diff.Rows);
+        Assert.Equal("il.diff.new-body-missing", row.ChangeId);
+        Assert.Equal(ResearchDiffEvidenceKind.IlBody, row.EvidenceKind);
+        Assert.Equal("new body missing", row.Message);
+        var failure = Assert.IsType<IlDiffFailureRow>(row.IlFailureRow);
+        Assert.Equal(IlDiffFailureKind.NewBodyMissing, failure.Kind);
+        Assert.Equal("new", failure.Side);
+        Assert.Equal("metadata row absent", failure.Detail);
+    }
+
+    [Fact]
     public void FromCSharpBodyDiff_PreservesProducerMessageAndTypedRow()
     {
         var csharpRow = Assert.Single(CSharpBodyDiff.CompareAssemblies(

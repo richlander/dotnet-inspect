@@ -348,6 +348,10 @@ public class IlBodyDiffTests
         Assert.False(diff.IsExact);
         Assert.NotNull(diff.Failure);
         Assert.Contains("requires a MetadataReader-backed comparison", diff.Failure, StringComparison.Ordinal);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.TokenResolutionFailure, failure.Kind);
+        Assert.Equal("old", failure.Side);
+        Assert.Contains("requires a MetadataReader-backed comparison", failure.Message, StringComparison.Ordinal);
         Assert.Empty(diff.Rows);
     }
 
@@ -451,6 +455,9 @@ public class IlBodyDiffTests
 
         Assert.False(diff.IsExact);
         Assert.NotNull(diff.Failure);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.DecodeFailure, failure.Kind);
+        Assert.Equal("old", failure.Side);
     }
 
     static bool IsBranchRow(IlDiffRow row)

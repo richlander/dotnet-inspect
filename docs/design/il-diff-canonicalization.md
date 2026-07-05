@@ -68,9 +68,14 @@ or builds.
 
 ### Hunk and display ownership
 
-`IlBodyDiff` owns row messages and hunk IDs. `IlDiffPrinter` owns display rows
-and unified text projection. Research and CLI layers should preserve or wrap
-these typed rows rather than reformatting lower-layer wording.
+`IlBodyDiff` owns operation row messages, hunk IDs, and failure rows. Failure
+rows carry a producer-owned kind and message for availability, decode,
+token-resolution, and unsupported-boundary cases while retaining the legacy
+single `Failure` string for compatibility.
+
+`IlDiffPrinter` owns display rows and unified text projection. Research and CLI
+layers should preserve or wrap these typed rows rather than reformatting
+lower-layer wording.
 
 ## Current non-guarantees
 
@@ -117,7 +122,7 @@ extensions should remain Instructions-owned:
 - explicit EH availability/shape rows;
 - improved local/argument identity beyond raw slots;
 - unsupported-boundary diagnostics when a row is intentionally approximate;
-- display rows for decode or token-resolution failures.
+- more precise failure row kinds when a new unsupported boundary is measured.
 
 Research, RTS, and CLI consumers should request or preserve these typed rows
 rather than synthesizing their own IL wording.

@@ -59,6 +59,7 @@ public sealed record ResearchDiffRow(
     string Message,
     ApiChange? ApiChange = null,
     IlDiffRow? IlRow = null,
+    IlDiffFailureRow? IlFailureRow = null,
     BodySignalDiffRow? BodySignalRow = null,
     CSharpDiffRow? CSharpRow = null);
 
@@ -171,6 +172,20 @@ public static class ResearchDiff
     public static ResearchDiffResult FromIlBodyDiff(IlBodyDiffResult diff)
     {
         ArgumentNullException.ThrowIfNull(diff);
+        if (!diff.FailureRows.IsDefaultOrEmpty)
+        {
+            return new ResearchDiffResult(
+                [],
+                Rows:
+                [
+                    .. diff.FailureRows.Select(row => new ResearchDiffRow(
+                        $"il.diff.{ToKebabCase(row.Kind.ToString())}",
+                        ResearchDiffEvidenceKind.IlBody,
+                        row.Message,
+                        IlFailureRow: row))
+                ]);
+        }
+
         if (diff.Failure is { Length: > 0 } failure)
         {
             return new ResearchDiffResult(

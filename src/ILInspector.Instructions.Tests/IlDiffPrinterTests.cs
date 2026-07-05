@@ -65,17 +65,47 @@ public class IlDiffPrinterTests
     [Fact]
     public void ToDisplayResult_PreservesFailureAsProducerOwnedDisplay()
     {
-        var diff = new IlBodyDiffResult(
-            IsExact: false,
-            Failure: "old body decode failed",
-            Rows: []);
+        var diff = IlBodyDiffResult.Failed(
+            IlDiffFailureKind.DecodeFailure,
+            "old body decode failed",
+            side: "old");
 
         var display = IlDiffPrinter.ToDisplayResult(diff);
 
         Assert.Equal("IL diff failed: old body decode failed", display.Failure);
+        var failure = Assert.Single(display.FailureRows);
+        Assert.Equal(IlDiffFailureKind.DecodeFailure, failure.Kind);
+        Assert.Equal("old body decode failed", failure.Message);
+        Assert.Equal("old", failure.Side);
         Assert.Empty(display.Rows);
         Assert.Equal(["IL diff failed: old body decode failed"], IlDiffPrinter.ToUnifiedLines(diff));
         Assert.Equal(["IL diff failed: old body decode failed"], IlDiffPrinter.ToUnifiedLines(display));
+    }
+
+    [Fact]
+    public void ToDisplayResult_ProjectsAvailabilityFailureRows()
+    {
+        var display = IlDiffPrinter.ToDisplayResult(IlBodyDiffResult.OldBodyMissing("no RVA"));
+
+        var failure = Assert.Single(display.FailureRows);
+        Assert.Equal(IlDiffFailureKind.OldBodyMissing, failure.Kind);
+        Assert.Equal("old body missing", failure.Message);
+        Assert.Equal("old", failure.Side);
+        Assert.Equal("no RVA", failure.Detail);
+        Assert.Equal(["IL diff failed: old body missing"], IlDiffPrinter.ToUnifiedLines(display));
+    }
+
+    [Fact]
+    public void ToDisplayResult_ProjectsUnsupportedBoundaryFailureRows()
+    {
+        var display = IlDiffPrinter.ToDisplayResult(
+            IlBodyDiffResult.UnsupportedBoundary("unsupported canonicalization boundary", "slot identity"));
+
+        var failure = Assert.Single(display.FailureRows);
+        Assert.Equal(IlDiffFailureKind.UnsupportedBoundary, failure.Kind);
+        Assert.Equal("unsupported canonicalization boundary", failure.Message);
+        Assert.Null(failure.Side);
+        Assert.Equal("slot identity", failure.Detail);
     }
 
     [Fact]

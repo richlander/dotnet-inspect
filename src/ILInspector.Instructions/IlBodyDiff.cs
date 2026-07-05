@@ -36,10 +36,39 @@ public sealed record IlDiffRow(
     CanonicalIlOperation Operation,
     string Message);
 
+public enum IlDiffFailureKind
+{
+    OldBodyMissing,
+    NewBodyMissing,
+    DecodeFailure,
+    TokenResolutionFailure,
+    UnsupportedBoundary,
+}
+
+public sealed record IlDiffFailureRow(
+    IlDiffFailureKind Kind,
+    string Message,
+    string? Side = null,
+    string? Detail = null);
+
 public sealed record IlBodyDiffResult(
     bool IsExact,
     string? Failure,
-    ImmutableArray<IlDiffRow> Rows);
+    ImmutableArray<IlDiffRow> Rows,
+    ImmutableArray<IlDiffFailureRow> FailureRows = default)
+{
+    public static IlBodyDiffResult OldBodyMissing(string? detail = null)
+        => Failed(IlDiffFailureKind.OldBodyMissing, "old body missing", side: "old", detail);
+
+    public static IlBodyDiffResult NewBodyMissing(string? detail = null)
+        => Failed(IlDiffFailureKind.NewBodyMissing, "new body missing", side: "new", detail);
+
+    public static IlBodyDiffResult UnsupportedBoundary(string message, string? detail = null)
+        => Failed(IlDiffFailureKind.UnsupportedBoundary, message, side: null, detail);
+
+    public static IlBodyDiffResult Failed(IlDiffFailureKind kind, string message, string? side = null, string? detail = null)
+        => new(false, message, [], [new IlDiffFailureRow(kind, message, side, detail)]);
+}
 
 /// <summary>
 /// Low-level IL body diff substrate over decoded instruction streams.
@@ -77,16 +106,28 @@ public static class IlBodyDiff
         ArgumentNullException.ThrowIfNull(newBody);
 
         if (!oldBody.IsComplete)
-            return new IlBodyDiffResult(false, oldBody.Blocks.IncompleteReason ?? "old body decode failed", []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.DecodeFailure,
+                oldBody.Blocks.IncompleteReason ?? "old body decode failed",
+                side: "old");
         if (!newBody.IsComplete)
-            return new IlBodyDiffResult(false, newBody.Blocks.IncompleteReason ?? "new body decode failed", []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.DecodeFailure,
+                newBody.Blocks.IncompleteReason ?? "new body decode failed",
+                side: "new");
 
         var oldInstructions = oldBody.Instructions;
         var newInstructions = newBody.Instructions;
         if (!TryBuildOperations(oldInstructions, oldResolver, "old", out var oldOperations, out var oldFailure))
-            return new IlBodyDiffResult(false, oldFailure, []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.TokenResolutionFailure,
+                oldFailure ?? "old body token resolution failed",
+                side: "old");
         if (!TryBuildOperations(newInstructions, newResolver, "new", out var newOperations, out var newFailure))
-            return new IlBodyDiffResult(false, newFailure, []);
+            return IlBodyDiffResult.Failed(
+                IlDiffFailureKind.TokenResolutionFailure,
+                newFailure ?? "new body token resolution failed",
+                side: "new");
         var lcs = LongestCommonSubsequence(oldOperations, newOperations);
         var oldToNew = BuildAlignmentMap(lcs, oldOperations.Length, newOperations.Length);
         var rows = ImmutableArray.CreateBuilder<IlDiffRow>();
