@@ -71,7 +71,7 @@ internal static class MemberSourceLocationCollector
             .Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
+            members = members.Where(m => ApiOutputFormatter.MatchesMemberFilter(m, options.MemberFilter));
 
         if (options.KindFilter.Count > 0)
             members = members.Where(m => options.KindFilter.Contains(m.Kind));

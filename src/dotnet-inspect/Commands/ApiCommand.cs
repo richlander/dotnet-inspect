@@ -257,7 +257,7 @@ public class ApiCommand
         var members = type.Members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
+            members = members.Where(m => MatchesMemberFilter(m, options.MemberFilter));
 
         if (options.UnsafeOnly)
             members = members.Where(m => m.IsUnsafe);
@@ -1108,6 +1108,10 @@ public class ApiCommand
         return DiscoverOutput.WithoutColumn(schema, "Select");
     }
 
+    static bool MatchesMemberFilter(ApiMember member, HashSet<string> filters)
+        => TypeMatcher.MatchesMemberFilter(member.Name, filters)
+           || TypeMatcher.MatchesMemberFilter(ApiMemberIdentity.GetMemberSelectorName(member), filters);
+
     /// <summary>
     /// Executes effective discovery (<c>-D</c>) for a single type. Shared by the
     /// type and member commands so both paths apply identical queryability filtering:
@@ -1352,7 +1356,7 @@ public class ApiCommand
         var members = type.Members;
 
         if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
+            members = members.Where(m => MatchesMemberFilter(m, options.MemberFilter)).ToList();
 
         if (options.KindFilter.Count > 0)
             members = members.Where(m => options.KindFilter.Contains(m.Kind)).ToList();

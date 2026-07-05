@@ -198,12 +198,12 @@ internal static class TypeFindIfMissResolver
             || query.Contains('@') || query.Contains('/') || query.Contains('\\'))
             return false;
 
-        var lastDot = query.LastIndexOf('.');
-        if (lastDot <= 0 || lastDot == query.Length - 1)
+        var split = SharedParsers.SplitTrailingMember(query);
+        if (split.MemberName is null)
             return false;
 
-        typeQuery = query[..lastDot];
-        memberSelector = query[(lastDot + 1)..];
+        typeQuery = split.TypeName;
+        memberSelector = split.MemberName;
         var (memberName, _) = FqnParser.ParseMemberFilter(memberSelector);
         if (typeQuery.EndsWith(".", StringComparison.Ordinal) &&
             memberName.Equals(".ctor", StringComparison.OrdinalIgnoreCase))

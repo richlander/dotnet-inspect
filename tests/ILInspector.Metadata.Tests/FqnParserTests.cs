@@ -25,6 +25,17 @@ public class FqnParserTests
         Assert.Null(result.OverloadIndex);
     }
 
+    [Fact]
+    public void KindQualifiedMember_WithDottedPayload_ParsesAtKindMarker()
+    {
+        var result = FqnParser.Parse("System.String.explicit:System.IConvertible.ToBoolean:1");
+
+        Assert.NotNull(result);
+        Assert.Equal("System.String", result.TypeName);
+        Assert.Equal("explicit:System.IConvertible.ToBoolean", result.MemberName);
+        Assert.Equal(1, result.OverloadIndex);
+    }
+
     // ── Generic types ────────────────────────────────────────────────────
 
     [Theory]

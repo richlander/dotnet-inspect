@@ -486,7 +486,7 @@ public static class ApiOutputFormatter
 
             if (memberFilter.Count > 0)
             {
-                members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+                members = members.Where(m => MatchesMemberFilter(m, memberFilter));
             }
 
             if (kindFilter?.Count > 0)
@@ -649,7 +649,7 @@ public static class ApiOutputFormatter
             .ToList();
         if (options.MemberFilter.Count > 0)
             enumMembers = enumMembers
-                .Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter))
+                .Where(m => MatchesMemberFilter(m, options.MemberFilter))
                 .ToList();
         if (options.UnsafeOnly)
             enumMembers = [];
@@ -2176,7 +2176,7 @@ public static class ApiOutputFormatter
             .ToList();
 
         if (memberFilter?.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter)).ToList();
+            members = members.Where(m => MatchesMemberFilter(m, memberFilter)).ToList();
 
         if (unsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -2192,6 +2192,10 @@ public static class ApiOutputFormatter
 
     internal static string FormatGenericFullName(ApiType type)
         => MetadataTypeNameFormatter.FormatFullName(type);
+
+    internal static bool MatchesMemberFilter(ApiMember member, HashSet<string> filters)
+        => TypeMatcher.MatchesMemberFilter(member.Name, filters)
+           || TypeMatcher.MatchesMemberFilter(ApiMemberIdentity.GetMemberSelectorName(member), filters);
 
     internal static string GetMemberSignatureSortKey(ApiMember member)
     {

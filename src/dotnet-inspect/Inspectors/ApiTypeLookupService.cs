@@ -102,7 +102,7 @@ internal static class ApiTypeLookupService
             return new MemberFilterValidationResult([], []);
 
         var memberNames = type.Members
-            .Select(m => m.Name)
+            .SelectMany(m => new[] { m.Name, ApiMemberIdentity.GetMemberSelectorName(m) })
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         List<string> missedFilters = [];

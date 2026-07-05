@@ -38,6 +38,13 @@ public static class FqnParser
         // introduce dots (e.g. primitive aliases: "string" → "System.String"), so it must
         // not influence whether the input has a Type.Member shape. Only top-level dots
         // (outside generic angle brackets) are candidate separators.
+        foreach (var marker in (ReadOnlySpan<string>)[".operator:", ".explicit:", ".extension:"])
+        {
+            var markerIndex = work.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex > 0)
+                return new ParseResult(null, TypeMatcher.Normalize(work[..markerIndex]), work[(markerIndex + 1)..], overloadIndex);
+        }
+
         var lastDot = LastTopLevelDot(work);
         if (lastDot <= 0)
         {

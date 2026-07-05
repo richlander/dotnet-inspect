@@ -556,7 +556,8 @@ public static class MemberCommand
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
     {
         var members = apiType.Members
-            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase));
+            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(ApiMemberIdentity.GetMemberSelectorName(m), memberName, StringComparison.OrdinalIgnoreCase));
         if (options.KindFilter.Count > 0)
             members = members.Where(m => options.KindFilter.Contains(m.Kind));
         return members.ToList();

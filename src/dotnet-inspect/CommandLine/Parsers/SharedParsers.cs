@@ -104,6 +104,14 @@ public static class SharedParsers
         string value,
         bool allowPlatformPrefixFallback)
     {
+        var kindQualified = SplitTrailingMember(value);
+        if (kindQualified.MemberName is not null && IsKindQualifiedMember(kindQualified.MemberName))
+        {
+            var probe = ResolveTypeCandidate(kindQualified.TypeName, allowPlatformPrefixFallback);
+            if (probe is not null)
+                return (probe, kindQualified.MemberName);
+        }
+
         for (var i = value.Length - 1; i > 0; i--)
         {
             if (value[i] != '.')
@@ -114,23 +122,32 @@ public static class SharedParsers
             if (string.IsNullOrWhiteSpace(memberName) || memberName.Contains('<'))
                 continue;
 
-            var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
+            var probe = ResolveTypeCandidate(typeCandidate, allowPlatformPrefixFallback);
             if (probe != null)
                 return (probe, memberName);
-
-            // If qualified name resolution failed, try resolving the candidate as a bare
-            // CoreLib type. This covers generic types ("List<T>", "Span`1") as well as
-            // single-token simple/primitive type names ("Type", "Math", "string") that
-            // qualified resolution does not recognize on their own.
-            if (typeCandidate.Contains('<') || typeCandidate.Contains('`') || !typeCandidate.Contains('.'))
-            {
-                var bareProbe = SourceResolver.TryResolveBareCoreLibTypeName(typeCandidate);
-                if (bareProbe != null)
-                    return (bareProbe, memberName);
-            }
         }
 
         return null;
+    }
+
+    static bool IsKindQualifiedMember(string value)
+        => value.StartsWith("operator:", StringComparison.OrdinalIgnoreCase)
+           || value.StartsWith("explicit:", StringComparison.OrdinalIgnoreCase)
+           || value.StartsWith("extension:", StringComparison.OrdinalIgnoreCase);
+
+    static SourceResolver.LocalProbeResult? ResolveTypeCandidate(string typeCandidate, bool allowPlatformPrefixFallback)
+    {
+        var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
+        if (probe != null)
+            return probe;
+
+        // If qualified name resolution failed, try resolving the candidate as a bare
+        // CoreLib type. This covers generic types ("List<T>", "Span`1") as well as
+        // single-token simple/primitive type names ("Type", "Math", "string") that
+        // qualified resolution does not recognize on their own.
+        return typeCandidate.Contains('<') || typeCandidate.Contains('`') || !typeCandidate.Contains('.')
+            ? SourceResolver.TryResolveBareCoreLibTypeName(typeCandidate)
+            : null;
     }
 
     /// <summary>
