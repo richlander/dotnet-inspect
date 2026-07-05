@@ -285,6 +285,27 @@ public class CSharpBodyDiffTests
     }
 
     [Fact]
+    public void Printer_LineRows_RenderFromStructuredOperations()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
+        var source = diff.Rows.Single(row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.ChangeId == "csharp.line.removed");
+
+        var display = CSharpDiffPrinter.ToDisplayRow(source);
+
+        Assert.Equal("-", display.Marker);
+        Assert.Equal(CSharpDiffOperationKind.Line, display.OperationKind);
+        Assert.Equal(source.Text, display.OldValue);
+        Assert.Null(display.NewValue);
+        Assert.Equal(source.Text, display.Operation);
+        Assert.Contains(source.Text, display.UnifiedLine, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareAssemblies_ProtectedMethodsAreIncludedInDefaultSurface()
     {
         var v1 = DiffFixturePath("DiffFixtures.V1");

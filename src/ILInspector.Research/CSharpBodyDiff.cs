@@ -59,7 +59,76 @@ public sealed record CSharpDiffRow(
     string? OldValue = null,
     string? NewValue = null,
     CSharpDiffOperation? OldOperation = null,
-    CSharpDiffOperation? NewOperation = null);
+    CSharpDiffOperation? NewOperation = null)
+{
+    public CSharpDiffRow(
+        string assemblyIdentity,
+        string stableMemberKey,
+        MemberAnchor anchor,
+        string member,
+        string changeId,
+        string message,
+        int hunkId,
+        CSharpDiffKind kind,
+        int? line,
+        string? sourceCoordinate,
+        string fidelity,
+        string text)
+        : this(
+            assemblyIdentity,
+            stableMemberKey,
+            anchor,
+            member,
+            changeId,
+            message,
+            hunkId,
+            kind,
+            line,
+            sourceCoordinate,
+            fidelity,
+            text,
+            OldValue: null,
+            NewValue: null,
+            OldOperation: null,
+            NewOperation: null)
+    {
+    }
+
+    public CSharpDiffRow(
+        string assemblyIdentity,
+        string stableMemberKey,
+        MemberAnchor anchor,
+        string member,
+        string changeId,
+        string message,
+        int hunkId,
+        CSharpDiffKind kind,
+        int? line,
+        string? sourceCoordinate,
+        string fidelity,
+        string text,
+        string? oldValue,
+        string? newValue)
+        : this(
+            assemblyIdentity,
+            stableMemberKey,
+            anchor,
+            member,
+            changeId,
+            message,
+            hunkId,
+            kind,
+            line,
+            sourceCoordinate,
+            fidelity,
+            text,
+            oldValue,
+            newValue,
+            OldOperation: null,
+            NewOperation: null)
+    {
+    }
+}
 
 public sealed record CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> Rows)
 {
