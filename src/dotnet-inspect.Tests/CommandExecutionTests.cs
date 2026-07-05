@@ -3142,12 +3142,26 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.StartsWith("member_anchor\tcanonical_signature", output);
+        Assert.StartsWith("selector\tcanonical_signature", output);
         Assert.Contains("Serialize~", output);
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize<TValue>", output);
         Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_TsvAcceptsLegacySelectorProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "-S", "Member Index",
+            "--columns", "selector", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("selector", output);
+        Assert.Contains("Serialize~", output);
     }
 
     [Fact]
@@ -3182,7 +3196,7 @@ public class CommandExecutionTests
         Assert.NotEmpty(lines);
 
         using var first = JsonDocument.Parse(lines[0]);
-        Assert.True(first.RootElement.TryGetProperty("member_anchor", out var selector));
+        Assert.True(first.RootElement.TryGetProperty("selector", out var selector));
         Assert.True(first.RootElement.TryGetProperty("canonical_signature", out var signature));
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", signature.GetString());
         Assert.StartsWith("Serialize~", selector.GetString());
@@ -3226,7 +3240,7 @@ public class CommandExecutionTests
             "--columns", "Member anchor;Canonical signature;Obsolete", "--tsv");
 
         Assert.Equal(0, exit);
-        Assert.StartsWith("member_anchor\tcanonical_signature", output);
+        Assert.StartsWith("selector\tcanonical_signature", output);
         Assert.Contains("warning: column 'Obsolete' not found in section 'Member Index'", error);
         Assert.Contains("Run -D \"Member Index\" to list available columns.", error);
     }

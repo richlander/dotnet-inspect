@@ -151,6 +151,42 @@ public class DiffCommandTests
         Assert.Contains(overview.Rows, row => row.Diff == "Member body" && !row.Changed);
     }
 
+    [Fact]
+    public void BuildOverview_ResolvesKindQualifiedMemberAnchorTarget()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "operator",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "op_Implicit",
+                ReturnType = "int",
+                Parameters = [new ApiParameter { Name = "value", Type = "Sample.Widget" }]
+            }
+        };
+        var oldSurface = DiffSurface(member);
+        var newSurface = DiffSurface(member);
+        var anchor = ApiMemberIdentity.GetMemberAnchor(newSurface.Types[0], member);
+        var options = new DiffOptions
+        {
+            PackageVersionRange = "Pkg@1.0.0..2.0.0",
+            TypeFilter = [$"Sample.Widget.{anchor.StableSelector}"]
+        };
+        var inputs = new DiffCommand.DiffInputs(
+            oldSurface,
+            newSurface,
+            "1.0.0",
+            "2.0.0",
+            "Pkg",
+            [],
+            []);
+
+        var overview = DiffCommand.BuildOverview(inputs, DiffCommand.BuildApiDiff(oldSurface, newSurface, options), options);
+
+        Assert.Equal($"{anchor.StableSelector} ({anchor.CanonicalSignature})", overview.Target);
+    }
+
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
         => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", inLoop ? "in-loop" : null, null), magnitude, direction, inBoth, inLoop);
 

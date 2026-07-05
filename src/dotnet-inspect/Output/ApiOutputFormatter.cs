@@ -880,7 +880,7 @@ public static class ApiOutputFormatter
             int? endLine = member.SourceEndLineNumber ?? member.SourceLineNumber;
 
             rows.Add(new MemberSourceLocationRow(
-                detail ? null : indexRows[i].MemberAnchor,
+                detail ? null : indexRows[i].Selector,
                 string.IsNullOrWhiteSpace(signature) ? null : MarkoutInline.Code(signature),
                 member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
                 member.SourceLineNumber,

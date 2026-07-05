@@ -345,7 +345,8 @@ public static class CSharpBodyDiff
                 string canonicalName = CanonicalMemberName(methodName);
                 string rawKey = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
                 string apiMemberName = ApiMemberName(reader, methodName, method);
-                string anchorCanonical = $"M:{ApiTypeName(reader, typeHandle)}.{apiMemberName}{ApiParameterList(apiSignature.ParameterTypes)}";
+                string anchorReturnSuffix = IsConversionOperator(methodName) ? $"~{ApiTypeName(apiSignature.ReturnType)}" : "";
+                string anchorCanonical = $"M:{ApiTypeName(reader, typeHandle)}.{apiMemberName}{ApiParameterList(apiSignature.ParameterTypes)}{anchorReturnSuffix}";
                 int methodToken = MetadataTokens.GetToken(methodHandle);
                 var moduleVersionId = ModuleVersionId(reader);
                 var anchor = anchorsByToken.TryGetValue(methodToken, out var metadataAnchor)

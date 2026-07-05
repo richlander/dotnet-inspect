@@ -526,6 +526,8 @@ public class ResearchDiffTests
         Assert.Equal(ResearchDiffDirection.Added, evidence.Direction);
         Assert.NotNull(changed.Subject.Anchor);
         Assert.NotNull(changed.Subject.TypeAnchor);
+        Assert.NotNull(changed.Subject.MetadataMember);
+        Assert.NotNull(changed.Subject.MetadataType);
         Assert.Equal(changed.Subject.Anchor, evidence.Anchor);
         Assert.NotNull(evidence.MetadataMember);
         Assert.NotNull(evidence.MetadataType);

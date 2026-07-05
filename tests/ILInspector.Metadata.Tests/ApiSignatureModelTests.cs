@@ -358,6 +358,34 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void MemberAnchor_IncludesConversionOperatorReturnType()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Number" };
+        var toInt = ConversionOperator("int");
+        var toLong = ConversionOperator("long");
+
+        var intAnchor = ApiMemberIdentity.GetMemberAnchor(type, toInt);
+        var longAnchor = ApiMemberIdentity.GetMemberAnchor(type, toLong);
+
+        Assert.EndsWith("~System.Int32", intAnchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.EndsWith("~System.Int64", longAnchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.NotEqual(intAnchor.StableSelector, longAnchor.StableSelector);
+
+        static ApiMember ConversionOperator(string returnType)
+            => new()
+            {
+                Name = "op_Implicit",
+                Kind = "operator",
+                SignatureModel = new ApiSignature
+                {
+                    MemberName = "op_Implicit",
+                    ReturnType = returnType,
+                    Parameters = [new ApiParameter { Name = "value", Type = "Samples.Number" }]
+                }
+            };
+    }
+
+    [Fact]
     public void XmlDocIdentity_FallsBackWhenSignatureModelIsMissing()
     {
         var type = GetType(nameof(ApiSignatureFixtures));

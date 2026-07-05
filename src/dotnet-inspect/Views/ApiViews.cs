@@ -498,7 +498,7 @@ public record MemberRow(
 
 [MarkoutSerializable]
 public record MemberIndexRow(
-    [property: MarkoutPropertyName("Member anchor")] string MemberAnchor,
+    [property: MarkoutPropertyName("Member anchor")] string Selector,
     [property: MarkoutPropertyName("Canonical signature")] string CanonicalSignature,
     [property: MarkoutIgnore] string Fingerprint);
 

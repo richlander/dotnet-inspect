@@ -186,7 +186,7 @@ public static class MemberCommand
                 {
                     Console.Error.WriteLine($"Error: Member anchor '{memberName}~{effectiveOptions.MemberDigest}' is ambiguous; use a longer fingerprint:");
                     foreach (var (row, _) in matches)
-                        Console.Error.WriteLine($"  {row.MemberAnchor}  {row.CanonicalSignature}");
+                        Console.Error.WriteLine($"  {row.Selector}  {row.CanonicalSignature}");
                     return 1;
                 }
 
@@ -364,6 +364,7 @@ public static class MemberCommand
                     projectionSections = [GetMemberSectionName(grouped.Keys.Single())];
             }
 
+            effectiveOptions = NormalizeMemberProjectionAliases(effectiveOptions, projectionSections);
             if ((effectiveOptions.Fields is { Length: > 0 } || effectiveOptions.Columns is { Length: > 0 })
                 && projectionSections is { Count: > 0 })
             {
@@ -427,6 +428,32 @@ public static class MemberCommand
             {
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
+        }
+
+        static MemberOptions NormalizeMemberProjectionAliases(MemberOptions options, HashSet<string>? projectionSections)
+        {
+            if (projectionSections is not { Count: > 0 })
+                return options;
+
+            bool hasMemberIndex = projectionSections.Contains(SectionNames.MemberIndex);
+            bool hasSourceLocations = projectionSections.Contains(SectionNames.SourceLocations);
+            if (!hasMemberIndex && !hasSourceLocations)
+                return options;
+
+            static string Alias(string value)
+                => value.ToLowerInvariant() switch
+                {
+                    "selector" or "stable" => "Member anchor",
+                    "member_anchor" => "Member anchor",
+                    "canonical_signature" => "Canonical signature",
+                    _ => value
+                };
+
+            return options with
+            {
+                Fields = options.Fields?.Select(Alias).ToArray(),
+                Columns = options.Columns?.Select(Alias).ToArray(),
+            };
         }
     }
 

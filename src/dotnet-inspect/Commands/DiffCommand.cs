@@ -643,11 +643,13 @@ public class DiffCommand
 
     static MemberAnchor? ResolveMemberAnchor(ApiSurface surface, string target)
     {
-        var parsed = FqnParser.Parse(target);
+        var parsed = TryParseKindQualifiedMemberTarget(target) ?? FqnParser.Parse(target);
         if (parsed?.MemberName is null)
             return null;
         var (memberName, digest) = SharedParsers.ParseDigestShorthand(parsed.MemberName);
-        var (selectorName, parsedOverloadIndex) = FqnParser.ParseMemberFilter(memberName);
+        var (selectorName, parsedOverloadIndex) = IsKindQualifiedMemberSelector(memberName)
+            ? (memberName, null)
+            : FqnParser.ParseMemberFilter(memberName);
         var overloadIndex = parsed.OverloadIndex ?? parsedOverloadIndex;
         var type = surface.Types.FirstOrDefault(type => MatchesDiffTypeFilter(type.FullName, parsed.TypeName));
         if (type is null)
@@ -664,6 +666,30 @@ public class DiffCommand
         if (overloadIndex is { } index && index > 0 && index <= candidates.Length)
             return candidates[index - 1].Anchor;
         return candidates.Length == 1 ? candidates[0].Anchor : null;
+    }
+
+    static bool IsKindQualifiedMemberSelector(string value)
+        => value.StartsWith("operator:", StringComparison.OrdinalIgnoreCase)
+           || value.StartsWith("explicit:", StringComparison.OrdinalIgnoreCase)
+           || value.StartsWith("extension:", StringComparison.OrdinalIgnoreCase);
+
+    static FqnParser.ParseResult? TryParseKindQualifiedMemberTarget(string target)
+    {
+        foreach (var marker in (ReadOnlySpan<string>)[".operator:", ".explicit:", ".extension:"])
+        {
+            var index = target.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index <= 0)
+                continue;
+
+            var typeName = target[..index];
+            var memberName = target[(index + 1)..];
+            if (string.IsNullOrWhiteSpace(typeName) || string.IsNullOrWhiteSpace(memberName))
+                return null;
+
+            return new FqnParser.ParseResult(null, TypeMatcher.Normalize(typeName), memberName, null);
+        }
+
+        return null;
     }
 
     static TypeAnchor? ResolveTypeAnchor(ApiSurface surface, string target)

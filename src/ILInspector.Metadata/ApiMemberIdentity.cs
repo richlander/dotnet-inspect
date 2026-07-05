@@ -68,7 +68,8 @@ public static class ApiMemberIdentity
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
         var parameters = ExtractCanonicalParameterList(signature);
-        return $"{kindCode}:{declaringType}.{memberName}{parameters}";
+        var returnSuffix = ConversionReturnSuffix(member, null, null);
+        return $"{kindCode}:{declaringType}.{memberName}{parameters}{returnSuffix}";
     }
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
@@ -104,8 +105,31 @@ public static class ApiMemberIdentity
                   ? member.Name
                   : signature.MemberName!);
         memberName = NormalizeCanonicalCommas(memberName);
-        canonicalSignature = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
+        var typeParameterMap = type.TypeParameters
+            .Select((p, i) => (p.Name, Index: i))
+            .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
+        var methodParameterMap = GetMethodGenericParameterMap(signature.MemberName);
+        var returnSuffix = ConversionReturnSuffix(member, typeParameterMap, methodParameterMap);
+        canonicalSignature = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}{returnSuffix}";
         return true;
+    }
+
+    static string ConversionReturnSuffix(
+        ApiMember member,
+        IReadOnlyDictionary<string, int>? typeParameterMap,
+        IReadOnlyDictionary<string, int>? methodParameterMap)
+    {
+        if (!IsConversionOperator(member.Name))
+            return "";
+
+        var returnType = member.SignatureModel?.ReturnType ?? member.ReturnType;
+        if (string.IsNullOrWhiteSpace(returnType))
+            return "";
+
+        var normalized = typeParameterMap is null || methodParameterMap is null
+            ? returnType!
+            : NormalizeXmlDocParameterType(returnType!, typeParameterMap, methodParameterMap);
+        return $"~{normalized}";
     }
 
     // Preserve the v1 Member Index digest contract for members that already have

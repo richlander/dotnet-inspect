@@ -668,6 +668,12 @@ public static class ResearchDiff
                         : added.Length == 0
                             ? ResearchDiffDirection.Removed
                             : ResearchDiffDirection.Changed;
+                    var evidenceAnchor = direction == ResearchDiffDirection.Removed
+                        ? oldAnchor ?? newAnchor
+                        : newAnchor ?? oldAnchor;
+                    var evidenceMember = direction == ResearchDiffDirection.Removed
+                        ? MetadataMemberRef(oldMethod)
+                        : MetadataMemberRef(newMethod);
                     builder.Add(subject, new ResearchDiffEvidence(
                         ResearchDiffMechanism.IlBody,
                         direction switch
@@ -683,8 +689,8 @@ public static class ResearchDiff
                         NewIlOffset: added.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
                         Detail: FormatDisplayLines(displayRows),
                         Category: ResearchDiffChangeCategory.IlBody,
-                        Anchor: newAnchor ?? oldAnchor,
-                        MetadataMember: MetadataMemberRef(newMethod),
+                        Anchor: evidenceAnchor,
+                        MetadataMember: evidenceMember,
                         IlDisplayRows: displayRows));
                 }
             }
@@ -789,7 +795,9 @@ public static class ResearchDiff
             failure.Anchor.TypeFullName,
             failure.Anchor.MemberName,
             new TypeAnchor(failure.Anchor.TypeFullName),
-            failure.Anchor);
+            failure.Anchor,
+            failure.MemberRef,
+            failure.TypeRef);
         var direction = failure.Kind switch
         {
             CSharpDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,
