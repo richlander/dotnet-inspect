@@ -3603,6 +3603,14 @@ public class CommandExecutionTests
         Assert.DoesNotContain("public bool System.IConvertible.ToBoolean", output);
 
         (exit, output, error) = await RunAppAsync(
+            "member", "String.explicit:System.IConvertible.ToBoolean:1", "--platform", "System.Private.CoreLib",
+            "-S", "Signature", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("bool System.IConvertible.ToBoolean", output);
+
+        (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
             "-S", "Extension Methods", "--show-index", "--tips", "q", "--rows", "-n", "4");
 

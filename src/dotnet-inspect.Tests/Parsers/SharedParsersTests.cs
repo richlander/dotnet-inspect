@@ -180,6 +180,15 @@ public class SharedParsersTests
     }
 
     [Fact]
+    public void SplitTrailingMember_PreservesKindQualifiedMemberPayload()
+    {
+        var (typeName, memberName) = SharedParsers.SplitTrailingMember("String.explicit:System.IConvertible.ToBoolean:1");
+
+        Assert.Equal("String", typeName);
+        Assert.Equal("explicit:System.IConvertible.ToBoolean:1", memberName);
+    }
+
+    [Fact]
     public void SplitTrailingMember_NoDot_ReturnsOriginal()
     {
         var (typeName, memberName) = SharedParsers.SplitTrailingMember("JsonSerializer");
