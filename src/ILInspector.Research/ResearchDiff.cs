@@ -17,6 +17,7 @@ public enum ResearchDiffMechanism
     BodySignals = 2,
     IlBody = 4,
     CSharp = 8,
+    ReturnToSender = 16,
     AllAvailable = Api | BodySignals | IlBody | CSharp,
 }
 
@@ -41,6 +42,7 @@ public enum ResearchDiffChangeCategory
     BodySignal,
     IlBody,
     CSharp,
+    RoundTrip,
 }
 
 public enum ResearchDiffEvidenceKind
