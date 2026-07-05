@@ -630,8 +630,8 @@ public static class ResearchDiff
                 ResearchDiffMechanism.CSharp,
                 row.ChangeId,
                 direction,
-                OldValue: row.OldValue ?? (direction == ResearchDiffDirection.Removed ? row.Text : null),
-                NewValue: row.NewValue ?? (direction == ResearchDiffDirection.Added ? row.Text : null),
+                OldValue: row.OldOperation?.Value ?? row.OldValue ?? (direction == ResearchDiffDirection.Removed ? row.Text : null),
+                NewValue: row.NewOperation?.Value ?? row.NewValue ?? (direction == ResearchDiffDirection.Added ? row.Text : null),
                 Detail: row.Message,
                 Category: ResearchDiffChangeCategory.CSharp));
         }
