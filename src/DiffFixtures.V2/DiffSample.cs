@@ -351,6 +351,7 @@ namespace DiffFixtureSample
 
     public class ProtectedSample
     {
+        public int PublicConstant() => 0;
         protected int ProtectedConstant() => 2;
     }
 

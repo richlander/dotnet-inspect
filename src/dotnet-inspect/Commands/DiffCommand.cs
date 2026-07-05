@@ -742,15 +742,16 @@ public class DiffCommand
 
         foreach (var subject in bodyResearch.Subjects.Where(subject => subject.ImplementationChanged && string.Equals(subject.Subject.TypeName, typeFullName, StringComparison.Ordinal)))
         {
+            var evidences = subject.Evidence.Where(evidence => evidence.Mechanism is ResearchDiffMechanism.CSharp or ResearchDiffMechanism.IlBody or ResearchDiffMechanism.BodySignals).ToArray();
             if (!options.IncludeAll
                 && subject.Subject.Anchor is { } anchor
                 && surfaceAnchors.Count > 0
+                && !evidences.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.CSharp)
                 && !surfaceAnchors.Contains(anchor.StableSelector))
             {
                 continue;
             }
 
-            var evidences = subject.Evidence.Where(evidence => evidence.Mechanism is ResearchDiffMechanism.CSharp or ResearchDiffMechanism.IlBody or ResearchDiffMechanism.BodySignals).ToArray();
             Add(
                 subject.Subject.MemberName ?? subject.Subject.Display,
                 added: evidences.Any(IsBodyAdded),

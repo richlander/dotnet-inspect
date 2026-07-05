@@ -187,6 +187,32 @@ public class DiffCommandTests
         Assert.Equal($"{anchor.StableSelector} ({anchor.CanonicalSignature})", overview.Target);
     }
 
+    [Fact]
+    public void BuildOverview_TypeTarget_IncludesProtectedCSharpBodyChanges()
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var oldSurface = AssemblyReader.ExtractApiSurface(oldPath, includeAll: false)!;
+        var newSurface = AssemblyReader.ExtractApiSurface(newPath, includeAll: false)!;
+        var options = new DiffOptions
+        {
+            LibraryVersionRange = $"{oldPath}..{newPath}",
+            TypeFilter = ["ProtectedSample"]
+        };
+        var inputs = new DiffCommand.DiffInputs(
+            oldSurface,
+            newSurface,
+            oldPath,
+            newPath,
+            "DiffFixtureSample",
+            [oldPath],
+            [newPath]);
+
+        var overview = DiffCommand.BuildOverview(inputs, DiffCommand.BuildApiDiff(oldSurface, newSurface, options), options);
+
+        Assert.Contains(overview.MemberRows, row => row.Member == "ProtectedConstant" && row.Changed);
+    }
+
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
         => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", inLoop ? "in-loop" : null, null), magnitude, direction, inBoth, inLoop);
 
