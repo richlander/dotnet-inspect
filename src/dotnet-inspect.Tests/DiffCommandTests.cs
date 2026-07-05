@@ -106,21 +106,26 @@ public class DiffCommandTests
     public void RenderOverview_DescribesQueryAndRendersChangeBooleans()
     {
         var overview = new DiffOverview(
+            "JsonSerializer.Serialize:1",
             "System.Text.Json",
             "package",
             "9.0.0",
             "10.0.0",
-            ["JsonSerializer.Serialize:1"],
-            ApiChanged: false,
-            AttributeChanged: true,
-            BodyChanged: false);
+            "Serialize~abc123 (M:System.Text.Json.JsonSerializer.Serialize(System.Object))",
+            [
+                new("API signature", false),
+                new("Member attributes", true),
+                new("Member body", false),
+            ],
+            []);
 
         var markdown = DiffOutputFormatter.RenderOverview(overview);
 
-        Assert.Contains("Compares package `System.Text.Json` from `9.0.0` to `10.0.0`. Target: `JsonSerializer.Serialize:1`.", markdown);
-        Assert.Contains("| API change | No |", markdown);
-        Assert.Contains("| Attribute change | Yes |", markdown);
-        Assert.Contains("| Body change | No |", markdown);
+        Assert.Contains("# Diff: JsonSerializer.Serialize:1", markdown);
+        Assert.Contains("Compares package `System.Text.Json` from `9.0.0` to `10.0.0`. Target: `Serialize~abc123 (M:System.Text.Json.JsonSerializer.Serialize(System.Object))`.", markdown);
+        Assert.Contains("| API signature | No |", markdown);
+        Assert.Contains("| Member attributes | Yes |", markdown);
+        Assert.Contains("| Member body | No |", markdown);
         Assert.DoesNotContain("| Field | Value |", markdown);
     }
 
@@ -141,9 +146,9 @@ public class DiffCommandTests
 
         var overview = DiffCommand.BuildOverview(inputs, DiffCommand.BuildApiDiff(oldSurface, newSurface, options), options);
 
-        Assert.True(overview.ApiChanged);
-        Assert.True(overview.AttributeChanged);
-        Assert.False(overview.BodyChanged);
+        Assert.Contains(overview.Rows, row => row.Diff == "API signature" && row.Changed);
+        Assert.Contains(overview.Rows, row => row.Diff == "Member attributes" && row.Changed);
+        Assert.Contains(overview.Rows, row => row.Diff == "Member body" && !row.Changed);
     }
 
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)

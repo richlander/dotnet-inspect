@@ -19,14 +19,25 @@ public class DiffOneLineView
 public record DiffOneLineRow(string Change, string Type, string Detail);
 
 public sealed record DiffOverview(
-    string Name,
+    string Title,
+    string SourceName,
     string SourceKind,
     string FromVersion,
     string ToVersion,
-    IReadOnlyList<string> Targets,
-    bool ApiChanged,
-    bool AttributeChanged,
-    bool BodyChanged);
+    string? Target,
+    IReadOnlyList<DiffOverviewRow> Rows,
+    IReadOnlyList<DiffOverviewMemberRow> MemberRows);
+
+public sealed record DiffOverviewRow(
+    string Diff,
+    bool Changed);
+
+public sealed record DiffOverviewMemberRow(
+    string Member,
+    bool Added,
+    bool Removed,
+    bool Changed,
+    bool BreakingChange);
 
 /// <summary>
 /// View model for full diff rendering. Uses GroupBy to partition changes

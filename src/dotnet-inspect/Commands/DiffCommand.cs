@@ -5,8 +5,10 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using DotnetInspector.CommandLine;
 using ILInspector.Analysis;
 using ILInspector.Research;
+using ILInspector.MetadataPrimitives;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -539,7 +541,17 @@ public class DiffCommand
 
     internal static DiffOverview BuildOverview(DiffInputs inputs, ApiDiff apiDiff, DiffOptions options)
     {
-        var apiChanged = FilterByClassification(ApplyTypeFilters(apiDiff.TypeDiffs, options.TypeFilter, writeNote: false), options).Count > 0;
+        var targets = options.TypeFilter.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
+        var target = targets.Length == 1 ? targets[0] : null;
+        var title = target ?? inputs.Name;
+        var memberAnchor = target is null ? null : ResolveMemberAnchor(inputs.ToSurface, target) ?? ResolveMemberAnchor(inputs.FromSurface, target);
+        var typeAnchor = memberAnchor is null && target is not null
+            ? ResolveTypeAnchor(inputs.ToSurface, target) ?? ResolveTypeAnchor(inputs.FromSurface, target)
+            : null;
+        var effectiveTypeFilters = memberAnchor is not null
+            ? new HashSet<string>([memberAnchor.TypeFullName], StringComparer.OrdinalIgnoreCase)
+            : options.TypeFilter;
+
         var attributeDiff = ResearchDiff.Compare(
             ResearchDiffInput.FromApiSurface(inputs.FromSurface),
             ResearchDiffInput.FromApiSurface(inputs.ToSurface),
@@ -547,25 +559,68 @@ public class DiffCommand
                 ResearchDiffMechanism.Api,
                 IncludeAllApi: options.IncludeAll,
                 ApiScope: ApiDiffScope.Attributes)).ApiDiff ?? new ApiDiff();
-        var attributeChanged = FilterByClassification(ApplyTypeFilters(attributeDiff.TypeDiffs, options.TypeFilter, writeNote: false), options).Count > 0;
-        var bodyChanged = inputs.FromPaths.Count > 0
+        var bodyResearch = inputs.FromPaths.Count > 0
             && inputs.ToPaths.Count > 0
-            && ResearchDiff.Compare(
+            ? ResearchDiff.Compare(
                 ResearchDiffInput.FromAssemblies(inputs.FromPaths),
                 ResearchDiffInput.FromAssemblies(inputs.ToPaths),
                 new ResearchDiffOptions(
                     ResearchDiffMechanism.BodySignals | ResearchDiffMechanism.IlBody | ResearchDiffMechanism.CSharp,
-                    TypeFilters: options.TypeFilter)).Subjects.Any(subject => subject.ImplementationChanged);
+                    TypeFilters: effectiveTypeFilters))
+            : new ResearchDiffResult([]);
+
+        if (memberAnchor is not null)
+        {
+            bool apiChanged = HasApiChange(apiDiff, memberAnchor, options);
+            bool attributeChanged = HasApiChange(attributeDiff, memberAnchor, options);
+            bool bodyChanged = bodyResearch.Subjects.Any(subject => subject.Subject.Anchor?.StableSelector == memberAnchor.StableSelector && subject.ImplementationChanged);
+
+            return new DiffOverview(
+                title,
+                inputs.Name,
+                SourceKind(options),
+                inputs.FromVersion,
+                inputs.ToVersion,
+                TargetText(memberAnchor),
+                [
+                    new("API signature", apiChanged),
+                    new("Member attributes", attributeChanged),
+                    new("Member body", bodyChanged),
+                ],
+                []);
+        }
+
+        if (typeAnchor is not null)
+        {
+            var surfaceAnchors = MemberAnchorsForType(inputs.FromSurface, inputs.ToSurface, typeAnchor.TypeFullName, options.IncludeAll);
+            return new DiffOverview(
+                title,
+                inputs.Name,
+                SourceKind(options),
+                inputs.FromVersion,
+                inputs.ToVersion,
+                typeAnchor.TypeFullName,
+                [],
+                BuildMemberOverviewRows(apiDiff, attributeDiff, bodyResearch, typeAnchor.TypeFullName, surfaceAnchors, options));
+        }
+
+        var apiChangedBroad = FilterByClassification(ApplyTypeFilters(apiDiff.TypeDiffs, options.TypeFilter, writeNote: false), options).Count > 0;
+        var attributeChangedBroad = FilterByClassification(ApplyTypeFilters(attributeDiff.TypeDiffs, options.TypeFilter, writeNote: false), options).Count > 0;
+        var bodyChangedBroad = bodyResearch.Subjects.Any(subject => subject.ImplementationChanged);
 
         return new DiffOverview(
+            title,
             inputs.Name,
             SourceKind(options),
             inputs.FromVersion,
             inputs.ToVersion,
-            [.. options.TypeFilter.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)],
-            apiChanged,
-            attributeChanged,
-            bodyChanged);
+            targets.Length == 0 ? null : string.Join(", ", targets),
+            [
+                new("API signature", apiChangedBroad),
+                new("Member attributes", attributeChangedBroad),
+                new("Member body", bodyChangedBroad),
+            ],
+            []);
     }
 
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
@@ -582,6 +637,131 @@ public class DiffCommand
         => options.PackageVersionRange is not null ? "package"
             : options.PlatformVersionRange is not null ? "platform library"
             : "library";
+
+    static string TargetText(MemberAnchor anchor)
+        => $"{anchor.StableSelector} ({anchor.CanonicalSignature})";
+
+    static MemberAnchor? ResolveMemberAnchor(ApiSurface surface, string target)
+    {
+        var parsed = FqnParser.Parse(target);
+        if (parsed?.MemberName is null)
+            return null;
+        var (memberName, digest) = SharedParsers.ParseDigestShorthand(parsed.MemberName);
+        var (selectorName, parsedOverloadIndex) = FqnParser.ParseMemberFilter(memberName);
+        var overloadIndex = parsed.OverloadIndex ?? parsedOverloadIndex;
+        var type = surface.Types.FirstOrDefault(type => MatchesDiffTypeFilter(type.FullName, parsed.TypeName));
+        if (type is null)
+            return null;
+
+        var candidates = type.Members
+            .Select(member => (Member: member, Anchor: ApiMemberIdentity.GetMemberAnchor(type, member)))
+            .Where(pair => string.Equals(ApiMemberIdentity.GetMemberSelectorName(pair.Member), selectorName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(pair.Member.Name, selectorName, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (digest is not null)
+            return candidates.FirstOrDefault(pair => pair.Anchor.Fingerprint.StartsWith(digest, StringComparison.OrdinalIgnoreCase)).Anchor;
+        if (overloadIndex is { } index && index > 0 && index <= candidates.Length)
+            return candidates[index - 1].Anchor;
+        return candidates.Length == 1 ? candidates[0].Anchor : null;
+    }
+
+    static TypeAnchor? ResolveTypeAnchor(ApiSurface surface, string target)
+    {
+        var parsed = FqnParser.Parse(target);
+        if (parsed?.MemberName is not null)
+            return null;
+        var type = surface.Types.FirstOrDefault(type => MatchesDiffTypeFilter(type.FullName, parsed?.TypeName ?? target));
+        return type is null ? null : new TypeAnchor(type.FullName);
+    }
+
+    static bool HasApiChange(ApiDiff diff, MemberAnchor anchor, DiffOptions options)
+        => FilterByClassification(diff.TypeDiffs, options)
+            .SelectMany(type => type.Changes)
+            .Any(change => change.Subject?.OldMember?.Anchor?.StableSelector == anchor.StableSelector
+                || change.Subject?.NewMember?.Anchor?.StableSelector == anchor.StableSelector);
+
+    static IReadOnlyList<DiffOverviewMemberRow> BuildMemberOverviewRows(
+        ApiDiff apiDiff,
+        ApiDiff attributeDiff,
+        ResearchDiffResult bodyResearch,
+        string typeFullName,
+        IReadOnlySet<string> surfaceAnchors,
+        DiffOptions options)
+    {
+        var rows = new Dictionary<string, (bool Added, bool Removed, bool Changed, bool Breaking)>(StringComparer.Ordinal);
+
+        void Add(string member, bool added = false, bool removed = false, bool changed = false, bool breaking = false)
+        {
+            var current = rows.GetValueOrDefault(member);
+            rows[member] = (
+                current.Added || added,
+                current.Removed || removed,
+                current.Changed || changed,
+                current.Breaking || breaking);
+        }
+
+        foreach (var change in FilterByClassification(apiDiff.TypeDiffs, options).Concat(FilterByClassification(attributeDiff.TypeDiffs, options)).SelectMany(type => type.Changes))
+        {
+            if (!string.Equals(change.Subject?.TypeFullName, typeFullName, StringComparison.Ordinal))
+                continue;
+            var member = change.Subject?.MemberName ?? "(type)";
+            Add(
+                member,
+                added: change.Kind is ChangeKind.TypeAdded or ChangeKind.MemberAdded or ChangeKind.MemberAttributeAdded,
+                removed: change.Kind is ChangeKind.TypeRemoved or ChangeKind.MemberRemoved or ChangeKind.MemberAttributeRemoved,
+                changed: change.Kind is not (ChangeKind.TypeAdded or ChangeKind.MemberAdded or ChangeKind.MemberAttributeAdded or ChangeKind.TypeRemoved or ChangeKind.MemberRemoved or ChangeKind.MemberAttributeRemoved),
+                breaking: change.Classification == ChangeClassification.Breaking);
+        }
+
+        foreach (var subject in bodyResearch.Subjects.Where(subject => subject.ImplementationChanged && string.Equals(subject.Subject.TypeName, typeFullName, StringComparison.Ordinal)))
+        {
+            if (!options.IncludeAll
+                && subject.Subject.Anchor is { } anchor
+                && surfaceAnchors.Count > 0
+                && !surfaceAnchors.Contains(anchor.StableSelector))
+            {
+                continue;
+            }
+
+            var evidences = subject.Evidence.Where(evidence => evidence.Mechanism is ResearchDiffMechanism.CSharp or ResearchDiffMechanism.IlBody or ResearchDiffMechanism.BodySignals).ToArray();
+            Add(
+                subject.Subject.MemberName ?? subject.Subject.Display,
+                added: evidences.Any(IsBodyAdded),
+                removed: evidences.Any(IsBodyRemoved),
+                changed: evidences.Any(evidence => !IsBodyAdded(evidence) && !IsBodyRemoved(evidence)));
+        }
+
+        return [.. rows.OrderBy(row => row.Key == "(type)" ? "" : row.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(row => new DiffOverviewMemberRow(row.Key, row.Value.Added, row.Value.Removed, row.Value.Changed, row.Value.Breaking))];
+    }
+
+    static bool IsBodyAdded(ResearchDiffEvidence evidence)
+        => evidence.ChangeId is "il.body.added" or "csharp.method.added" or "csharp.method.body-added";
+
+    static bool IsBodyRemoved(ResearchDiffEvidence evidence)
+        => evidence.ChangeId is "il.body.removed" or "csharp.method.removed" or "csharp.method.body-removed";
+
+    static IReadOnlySet<string> MemberAnchorsForType(ApiSurface fromSurface, ApiSurface toSurface, string typeFullName, bool includeAll)
+    {
+        HashSet<string> anchors = [];
+        Add(fromSurface);
+        Add(toSurface);
+        return anchors;
+
+        void Add(ApiSurface surface)
+        {
+            foreach (var type in surface.Types.Where(type => string.Equals(type.FullName, typeFullName, StringComparison.Ordinal)))
+            {
+                foreach (var member in type.Members)
+                {
+                    if (!includeAll && member.Accessibility is not null)
+                        continue;
+                    anchors.Add(ApiMemberIdentity.GetMemberAnchor(type, member).StableSelector);
+                }
+            }
+        }
+    }
 
     private static IReadOnlyList<TypeDiff> FilterByClassification(IReadOnlyList<TypeDiff> typeDiffs, DiffOptions options)
     {

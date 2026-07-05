@@ -13,19 +13,28 @@ public static class DiffOutputFormatter
     {
         var lines = new List<string>
         {
-            $"# Diff: {overview.Name}",
+            $"# Diff: {overview.Title}",
             "",
-            $"Compares {overview.SourceKind} {Code(overview.Name)} from {Code(overview.FromVersion)} to {Code(overview.ToVersion)}."
+            $"Compares {overview.SourceKind} {Code(overview.SourceName)} from {Code(overview.FromVersion)} to {Code(overview.ToVersion)}."
         };
-        if (overview.Targets.Count > 0)
-            lines[^1] += $" Target: {string.Join(", ", overview.Targets.Select(Code))}.";
+        if (!string.IsNullOrWhiteSpace(overview.Target))
+            lines[^1] += $" Target: {Code(overview.Target!)}.";
 
         lines.Add("");
-        lines.Add("| Diff | Changed |");
-        lines.Add("| ---- | ------- |");
-        lines.Add($"| API change | {YesNo(overview.ApiChanged)} |");
-        lines.Add($"| Attribute change | {YesNo(overview.AttributeChanged)} |");
-        lines.Add($"| Body change | {YesNo(overview.BodyChanged)} |");
+        if (overview.MemberRows.Count > 0)
+        {
+            lines.Add("| Member | Added | Removed | Changed | Breaking change |");
+            lines.Add("| ------ | ----- | ------- | ------- | --------------- |");
+            foreach (var row in overview.MemberRows)
+                lines.Add($"| {Code(row.Member)} | {YesNo(row.Added)} | {YesNo(row.Removed)} | {YesNo(row.Changed)} | {YesNo(row.BreakingChange)} |");
+        }
+        else
+        {
+            lines.Add("| Diff | Changed |");
+            lines.Add("| ---- | ------- |");
+            foreach (var row in overview.Rows)
+                lines.Add($"| {row.Diff} | {YesNo(row.Changed)} |");
+        }
         return string.Join(Environment.NewLine, lines);
     }
 
