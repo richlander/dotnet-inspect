@@ -39,6 +39,13 @@ const string Usage =
       --annotation-parity <category> <expected-annotations.json> <actual-annotations.json> [--json]
           Compare annotation rows for one category (Allocation, Unsafety, Lifetime).
 
+      --leak-triage <file> [--top N] [--json]
+          Sweep the fail-closed ArrayPool leak-triage analyzer over a corpus (one assembly path
+          per line in <file>) and report where it fires: total findings, the shape histogram, and
+          example methods per assembly. This is the evidence engine for #1992 — the analyzer is
+          precision-first, so an empty card means recall (not a user-facing section) is the next
+          lever. --top bounds examples per assembly.
+
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
 
@@ -65,6 +72,7 @@ string? allocationParityActual = null;
 string? annotationParityCategory = null;
 string? annotationParityExpected = null;
 string? annotationParityActual = null;
+string? leakTriageList = null;
 int top = 20;
 
 for (int i = 0; i < args.Length; i++)
@@ -102,6 +110,9 @@ for (int i = 0; i < args.Length; i++)
             annotationParityCategory = NextValue(args, ref i);
             annotationParityExpected = NextPathValue(args, ref i);
             annotationParityActual = NextPathValue(args, ref i);
+            break;
+        case "--leak-triage":
+            leakTriageList = NextPathValue(args, ref i);
             break;
         case "--reference":
             referenceFile = NextValue(args, ref i);
@@ -142,6 +153,9 @@ if (allocationParityExpected is not null)
 
 if (annotationParityExpected is not null)
     return RunAnnotationParity(annotationParityCategory ?? "", annotationParityExpected, annotationParityActual, json);
+
+if (leakTriageList is not null)
+    return RunLeakTriage(leakTriageList, top, json);
 
 if (corpusList is not null)
     return RunCorpus(corpusList, diffBaseline, emitSnapshot, json);
@@ -197,6 +211,31 @@ static int RunAllocationReadout(string corpusList, int top, bool json)
 
     var readout = AllocationMetadataReadout.Measure(paths);
     Console.Write(json ? AllocationMetadataReadout.ToJson(readout) : AllocationMetadataReadout.FormatCard(readout, top));
+    if (json)
+        Console.WriteLine();
+    return 0;
+}
+
+static int RunLeakTriage(string corpusList, int top, bool json)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var report = LeakTriageSensor.Measure(paths, examplesPerAssembly: top);
+    Console.Write(json ? LeakTriageSensor.ToJson(report) : LeakTriageSensor.FormatCard(report, top));
     if (json)
         Console.WriteLine();
     return 0;

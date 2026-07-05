@@ -111,6 +111,28 @@ The daily workflow runs the generated-fixture catalogue, corpus stability sensor
 recall gate. Precision labeling, baseline refreshes, and recall-reference edits remain
 maintainer-owned upkeep: they are documented conventions, not automatic CI gates.
 
+## Leak triage corpus sensor (#1992)
+
+`--leak-triage` sweeps the fail-closed ArrayPool leak-triage analyzer
+(`LeakTriageAnalyzer`) over a corpus and reports where it fires:
+
+```bash
+dotnet "$DLL" --leak-triage assemblies.txt --top 5          # findings, shape histogram, examples
+dotnet "$DLL" --leak-triage assemblies.txt --json
+```
+
+It prints the total findings, the shape histogram (`arraypool-rent-not-returned`,
+`arraypool-use-after-return`, `arraypool-double-return`), and example methods per assembly
+(`--top` bounds examples). Each assembly is bounded by a per-assembly timeout.
+
+This is the evidence engine that must earn any user-facing `Leak Triage` section: the analyzer
+is precision-first (it fails closed on incomplete CFG/RD, non-`Shared` pools, aliases, field
+stores, cross-method ownership, and ambiguous uses), so an **empty card on real code means
+recall — not a product section — is the next lever**. A 2026-07-05 run over CoreLib,
+`Microsoft.CodeAnalysis`, and `Microsoft.CodeAnalysis.CSharp` produced **0 findings** (all gates
+suppressed), while the fixture assembly's three known-misuse methods surfaced exactly once each.
+Wire the section only once this card shows non-zero, high-precision rows on real assemblies.
+
 ## Allocation convergence parity
 
 The Rung 4 allocation-convergence build must prove that a candidate
