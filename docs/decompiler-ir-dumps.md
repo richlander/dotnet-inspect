@@ -53,7 +53,10 @@ Every stage header carries an ordinal `[k/N]`; the terminal stage is tagged
 `[N/N · FINAL raised · fidelity …]`. Only that stage and the C# section are the
 result — the earlier stages are a per-pass trace that shows pre-raise IR (async
 state machines, un-raised nodes) by design, so a node appearing in an early stage
-is not the product output.
+is not the product output. The `--diff` and `--assertions` views render the
+stages without a trailing C# section, so their reading guide names only the final
+IR stage; `--diff` also always prints the final stage's full body, even when the
+last pass changed nothing.
 
 A trimmed dump of `string.IsNullOrEmpty`:
 

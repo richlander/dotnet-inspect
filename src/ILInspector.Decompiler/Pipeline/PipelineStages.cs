@@ -33,13 +33,20 @@ public enum StageDumpView
 /// </summary>
 public static class StageDump
 {
-    public static string Format(IReadOnlyList<PipelineStage> stages)
+    /// <param name="includesRaisedCSharp">
+    /// True when the caller appends a <c>==== C# (raised …) ====</c> section after
+    /// these stages (the <c>--dump</c> path). The reading guide names that section
+    /// as part of the result only when it is actually present, so the
+    /// <c>--diff</c>/<c>--assertions</c> callers (which render stages alone) do
+    /// not point readers at a section that is not there (issue #2270 review).
+    /// </param>
+    public static string Format(IReadOnlyList<PipelineStage> stages, bool includesRaisedCSharp = false)
     {
         var sb = new StringBuilder();
         if (stages.Count == 0)
             return sb.ToString();
 
-        AppendReadingGuide(sb, stages);
+        AppendReadingGuide(sb, stages, includesRaisedCSharp);
         for (int i = 0; i < stages.Count; i++)
         {
             sb.AppendLine();
@@ -52,15 +59,18 @@ public static class StageDump
     /// <summary>
     /// The reading guide printed before a staged dump: the per-pass IR below is a
     /// trace, so early stages show pre-raise IR (async state machines, un-raised
-    /// nodes) by design. The result is the raised C# section and the final IR
-    /// stage — the one tagged <c>FINAL raised</c>. A node in an early stage is not
-    /// the product output; the terminal stage and the C# are (issue #2270).
+    /// nodes) by design. The result is the final IR stage — the one tagged
+    /// <c>FINAL raised</c> — plus the raised C# section when the caller appends
+    /// one. A node in an early stage is not the product output (issue #2270).
     /// </summary>
-    static void AppendReadingGuide(StringBuilder sb, IReadOnlyList<PipelineStage> stages)
+    static void AppendReadingGuide(StringBuilder sb, IReadOnlyList<PipelineStage> stages, bool includesRaisedCSharp)
     {
+        string result = includesRaisedCSharp
+            ? $"the raised C# section plus the FINAL IR stage \"{Title(stages[^1].PassName)}\""
+            : $"the FINAL IR stage \"{Title(stages[^1].PassName)}\"";
         sb.AppendLine();
         sb.AppendLine("==== reading guide ====");
-        sb.AppendLine($"// Result = the raised C# section plus the FINAL IR stage \"{Title(stages[^1].PassName)}\"");
+        sb.AppendLine($"// Result = {result}");
         sb.AppendLine($"// (stage {stages.Count}/{stages.Count}, fidelity {stages[^1].Fidelity}), tagged [FINAL raised] below.");
         sb.AppendLine("// The earlier IR stages are a per-pass trace and show pre-raise IR by design");
         sb.AppendLine("// (async state machines, un-raised nodes). A node in an early stage is not the");
@@ -88,15 +98,18 @@ public static class StageDump
     /// <c>-</c>/<c>+</c> hunk with one line of context). Passes that change
     /// nothing collapse to a one-line "(no change)" header, so "what did this
     /// pass do?" is a glance instead of a manual sed between two stage headers
-    /// (issue #633 item 3). Same stage boundaries as <see cref="Format"/>.
+    /// (issue #633 item 3). The terminal stage is the result, so it always
+    /// renders its full body — even when the last pass changed nothing — rather
+    /// than collapsing to an empty header (issue #2270 review). Same stage
+    /// boundaries as <see cref="Format"/>.
     /// </summary>
-    public static string FormatDiff(IReadOnlyList<PipelineStage> stages)
+    public static string FormatDiff(IReadOnlyList<PipelineStage> stages, bool includesRaisedCSharp = false)
     {
         var sb = new StringBuilder();
         if (stages.Count == 0)
             return sb.ToString();
 
-        AppendReadingGuide(sb, stages);
+        AppendReadingGuide(sb, stages, includesRaisedCSharp);
         sb.AppendLine();
         sb.AppendLine(StageHeader(Title(stages[0].PassName), 0, stages.Count, stages[^1].Fidelity));
         sb.Append(stages[0].Projection);
@@ -105,6 +118,17 @@ public static class StageDump
         {
             var hunks = DiffHunks(stages[i - 1].Projection, stages[i].Projection);
             sb.AppendLine();
+            // The terminal stage is the result the reading guide points at, so
+            // print its full body even when the last pass changed nothing —
+            // otherwise "read the final stage" lands on an empty header. A
+            // changed final stage keeps its delta hunks (the full body is the
+            // first stage plus the hunks above it).
+            if (i == stages.Count - 1 && hunks.Count == 0)
+            {
+                sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix: "(no change)"));
+                sb.Append(stages[i].Projection);
+                continue;
+            }
             if (hunks.Count == 0)
             {
                 sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix: "(no change)"));
@@ -265,7 +289,7 @@ public static class StageDump
                 }
             }
 
-            sb.Append(Format(IrPasses.RunWithStages(function, method => IrImporter.Import(source, method))));
+            sb.Append(Format(IrPasses.RunWithStages(function, method => IrImporter.Import(source, method)), includesRaisedCSharp: true));
 
             sb.AppendLine();
             // RunWithStages above ran the canonical Default pass list on

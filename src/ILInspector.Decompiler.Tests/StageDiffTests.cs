@@ -22,10 +22,29 @@ public class StageDiffTests
         var diff = StageDump.FormatDiff(
         [
             Stage("(import)", "a\nb\nc\n"),
-            Stage("identity-convert", "a\nb\nc\n"),
+            Stage("identity-convert", "a\nb\nc\n"),   // no change (middle)
+            Stage("property-sugar", "a\nB\nc\n"),     // changed (final)
         ]);
 
         Assert.Contains("==== IR (after identity-convert) (no change) ====", diff);
+    }
+
+    [Fact]
+    public void FormatDiff_ShowsFinalStageBodyEvenWhenUnchanged()
+    {
+        // The terminal stage is the result the reading guide points at, so its
+        // full body is shown even when the last pass changed nothing — otherwise
+        // "read the final stage" lands on an empty header (issue #2270 review).
+        var diff = StageDump.FormatDiff(
+        [
+            Stage("(import)", "a\nb\nc\n"),
+            Stage("property-sugar", "a\nB\nc\n"),        // changed
+            Stage("coercion-insertion", "a\nB\nc\n"),    // no change, FINAL
+        ]);
+
+        Assert.Contains("(after coercion-insertion) (no change) ====", diff);
+        int finalHeader = diff.IndexOf("(after coercion-insertion)", StringComparison.Ordinal);
+        Assert.Contains("a\nB\nc", diff[finalHeader..]);
     }
 
     [Fact]
