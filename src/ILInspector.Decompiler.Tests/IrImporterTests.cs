@@ -3089,6 +3089,70 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void RefConditional_WithNestedConditionalCondition_ParenthesizesCondition()
+    {
+        // #2376: the ref-ternary condition slot must parenthesize a nested
+        // conditional. A bare `c ? p : q ? ref a : ref b` right-associates to
+        // `c ? p : (q ? ref a : ref b)` — a bool/ref arm mismatch, invalid C#.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var condition = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "p", boolType),
+            new LoadArgument(2, "q", boolType)) { MergedType = boolType };
+        var ternary = new Conditional(
+            condition,
+            new LoadArgument(3, "a", refInt),
+            new LoadArgument(4, "b", refInt)) { MergedType = refInt };
+        block.Add(new StoreLocal(0, refInt, ternary));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("c", boolType), new Parameter("p", boolType), new Parameter("q", boolType),
+             new Parameter("a", refInt), new Parameter("b", refInt)],
+            HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(c ? p : q) ? ref a : ref b", output);
+    }
+
+    [Fact]
+    public void UnionSwitchArm_WithConditionalGuard_ParenthesizesGuard()
+    {
+        // #2376: a ternary `when` guard must be parenthesized. A bare
+        // `when c ? b1 : b2 =>` terminates the guard at `=>` and mis-parses
+        // (CS1003 '=>' expected / CS1525). Comparisons/`&&`/`??` stay bare.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var petType = TypeRef.Definition("Synthetic", "UnionFixtures", "Pet", ValueTypeHint.ValueType);
+        var catType = TypeRef.Definition("Synthetic", "UnionFixtures", "Cat");
+        var guard = new Conditional(
+            new LoadArgument(1, "c", boolType),
+            new LoadArgument(2, "b1", boolType),
+            new LoadArgument(3, "b2", boolType)) { MergedType = boolType };
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new UnionSwitchExpression(
+            new LoadArgument(0, "pet", petType),
+            [new UnionSwitchExpressionArm(catType, null, new Constant(1, intType), guard)],
+            nullValue: new Constant(0, intType))));
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("pet", petType), new Parameter("c", boolType),
+             new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("when (c ? b1 : b2) =>", output);
+    }
+
+    [Fact]
     public void Truthiness_UnknownDefinition_DoesNotGuessNull()
     {
         // A bare definition could be a struct or an enum; '!= null' would be

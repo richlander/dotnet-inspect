@@ -264,7 +264,7 @@ public sealed partial class CSharpPrinter
         if (enumSide is null || !IsEnumLikeInteger(enumSide))
             return null;
         if (TypeFamilies.IsBoolean(EffectiveType(value)))
-            return CheckedSafeEnumCast(value, enumSide, () => $"({TypeText(enumSide)})({Condition(value)} ? 1 : 0)");
+            return CheckedSafeEnumCast(value, enumSide, () => $"({TypeText(enumSide)})({RenderedCondition(value).At(Precedence.NullCoalescing)} ? 1 : 0)");
         if (value.ResultType is not { } valueType || !TypeFamilies.IsIntegerLike(valueType))
             return null;
         return value is Constant { Value: int or long } konst
@@ -1276,9 +1276,7 @@ public sealed partial class CSharpPrinter
 
     string ConditionalText(Conditional conditional, TypeRef? target)
     {
-        if (IsFalseConstant(conditional.WhenFalse)
-            && IsBooleanLike(conditional)
-            && IsBooleanLike(conditional.WhenTrue))
+        if (SpellsAsLogicalAnd(conditional))
         {
             return Condition(new LogicalBinary(
                 LogicalKind.And,
@@ -1286,13 +1284,14 @@ public sealed partial class CSharpPrinter
                 (IrExpression)conditional.WhenTrue.Clone()));
         }
 
-        // `?:` is right-associative, so a conditional in the condition position
-        // reassociates without parentheses (`(a ? b : c) ? d : e` would reparse
-        // as `a ? b : (c ? d : e)`). The arms render through Operand, which
-        // already wraps a nested conditional where needed. A conditional can
-        // hide behind a stale `Coerce`/`Convert`, so parenthesize off the
-        // rendered condition text, not the node type (#2345 round-5).
-        var condition = ParenthesizeConditional(Condition(conditional.Condition));
+        // `?:` is right-associative — the CONDITION is its hazard side
+        // (`(a ? b : c) ? d : e` would reparse as `a ? b : (c ? d : e)`), so
+        // the condition renders at the NullCoalescing demand: a Conditional
+        // (even hidden behind a stale Coerce/Convert — RenderedCondition
+        // strips wrappers for classification, the #2345 round-5 lesson) wraps;
+        // every other bool form out-binds it. The arms render through Operand,
+        // which already wraps a nested conditional where needed.
+        var condition = RenderedCondition(conditional.Condition).At(Precedence.NullCoalescing);
         // Two-stage join decision (#2306 unified with #2322): first the
         // join-level bare-vs-spell call (EffectiveJoinTarget — neutralizes the
         // target when the bare arm set is valid C#, so zero churn); then, in
@@ -1381,6 +1380,19 @@ public sealed partial class CSharpPrinter
     static bool IsBooleanLike(IrExpression expression)
         => expression.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary };
 
+    /// <summary>
+    /// Whether <see cref="ConditionalText(Conditional, TypeRef?)"/> spells this
+    /// conditional as a short-circuit <c>&amp;&amp;</c> instead of a ternary —
+    /// the one place a Conditional NODE renders at ConditionalAnd precedence.
+    /// The fold and <see cref="RenderedCondition"/>'s classification share this
+    /// predicate so the spelling decision and its precedence report cannot
+    /// drift apart (the capability-gate discipline from #2345).
+    /// </summary>
+    static bool SpellsAsLogicalAnd(Conditional conditional)
+        => IsFalseConstant(conditional.WhenFalse)
+            && IsBooleanLike(conditional)
+            && IsBooleanLike(conditional.WhenTrue);
+
     string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
         => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
             ? charText
@@ -1399,19 +1411,47 @@ public sealed partial class CSharpPrinter
                 : Operand(arm);
 
     string BoolToIntegerText(IrExpression value, TypeRef target)
+        => BoolToInteger(value, target).Text;
+
+    /// <summary>
+    /// The bool→integer truthiness composition as a precedence-carrying
+    /// fragment (#2376 phase 1): the Int32/Int64 form is a bare `?:`
+    /// (Conditional — consumers wrap per their context via
+    /// <see cref="Rendered.At"/>); other targets compose the cast form
+    /// (Unary, self-delimiting). The composed `?:`'s CONDITION is the
+    /// right-associative hazard side, so it renders at the NullCoalescing
+    /// demand — a conditional-valued condition (possibly hidden behind a
+    /// stale Coerce/Convert, #2345 rounds 4-5) wraps; every other bool form
+    /// Condition() produces out-binds it and stays bare.
+    /// </summary>
+    Rendered BoolToInteger(IrExpression value, TypeRef target)
     {
-        // The condition of the composed `?:` must out-bind `?:` itself. Every
-        // bool-valued form Condition() produces already does (comparisons,
-        // `&&`/`||`, `!x`, `??`, calls) EXCEPT a conditional, which renders bare
-        // `c ? b1 : b2` and reassociates into the composition
-        // (`c ? b1 : b2 ? 1 : 0` is `c ? b1 : (b2 ? 1 : 0)`, a bool/int arm
-        // mismatch — #2345 rounds 4-5). A conditional can hide behind a stale
-        // `Coerce`/`Convert`, so parenthesize off the rendered text, not the
-        // node type (GPT-5.5 round-5).
-        string condition = ParenthesizeConditional(Condition(value));
+        string condition = RenderedCondition(value).At(Precedence.NullCoalescing);
         return target is { Namespace: "System", Name: "Int32" or "Int64", Assembly: TypeRef.CoreLibrary }
-            ? $"{condition} ? 1 : 0"
-            : CheckedSafeCast(() => $"({TypeText(target)})({condition} ? 1 : 0)");
+            ? new Rendered($"{condition} ? 1 : 0", Precedence.Conditional)
+            : new Rendered(CheckedSafeCast(() => $"({TypeText(target)})({condition} ? 1 : 0)"), Precedence.Unary);
+    }
+
+    /// <summary>
+    /// A condition-position fragment: Condition()'s text with the precedence
+    /// of what that text actually is. A Conditional hidden behind a stale
+    /// Coerce/Convert still renders as a bare ternary, so the wrapper strips
+    /// for classification — the node-type blindness that cost #2345 round 5.
+    /// A Conditional the printer folds to <c>&amp;&amp;</c> (bool diamond with
+    /// a false arm, <see cref="SpellsAsLogicalAnd"/>) reports the fold's
+    /// precedence, not the node's — the text has no ternary in it.
+    /// </summary>
+    Rendered RenderedCondition(IrExpression value)
+    {
+        var stripped = value;
+        while (stripped is Coerce coerce)
+            stripped = coerce.Operand;
+        while (stripped is Convert { IsChecked: false } outer && TypeFamilies.IsBoolean(EffectiveType(outer.Operand)))
+            stripped = outer.Operand;
+        var precedence = stripped is Conditional folded && SpellsAsLogicalAnd(folded)
+            ? Precedence.ConditionalAnd
+            : CSharpPrecedence.Of(stripped);
+        return new Rendered(Condition(value), precedence);
     }
 
     /// <summary>
@@ -1425,6 +1465,18 @@ public sealed partial class CSharpPrinter
     /// reinterpret cast (#2302). Null when the arm needs no join coercion.
     /// </summary>
     string? TryCoerceJoinArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
+        => TryCoerceJoinArmRendered(arm, target, primitiveCoercionSourceType, joinHasExactTypedArm)?.Text;
+
+    /// <summary>
+    /// The precedence-carrying form (#2376 phase 1): each branch reports the
+    /// shape it actually produced — casts and constants are Unary-or-tighter
+    /// and never wrap at join contexts; the stale-Coerce re-target routes
+    /// through CoerceText, whose loosest spelling is a bare ternary, so it
+    /// reports Conditional and the coalesce-right context (`??` binds tighter
+    /// than `?:`) wraps it — the rule that replaces the #2345 rounds 3-8
+    /// string scanner.
+    /// </summary>
+    Rendered? TryCoerceJoinArmRendered(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
     {
         // An arm carrying the pipeline's own Coerce re-targets: the node means
         // "render my operand into the position's required type", and under
@@ -1439,10 +1491,10 @@ public sealed partial class CSharpPrinter
         if (target is { } retarget && TypeFamilies.IsIntegerLike(retarget)
             && arm is Coerce staleCoerce && !staleCoerce.Target.Equals(retarget))
         {
-            return CoerceText(staleCoerce.Operand, retarget);
+            return new Rendered(CoerceText(staleCoerce.Operand, retarget), Precedence.Conditional);
         }
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
-            return coerced;
+            return new Rendered(coerced, Precedence.Unary);
         // Same stack family only: `(int)longBackedEnum` would truncate. The
         // importer's family merge should never build such a join, but the cast
         // must not be the place that finds out (slice-4 review's verify item).
@@ -1460,9 +1512,11 @@ public sealed partial class CSharpPrinter
                 _function.EnumUnderlyingTypes))
         {
             var underlying = EnumUnderlyingType(enumArmType) ?? TypeRef.CoreLib("System", "Int32");
-            return CSharpConversionRules.CheckedConversionCanThrow(underlying, integerTarget)
-                ? CheckedSafeCast(() => $"({TypeText(integerTarget)}){Operand(arm)}")
-                : $"({TypeText(integerTarget)}){Operand(arm)}";
+            return new Rendered(
+                CSharpConversionRules.CheckedConversionCanThrow(underlying, integerTarget)
+                    ? CheckedSafeCast(() => $"({TypeText(integerTarget)}){Operand(arm)}")
+                    : $"({TypeText(integerTarget)}){Operand(arm)}",
+                Precedence.Unary);
         }
         // Third direction, unified (#2302/#2306/#2310/#2322): a primitive arm
         // at a primitive join that cannot render bare (ArmRendersBareSafelyAt
@@ -1491,17 +1545,17 @@ public sealed partial class CSharpPrinter
             {
                 long payload = konst.Value is int ci ? ci : (long)konst.Value!;
                 if (!CSharpConversionRules.ConstantFits(payload, numericTarget))
-                    return NumericConstant(konst, numericTarget);
+                    return new Rendered(NumericConstant(konst, numericTarget), Precedence.Unary);
                 var bareType = TypeRef.CoreLib("System", konst.Value is int ? "Int32" : "Int64");
                 return !joinHasExactTypedArm || CSharpConversionRules.IsImplicitIntegerWidening(numericTarget, bareType)
-                    ? $"({TypeText(numericTarget)}){(payload < 0 ? $"({Expression(konst)})" : Expression(konst))}"
+                    ? new Rendered($"({TypeText(numericTarget)}){(payload < 0 ? $"({Expression(konst)})" : Expression(konst))}", Precedence.Unary)
                     : null;
             }
             if (EffectiveType(arm) is { } armType
                 && CSharpConversionRules.NeedsNumericCast(armType, numericTarget)
                 && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
             {
-                return CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}");
+                return new Rendered(CheckedSafeCast(() => $"({TypeText(numericTarget)}){Operand(arm)}"), Precedence.Unary);
             }
         }
         return null;

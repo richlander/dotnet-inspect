@@ -231,6 +231,39 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool flag, bool b, int tick)", body);
     }
 
+    // #2376 phase-1 canary (corpus witness CommonConversion::.ctor): a bool
+    // diamond with a false arm folds to `&&` (SpellsAsLogicalAnd), so as the
+    // condition of a composed `? 1 : 0` it renders BARE — classifying the
+    // Conditional node instead of its folded spelling wrapped it,
+    // `(exists && true) ? 1 : 0`, the one churn class in the scanner
+    // retirement A/B (6 of 135k corpus methods).
+    [Fact]
+    public void FoldedLogicalCondition_OfBoolToInteger_RendersBare()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var diamond = new Conditional(
+            new LoadArgument(0, "exists", boolType),
+            new Constant(true, boolType),
+            new Constant(false, boolType))
+        {
+            MergedType = boolType,
+        };
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, diamond),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("exists", boolType)],
+            [intType]);
+
+        Assert.Contains("exists && true ? 1 : 0", body);
+        Assert.DoesNotContain("(exists && true)", body);
+        AssertCompiles("public static int M(bool exists)", body);
+    }
+
     // #2345 review canary (GPT-5.5, finding 1): a stale Coerce{int} over a
     // BOOL arm at an ENUM join must keep the enum/bool composition path —
     // the integer-only guard on Coerce re-targeting; preempting
@@ -259,7 +292,78 @@ public class CoerceChokePointTests
         AssertCompiles("public static Tiny M(bool c, bool b, Tiny e)", body, "public enum Tiny { }");
     }
 
-    // #2345 round-2 canary (Gemini, Critical — corpus witness
+    [Fact]
+    public void NestedBoolConditionalArm_AtEnumJoin_ParenthesizesComposedCondition()
+    {
+        // #2376 round-2 (GPT-5.5): the bool->enum truthiness composition
+        // `(E)(cond ? 1 : 0)` in TryCoerceEnumOperand must parenthesize a
+        // nested-conditional condition, exactly like BoolToInteger — a bare
+        // `(Tiny)(c ? b1 : b2 ? 1 : 0)` reassociates to a bool/int arm mismatch
+        // (CS0029). The precedence rule must reach every truthiness composer,
+        // not just BoolToInteger.
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var nested = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new LoadArgument(1, "b1", boolType),
+            new LoadArgument(2, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var conditional = new Conditional(
+            new LoadArgument(3, "flag", boolType),
+            nested,
+            new LoadArgument(4, "e", enumType))
+        {
+            MergedType = enumType,
+        };
+        string body = RenderReturn(
+            conditional,
+            enumType,
+            [new Parameter("c", boolType), new Parameter("b1", boolType), new Parameter("b2", boolType), new Parameter("flag", boolType), new Parameter("e", enumType)],
+            enumType);
+
+        Assert.Contains("(Tiny)((c ? b1 : b2) ? 1 : 0)", body);
+        AssertCompiles("public static Tiny M(bool c, bool b1, bool b2, bool flag, Tiny e)", body, "public enum Tiny { }");
+    }
+
+    [Fact]
+    public void LogicalAndDiamond_WithWrappedConditionalOperand_ParenthesizesOperand()
+    {
+        // #2376 round-2 (GPT-5.5): when a bool diamond folds to `a && <side>`,
+        // a side that is a conditional hidden behind a Coerce/Convert must
+        // parenthesize — `a && c ? b1 : b2` mis-parses as `(a && c) ? b1 : b2`,
+        // and composed as `? 1 : 0` it is CS0029. LogicalText.Side renders each
+        // side at the operator's precedence demand.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var nested = new Conditional(
+            new LoadArgument(1, "c", boolType),
+            new LoadArgument(2, "b1", boolType),
+            new LoadArgument(3, "b2", boolType))
+        {
+            MergedType = boolType,
+        };
+        var diamond = new Conditional(
+            new LoadArgument(0, "a", boolType),
+            new Coerce(boolType, nested),
+            new Constant(false, boolType))
+        {
+            MergedType = boolType,
+        };
+        string body = RenderBody(
+            [
+                new StoreLocal(0, intType, new Coerce(intType, diamond)),
+                new Return(new LoadLocal(0, intType)),
+            ],
+            intType,
+            [new Parameter("a", boolType), new Parameter("c", boolType), new Parameter("b1", boolType), new Parameter("b2", boolType)],
+            [intType]);
+
+        Assert.Contains("a && (c ? b1 : b2)", body);
+        AssertCompiles("public static int M(bool a, bool c, bool b1, bool b2)", body);
+    }
+
     // PEModule::GetMarshallingType): a stale Coerce{int} over a NON-constant
     // integer arm at an ENUM join must keep TryCoerceEnumOperand's cast —
     // the re-target branch firing for enum targets rendered `firstByte`
