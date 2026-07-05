@@ -80,6 +80,7 @@ jobs:
       - name: Run validity predicate scan
         shell: bash
         run: |
+          set -o pipefail
           mapfile -t assemblies < corpus-assemblies.txt
           mkdir -p artifacts/decompiler-daily
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -90,6 +91,7 @@ jobs:
       - name: Run uncapped validity sweep
         shell: bash
         run: |
+          set -o pipefail
           mapfile -t assemblies < corpus-assemblies.txt
           mkdir -p artifacts/decompiler-daily
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
