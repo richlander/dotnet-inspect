@@ -477,7 +477,7 @@ static BaselineComparison CompareSnapshots(IlDiffSnapshot baseline, IlDiffSnapsh
     AddBucketDrift(drift, "Hunk kind", baseline.HunkKindBuckets ?? [], current.HunkKindBuckets ?? []);
     AddBucketDrift(drift, "Opcode family", baseline.OpcodeFamilyBuckets ?? [], current.OpcodeFamilyBuckets ?? []);
 
-    return new BaselineComparison(regressions.ToImmutable(), drift.ToImmutable());
+    return new BaselineComparison(baseline, current, regressions.ToImmutable(), drift.ToImmutable());
 }
 
 static void AddCountRegression(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
@@ -548,6 +548,7 @@ static IlDiffCardMarkdownView BuildMarkdownView(ImmutableArray<IlDiffPairCard> p
     return new IlDiffCardMarkdownView
     {
         Summary = SummaryRows(pairs.Length, card),
+        BaselineCard = comparison is null ? null : BuildBaselineDataCard(comparison.Baseline, comparison.Current, comparison),
         FailureBuckets = MarkdownBucketRows(card.FailureBuckets) ?? [],
         TopHunkKinds = MarkdownBucketRows(card.TopHunkKinds) ?? [],
         TopOpcodeFamilies = MarkdownBucketRows(card.TopOpcodeFamilies) ?? [],
@@ -563,6 +564,7 @@ static IlDiffCardTableView BuildTableView(ImmutableArray<IlDiffPairCard> pairs, 
     return new IlDiffCardTableView
     {
         Summary = SectionedSummaryRows(pairs.Length, card),
+        BaselineCard = comparison is null ? null : BuildBaselineDataCard(comparison.Baseline, comparison.Current, comparison),
         FailureBuckets = SectionedBucketRows("Failure buckets", card.FailureBuckets),
         TopHunkKinds = SectionedBucketRows("Top hunk kinds", card.TopHunkKinds),
         TopOpcodeFamilies = SectionedBucketRows("Top opcode families", card.TopOpcodeFamilies),
@@ -576,8 +578,8 @@ static MarkoutWriterOptions WriterOptions(OutputFormat format)
     => format switch
     {
         OutputFormat.Markdown => new MarkoutWriterOptions(),
-        OutputFormat.Tsv => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv },
-        OutputFormat.Jsonl => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl },
+        OutputFormat.Tsv => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv, JsonTypedValues = true, OmitEmptyJsonFields = true },
+        OutputFormat.Jsonl => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl, JsonTypedValues = true, OmitEmptyJsonFields = true },
         _ => throw new InvalidOperationException($"Unsupported output format '{format}'."),
     };
 
@@ -595,6 +597,26 @@ static List<IlDiffSectionMetricRow> SectionedSummaryRows(int pairCount, IlDiffCa
     => [.. SummaryRows(pairCount, card).Select(row => new IlDiffSectionMetricRow("Summary", row.Metric, row.Count))];
 
 static string Count(int count) => count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+static IlDiffBaselineDataCard BuildBaselineDataCard(IlDiffSnapshot baseline, IlDiffSnapshot current, BaselineComparison comparison)
+    => new()
+    {
+        ComparedBodies = new(baseline.Summary.ComparedBodyCount, current.Summary.ComparedBodyCount),
+        SelfDiffEmpty = new(baseline.Summary.SelfDiffEmptyCount, current.Summary.SelfDiffEmptyCount),
+        PairExactEmpty = new(baseline.Summary.PairExactEmptyCount, current.Summary.PairExactEmptyCount),
+        ChangedBodies = new(baseline.Summary.ChangedBodyCount, current.Summary.ChangedBodyCount),
+        Failures = new(baseline.Summary.FailureCount, current.Summary.FailureCount),
+        FailureBuckets = new(ToSegments(baseline.FailureBuckets ?? []), ToSegments(current.FailureBuckets ?? [])),
+        HunkKinds = new(ToSegments(baseline.HunkKindBuckets ?? []), ToSegments(current.HunkKindBuckets ?? [])),
+        OpcodeFamilies = new(ToSegments(baseline.OpcodeFamilyBuckets ?? []), ToSegments(current.OpcodeFamilyBuckets ?? [])),
+        Verdict = comparison.HasRegressions ? "REGRESSION" : comparison.Rows.IsDefaultOrEmpty ? "MATCH" : "DRIFT",
+    };
+
+static Segments ToSegments(IReadOnlyList<CardBucket> buckets)
+    => new([.. buckets
+        .Where(bucket => bucket.Count != 0)
+        .Take(10)
+        .Select(bucket => new Segment(bucket.Name, bucket.Count))]);
 
 static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, bool snapshotPaths = false)
 {
@@ -743,6 +765,9 @@ sealed class IlDiffCardMarkdownView
     [MarkoutSection(Name = "Summary")]
     public List<IlDiffMetricRow>? Summary { get; init; }
 
+    [MarkoutSection(Name = "Baseline card")]
+    public IlDiffBaselineDataCard? BaselineCard { get; init; }
+
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<IlDiffBucketRow>? FailureBuckets { get; init; }
 
@@ -771,6 +796,9 @@ sealed class IlDiffCardTableView
     [MarkoutSection(Name = "Summary")]
     public List<IlDiffSectionMetricRow>? Summary { get; init; }
 
+    [MarkoutSection(Name = "Baseline card")]
+    public IlDiffBaselineDataCard? BaselineCard { get; init; }
+
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<IlDiffSectionBucketRow>? FailureBuckets { get; init; }
 
@@ -792,6 +820,36 @@ sealed class IlDiffCardTableView
 
 [MarkoutSerializable]
 sealed record IlDiffMetricRow(string Metric, string Count);
+
+[MarkoutSerializable]
+sealed class IlDiffBaselineDataCard
+{
+    [MarkoutPropertyName("compared bodies")]
+    public Change<int> ComparedBodies { get; init; }
+
+    [MarkoutPropertyName("self-diff empty")]
+    public Change<int> SelfDiffEmpty { get; init; }
+
+    [MarkoutPropertyName("pair exact empty")]
+    public Change<int> PairExactEmpty { get; init; }
+
+    [MarkoutPropertyName("changed bodies")]
+    public Change<int> ChangedBodies { get; init; }
+
+    [MarkoutPropertyName("failures")]
+    public Change<int> Failures { get; init; }
+
+    [MarkoutPropertyName("failure buckets")]
+    public Change<Segments> FailureBuckets { get; init; }
+
+    [MarkoutPropertyName("hunk kinds")]
+    public Change<Segments> HunkKinds { get; init; }
+
+    [MarkoutPropertyName("opcode families")]
+    public Change<Segments> OpcodeFamilies { get; init; }
+
+    public string Verdict { get; init; } = "";
+}
 
 [MarkoutSerializable]
 sealed record IlDiffSectionMetricRow(string Section, string Metric, string Count);
@@ -844,6 +902,7 @@ sealed record IlDiffExampleTableRow(
 [MarkoutContext(typeof(IlDiffCardMarkdownView))]
 [MarkoutContext(typeof(IlDiffCardTableView))]
 [MarkoutContext(typeof(IlDiffMetricRow))]
+[MarkoutContext(typeof(IlDiffBaselineDataCard))]
 [MarkoutContext(typeof(IlDiffSectionMetricRow))]
 [MarkoutContext(typeof(IlDiffBucketRow))]
 [MarkoutContext(typeof(IlDiffSectionBucketRow))]
@@ -884,6 +943,8 @@ sealed record IlDiffSnapshotPair(
     int FailureCount);
 
 sealed record BaselineComparison(
+    IlDiffSnapshot Baseline,
+    IlDiffSnapshot Current,
     ImmutableArray<BaselineFinding> Regressions,
     ImmutableArray<BaselineFinding> Drift)
 {
