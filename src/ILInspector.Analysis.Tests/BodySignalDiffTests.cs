@@ -48,6 +48,42 @@ public class BodySignalDiffTests
     }
 
     [Fact]
+    public void CompareUnsafe_MethodKeyDistinguishesSameSignatureDifferentGenericArity()
+    {
+        var arity1 = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use", genericArity: 1);
+        var arity2 = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use", genericArity: 2);
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [arity1],
+            [new UnsafeEvidence(arity1, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [arity2],
+            [new UnsafeEvidence(arity2, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
+
+        var diff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
+
+        Assert.Contains(diff.Rows, row => row.Kind == BodySignalDiffKind.Removed && row.Member.Contains("|1|False|", StringComparison.Ordinal));
+        Assert.Contains(diff.Rows, row => row.Kind == BodySignalDiffKind.Added && row.Member.Contains("|2|False|", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompareUnsafe_MethodKeyDistinguishesSameSignatureExtensionMarker()
+    {
+        var normal = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use", isExtension: false);
+        var extension = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use", isExtension: true);
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [normal],
+            [new UnsafeEvidence(normal, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [extension],
+            [new UnsafeEvidence(extension, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
+
+        var diff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
+
+        Assert.Contains(diff.Rows, row => row.Kind == BodySignalDiffKind.Removed && row.Member.Contains("|0|False|", StringComparison.Ordinal));
+        Assert.Contains(diff.Rows, row => row.Kind == BodySignalDiffKind.Added && row.Member.Contains("|0|True|", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void CompareUnsafe_PreservesCountOfRepeatedUnsafeOperations()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
@@ -118,7 +154,7 @@ public class BodySignalDiffTests
         Assert.Null(added.ILOffset);
     }
 
-    static MethodIdentity DiffMethod(TypeRef declaring, string name)
+    static MethodIdentity DiffMethod(TypeRef declaring, string name, int genericArity = 0, bool isExtension = false)
         => new(
             "Asm",
             Guid.Empty,
@@ -127,5 +163,7 @@ public class BodySignalDiffTests
             [],
             TypeRef.CoreLib("System", "Void"),
             MetadataToken: 0x06000001,
-            IsStatic: true);
+            IsStatic: true,
+            IsExtension: isExtension,
+            GenericArity: genericArity);
 }

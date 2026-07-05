@@ -821,7 +821,7 @@ public static class ResearchDiff
         LibraryBodyIndex index,
         IReadOnlyDictionary<int, MemberAnchor> anchors)
         => index.Methods
-            .GroupBy(BodySignalDiffRowMethodKey, StringComparer.Ordinal)
+            .GroupBy(BodySignalMethodKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => SubjectFromMethod(group.Last(), anchors.GetValueOrDefault(group.Last().MetadataToken)), StringComparer.Ordinal);
 
     static ResearchSubjectKey ApiSubject(ApiSurface oldSurface, ApiSurface newSurface, string typeName, ApiChange change)
@@ -980,9 +980,6 @@ public static class ResearchDiff
 
     static string BodySignalMethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
-
-    static string BodySignalDiffRowMethodKey(MethodIdentity method)
-        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static string MethodMatchKey(MethodIdentity method)
         => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
