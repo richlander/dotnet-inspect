@@ -440,7 +440,7 @@ static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, 
 
 static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
 {
-    var card = Aggregate(pairs, maxExamples);
+    var card = Aggregate(pairs, maxExamples, snapshotPaths: true);
     return new IlDiffSnapshot(
         SchemaVersion: 1,
         Summary: new IlDiffSnapshotSummary(
@@ -451,8 +451,8 @@ static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int ma
             ChangedBodyCount: card.ChangedBodyCount,
             FailureCount: card.FailureCount),
         Pairs: pairs.Select(pair => new IlDiffSnapshotPair(
-            Old: DisplayPath(pair.OldPath),
-            New: DisplayPath(pair.NewPath),
+            Old: SnapshotPath(pair.OldPath),
+            New: SnapshotPath(pair.NewPath),
             ComparedBodyCount: pair.Card.ComparedBodyCount,
             SelfDiffEmptyCount: pair.Card.SelfDiffExactCount,
             PairExactEmptyCount: pair.Card.PairExactCount,
@@ -482,13 +482,17 @@ static BaselineComparison CompareSnapshots(IlDiffSnapshot baseline, IlDiffSnapsh
 
     AddCountRegression(regressions, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount);
     AddCountDropRegression(regressions, "Self-diff empty", baseline.Summary.SelfDiffEmptyCount, current.Summary.SelfDiffEmptyCount);
-    AddNewFailureBuckets(regressions, baseline.FailureBuckets ?? [], current.FailureBuckets ?? []);
+    var baselineFailureBuckets = baseline.FailureBuckets ?? [];
+    var currentFailureBuckets = current.FailureBuckets ?? [];
+    AddNewFailureBuckets(regressions, baselineFailureBuckets, currentFailureBuckets);
 
     AddDrift(drift, "Pairs", baseline.Summary.PairCount, current.Summary.PairCount);
     AddDrift(drift, "Compared bodies", baseline.Summary.ComparedBodyCount, current.Summary.ComparedBodyCount);
+    AddDriftIfImproved(drift, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount, improvementWhenCurrentIsLower: true);
+    AddDriftIfImproved(drift, "Self-diff empty", baseline.Summary.SelfDiffEmptyCount, current.Summary.SelfDiffEmptyCount, improvementWhenCurrentIsLower: false);
     AddDrift(drift, "Pair exact empty", baseline.Summary.PairExactEmptyCount, current.Summary.PairExactEmptyCount);
     AddDrift(drift, "Changed bodies", baseline.Summary.ChangedBodyCount, current.Summary.ChangedBodyCount);
-    AddBucketDrift(drift, "Failure bucket", baseline.FailureBuckets ?? [], current.FailureBuckets ?? []);
+    AddExistingFailureBucketDrift(drift, baselineFailureBuckets, currentFailureBuckets);
     AddBucketDrift(drift, "Hunk kind", baseline.HunkKindBuckets ?? [], current.HunkKindBuckets ?? []);
     AddBucketDrift(drift, "Opcode family", baseline.OpcodeFamilyBuckets ?? [], current.OpcodeFamilyBuckets ?? []);
 
@@ -518,6 +522,30 @@ static void AddDrift(ImmutableArray<BaselineFinding>.Builder findings, string me
 {
     if (current != baseline)
         findings.Add(new BaselineFinding("Drift", metric, baseline.ToString(System.Globalization.CultureInfo.InvariantCulture), current.ToString(System.Globalization.CultureInfo.InvariantCulture), "count changed"));
+}
+
+static void AddDriftIfImproved(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current, bool improvementWhenCurrentIsLower)
+{
+    bool improved = improvementWhenCurrentIsLower
+        ? current < baseline
+        : current > baseline;
+    if (improved)
+        findings.Add(new BaselineFinding(
+            "Drift",
+            metric,
+            baseline.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            current.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            improvementWhenCurrentIsLower ? "count dropped" : "count increased"));
+}
+
+static void AddExistingFailureBucketDrift(ImmutableArray<BaselineFinding>.Builder findings, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineNames = baseline.Select(bucket => bucket.Name).ToHashSet(StringComparer.Ordinal);
+    AddBucketDrift(
+        findings,
+        "Failure bucket",
+        baseline,
+        current.Where(bucket => baselineNames.Contains(bucket.Name)).ToArray());
 }
 
 static void AddBucketDrift(ImmutableArray<BaselineFinding>.Builder findings, string metric, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
@@ -575,7 +603,7 @@ static void AppendSummary(MarkoutWriter writer, OutputFormat format, int pairCou
         }));
 }
 
-static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples)
+static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, bool snapshotPaths = false)
 {
     var failures = new Dictionary<string, int>(StringComparer.Ordinal);
     var hunkKinds = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -606,7 +634,7 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
                 break;
             examples.Add(example with
             {
-                Method = $"{DisplayPath(pair.OldPath)} to {DisplayPath(pair.NewPath)} :: {example.Method}"
+                Method = $"{PathLabel(pair.OldPath, snapshotPaths)} to {PathLabel(pair.NewPath, snapshotPaths)} :: {example.Method}"
             });
         }
     }
@@ -681,6 +709,11 @@ static string DisplayPath(string path)
         ? fullPath
         : relative;
 }
+
+static string SnapshotPath(string path) => Path.GetFullPath(path);
+
+static string PathLabel(string path, bool snapshotPath)
+    => snapshotPath ? SnapshotPath(path) : DisplayPath(path);
 
 static void AppendBuckets(MarkoutWriter writer, OutputFormat format, string title, ImmutableArray<CardBucket> buckets)
 {
