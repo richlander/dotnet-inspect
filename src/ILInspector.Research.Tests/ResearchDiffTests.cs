@@ -333,8 +333,42 @@ public class ResearchDiffTests
 
         var changed = Assert.Single(unsafeMembers);
         Assert.Contains("AddsUnsafe", changed.Subject.Display);
+        Assert.NotNull(changed.Subject.Anchor);
+        Assert.NotNull(changed.Subject.MetadataMember);
+        Assert.NotEqual(Guid.Empty, changed.Subject.MetadataMember.ModuleVersionId);
+        Assert.StartsWith("0x06", changed.Subject.MetadataMember.Token, StringComparison.Ordinal);
+        Assert.StartsWith("AddsUnsafe~", changed.Subject.Anchor.StableSelector, StringComparison.Ordinal);
+        Assert.Equal("M:DiffFixtureSample.DiffSample.AddsUnsafe(int)", changed.Subject.Anchor.CanonicalSignature);
         Assert.True(changed.ImplementationChanged);
         Assert.False(changed.ApiChanged);
+        var evidence = Assert.Single(changed.Evidence, row => row.ChangeId == "unsafe.stackalloc.added");
+        Assert.Same(changed.Subject.Anchor, evidence.Anchor);
+        Assert.Equal(changed.Subject.MetadataMember, evidence.MetadataMember);
+        Assert.NotNull(evidence.BodySignalRow);
+        Assert.Equal("stackalloc", evidence.BodySignalRow.Signal);
+        Assert.Equal(evidence.NewIlOffset, evidence.BodySignalRow.ILOffset);
+    }
+
+    [Fact]
+    public void CompareAssemblies_AnalysisSignals_PreserveMemberAnchorAndMetadataRef()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
+
+        var changed = Assert.Single(diff.MembersWhere(member =>
+            member.Subject.Display.Contains("RegressesAllocInLoop", StringComparison.Ordinal)
+            && member.HasChange("analysis.signal.allocations")));
+
+        Assert.NotNull(changed.Subject.Anchor);
+        Assert.NotNull(changed.Subject.MetadataMember);
+        Assert.StartsWith("RegressesAllocInLoop~", changed.Subject.Anchor.StableSelector, StringComparison.Ordinal);
+        var evidence = Assert.Single(changed.Evidence, row => row.ChangeId == "analysis.signal.allocations");
+        Assert.Same(changed.Subject.Anchor, evidence.Anchor);
+        Assert.Equal(changed.Subject.MetadataMember, evidence.MetadataMember);
+        Assert.Equal("allocations", evidence.Signal);
+        Assert.Equal("in-loop", evidence.Shape);
     }
 
     [Fact]

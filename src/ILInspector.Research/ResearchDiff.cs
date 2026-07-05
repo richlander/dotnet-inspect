@@ -112,6 +112,7 @@ public sealed record ResearchDiffEvidence(
     MetadataMemberRef? MetadataMember = null,
     MetadataTypeRef? MetadataType = null,
     IlDiffRow? IlRow = null,
+    BodySignalDiffRow? BodySignalRow = null,
     CSharpDiffRow? CSharpRow = null,
     string? Signal = null,
     string? Shape = null,
@@ -326,15 +327,20 @@ public static class ResearchDiff
 
     static void AddBodySignalDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
     {
-        foreach (var (oldIndex, newIndex) in PairedBodyIndexes(oldInput, newInput))
+        foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
         {
-            AddAnalysisSignalDiff(builder, oldIndex, newIndex, typeFilters);
+            var oldAnchors = MemberAnchorsByToken(pair.Old.Path);
+            var newAnchors = MemberAnchorsByToken(pair.New.Path);
+            AddAnalysisSignalDiff(builder, pair.Old.Index, pair.New.Index, typeFilters, oldAnchors, newAnchors);
 
-            var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex);
-            foreach (var row in BodySignalDiff.CompareUnsafe(oldIndex, newIndex).Rows)
+            var oldSubjects = MethodSubjectsByBodySignalKey(pair.Old.Index, oldAnchors);
+            var newSubjects = MethodSubjectsByBodySignalKey(pair.New.Index, newAnchors);
+            foreach (var row in BodySignalDiff.CompareUnsafe(pair.Old.Index, pair.New.Index).Rows)
             {
-                var subject = methods.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member);
                 var direction = row.Kind == BodySignalDiffKind.Added ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
+                var subject = direction == ResearchDiffDirection.Added
+                    ? newSubjects.GetValueOrDefault(row.Member) ?? oldSubjects.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member)
+                    : oldSubjects.GetValueOrDefault(row.Member) ?? newSubjects.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member);
                 var suffix = direction == ResearchDiffDirection.Added ? "added" : "removed";
                 builder.Add(subject, new ResearchDiffEvidence(
                     ResearchDiffMechanism.BodySignals,
@@ -343,14 +349,24 @@ public static class ResearchDiff
                     OldIlOffset: direction == ResearchDiffDirection.Removed ? row.ILOffset : null,
                     NewIlOffset: direction == ResearchDiffDirection.Added ? row.ILOffset : null,
                     Detail: $"{row.Operation}: {row.Evidence}",
-                    Category: ResearchDiffChangeCategory.BodySignal));
+                    Category: ResearchDiffChangeCategory.BodySignal,
+                    Anchor: subject.Anchor,
+                    MetadataMember: subject.MetadataMember,
+                    MetadataType: subject.MetadataType,
+                    BodySignalRow: row));
             }
         }
 
-        static void AddAnalysisSignalDiff(ResultBuilder builder, LibraryBodyIndex oldIndex, LibraryBodyIndex newIndex, IReadOnlySet<string>? typeFilters)
+        static void AddAnalysisSignalDiff(
+            ResultBuilder builder,
+            LibraryBodyIndex oldIndex,
+            LibraryBodyIndex newIndex,
+            IReadOnlySet<string>? typeFilters,
+            IReadOnlyDictionary<int, MemberAnchor> oldAnchors,
+            IReadOnlyDictionary<int, MemberAnchor> newAnchors)
         {
-            var oldSnapshot = BuildAnalysisSnapshot(oldIndex, typeFilters);
-            var newSnapshot = BuildAnalysisSnapshot(newIndex, typeFilters);
+            var oldSnapshot = BuildAnalysisSnapshot(oldIndex, typeFilters, oldAnchors);
+            var newSnapshot = BuildAnalysisSnapshot(newIndex, typeFilters, newAnchors);
             foreach (var key in oldSnapshot.Keys.Union(newSnapshot.Keys, StringComparer.Ordinal))
             {
                 oldSnapshot.TryGetValue(key, out var oldMethod);
@@ -363,7 +379,10 @@ public static class ResearchDiff
             }
         }
 
-        static Dictionary<string, ResearchAnalysisMethod> BuildAnalysisSnapshot(LibraryBodyIndex index, IReadOnlySet<string>? typeFilters)
+        static Dictionary<string, ResearchAnalysisMethod> BuildAnalysisSnapshot(
+            LibraryBodyIndex index,
+            IReadOnlySet<string>? typeFilters,
+            IReadOnlyDictionary<int, MemberAnchor> anchors)
         {
             var methods = new Dictionary<string, ResearchAnalysisMethod>(StringComparer.Ordinal);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
@@ -378,7 +397,7 @@ public static class ResearchDiff
                 var key = BodySignalMethodKey(method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
-                    entry = new ResearchAnalysisMethod(SubjectFromMethod(method), signals ?? MethodSignals.None, []);
+                    entry = new ResearchAnalysisMethod(SubjectFromMethod(method, anchors.GetValueOrDefault(method.MetadataToken)), signals ?? MethodSignals.None, []);
                     methods[key] = entry;
                 }
                 else
@@ -396,7 +415,7 @@ public static class ResearchDiff
                 var key = BodySignalMethodKey(opportunity.Method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
-                    entry = new ResearchAnalysisMethod(SubjectFromMethod(opportunity.Method), MethodSignals.None, []);
+                    entry = new ResearchAnalysisMethod(SubjectFromMethod(opportunity.Method, anchors.GetValueOrDefault(opportunity.Method.MetadataToken)), MethodSignals.None, []);
                     methods[key] = entry;
                 }
                 entry.Opportunities.Add(opportunity);
@@ -533,6 +552,9 @@ public static class ResearchDiff
                 Delta: delta,
                 Detail: detail,
                 Category: ResearchDiffChangeCategory.BodySignal,
+                Anchor: subject.Anchor,
+                MetadataMember: subject.MetadataMember,
+                MetadataType: subject.MetadataType,
                 Signal: signal,
                 Shape: shape,
                 Magnitude: magnitude,
@@ -795,10 +817,12 @@ public static class ResearchDiff
         }
     }
 
-    static Dictionary<string, ResearchSubjectKey> MethodSubjectsByBodySignalKey(LibraryBodyIndex oldIndex, LibraryBodyIndex newIndex)
-        => oldIndex.Methods.Concat(newIndex.Methods)
-            .GroupBy(BodySignalMethodKey, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => SubjectFromMethod(group.Last()), StringComparer.Ordinal);
+    static Dictionary<string, ResearchSubjectKey> MethodSubjectsByBodySignalKey(
+        LibraryBodyIndex index,
+        IReadOnlyDictionary<int, MemberAnchor> anchors)
+        => index.Methods
+            .GroupBy(BodySignalDiffRowMethodKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => SubjectFromMethod(group.Last(), anchors.GetValueOrDefault(group.Last().MetadataToken)), StringComparer.Ordinal);
 
     static ResearchSubjectKey ApiSubject(ApiSurface oldSurface, ApiSurface newSurface, string typeName, ApiChange change)
     {
@@ -956,6 +980,9 @@ public static class ResearchDiff
 
     static string BodySignalMethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
+
+    static string BodySignalDiffRowMethodKey(MethodIdentity method)
+        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static string MethodMatchKey(MethodIdentity method)
         => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
