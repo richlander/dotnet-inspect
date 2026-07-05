@@ -1176,6 +1176,7 @@ public class GeneratedFixtureCatalogTests
             ]);
 
         string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+        var view = ReturnToSenderCatalogReport.Build(run, maxExamples: 10);
 
         Assert.Contains("il-diff:", report);
         Assert.Contains("h0 - IL_0000 ldc.i4 1", report);
@@ -1190,6 +1191,12 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("Method1~abcdef1234  rts=OpcodeDiff  detail=opcode-diff", report);
         Assert.Contains("      il.operation.added: 1", report);
         Assert.Contains("      il.operation.removed: 1", report);
+        Assert.Equal(1, view.Fixtures.Failed);
+        Assert.Equal(1, view.Targets.Failed);
+        Assert.NotNull(view.Research);
+        Assert.Single(view.Research.Summary.ActionableSubjects);
+        Assert.Single(view.FailedTargetBuckets);
+        Assert.Single(view.FailedFixtures);
         Assert.Contains("      il-display:", report);
         Assert.Contains("        il.operation.removed: h0 - IL_0000 ldc.i4 1", report);
         Assert.Contains("        il.operation.added: h0 + IL_0000 ldc.i4 2", report);
