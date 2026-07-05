@@ -378,6 +378,95 @@ public class AssertionScanTests
         Assert.NotEqual(atImport.Identity, atLaterPass.Identity);
     }
 
+    [Fact]
+    public void ClassifyViolationStates_TreatsPassBugViolationsAsUnknownNotSurvivorOrDischarged()
+    {
+        // A pass-bug method's violations were flagged FinalStageSurvivor at the
+        // last *completed* stage, but the pipeline never reached a real final
+        // stage — they are UNKNOWN, not UNSOUND survivors nor discharged (#2285).
+        var survivorSite = Site("Constant", survivor: true);
+        var dischargedSite = Site("LoadArgument", survivor: false);
+        var crashSurvivorSite = Site("BinaryOperation", survivor: true);
+
+        var completedSurvivor = MethodWith("Survives", passBug: null, survivorSite);
+        var completedDischarged = MethodWith("Discharges", passBug: null, dischargedSite);
+        var crashed = MethodWith("Crashes", passBug: "InvalidOperationException: boom", crashSurvivorSite);
+
+        var states = AssertionScan.ClassifyViolationStates([completedSurvivor, completedDischarged, crashed]);
+
+        Assert.Single(states.Survivors);
+        Assert.Equal("Constant", states.Survivors[0].Node);
+        Assert.Equal(1, states.SurvivorMethods);
+        Assert.Single(states.Discharged);
+        Assert.Equal("LoadArgument", states.Discharged[0].Node);
+        Assert.Equal(1, states.UnknownViolations);
+        Assert.Equal(1, states.UnknownMethods);
+    }
+
+    [Fact]
+    public void SurvivorDeltaComparable_RequiresSchemaVersion2()
+    {
+        Assert.False(AssertionScan.SurvivorDeltaComparable(0));
+        Assert.False(AssertionScan.SurvivorDeltaComparable(1));
+        Assert.True(AssertionScan.SurvivorDeltaComparable(2));
+    }
+
+    [Fact]
+    public void SchemaV1Snapshot_DeserializesWithEmptySurvivorSet()
+    {
+        // The migration artifact the differ guards against: a v1 baseline has no
+        // FinalStageSurvivor field, so every record deserializes with it false
+        // and SurvivorIdentities is empty regardless of the real survivor set.
+        const string v1Json = """
+            {
+              "SchemaVersion": 1,
+              "GeneratedUtc": "2020-01-01T00:00:00+00:00",
+              "Methods": [
+                {
+                  "Assembly": "synthetic", "AssemblyPath": "synthetic.dll",
+                  "Type": "Samples.Holder", "Method": "M", "Overload": 0,
+                  "Signature": "() -> corelib:System.Void",
+                  "Key": "synthetic.dll!Samples.Holder::M() -> corelib:System.Void",
+                  "PassBug": null,
+                  "Violations": [
+                    { "Pass": "import", "Predicate": "P", "Node": "Constant",
+                      "SinkType": "bool", "Message": "0 occupies a bool sink without a Coerce",
+                      "Ordinal": 0 }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        var snapshot = JsonSerializer.Deserialize<AssertionScan.AssertionViolationSnapshot>(v1Json);
+
+        Assert.NotNull(snapshot);
+        Assert.Equal(1, snapshot!.SchemaVersion);
+        Assert.False(AssertionScan.SurvivorDeltaComparable(snapshot.SchemaVersion));
+        Assert.Empty(Assert.Single(snapshot.Methods).SurvivorIdentities());
+    }
+
+    static AssertionScan.ViolationSite Site(string node, bool survivor)
+        => new AssertionScan.ViolationSite(
+            Method: "m", Pass: IrPasses.ImportStageName, Predicate: "P",
+            Node: node, SinkType: "bool", Message: $"{node} occupies a bool sink without a Coerce", Ordinal: 0)
+        {
+            FinalStageSurvivor = survivor,
+        };
+
+    static AssertionScan.MethodResult MethodWith(string method, string? passBug, params AssertionScan.ViolationSite[] violations)
+        => new(
+            Assembly: "synthetic",
+            AssemblyPath: "synthetic.dll",
+            Type: "Samples.Holder",
+            Method: method,
+            Overload: 0,
+            Signature: "() -> corelib:System.Void",
+            Key: $"synthetic.dll!Samples.Holder::{method}() -> corelib:System.Void",
+            Violations: violations,
+            CoveredNodes: [],
+            PassBug: passBug);
+
     static IrFunction Function(BlockContainer body, TypeRef returnType, params Parameter[] parameters)
         => new(
             "M",
