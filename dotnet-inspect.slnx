@@ -59,6 +59,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
+    <Project Path="tests/DotnetInspector.Fixtures.Tests/DotnetInspector.Fixtures.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />
   </Folder>
