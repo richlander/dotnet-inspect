@@ -150,8 +150,8 @@ public sealed partial class CSharpPrinter
     };
 
     /// <summary>The text of one switch-expression arm: its labels (or <c>_</c>) and the value it yields.</summary>
-    string SwitchArmText(SwitchExpressionArm arm, TypeRef? target = null, TypeRef? labelEnum = null)
-        => $"{SwitchExpressionLabelText(arm, labelEnum)} => {SwitchArmValueText(arm.Value, target)}";
+    string SwitchArmText(SwitchExpressionArm arm, TypeRef? target = null, TypeRef? labelEnum = null, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
+        => $"{SwitchExpressionLabelText(arm, labelEnum)} => {SwitchArmValueText(arm.Value, target, primitiveCoercionSourceType, joinHasExactTypedArm)}";
 
     string SwitchExpressionLabelText(SwitchExpressionArm arm, TypeRef? labelEnum)
         => arm.IsDefault
@@ -160,15 +160,37 @@ public sealed partial class CSharpPrinter
                 new Constant(label, TypeRef.CoreLib("System", "Int32")),
                 labelEnum)));
 
-    string SwitchArmValueText(IrExpression value, TypeRef? target)
-        => TryCoerceJoinArm(value, target) is { } coerced ? coerced : Expression(value);
+    string SwitchArmValueText(IrExpression value, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
+        => TryCoerceJoinArm(value, target, primitiveCoercionSourceType, joinHasExactTypedArm) is { } coerced
+            ? coerced
+            // The bool-arm composition, mirroring ConditionalArm (#2345
+            // review, GPT-5.5: the primitive gate admits bool arms via
+            // CanSpellBoolToInteger, so the render path must compose them —
+            // a bare bool arm at an integer-typed switch join is CS0029).
+            : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
+                && EffectiveType(value) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
+                ? BoolToIntegerText(value, intTarget)
+                : Expression(value);
 
     /// <summary>The single-line form of a switch expression, used when it is nested inside another expression.</summary>
     string SwitchExpressionInline(SwitchExpression node, TypeRef? target = null)
     {
         var labelEnum = SwitchLabelEnumType(node.Value);
-        var armTarget = EffectiveJoinTarget(target, [.. node.Arms.Select(arm => arm.Value)]);
-        return $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => SwitchArmText(arm, armTarget, labelEnum)))} }}";
+        var armValues = node.Arms.Select(arm => arm.Value).ToList();
+        var armTarget = EffectiveJoinTarget(target, armValues);
+        // Thread the node's merged source type and the constant anchor flag
+        // exactly like ConditionalText (#2345 round-2, GPT-5.5: without the
+        // source type, a narrower-than-target arm the node-width gate
+        // admitted failed the arm-width spell check and rendered bare).
+        TypeRef? primitiveCoercionSourceType =
+            armTarget is not null
+            && EffectiveType(node) is { } nodeType
+            && !nodeType.Equals(armTarget)
+            && CanRenderPrimitiveJoinForTarget(armTarget, nodeType, armValues)
+                ? nodeType
+                : null;
+        bool joinHasExactTypedArm = armValues.Any(value => value is not Constant);
+        return $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(arm => SwitchArmText(arm, armTarget, labelEnum, primitiveCoercionSourceType, joinHasExactTypedArm)))} }}";
     }
 
     string UnionSwitchExpressionInline(UnionSwitchExpression node, TypeRef? target = null)

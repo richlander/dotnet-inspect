@@ -1395,9 +1395,16 @@ public sealed partial class CSharpPrinter
         // join distribution the position's requirement IS the join target —
         // rendering the stale wrapper and re-casting made
         // `(sbyte)((sbyte)value)` from Coerce{int, Convert sbyte} at an sbyte
-        // sink (#2306 corpus audit).
-        if (target is { } retarget && arm is Coerce staleCoerce && !staleCoerce.Target.Equals(retarget))
+        // sink (#2306 corpus audit). INTEGER-LIKE targets only: re-targeting
+        // is the primitive distribution's rule, and letting it preempt
+        // TryCoerceEnumOperand sent Coerce{int, bool} at an enum join through
+        // CoerceText's integer-gated bool branch and out bare (#2345 review,
+        // GPT-5.5: CS0029 — enum targets keep the composition path below).
+        if (target is { } retarget && TypeFamilies.IsIntegerLike(retarget)
+            && arm is Coerce staleCoerce && !staleCoerce.Target.Equals(retarget))
+        {
             return CoerceText(staleCoerce.Operand, retarget);
+        }
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
             return coerced;
         // Same stack family only: `(int)longBackedEnum` would truncate. The

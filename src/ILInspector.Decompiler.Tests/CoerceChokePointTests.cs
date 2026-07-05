@@ -203,6 +203,95 @@ public class CoerceChokePointTests
         AssertCompiles("public static uint M(bool flag, bool b, int tick)", body);
     }
 
+    // #2345 review canary (GPT-5.5, finding 1): a stale Coerce{int} over a
+    // BOOL arm at an ENUM join must keep the enum/bool composition path —
+    // the integer-only guard on Coerce re-targeting; preempting
+    // TryCoerceEnumOperand rendered the bool bare (CS0029).
+    [Fact]
+    public void StaleCoerceBoolArm_AtEnumJoin_KeepsComposedEnumCast()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Coerce(intType, new LoadArgument(1, "b", boolType)),
+            new LoadArgument(2, "e", enumType))
+        {
+            MergedType = enumType,
+        };
+        string body = RenderReturn(
+            conditional,
+            enumType,
+            [new Parameter("c", boolType), new Parameter("b", boolType), new Parameter("e", enumType)],
+            enumType);
+
+        Assert.Contains("(Tiny)(b ? 1 : 0)", body);
+        Assert.DoesNotContain("? b :", body);
+        AssertCompiles("public static Tiny M(bool c, bool b, Tiny e)", body, "public enum Tiny { }");
+    }
+
+    // #2345 round-2 canary (Gemini, Critical — corpus witness
+    // PEModule::GetMarshallingType): a stale Coerce{int} over a NON-constant
+    // integer arm at an ENUM join must keep TryCoerceEnumOperand's cast —
+    // the re-target branch firing for enum targets rendered `firstByte`
+    // bare (CS0029) where base spelled `(UnmanagedType)firstByte`.
+    [Fact]
+    public void StaleCoerceIntegerArm_AtEnumJoin_KeepsEnumCast()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Coerce(intType, new LoadArgument(1, "firstByte", byteType)),
+            new Constant(0, intType))
+        {
+            MergedType = enumType,
+        };
+        string body = RenderReturn(
+            conditional,
+            enumType,
+            [new Parameter("c", boolType), new Parameter("firstByte", byteType)],
+            enumType);
+
+        Assert.Contains("(Tiny)firstByte", body);
+        Assert.DoesNotContain("? firstByte", body);
+        AssertCompiles("public static Tiny M(bool c, byte firstByte)", body, "public enum Tiny { }");
+    }
+
+    // #2345 review canary (GPT-5.5, finding 2): the switch-expression gate
+    // admits bool arms via CanSpellBoolToInteger, so SwitchArmValueText must
+    // compose them like ConditionalArm does — bare bool at a uint join is
+    // CS0029.
+    [Fact]
+    public void SwitchExpression_WithBoolArmAtUnsignedStoreTarget_ComposesBoolArm()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var switchExpression = new SwitchExpression(
+            new LoadArgument(0, "x", intType),
+            [
+                new SwitchExpressionArm([0], isDefault: false, new LoadArgument(1, "i", intType)),
+                new SwitchExpressionArm(default, isDefault: true, new LoadArgument(2, "b", boolType)),
+            ]);
+
+        string body = RenderBody(
+            [
+                new StoreLocal(0, uintType, switchExpression),
+                new Return(new LoadLocal(0, uintType)),
+            ],
+            uintType,
+            [new Parameter("x", intType), new Parameter("i", intType), new Parameter("b", boolType)],
+            [uintType]);
+
+        Assert.Contains("(uint)(b ? 1 : 0)", body);
+        Assert.DoesNotContain("=> b", body);
+        AssertCompiles("public static uint M(int x, int i, bool b)", body);
+    }
+
     [Fact]
     public void Conditional_WithNarrowSignedArmsAtPrimitiveStoreTarget_CastsThroughMergedWidth()
     {

@@ -1851,14 +1851,34 @@ public sealed partial class CSharpPrinter
     {
         TypeRef? coalesceTarget = target ?? NullableValueType(co.Left.ResultType) ?? co.ResultType;
         // Single-arm join decision for the right side (the #2306 sibling rule):
-        // a bare-safe right renders untouched, a non-safe one is spelled.
+        // a bare-safe right renders untouched, a non-safe one is spelled —
+        // with the node's source type threaded like the conditional/switch
+        // consumers (#2345 round-2 threading discipline).
+        TypeRef? primitiveCoercionSourceType = null;
         if (coalesceTarget is { } integerTarget && TypeFamilies.IsIntegerLike(integerTarget))
-            coalesceTarget = EffectiveJoinTarget(coalesceTarget, [co.Right]);
-        return $"{CoalesceOperand(co.Left)} ?? {CoalesceRightText(co.Right, coalesceTarget)}";
+        {
+            coalesceTarget = EffectiveJoinTarget(integerTarget, [co.Right]);
+            primitiveCoercionSourceType =
+                coalesceTarget is not null
+                && EffectiveType(co) is { } nodeType
+                && !nodeType.Equals(coalesceTarget)
+                && CanRenderPrimitiveJoinForTarget(coalesceTarget, nodeType, [co.Right])
+                    ? nodeType
+                    : null;
+        }
+        return $"{CoalesceOperand(co.Left)} ?? {CoalesceRightText(co.Right, coalesceTarget, primitiveCoercionSourceType)}";
     }
 
-    string CoalesceRightText(IrExpression right, TypeRef? target)
-        => TryCoerceJoinArm(right, target) is { } coerced ? coerced : Operand(right);
+    string CoalesceRightText(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
+        => TryCoerceJoinArm(right, target, primitiveCoercionSourceType) is { } coerced
+            ? coerced
+            // The bool-arm composition, mirroring ConditionalArm and
+            // SwitchArmValueText (the #2145 one-rule-in-all-three discipline;
+            // #2345 review found the switch sibling missing it).
+            : target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
+                && EffectiveType(right) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
+                ? BoolToIntegerText(right, intTarget)
+                : Operand(right);
 
     static TypeRef? NullableValueType(TypeRef? type)
         => type is
