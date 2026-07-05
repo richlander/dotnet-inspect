@@ -386,6 +386,20 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareApiSurfaces_TypeFilters_ExcludeUnrelatedApiChanges()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+
+        var diff = ResearchDiff.Compare(
+            ResearchDiffInput.FromApiSurface(oldSurface),
+            ResearchDiffInput.FromApiSurface(newSurface),
+            new ResearchDiffOptions(ResearchDiffMechanism.Api, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Other" }));
+
+        Assert.Empty(diff.Subjects);
+    }
+
+    [Fact]
     public void CompareAssemblies_BodySignals_QueryUnsafeAddedChange()
     {
         var diff = ResearchDiff.CompareAssemblies(
