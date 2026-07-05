@@ -789,19 +789,20 @@ public static class ResearchDiff
 
     static ResearchSubjectKey SubjectFromMethod(MethodIdentity method, MemberAnchor? anchor = null)
     {
-        var typeName = method.DeclaringType.ToQualifiedDisplayString();
-        var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
+        var typeName = anchor?.TypeFullName ?? method.DeclaringType.ToQualifiedDisplayString();
+        var methodName = method.Name == ".ctor" ? "#ctor" : method.Name;
+        var memberName = anchor?.MemberName ?? methodName;
         var selectorName = ResearchMemberSelector.ForMetadataName(method.Name, method.IsExtension);
         var parameters = string.Join(",", method.ParameterTypes.Select(ApiTypeName));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var methodGeneric = ApiMethodGenericList(method);
         var returnSuffix = "";
-        var canonical = $"M:{typeName}.{memberName}{methodGeneric}({parameters}){returnSuffix}";
+        var canonical = $"M:{typeName}.{methodName}{methodGeneric}({parameters}){returnSuffix}";
         var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
             anchor?.StableSelector ?? $"{selectorName}~{fingerprint}",
-            $"{typeName}.{memberName}({displayParameters})",
+            $"{typeName}.{methodName}({displayParameters})",
             typeName,
             memberName,
             new TypeAnchor(anchor?.TypeFullName ?? typeName),
