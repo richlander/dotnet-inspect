@@ -216,12 +216,7 @@ public static class SharedParsers
 
         for (int i = 0; i < members.Length; i++)
         {
-            var kindQualified = TryParseKindQualifiedMember(members[i], out var kind, out var memberName);
-            if (kindQualified)
-            {
-                kindFilter.Add(kind);
-                members[i] = memberName;
-            }
+            var kindQualified = TryParseKindQualifiedMember(members[i], out _, out _);
 
             // Check for dotted syntax (Type.Member)
             if (!kindQualified)
@@ -234,19 +229,14 @@ public static class SharedParsers
                 }
             }
 
-            // Check for digest shorthand (Name~abc123)
-            var (digestName, digest) = ParseDigestShorthand(members[i]);
-            members[i] = digestName;
-            if (digest != null)
-                memberDigest = digest;
-
-            // Check for overload shorthand (Name:N)
-            var (name, index) = ParseOverloadShorthand(members[i]);
-            members[i] = name;
-            if (index != null)
-            {
+            var selector = MemberTargetSelector.Parse(members[i]);
+            if (selector.Kind is { Length: > 0 })
+                kindFilter.Add(selector.Kind);
+            if (selector.DigestPrefix is { Length: > 0 })
+                memberDigest = selector.DigestPrefix;
+            if (selector.OverloadIndex is { } index)
                 overloadIndex = index;
-            }
+            members[i] = selector.Name;
         }
 
         return (dottedTypeFilter, overloadIndex, memberDigest, kindFilter);

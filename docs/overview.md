@@ -44,6 +44,7 @@ Agents working in this repo should preserve these principles:
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.
 - [Member Index](design/member-index.md): overload selector and digest contract.
+- [Member target resolution](design/member-target-resolution.md): typed member selector, anchor, and body-target resolution.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

@@ -28,6 +28,46 @@ public static class ApiMemberIdentity
     public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
         => new(type, member, GetMemberAnchor(type, member));
 
+    public static string GetMemberSignatureSortKey(ApiMember member)
+    {
+        var signature = member.Signature ?? "";
+        if (signature.Length == 0 || member.Name.Length == 0)
+            return signature;
+
+        var searchStart = 0;
+        while (searchStart < signature.Length)
+        {
+            var nameIndex = signature.IndexOf(member.Name, searchStart, StringComparison.Ordinal);
+            if (nameIndex < 0)
+                return signature;
+
+            var genericStart = nameIndex + member.Name.Length;
+            if (genericStart < signature.Length && signature[genericStart] == '<')
+            {
+                var depth = 0;
+                for (var i = genericStart; i < signature.Length; i++)
+                {
+                    if (signature[i] == '<')
+                        depth++;
+                    else if (signature[i] == '>')
+                    {
+                        depth--;
+                        if (depth == 0)
+                        {
+                            if (i + 1 < signature.Length && signature[i + 1] == '(')
+                                return signature.Remove(genericStart, i - genericStart + 1);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            searchStart = nameIndex + member.Name.Length;
+        }
+
+        return signature;
+    }
+
     public static MemberAnchor GetMemberAnchor(ApiType type, ApiMember member)
         => CreateAnchor(type, member, GetCanonicalSignature(type, member));
 

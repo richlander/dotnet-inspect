@@ -147,90 +147,38 @@ public static class MemberCommand
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
             }
 
-            var digestSelected = false;
-
-            // Name~digest: select a specific overload by canonical member digest.
-            if (!string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest))
+            if (effectiveOptions.OverloadIndex.HasValue
+                || !string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest))
             {
-                if (effectiveOptions.OverloadIndex.HasValue)
-                {
-                    Console.Error.WriteLine("Error: digest selector cannot be combined with --index/Name:N.");
-                    return 1;
-                }
-
                 if (effectiveOptions.MemberFilter.Count != 1)
                 {
-                    Console.Error.WriteLine("Error: Name~digest requires exactly one member name.");
+                    Console.Error.WriteLine(string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
+                        ? "Error: --index/Name:N requires exactly one member name."
+                        : "Error: Name~digest requires exactly one member name.");
                     return 1;
                 }
 
                 var memberName = effectiveOptions.MemberFilter.First();
-                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
-                var displayOverloads = overloads
-                    .OrderBy(m => m.Name, StringComparer.Ordinal)
-                    .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
-                    .ToList();
-                var rows = ApiOutputFormatter.BuildMemberIndexRows(apiType, displayOverloads);
-                var matches = rows
-                    .Select((row, index) => (row, index))
-                    .Where(item => item.row.Digest.StartsWith(effectiveOptions.MemberDigest, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (matches.Count == 0)
+                var selector = new MemberTargetSelector(
+                    memberName,
+                    memberName,
+                    effectiveOptions.OverloadIndex,
+                    effectiveOptions.MemberDigest);
+                var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
+                if (memberResolution.Diagnostic is { } diagnostic)
                 {
-                    Console.Error.WriteLine($"Error: No overload of {memberName} matches digest '{effectiveOptions.MemberDigest}'. Use -S \"Member Index\" to list digests.");
+                    diagnostic.WriteError(Console.Error);
                     return 1;
                 }
 
-                if (matches.Count > 1)
-                {
-                    Console.Error.WriteLine($"Error: Digest '{effectiveOptions.MemberDigest}' is ambiguous. Use a longer digest prefix:");
-                    foreach (var (row, _) in matches)
-                        Console.Error.WriteLine($"  {row.Stable}  {row.CanonicalSignature}");
-                    return 1;
-                }
-
-                var selected = displayOverloads[matches[0].index];
+                var target = memberResolution.Target!;
+                var selected = target.ApiMember.Member;
                 apiType.Members = [selected];
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
                     DllPath = detailDllPath,
-                    OverloadIndex = overloads.IndexOf(selected) + 1
-                };
-                digestSelected = true;
-            }
-
-            // --index: select a specific overload and show IL
-            if (effectiveOptions.OverloadIndex.HasValue && !digestSelected)
-            {
-                if (effectiveOptions.MemberFilter.Count != 1)
-                {
-                    Console.Error.WriteLine("Error: --index/Name:N requires exactly one member name.");
-                    return 1;
-                }
-
-                var memberName = effectiveOptions.MemberFilter.First();
-                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
-                var displayOverloads = overloads
-                    .OrderBy(m => m.Name, StringComparer.Ordinal)
-                    .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
-                    .ToList();
-
-                int idx = effectiveOptions.OverloadIndex.Value;
-                if (idx < 1 || idx > overloads.Count)
-                {
-                    Console.Error.WriteLine($"Error: {memberName}:{idx} is out of range. Use {memberName}:1 through {memberName}:{overloads.Count}.");
-                    return 1;
-                }
-
-                var selected = displayOverloads[idx - 1];
-                apiType.Members = [selected];
-                var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
-                effectiveOptions = effectiveOptions with
-                {
-                    DllPath = detailDllPath,
-                    OverloadIndex = overloads.IndexOf(selected) + 1
+                    OverloadIndex = target.Body?.DeclaringOverloadIndex ?? target.DeclaringOverloadIndex
                 };
             }
 
@@ -527,13 +475,12 @@ public static class MemberCommand
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
-    {
-        var members = apiType.Members
-            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase));
-        if (options.KindFilter.Count > 0)
-            members = members.Where(m => options.KindFilter.Contains(m.Kind));
-        return members.ToList();
-    }
+        => MemberTargetResolver.GetCandidates(
+                apiType,
+                new MemberTargetSelector(memberName, memberName),
+                options.KindFilter)
+            .Select(candidate => candidate.Member)
+            .ToList();
 
     private static string GetMemberSectionName(string kind) => kind switch
     {

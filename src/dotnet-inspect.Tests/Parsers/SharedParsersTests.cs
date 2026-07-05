@@ -316,6 +316,19 @@ public class SharedParsersTests
     }
 
     [Fact]
+    public void ProcessMemberArguments_ExtractsDottedKindQualifiedSelector()
+    {
+        var members = new[] { "DateTime.operator:op_Addition:1" };
+        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Equal("DateTime", typeFilter);
+        Assert.Equal("op_Addition", members[0]);
+        Assert.Equal(1, overloadIndex);
+        Assert.Null(memberDigest);
+        Assert.Contains("operator", kindFilter);
+    }
+
+    [Fact]
     public void ProcessMemberArguments_ExtractsDigestSelector()
     {
         var members = new[] { "JsonSerializer.Deserialize~abc123" };
