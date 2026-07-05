@@ -40,13 +40,17 @@ public sealed partial class CSharpPrinter
     int _unsafeDepth;
 
     readonly PrinterOptions _options;
+    readonly HashSet<string> _reservedScopeNames;
 
-    CSharpPrinter(IrFunction function, PrinterOptions? options = null)
+    CSharpPrinter(IrFunction function, PrinterOptions? options = null, IEnumerable<string>? reservedScopeNames = null)
     {
         _function = function;
         _options = options ?? PrinterOptions.Default;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
         _skipLocalsInit = function.SkipLocalsInit;
+        _reservedScopeNames = reservedScopeNames is null
+            ? []
+            : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
     }
 
     // The output-path pass context: stepping off, plus the optional cross-method
@@ -455,7 +459,7 @@ public sealed partial class CSharpPrinter
         int switchIndex = 0;
         foreach (var switchBranch in DescendantsOutsideNestedFunctions(function).OfType<SwitchBranch>())
         {
-            string name = $"__dotnet_inspect_switch{switchIndex++}";
+            string name = ReserveName($"__dotnet_inspect_switch{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
             yield return $"int {name} = default;";
         }
@@ -559,6 +563,7 @@ public sealed partial class CSharpPrinter
             _stackSlotStoreTypes[store] = StackSlotRenderType(store.Slot, store.Value.ResultType);
 
         var ordinals = new Dictionary<int, int>();
+        var takenNames = CurrentReservedNames(includeLocals: true);
 
         string NameFor(int slot, TypeRef? type)
         {
@@ -568,7 +573,8 @@ public sealed partial class CSharpPrinter
 
             int ordinal = ordinals.GetValueOrDefault(slot);
             ordinals[slot] = ordinal + 1;
-            string name = ordinal == 0 ? $"S_{slot}" : $"S_{slot}_{ordinal}";
+            string baseName = ordinal == 0 ? $"S_{slot}" : $"S_{slot}_{ordinal}";
+            string name = ReserveName(baseName, takenNames);
             _stackSlotNames[key] = name;
             _stackSlotDeclarations[(slot, ordinal)] = (name, type);
             return name;
@@ -768,6 +774,38 @@ public sealed partial class CSharpPrinter
         return _stackSlotNames.TryGetValue(new StackSlotRenderKey(store.Slot, StackSlotTypeKey(type)), out var name)
             ? name
             : $"S_{store.Slot}";
+    }
+
+    IReadOnlySet<string> CurrentScopeNames()
+    {
+        var names = CurrentReservedNames(includeLocals: true);
+        foreach (var (_, (name, _)) in _stackSlotDeclarations)
+            names.Add(name);
+        foreach (var name in _switchTemps.Values)
+            names.Add(name);
+        return names;
+    }
+
+    HashSet<string> CurrentReservedNames(bool includeLocals = false)
+    {
+        var names = new HashSet<string>(_reservedScopeNames, StringComparer.Ordinal);
+        foreach (var parameter in _function.Signature.Parameters)
+            names.Add(parameter.Name);
+        foreach (var nested in _function.Descendants.OfType<Lambda>())
+            foreach (var parameter in nested.Parameters)
+                names.Add(parameter.Name);
+        foreach (var nested in _function.Descendants.OfType<LocalFunctionStatement>())
+        {
+            names.Add(nested.Name);
+            foreach (var parameter in nested.Parameters)
+                names.Add(parameter.Name);
+        }
+        if (includeLocals)
+        {
+            for (int i = 0; i < _function.Locals.Length; i++)
+                names.Add(LocalName(i));
+        }
+        return names;
     }
 
     /// <summary>
@@ -1132,7 +1170,7 @@ public sealed partial class CSharpPrinter
         };
 
         string pad = new(' ', indent * 4);
-        foreach (var line in new CSharpPrinter(function).PrintBody(function).TrimEnd().Split(Environment.NewLine))
+        foreach (var line in new CSharpPrinter(function, _options, CurrentScopeNames()).PrintBody(function).TrimEnd().Split(Environment.NewLine))
             sb.Append(pad).AppendLine(line);
     }
 
@@ -2909,9 +2947,7 @@ public sealed partial class CSharpPrinter
             for (int i = 0; i < count; i++)
                 display[i] = $"V_{i}";
 
-            var taken = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var parameter in _function.Signature.Parameters)
-                taken.Add(parameter.Name);
+            var taken = CurrentReservedNames();
 
             var names = _function.LocalNames;
             if (!names.IsDefaultOrEmpty)
@@ -2942,12 +2978,31 @@ public sealed partial class CSharpPrinter
                     {
                         display[i] = synthesized;
                         taken.Add(synthesized);
+                        sourceNamed[i] = true;
                     }
                 }
+            }
+            for (int i = 0; i < count; i++)
+            {
+                if (sourceNamed[i])
+                    continue;
+                display[i] = ReserveName(display[i], taken);
             }
             _localDisplayNames = display;
         }
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+    }
+
+    static string ReserveName(string baseName, HashSet<string> taken)
+    {
+        if (taken.Add(baseName))
+            return baseName;
+        for (int i = 1; ; i++)
+        {
+            string candidate = $"{baseName}_{i}";
+            if (taken.Add(candidate))
+                return candidate;
+        }
     }
 
     /// <summary>
