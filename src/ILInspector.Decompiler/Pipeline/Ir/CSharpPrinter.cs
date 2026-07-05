@@ -2487,14 +2487,19 @@ public sealed partial class CSharpPrinter
 
         // Sides are condition positions: Condition() owns truthiness (a
         // string operand spells 'is not null', never '!value') and the
-        // negation folds. Same-kind chains associate bare; mixed kinds
-        // and ternaries parenthesize.
+        // negation folds. Same-kind chains associate bare; mixed-kind
+        // LogicalBinary parenthesizes. Any other side renders at the
+        // operator's demand — a ternary or `??` (or one hidden behind a stale
+        // Coerce/Convert, the #2345/#2376 blind spot) is looser than `&&`/`||`
+        // and must parenthesize, while comparisons and unary forms out-bind it
+        // and stay bare (#2376 round-2: the enum/bool truthiness compositions
+        // share the one precedence rule, not just BoolToInteger).
+        var demand = logical.Kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
         string Side(IrExpression side) => side switch
         {
             LogicalBinary nested when nested.Kind == logical.Kind => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
-            Conditional => $"({Expression(side)})",
-            _ => Condition(side),
+            _ => RenderedCondition(side).At(demand),
         };
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
         return $"{Side(logical.Left)} {op} {Side(logical.Right)}";

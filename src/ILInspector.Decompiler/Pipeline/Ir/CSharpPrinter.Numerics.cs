@@ -264,7 +264,7 @@ public sealed partial class CSharpPrinter
         if (enumSide is null || !IsEnumLikeInteger(enumSide))
             return null;
         if (TypeFamilies.IsBoolean(EffectiveType(value)))
-            return CheckedSafeEnumCast(value, enumSide, () => $"({TypeText(enumSide)})({Condition(value)} ? 1 : 0)");
+            return CheckedSafeEnumCast(value, enumSide, () => $"({TypeText(enumSide)})({RenderedCondition(value).At(Precedence.NullCoalescing)} ? 1 : 0)");
         if (value.ResultType is not { } valueType || !TypeFamilies.IsIntegerLike(valueType))
             return null;
         return value is Constant { Value: int or long } konst
