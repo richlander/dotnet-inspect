@@ -31,13 +31,7 @@
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderIterator/ILInspector.Decompiler.Fixtures.LadderIterator.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung1/ILInspector.Decompiler.Fixtures.LadderRung1.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung2/ILInspector.Decompiler.Fixtures.LadderRung2.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung3/ILInspector.Decompiler.Fixtures.LadderRung3.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung4/ILInspector.Decompiler.Fixtures.LadderRung4.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung5/ILInspector.Decompiler.Fixtures.LadderRung5.csproj" />
-    <Project Path="src/ILInspector.Decompiler.Fixtures.LadderRung9/ILInspector.Decompiler.Fixtures.LadderRung9.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.Ladder/ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainA/ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
