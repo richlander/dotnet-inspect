@@ -127,8 +127,10 @@ dotnet "$DLL" --leak-triage assemblies.txt --jsonl          # one heterogeneous 
 The card has five sections — a **Summary** (assemblies / opened / failed / timed out / total
 findings / total candidates), a **By shape** histogram (`arraypool-rent-not-returned`,
 `arraypool-use-after-return`, `arraypool-double-return`), **Findings** (assembly / shape / method,
-`--top` bounding examples per assembly), **Candidate buckets**, and **Candidates**. Candidate
-buckets are not product findings; they measure recall gates such as
+`--top` bounding examples per assembly), **Candidate buckets**, and **Candidates**. In structured
+output, **Candidates** also carries the analyzer evidence plus the rent and use offsets (`rent_offset`
+/ `il_offset` in JSONL) so precision samples can jump directly to the relevant IL. Candidate buckets
+are not product findings; they measure recall gates such as
 `normal-path-leak-candidate`, `exception-path-leak-candidate`,
 `use-after-return-candidate`, `ownership-transfer-suppressed`,
 `alias-or-field-suppressed`, `cross-method-suppressed`, and
