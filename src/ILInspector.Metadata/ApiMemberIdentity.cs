@@ -162,8 +162,8 @@ public static class ApiMemberIdentity
         string typeFullName = FormatDefinitionName(reader, typeHandle);
         string memberName = MethodMemberName(reader, methodName, method);
         string canonicalSignature = $"M:{typeFullName}.{memberName}({string.Join(",", signature.ParameterTypes)})";
-        // Conversion operators overload on return type; disambiguate them here too so this
-        // SRM-direct anchor producer matches TryGetCanonicalSignature and does not collide.
+        // Conversion operators overload on return type; apply the same disambiguation rule
+        // here so this SRM-direct anchor producer does not collide (its own full-name vocabulary).
         if (IsConversionOperator(methodName) && !string.IsNullOrWhiteSpace(signature.ReturnType))
             canonicalSignature += $"~{signature.ReturnType}";
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
@@ -250,7 +250,12 @@ public static class ApiMemberIdentity
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
         var parameters = ExtractCanonicalParameterList(signature);
-        return $"{kindCode}:{declaringType}.{memberName}{parameters}";
+        var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
+        // Mirror the conversion-operator return-type disambiguation so member identity
+        // is not dependent on whether SignatureModel was populated (the Try path above).
+        if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(member.ReturnType))
+            canonical += $"~{NormalizeCanonicalCommas(member.ReturnType!)}";
+        return canonical;
     }
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
