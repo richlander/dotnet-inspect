@@ -361,6 +361,57 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerArithmeticReceiver_ParenthesizesBeforeMemberAccess()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var p = new LoadArgument(0, "p", pointPointer);
+        var next = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            p,
+            new Constant(4, Int32));
+        var field = new FieldRef(point, "X", Int32);
+        var indexer = new MethodRef(point, "get_Item", Int32, [Int32], HasThis: true);
+        var method = new MethodRef(point, "M", Int32, [], HasThis: true);
+        var sum = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadField(field, next),
+                new LoadProperty(indexer, (IrExpression)next.Clone(), [new Constant(1, Int32)])),
+            new Call(method, isVirtual: false, [(IrExpression)next.Clone()]));
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerArithmeticReceiver",
+            Int32,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(sum))).Output!;
+
+        Assert.Contains("((Point*)((byte*)p + 4))->X", body);
+        Assert.Contains("(*((Point*)((byte*)p + 4)))[1]", body);
+        Assert.Contains("((Point*)((byte*)p + 4))->M()", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(Point* p)",
+                body,
+                """
+                public struct Point
+                {
+                    public int X;
+                    public int this[int i] => X + i;
+                    public int M() => X;
+                }
+                """),
+            body);
+    }
+
+    [Fact]
     public void Rung6PointerInheritedObjectMethod_RendersArrowAndRecompiles()
     {
         var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);

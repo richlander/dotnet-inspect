@@ -62,7 +62,7 @@ public sealed partial class CSharpPrinter
     string? PointerReceiver(IrExpression? instance)
     {
         return instance?.ResultType is { Kind: TypeRefKind.Pointer }
-            ? Operand(instance)
+            ? new Rendered(Expression(instance), CSharpPrecedence.Of(instance)).At(Precedence.Unary)
             : null;
     }
 
