@@ -23,6 +23,28 @@ Diagnostics are typed (`MemberTargetDiagnosticKind`) and include candidate
 anchors for ambiguous or out-of-range selections. CLI commands should render the
 diagnostic instead of falling back to partial string matching.
 
+## Identity ownership
+
+Member identity has two related vocabularies:
+
+- **API identity** is owned by `ILInspector.Metadata.ApiMemberIdentity`. It
+  creates `MemberAnchor` values, selector prefixes (`operator:`, `explicit:`,
+  `extension:`), canonical signatures, and stable selector fingerprints. Product
+  producers such as C# body diff should call this layer instead of building
+  anchors locally.
+- **Body identity** is owned by `ILInspector.Research.ResearchMemberIdentity`.
+  It formats `MethodIdentity` subjects and API-derived `ResolvedMemberTarget`
+  body aliases through one body canonicalization path. Body identity deliberately
+  has a different type-name vocabulary from API identity because it mirrors
+  `LibraryBodyIndex`/`MethodIdentity` evidence.
+
+Conversion operators are a special API-identity case: C# overloads
+`op_Implicit`, `op_Explicit`, and `op_CheckedExplicit` by return type. Their
+API canonical signatures therefore include the DocId-style return suffix
+`~ReturnType`, for example
+`M:System.Decimal.op_Explicit(System.Decimal)~int`. Without the suffix, all
+conversions with the same source parameter collapse to one anchor digest.
+
 ## Boundaries
 
 - Lexical command helpers may still identify source/type/member argument slots,
@@ -37,3 +59,7 @@ diagnostic instead of falling back to partial string matching.
   references remain producer evidence and should not be replaced by selectors.
 - The resolver lives in `ILInspector.Metadata`, so it stays SRM-only and has no
   decompiler dependency.
+- Do not add local selector, canonical-signature, fingerprint, or
+  anchor-construction helpers in producers. Add or extend the owning identity
+  layer instead, then cover the bridge with a round-trip or alias-vs-subject
+  test.
