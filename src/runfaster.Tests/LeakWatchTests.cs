@@ -104,6 +104,59 @@ public class LeakWatchTests
     }
 
     [Fact]
+    public void Analyze_CollectionBeforeLaterGrowth_IsManagedRetention_NotHealthy()
+    {
+        // A gen2 collection early, then the live heap grows monotonically past its old
+        // peak: the early collection must NOT count as reclaiming the later growth.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 600 * MB, 400 * MB, 300 * MB, gen2Collections: 1),
+            Sample(2, 900 * MB, 700 * MB, 600 * MB),
+            Sample(4, 1400 * MB, 1200 * MB, 1100 * MB),
+            Sample(6, 1900 * MB, 1700 * MB, 1600 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.ManagedRetention, result.Verdict);
+        Assert.False(result.HeapReclaimedByGen2);
+    }
+
+    [Fact]
+    public void Analyze_StableHighNativeBaseline_IsHealthy_NotGrowth()
+    {
+        // Large fixed gap between working set and live heap, but flat: a native/committed
+        // baseline, not growth. Must not be flagged NativeOrCommittedGrowth.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 1 * GB, 100 * MB, 80 * MB),
+            Sample(2, 1 * GB, 100 * MB, 80 * MB),
+            Sample(4, 1 * GB, 100 * MB, 80 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.Healthy, result.Verdict);
+    }
+
+    [Fact]
+    public void Analyze_LeakFromNearZeroHeap_IsManagedRetention()
+    {
+        // A leak that starts from a near-empty heap must still be caught (no
+        // multiply-by-zero blind spot in the growth test).
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 60 * MB, 4 * MB, 2 * MB),
+            Sample(2, 700 * MB, 640 * MB, 600 * MB),
+            Sample(4, 1400 * MB, 1300 * MB, 1200 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.ManagedRetention, result.Verdict);
+    }
+
+    [Fact]
     public void CountersCsv_ParsesGroupedTimestampsAndComputesLiveHeap()
     {
         var lines = new[]

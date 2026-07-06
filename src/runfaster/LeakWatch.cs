@@ -98,37 +98,46 @@ static class LeakWatchAnalyzer
         int gen2Collections = (int)Math.Round(samples.Sum(s => s.Gen2CollectionsInWindow));
         int threadGrowth = samples.Max(s => s.Threads) - samples[0].Threads;
 
-        // A gen2 collection is evidenced either by the collections-rate counter firing
-        // or by the last-collection gen2 size dropping below the running maximum.
-        long runningGen2Max = long.MinValue;
-        int lastGen2CollectionIndex = -1;
-        long gen2HighWater = 0;
-        long gen2AfterLowest = long.MaxValue;
-        for (int i = 0; i < samples.Count; i++)
+        long reclaimThreshold = (long)(thresholds.RetainedGapBytes / 4);
+
+        // Index of the live-heap high-water mark. "Reclaimed" only counts if the TOTAL
+        // live heap (not just gen2) falls substantially AFTER that peak — a collection
+        // that fired before later monotonic growth must not mask a real leak.
+        int liveHeapPeakIndex = 0;
+        for (int i = 1; i < samples.Count; i++)
         {
-            var s = samples[i];
-            gen2HighWater = Math.Max(gen2HighWater, s.Gen2);
-            bool collected = s.Gen2CollectionsInWindow > 0
-                || (runningGen2Max != long.MinValue && s.Gen2 < runningGen2Max - thresholds.RetainedGapBytes / 4);
-            if (collected)
-            {
-                lastGen2CollectionIndex = i;
-                gen2AfterLowest = Math.Min(gen2AfterLowest, s.Gen2);
-            }
-            runningGen2Max = Math.Max(runningGen2Max, s.Gen2);
+            if (samples[i].LiveHeap > samples[liveHeapPeakIndex].LiveHeap)
+                liveHeapPeakIndex = i;
         }
 
-        bool heapReclaimedByGen2 = lastGen2CollectionIndex >= 0
-            && gen2AfterLowest < gen2HighWater - thresholds.RetainedGapBytes / 4;
+        bool heapReclaimedAfterPeak = false;
+        int reclaimIndex = -1;
+        long liveHeapFloorAfterPeak = liveHeapPeak;
+        for (int i = liveHeapPeakIndex + 1; i < samples.Count; i++)
+        {
+            if (samples[i].LiveHeap < liveHeapPeak - reclaimThreshold)
+            {
+                heapReclaimedAfterPeak = true;
+                if (samples[i].LiveHeap < liveHeapFloorAfterPeak)
+                {
+                    liveHeapFloorAfterPeak = samples[i].LiveHeap;
+                    reclaimIndex = i;
+                }
+            }
+        }
+        bool gen2CollectionObserved = samples.Any(s => s.Gen2CollectionsInWindow > 0);
+        bool heapReclaimedByGen2 = heapReclaimedAfterPeak;
 
-        // The working-set floor and the live heap after the last observed gen2
-        // collection: does RSS follow the heap down?
-        long retainedFloorAfterGen2 = wsLast;
-        long liveHeapAtFloor = liveHeapLast;
-        if (lastGen2CollectionIndex >= 0)
+        // The working-set floor after the live-heap was reclaimed: does RSS follow the
+        // heap down? Only meaningful when a reclaim was actually observed; otherwise the
+        // relevant gap is simply the end-of-window gap.
+        long retainedFloorAfterGen2;
+        long liveHeapAtFloor;
+        if (reclaimIndex >= 0)
         {
             retainedFloorAfterGen2 = long.MaxValue;
-            for (int i = lastGen2CollectionIndex; i < samples.Count; i++)
+            liveHeapAtFloor = liveHeapLast;
+            for (int i = reclaimIndex; i < samples.Count; i++)
             {
                 if (samples[i].WorkingSet < retainedFloorAfterGen2)
                 {
@@ -137,9 +146,21 @@ static class LeakWatchAnalyzer
                 }
             }
         }
+        else
+        {
+            retainedFloorAfterGen2 = wsLast;
+            liveHeapAtFloor = liveHeapLast;
+        }
+
+        // Working set must actually GROW over the window for a growth verdict; a stable
+        // high native baseline (large gap but flat) is not growth.
+        bool workingSetGrew = wsPeak >= wsFirst + thresholds.RetainedGapBytes;
 
         double gapRatio = liveHeapPeak > 0 ? (double)wsPeak / liveHeapPeak : 0;
         long retainedGap = retainedFloorAfterGen2 - liveHeapAtFloor;
+        string afterCollectionClause = heapReclaimedByGen2 || gen2CollectionObserved
+            ? " after a gen2 collection reclaimed the heap"
+            : "";
 
         var notes = ImmutableArray.CreateBuilder<string>();
         notes.Add($"Working set: {Fmt(wsFirst)} → peak {Fmt(wsPeak)} → {Fmt(wsLast)} over {duration:F0}s.");
@@ -150,46 +171,51 @@ static class LeakWatchAnalyzer
         if (threadGrowth > 0)
             notes.Add($"Thread count grew by {threadGrowth} over the window.");
 
-        // Decision order: a genuine managed leak (heap not reclaimed) is the most
-        // serious; then RSS-not-returned after a real reclaim; then a collectible
-        // churn storm; else healthy.
+        // Decision order: a genuine managed leak (heap grows and is NOT reclaimed) is
+        // the most serious; then RSS-not-returned while the working set grows; then a
+        // collectible churn storm; else healthy. All growth verdicts require the
+        // working set (or live heap) to actually grow — a stable high baseline is not a
+        // leak.
         LeakWatchVerdict verdict;
         string headline;
 
-        bool liveHeapGrew = liveHeapLast > liveHeapFirst * thresholds.ManagedGrowthFactor
-            && liveHeapPeak > liveHeapFirst * thresholds.ManagedGrowthFactor;
+        // Growth relative to a small floor so a heap that starts near zero is not missed.
+        long liveHeapBase = Math.Max(liveHeapFirst, 16L * 1024 * 1024);
+        bool liveHeapGrew = liveHeapPeak > liveHeapBase * thresholds.ManagedGrowthFactor
+            && liveHeapPeak - liveHeapFirst >= thresholds.RetainedGapBytes;
         bool highChurn = duration > 0 && pauseFraction >= thresholds.PauseFraction;
 
         if (liveHeapGrew && !heapReclaimedByGen2)
         {
             verdict = LeakWatchVerdict.ManagedRetention;
-            headline = $"Managed retention: live GC heap grew to {Fmt(liveHeapPeak)} and a gen2 collection did not reclaim it — a managed leak. Capture a gcdump and inspect the top retained types.";
+            headline = $"Managed retention: live GC heap grew to {Fmt(liveHeapPeak)} and no collection reclaimed it — a managed leak. Capture a gcdump and inspect the top retained types.";
             notes.Add("The growth is on the managed heap and survives collection: this is the class the static ArrayPool leak-triage targets, and a gcdump will name the retained roots.");
         }
-        else if (gapRatio >= thresholds.GapRatio && retainedGap >= thresholds.RetainedGapBytes)
+        else if (workingSetGrew && gapRatio >= thresholds.GapRatio && retainedGap >= thresholds.RetainedGapBytes)
         {
             verdict = LeakWatchVerdict.NativeOrCommittedGrowth;
-            headline = $"Native/committed growth: working set peaked at {Fmt(wsPeak)} ({gapRatio:F1}× the {Fmt(liveHeapPeak)} live-heap peak) and stayed {Fmt(retainedGap)} above the live heap after a gen2 collection. RSS is not following the heap down — native allocation or GC-committed regions returned to the OS lazily.";
+            headline = $"Native/committed growth: working set grew to {Fmt(wsPeak)} ({gapRatio:F1}× the {Fmt(liveHeapPeak)} live-heap peak) and stayed {Fmt(retainedGap)} above the live heap{afterCollectionClause}. RSS is not following the heap down — native allocation or GC-committed regions returned to the OS lazily.";
             if (heapReclaimedByGen2)
-                notes.Add($"A gen2 collection reclaimed the managed heap (to ~{Fmt(gen2AfterLowest)} gen2), but the working set held {Fmt(retainedFloorAfterGen2)} — the gap is off the managed heap.");
+                notes.Add($"The live heap fell to {Fmt(liveHeapFloorAfterPeak)} after its peak, but the working set held {Fmt(retainedFloorAfterGen2)} — the gap is off the managed heap.");
+            else
+                notes.Add("No collection was observed reclaiming the heap in this window; the gap is measured at the end of the sample. A longer sample (spanning a gen2 collection) or a gcdump confirms whether the managed heap is collectible.");
             if (highChurn)
                 notes.Add("High allocation churn + GC pause alongside this suggests an allocation storm (e.g. heavy parallel work) driving both promotion and committed growth; reducing allocation rate / parallelism typically shrinks the footprint.");
         }
         else if (highChurn && heapReclaimedByGen2)
         {
             verdict = LeakWatchVerdict.ChurnStorm;
-            headline = $"Churn storm (collectible): {Fmt(totalAllocated)} allocated with {pauseFraction * 100:F0}% GC pause, but a gen2 collection reclaims the heap — high allocation rate, not a leak. Reduce allocation rate or parallelism.";
+            headline = $"Churn storm (collectible): {Fmt(totalAllocated)} allocated with {pauseFraction * 100:F0}% GC pause, but a collection reclaims the heap — high allocation rate, not a leak. Reduce allocation rate or parallelism.";
             notes.Add("An allocation-rate join would rank the hot allocators here, but the heap is collectible: this is churn, not retention.");
-        }
-        else if (gapRatio >= thresholds.GapRatio)
-        {
-            verdict = LeakWatchVerdict.NativeOrCommittedGrowth;
-            headline = $"Elevated footprint: working set ({Fmt(wsPeak)}) ran {gapRatio:F1}× the live-heap peak ({Fmt(liveHeapPeak)}). Watch for native or GC-committed growth; a longer sample or a gcdump will confirm whether it is retained.";
         }
         else
         {
             verdict = LeakWatchVerdict.Healthy;
-            headline = $"Healthy: working set ({Fmt(wsPeak)} peak) tracks the live heap ({Fmt(liveHeapPeak)} peak); no retention or native-growth signature.";
+            headline = workingSetGrew
+                ? $"No leak signature: working set grew to {Fmt(wsPeak)} but tracks the live heap ({Fmt(liveHeapPeak)} peak) — no retention or native-growth gap."
+                : $"Healthy: working set ({Fmt(wsPeak)} peak) is stable and tracks the live heap ({Fmt(liveHeapPeak)} peak); no growth signature.";
+            if (!workingSetGrew && gapRatio >= thresholds.GapRatio)
+                notes.Add($"The working set sits {gapRatio:F1}× above the live heap but is stable (not growing): a fixed native/committed baseline, not a leak.");
         }
 
         return new LeakWatchResult(
