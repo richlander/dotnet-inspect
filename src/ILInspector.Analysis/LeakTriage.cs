@@ -108,9 +108,15 @@ public static class LeakTriageAnalyzer
         if (il.Length == 0)
             return Empty;
 
+        bool hasArrayPoolRent = false;
         try
         {
             var instructions = InstructionDecoder.Decode(il);
+            var calls = BuildCallMap(instructions, resolveMethod);
+            hasArrayPoolRent = calls.Values.Any(IsArrayPoolRent);
+            if (!hasArrayPoolRent)
+                return Empty;
+
             var graph = BlockGraph.Build(il.Length, instructions, exceptionRegions);
             if (!graph.IsComplete)
                 return Suppressed(method, "incomplete-cfg-or-rd-suppressed", graph.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
@@ -119,7 +125,6 @@ public static class LeakTriageAnalyzer
             if (!reaching.IsComplete)
                 return Suppressed(method, "incomplete-cfg-or-rd-suppressed", reaching.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
 
-            var calls = BuildCallMap(instructions, resolveMethod);
             var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
             var rents = FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
             if (rents.Length == 0)
@@ -133,7 +138,9 @@ public static class LeakTriageAnalyzer
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
-            return Suppressed(method, "incomplete-cfg-or-rd-suppressed", ex.Message, null, null);
+            return hasArrayPoolRent
+                ? Suppressed(method, "incomplete-cfg-or-rd-suppressed", ex.Message, null, null)
+                : Empty;
         }
     }
 
@@ -179,6 +186,8 @@ public static class LeakTriageAnalyzer
                     ambiguous = true;
                     break;
             }
+            if (ambiguous)
+                break;
         }
 
         if (ambiguous)

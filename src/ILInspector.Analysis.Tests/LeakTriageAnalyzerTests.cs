@@ -120,7 +120,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
-    public void DetailedAnalysis_IncompleteDataflow_IsSuppressedBucket()
+    public void DetailedAnalysis_IncompleteDataflowWithoutRent_HasNoSuppressedBucket()
     {
         byte[] externalBranch = [0x2B, 0x7F, 0x2A]; // br.s outside the method, then ret
         var method = new MethodIdentity(
@@ -140,7 +140,23 @@ public sealed class LeakTriageAnalyzerTests
             _ => MemberRef.Unsupported("not used"));
 
         Assert.Empty(result.Findings);
-        AssertCandidate(result, "Malformed", "incomplete-cfg-or-rd-suppressed");
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void DetailedAnalysis_IncompleteDataflowWithRent_IsSuppressedBucket()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x2B, 0x7F,
+            0x2A,
+        ], []);
+
+        Assert.Empty(result.Findings);
+        AssertCandidate(result, nameof(Synthetic), "incomplete-cfg-or-rd-suppressed");
     }
 
     [Fact]
