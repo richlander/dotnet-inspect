@@ -162,6 +162,10 @@ public static class ApiMemberIdentity
         string typeFullName = FormatDefinitionName(reader, typeHandle);
         string memberName = MethodMemberName(reader, methodName, method);
         string canonicalSignature = $"M:{typeFullName}.{memberName}({string.Join(",", signature.ParameterTypes)})";
+        // Conversion operators overload on return type; disambiguate them here too so this
+        // SRM-direct anchor producer matches TryGetCanonicalSignature and does not collide.
+        if (IsConversionOperator(methodName) && !string.IsNullOrWhiteSpace(signature.ReturnType))
+            canonicalSignature += $"~{signature.ReturnType}";
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
         return CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature);
     }
