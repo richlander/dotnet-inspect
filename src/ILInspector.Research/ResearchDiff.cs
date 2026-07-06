@@ -780,11 +780,17 @@ public static class ResearchDiff
         LibraryBodyIndex oldIndex,
         LibraryBodyIndex newIndex,
         IReadOnlySet<string>? memberTargetIdentities = null)
-        => oldIndex.Methods.Concat(newIndex.Methods)
+    {
+        var oldGeneratedFrameworkTypes = oldIndex.GeneratedFrameworkTypeNames;
+        var newGeneratedFrameworkTypes = newIndex.GeneratedFrameworkTypeNames;
+        return oldIndex.Methods
+            .Where(method => !IsGeneratedMethod(method, oldGeneratedFrameworkTypes))
+            .Concat(newIndex.Methods.Where(method => !IsGeneratedMethod(method, newGeneratedFrameworkTypes)))
             .Select(method => (Key: BodySignalMethodKey(method), Subject: SubjectFromMethod(method)))
             .Where(entry => MatchesMemberTargets(entry.Subject, memberTargetIdentities))
             .GroupBy(entry => entry.Key, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Last().Subject, StringComparer.Ordinal);
+    }
 
     static bool MatchesMemberTargets(ResearchSubjectKey subject, IReadOnlySet<string>? memberTargetIdentities)
         => memberTargetIdentities is null
