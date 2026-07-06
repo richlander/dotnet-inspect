@@ -503,6 +503,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
+            var context = PassContext.ForImport(ImportSeam(source));
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
@@ -510,7 +511,7 @@ static class Program
                 // block terminator there); the passes flatten it on a failed raise,
                 // so keep a pre-pass copy when --by-shape is requested.
                 IrFunction? prePass = byShape ? (IrFunction)function.Clone() : null;
-                try { IrPasses.Run(function); }
+                try { IrPasses.Run(function, IrPasses.Default, context); }
                 catch (Exception ex)
                 {
                     crashes++;
@@ -596,12 +597,13 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
+            var context = PassContext.ForImport(ImportSeam(source));
             foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
                 try
                 {
-                    IrPasses.Run(function);
+                    IrPasses.Run(function, IrPasses.Default, context);
                 }
                 catch (Exception ex)
                 {
@@ -763,13 +765,14 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
+            var importMethodBody = ImportSeam(source);
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 if (total >= cap) { capped = true; break; }
                 total++;
 
                 var diagnostics = new StructuringDiagnostics();
-                var context = new PassContext(new Stepper(enabled: false), diagnostics);
+                var context = new PassContext(new Stepper(enabled: false), diagnostics, importMethodBody);
                 try
                 {
                     IrPasses.Run(function, IrPasses.Default, context);
@@ -873,11 +876,11 @@ static class Program
     }
 
     /// <summary>
-    /// The cross-method import seam for the single-method diagnostic dumps: lets
-    /// cross-method passes (classic-async / iterator / lambda / local-function
-    /// reconstruction) pull in sibling bodies so the dump matches the shipped
-    /// product output. Mirrors the delegate the product path wires in
-    /// <c>TypeSourceComposer</c>.
+    /// The cross-method import seam for harness runs that model shipped product
+    /// semantics: lets cross-method passes (classic-async / iterator / lambda /
+    /// local-function reconstruction) pull in sibling bodies so diagnostic dumps
+    /// and whole-assembly sweeps match the product output. Mirrors the delegate
+    /// the product path wires in <c>TypeSourceComposer</c>.
     /// </summary>
     static Func<MethodRef, IrFunction?> ImportSeam(MetadataSource source)
         => method => IrImporter.Import(source, method);
