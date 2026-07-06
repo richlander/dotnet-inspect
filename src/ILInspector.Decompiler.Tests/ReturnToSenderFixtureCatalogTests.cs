@@ -222,6 +222,27 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_KnownTastePreservesNestedGenericTypeArguments()
+    {
+        var list = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Collections.Generic.List`1",
+            "list decision")
+        {
+            OldValue = "System.Collections.Generic.List",
+            NewValue = "List",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Collections.Generic.List<int>.Enumerator enumerator = default;",
+            "List<int>.Enumerator enumerator = default;",
+            [list],
+            out var detail));
+        Assert.Contains("list", detail);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_KnownTasteUsesMostSpecificNestedFrameworkType()
     {
         var environment = new DecompilerDecision(
