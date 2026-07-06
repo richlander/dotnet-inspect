@@ -117,6 +117,23 @@ static class ReturnToSenderSourceProbe
             return [];
 
         var sourceIndex = FixtureSourceIndex.TryCreate(assemblyPath);
+        return EvaluateTargets(assemblyPath, targets, sourceIndex);
+    }
+
+    public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
+        string assemblyPath,
+        IReadOnlyList<ReturnToSender.RequestedTarget> targets,
+        IReadOnlyList<string> sourcePaths)
+        => EvaluateTargets(assemblyPath, targets, FixtureSourceIndex.Create(sourcePaths));
+
+    static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
+        string assemblyPath,
+        IReadOnlyList<ReturnToSender.RequestedTarget> targets,
+        FixtureSourceIndex? sourceIndex)
+    {
+        if (targets.Count == 0)
+            return [];
+
         var rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, targets.Distinct().ToArray())
             .ToDictionary(
                 result => Key(
@@ -142,13 +159,14 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
-            if (result.Status == FidelityCheck.CompileBackStatus.RecompileFail)
+            if (result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+                or FidelityCheck.CompileBackStatus.ContextFail)
             {
                 results.Add(new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.Invalid,
                     result.Status,
-                    DiagnosticCode(result.Detail),
+                    FailureReason(result),
                     result.Detail,
                     SourcePath: null,
                     ExpectedBody: null,
@@ -239,23 +257,21 @@ static class ReturnToSenderSourceProbe
             _members = members;
         }
 
+        public static FixtureSourceIndex Create(IReadOnlyList<string> sourcePaths)
+        {
+            var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
+            var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+            foreach (var sourcePath in sourcePaths)
+                AddSourceFile(members, overloads, sourcePath);
+            return new FixtureSourceIndex(members);
+        }
+
         public static FixtureSourceIndex? TryCreate(string assemblyPath)
         {
             foreach (var fixture in FixtureCatalog.All)
             {
-                string fixtureAssemblyPath;
-                try
-                {
-                    fixtureAssemblyPath = fixture.AssemblyPath();
-                }
-                catch (IOException)
-                {
+                if (!TryGetFixtureAssemblyPath(fixture, out var fixtureAssemblyPath))
                     continue;
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    continue;
-                }
 
                 if (!string.Equals(
                     Path.GetFullPath(fixtureAssemblyPath),
@@ -265,29 +281,63 @@ static class ReturnToSenderSourceProbe
                     continue;
                 }
 
-                var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
-                foreach (var sourcePath in fixture.SourcePaths())
-                    AddSourceFile(members, sourcePath);
-                return new FixtureSourceIndex(members);
+                if (!TryGetSourcePaths(fixture, out var sourcePaths))
+                    return null;
+
+                return Create(sourcePaths);
             }
 
             return null;
         }
 
+        static bool TryGetFixtureAssemblyPath(FixtureDefinition fixture, out string path)
+        {
+            try
+            {
+                path = fixture.AssemblyPath();
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                path = "";
+                return false;
+            }
+        }
+
+        static bool TryGetSourcePaths(FixtureDefinition fixture, out IReadOnlyList<string> paths)
+        {
+            try
+            {
+                paths = fixture.SourcePaths();
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                paths = [];
+                return false;
+            }
+        }
+
         public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
             => _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
 
-        static void AddSourceFile(Dictionary<string, SourceMember> members, string sourcePath)
+        static void AddSourceFile(
+            Dictionary<string, SourceMember> members,
+            Dictionary<string, Dictionary<string, int>> overloads,
+            string sourcePath)
         {
             var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(sourcePath), path: sourcePath);
             var root = tree.GetCompilationUnitRoot();
-            foreach (var member in SourceMembers(root, sourcePath))
+            foreach (var member in SourceMembers(root, sourcePath, overloads))
                 members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
         }
 
-        static IEnumerable<SourceMember> SourceMembers(CompilationUnitSyntax root, string sourcePath)
+        static IEnumerable<SourceMember> SourceMembers(
+            CompilationUnitSyntax root,
+            string sourcePath,
+            Dictionary<string, Dictionary<string, int>> overloads)
         {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath))
+            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads))
                 yield return member;
         }
 
@@ -295,7 +345,8 @@ static class ReturnToSenderSourceProbe
             SyntaxList<MemberDeclarationSyntax> declarations,
             string namespaceName,
             IReadOnlyList<string> containingTypes,
-            string sourcePath)
+            string sourcePath,
+            Dictionary<string, Dictionary<string, int>> overloads)
         {
             foreach (var declaration in declarations)
             {
@@ -306,7 +357,7 @@ static class ReturnToSenderSourceProbe
                         string nextNamespace = namespaceName.Length == 0
                             ? ns.Name.ToString()
                             : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath))
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads))
                             yield return member;
                         break;
                     }
@@ -318,38 +369,80 @@ static class ReturnToSenderSourceProbe
                             ? string.Join(".", typeStack)
                             : $"{namespaceName}.{string.Join(".", typeStack)}";
 
-                        foreach (var member in TypeMembers(type, fullType, sourcePath))
+                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads))
                             yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath))
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads))
                             yield return member;
                         break;
                     }
                 }
             }
 
-            static IEnumerable<SourceMember> TypeMembers(TypeDeclarationSyntax type, string fullType, string path)
+            static IEnumerable<SourceMember> TypeMembers(
+                TypeDeclarationSyntax type,
+                string fullType,
+                string path,
+                Dictionary<string, Dictionary<string, int>> overloadsByType)
             {
-                var overloads = new Dictionary<string, int>(StringComparer.Ordinal);
+                if (!overloadsByType.TryGetValue(fullType, out var overloads))
+                    overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
+
                 foreach (var member in type.Members)
                 {
                     switch (member)
                     {
-                        case MethodDeclarationSyntax method when BodyText(method) is { } body:
+                        case MethodDeclarationSyntax method:
                         {
                             string methodName = method.Identifier.ValueText;
-                            yield return new SourceMember(fullType, methodName, NextOverload(overloads, methodName), path, body);
+                            int overload = NextOverload(overloads, methodName);
+                            if (BodyText(method) is { } body)
+                                yield return new SourceMember(fullType, methodName, overload, path, body);
                             break;
                         }
-                        case ConstructorDeclarationSyntax constructor when BodyText(constructor) is { } body:
+                        case ConstructorDeclarationSyntax constructor:
                         {
                             const string methodName = ".ctor";
-                            yield return new SourceMember(fullType, methodName, NextOverload(overloads, methodName), path, body);
+                            int overload = NextOverload(overloads, methodName);
+                            if (BodyText(constructor) is { } body)
+                                yield return new SourceMember(fullType, methodName, overload, path, body);
                             break;
                         }
-                        case PropertyDeclarationSyntax property when GetterBodyText(property) is { } body:
+                        case PropertyDeclarationSyntax property:
                         {
-                            string methodName = $"get_{property.Identifier.ValueText}";
-                            yield return new SourceMember(fullType, methodName, NextOverload(overloads, methodName), path, body);
+                            if (HasGetter(property))
+                            {
+                                string methodName = $"get_{property.Identifier.ValueText}";
+                                int overload = NextOverload(overloads, methodName);
+                                if (GetterBodyText(property) is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
+                            if (HasSetter(property))
+                            {
+                                string methodName = $"set_{property.Identifier.ValueText}";
+                                int overload = NextOverload(overloads, methodName);
+                                if (SetterBodyText(property) is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
+                            break;
+                        }
+                        case OperatorDeclarationSyntax op:
+                        {
+                            string methodName = OperatorMetadataName(op);
+                            int overload = NextOverload(overloads, methodName);
+                            if (BodyText(op) is { } body)
+                                yield return new SourceMember(fullType, methodName, overload, path, body);
+                            break;
+                        }
+                        case ConversionOperatorDeclarationSyntax conversion:
+                        {
+                            string methodName = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword)
+                                ? "op_Implicit"
+                                : "op_Explicit";
+                            int overload = NextOverload(overloads, methodName);
+                            if (BodyText(conversion) is { } body)
+                                yield return new SourceMember(fullType, methodName, overload, path, body);
                             break;
                         }
                     }
@@ -514,6 +607,24 @@ static class ReturnToSenderSourceProbe
         return null;
     }
 
+    static string? BodyText(OperatorDeclarationSyntax op)
+    {
+        if (op.Body is { } body)
+            return StatementsText(body);
+        if (op.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(op.ReturnType, expressionBody.Expression);
+        return null;
+    }
+
+    static string? BodyText(ConversionOperatorDeclarationSyntax conversion)
+    {
+        if (conversion.Body is { } body)
+            return StatementsText(body);
+        if (conversion.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(conversion.Type, expressionBody.Expression);
+        return null;
+    }
+
     static string? GetterBodyText(PropertyDeclarationSyntax property)
     {
         if (property.ExpressionBody is { } expressionBody)
@@ -526,6 +637,25 @@ static class ReturnToSenderSourceProbe
         return null;
     }
 
+    static string? SetterBodyText(PropertyDeclarationSyntax property)
+    {
+        var setter = property.AccessorList?.Accessors.FirstOrDefault(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
+        if (setter?.Body is { } body)
+            return StatementsText(body);
+        if (setter?.ExpressionBody is { } setterExpression)
+            return $"{setterExpression.Expression};";
+        return null;
+    }
+
+    static bool HasGetter(PropertyDeclarationSyntax property)
+        => property.ExpressionBody is not null
+            || property.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
+
+    static bool HasSetter(PropertyDeclarationSyntax property)
+        => property.AccessorList?.Accessors.Any(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
+
     static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
         => returnType is PredefinedTypeSyntax predefined
             && predefined.Keyword.IsKind(SyntaxKind.VoidKeyword)
@@ -537,6 +667,34 @@ static class ReturnToSenderSourceProbe
 
     static string NormalizeBody(string text)
         => Regex.Replace(text, @"\s+", "");
+
+    static string OperatorMetadataName(OperatorDeclarationSyntax op)
+        => op.OperatorToken.Kind() switch
+        {
+            SyntaxKind.PlusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
+            SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
+            SyntaxKind.ExclamationToken => "op_LogicalNot",
+            SyntaxKind.TildeToken => "op_OnesComplement",
+            SyntaxKind.PlusPlusToken => "op_Increment",
+            SyntaxKind.MinusMinusToken => "op_Decrement",
+            SyntaxKind.TrueKeyword => "op_True",
+            SyntaxKind.FalseKeyword => "op_False",
+            SyntaxKind.AsteriskToken => "op_Multiply",
+            SyntaxKind.SlashToken => "op_Division",
+            SyntaxKind.PercentToken => "op_Modulus",
+            SyntaxKind.AmpersandToken => "op_BitwiseAnd",
+            SyntaxKind.BarToken => "op_BitwiseOr",
+            SyntaxKind.CaretToken => "op_ExclusiveOr",
+            SyntaxKind.LessThanLessThanToken => "op_LeftShift",
+            SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
+            SyntaxKind.EqualsEqualsToken => "op_Equality",
+            SyntaxKind.ExclamationEqualsToken => "op_Inequality",
+            SyntaxKind.LessThanToken => "op_LessThan",
+            SyntaxKind.GreaterThanToken => "op_GreaterThan",
+            SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
+            SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
+            _ => op.OperatorToken.ValueText,
+        };
 
     static string DiagnosticCode(string? detail)
     {

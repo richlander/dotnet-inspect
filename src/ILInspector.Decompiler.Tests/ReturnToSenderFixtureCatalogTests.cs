@@ -4,6 +4,9 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.DecompilerHarness;
 
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
 namespace ILInspector.Decompiler.Tests;
 
 public class ReturnToSenderFixtureCatalogTests
@@ -55,6 +58,113 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.EndsWith("DiffSample.cs", result.SourcePath, StringComparison.Ordinal);
         Assert.Equal("return42;", Normalize(result.ExpectedBody));
         Assert.Equal("return42;", Normalize(result.ActualBody));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_IndexesPartialClassOverloadsAcrossSourceFiles()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.Part1.cs", """
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                public int M() => 1;
+            }
+            """),
+            ("Class1.Part2.cs", """
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                public int M(int value) => value;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 1)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+            Assert.Equal("valid_match", result.Reason);
+            Assert.Equal("returnvalue;", Normalize(result.ExpectedBody));
+            Assert.Equal("returnvalue;", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_IndexesBodylessOverloads()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public abstract class Class1
+            {
+                public abstract int M();
+
+                public int M(int value) => value;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 1)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+            Assert.Equal("valid_match", result.Reason);
+            Assert.Equal("returnvalue;", Normalize(result.ExpectedBody));
+            Assert.Equal("returnvalue;", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
+        params (string FileName, string Source)[] sources)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"rts-source-probe-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var sourcePaths = new List<string>();
+        foreach (var (fileName, source) in sources)
+        {
+            string path = Path.Combine(directory, fileName);
+            File.WriteAllText(path, source);
+            sourcePaths.Add(path);
+        }
+
+        string assemblyPath = Path.Combine(directory, "SourceProbe.dll");
+        var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => MetadataReference.CreateFromFile(path));
+        var trees = sourcePaths.Select(path =>
+            CSharpSyntaxTree.ParseText(
+                File.ReadAllText(path),
+                new CSharpParseOptions(LanguageVersion.Preview),
+                path));
+        var compilation = CSharpCompilation.Create(
+            Path.GetFileNameWithoutExtension(assemblyPath),
+            trees,
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                nullableContextOptions: NullableContextOptions.Disable,
+                allowUnsafe: true));
+
+        var emit = compilation.Emit(assemblyPath);
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return (directory, assemblyPath, sourcePaths);
     }
 
     static string? Normalize(string? text)
