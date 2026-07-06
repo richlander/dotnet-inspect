@@ -68,5 +68,6 @@
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
     <Project Path="tools/IlDiffHarness/IlDiffHarness.csproj" />
+    <Project Path="tools/Issue128Experiment/Issue128Experiment.csproj" />
   </Folder>
 </Solution>

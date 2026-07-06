@@ -12,9 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Markout projectref (experiment/issue-128): local Markout 0.17-dev. -->
-    <ProjectReference Include="../../../markout/src/Markout/Markout.csproj" />
-    <ProjectReference Include="../../../markout/src/Markout.SourceGeneration/Markout.SourceGeneration.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <PackageReference Include="Markout" />
   </ItemGroup>
 
 </Project>
