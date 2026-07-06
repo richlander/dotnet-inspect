@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
+using ILInspector.DiffHarnessCommon;
 using ILInspector.Instructions;
 using Markout;
 using Markout.Formatting;
@@ -73,7 +74,7 @@ for (int i = pairs.Count == 0 ? 0 : 2; i < args.Length; i++)
             }
             break;
         case "--format":
-            if (i + 1 >= args.Length || !TryParseOutputFormat(args[++i], out outputFormat))
+            if (i + 1 >= args.Length || !DiffHarnessCommon.TryParseOutputFormat(args[++i], out outputFormat))
             {
                 Console.Error.WriteLine("--format requires one of: markdown, tsv, jsonl.");
                 return 2;
@@ -118,7 +119,7 @@ if (pairsManifest is not null)
 
     try
     {
-        pairs.AddRange(ReadManifest(pairsManifest));
+        pairs.AddRange(DiffHarnessCommon.ReadManifest(pairsManifest));
     }
     catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
     {
@@ -175,40 +176,6 @@ catch (Exception ex) when (ex is BadImageFormatException or IOException or Inval
 {
     Console.Error.WriteLine(ex.Message);
     return 2;
-}
-
-static IEnumerable<AssemblyPair> ReadManifest(string manifestPath)
-{
-    string manifestDirectory = Path.GetDirectoryName(Path.GetFullPath(manifestPath)) ?? Directory.GetCurrentDirectory();
-    int lineNumber = 0;
-    foreach (var rawLine in File.ReadLines(manifestPath))
-    {
-        lineNumber++;
-        string line = rawLine.Trim();
-        if (line.Length == 0 || line.StartsWith('#'))
-            continue;
-
-        var parts = line.Split('\t', StringSplitOptions.TrimEntries);
-        if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
-            throw new InvalidOperationException($"Invalid pair manifest line {lineNumber}: expected old<TAB>new.");
-
-        yield return new AssemblyPair(ResolveManifestPath(manifestDirectory, parts[0]), ResolveManifestPath(manifestDirectory, parts[1]));
-    }
-}
-
-static string ResolveManifestPath(string manifestDirectory, string path)
-    => Path.IsPathFullyQualified(path) ? path : Path.GetFullPath(Path.Combine(manifestDirectory, path));
-
-static bool TryParseOutputFormat(string value, out OutputFormat format)
-{
-    format = value.ToLowerInvariant() switch
-    {
-        "markdown" or "md" => OutputFormat.Markdown,
-        "tsv" => OutputFormat.Tsv,
-        "jsonl" => OutputFormat.Jsonl,
-        _ => (OutputFormat)(-1),
-    };
-    return format is OutputFormat.Markdown or OutputFormat.Tsv or OutputFormat.Jsonl;
 }
 
 static IlDiffPairCard BuildPairCard(AssemblyPair pair, int maxExamples)
@@ -432,8 +399,8 @@ static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int ma
             ChangedBodyCount: card.ChangedBodyCount,
             FailureCount: card.FailureCount),
         Pairs: pairs.Select(pair => new IlDiffSnapshotPair(
-            Old: SnapshotPath(pair.OldPath),
-            New: SnapshotPath(pair.NewPath),
+            Old: DiffHarnessCommon.AbsoluteSnapshotPath(pair.OldPath),
+            New: DiffHarnessCommon.AbsoluteSnapshotPath(pair.NewPath),
             ComparedBodyCount: pair.Card.ComparedBodyCount,
             SelfDiffEmptyCount: pair.Card.SelfDiffExactCount,
             PairExactEmptyCount: pair.Card.PairExactCount,
@@ -684,7 +651,7 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
                 break;
             examples.Add(example with
             {
-                Method = $"{PathLabel(pair.OldPath, snapshotPaths)} to {PathLabel(pair.NewPath, snapshotPaths)} :: {example.Method}"
+                Method = $"{DiffHarnessCommon.PathLabel(pair.OldPath, snapshotPaths, DiffHarnessCommon.AbsoluteSnapshotPath)} to {DiffHarnessCommon.PathLabel(pair.NewPath, snapshotPaths, DiffHarnessCommon.AbsoluteSnapshotPath)} :: {example.Method}"
             });
         }
     }
@@ -703,8 +670,8 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
 
 static IlDiffPairSummaryRow PairSummaryRow(IlDiffPairCard pair)
     => new(
-        DisplayPath(pair.OldPath),
-        DisplayPath(pair.NewPath),
+        DiffHarnessCommon.DisplayPath(pair.OldPath),
+        DiffHarnessCommon.DisplayPath(pair.NewPath),
         pair.Card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -735,20 +702,6 @@ static List<BaselineSectionFindingView>? SectionedBaselineRows(BaselineCompariso
         ? null
         : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline findings", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
 
-static string DisplayPath(string path)
-{
-    string fullPath = Path.GetFullPath(path);
-    string relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), fullPath);
-    return relative.StartsWith("..", StringComparison.Ordinal)
-        ? fullPath
-        : relative;
-}
-
-static string SnapshotPath(string path) => Path.GetFullPath(path);
-
-static string PathLabel(string path, bool snapshotPath)
-    => snapshotPath ? SnapshotPath(path) : DisplayPath(path);
-
 static List<IlDiffBucketRow>? MarkdownBucketRows(ImmutableArray<CardBucket> buckets)
     => buckets.IsDefaultOrEmpty
         ? null
@@ -765,16 +718,7 @@ static IlDiffExampleMarkdownView ExampleMarkdownRow(IlDiffExample example)
 static IlDiffExampleTableRow ExampleTableRow(IlDiffExample example)
     => new("Examples", example.Method, example.UnifiedDiff);
 
-sealed record AssemblyPair(string OldPath, string NewPath);
-
 sealed record IlDiffPairCard(string OldPath, string NewPath, IlDiffCard Card);
-
-enum OutputFormat
-{
-    Markdown,
-    Tsv,
-    Jsonl,
-}
 
 sealed record IlDiffCard(
     int ComparedBodyCount,

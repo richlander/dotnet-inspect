@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DiffHarnessCommon/DiffHarnessCommon.csproj" />
     <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <PackageReference Include="Markout" />
   </ItemGroup>
