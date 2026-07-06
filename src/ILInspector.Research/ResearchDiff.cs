@@ -866,50 +866,7 @@ public static class ResearchDiff
         };
 
     static ResearchSubjectKey SubjectFromMethod(MethodIdentity method)
-    {
-        var typeName = method.DeclaringType.ToQualifiedDisplayString();
-        var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
-        var selectorName = ResearchMemberSelector.ForMetadataName(method.Name, method.IsExtension);
-        var parameters = string.Join(",", method.ParameterTypes.Select(ApiTypeName));
-        var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
-        var methodGeneric = ApiMethodGenericList(method);
-        var returnSuffix = "";
-        var canonical = $"M:{typeName}.{memberName}{methodGeneric}({parameters}){returnSuffix}";
-        var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
-        return new ResearchSubjectKey(
-            ResearchDiffSubjectKind.Member,
-            $"{selectorName}~{fingerprint}",
-            $"{typeName}.{memberName}({displayParameters})",
-            typeName,
-            memberName);
-    }
-
-    static string ApiTypeName(TypeRef type)
-        => type.Kind switch
-        {
-            TypeRefKind.Definition => type.Namespace.Length == 0
-                ? type.Name.Replace("+", ".", StringComparison.Ordinal)
-                : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
-            TypeRefKind.GenericInstance => $"{ApiTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(ApiTypeName))}>",
-            TypeRefKind.SzArray => $"{ApiTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{ApiTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
-            TypeRefKind.ByRef => $"{ApiTypeName(type.ElementType!)}&",
-            TypeRefKind.Pointer => $"{ApiTypeName(type.ElementType!)}*",
-            TypeRefKind.Pinned => $"pinned {ApiTypeName(type.ElementType!)}",
-            TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
-                => type.GenericParameterName.Length == 0 ? $"!{type.GenericParameterIndex}" : type.GenericParameterName,
-            _ => type.ToQualifiedDisplayString(),
-        };
-
-    static string ApiMethodGenericList(MethodIdentity method)
-    {
-        if (method.GenericArity == 0)
-            return "";
-        return $"<{string.Join(",", Enumerable.Range(0, method.GenericArity).Select(index =>
-            index < method.GenericParameterNames.Length && method.GenericParameterNames[index].Length > 0
-                ? method.GenericParameterNames[index]
-                : $"!!{index}"))}>";
-    }
+        => ResearchMemberIdentity.SubjectFromMethod(method);
 
     static bool IsConversionOperator(string methodName)
         => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
@@ -920,14 +877,7 @@ public static class ResearchDiff
     internal static class ResearchMemberSelector
     {
         public static string ForMetadataName(string methodName, bool isExtensionMethod = false)
-            => methodName switch
-            {
-                ".ctor" => ".ctor",
-                _ when isExtensionMethod => $"extension:{methodName}",
-                _ when methodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{methodName}",
-                _ when methodName.Contains('.') => $"explicit:{methodName}",
-                _ => methodName,
-            };
+            => ResearchMemberIdentity.SelectorForMetadataName(methodName, isExtensionMethod);
     }
 
     static string BodySignalMethodKey(MethodIdentity method)
