@@ -62,20 +62,24 @@ internal sealed record TypeMemberFindIfMissResult(
     TypeFindIfMissStatus Status,
     string Query,
     string TypeQuery,
+    string MemberSelector,
     string MemberName,
     int? OverloadIndex,
+    int? GenericArity,
     TypeFindIfMissResult TypeResolution)
 {
     public static TypeMemberFindIfMissResult None(string query) =>
-        new(TypeFindIfMissStatus.None, query, "", "", null, TypeFindIfMissResult.None(query));
+        new(TypeFindIfMissStatus.None, query, "", "", "", null, null, TypeFindIfMissResult.None(query));
 
     public static TypeMemberFindIfMissResult FromTypeResolution(
         string query,
         string typeQuery,
+        string memberSelector,
         string memberName,
         int? overloadIndex,
+        int? genericArity,
         TypeFindIfMissResult typeResolution) =>
-        new(typeResolution.Status, query, typeQuery, memberName, overloadIndex, typeResolution);
+        new(typeResolution.Status, query, typeQuery, memberSelector, memberName, overloadIndex, genericArity, typeResolution);
 
     public MemberOptions ApplyTo(MemberOptions options)
     {
@@ -83,7 +87,8 @@ internal sealed record TypeMemberFindIfMissResult(
         return applied with
         {
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { MemberName },
-            OverloadIndex = OverloadIndex
+            OverloadIndex = OverloadIndex,
+            MemberGenericArity = GenericArity
         };
     }
 
@@ -183,10 +188,10 @@ internal static class TypeFindIfMissResolver
         if (!TrySplitMemberQuery(query, out var typeQuery, out var memberSelector))
             return TypeMemberFindIfMissResult.None(query ?? "");
 
-        var (memberName, overloadIndex) = FqnParser.ParseMemberFilter(memberSelector);
+        var selector = MemberTargetSelector.Parse(memberSelector);
         var typeResolution = await ResolvePlatformAsync(typeQuery, includeAll, sourceOptions, httpClient, logger);
         return TypeMemberFindIfMissResult.FromTypeResolution(
-            query!, typeQuery, memberName, overloadIndex, typeResolution);
+            query!, typeQuery, memberSelector, selector.Name, selector.OverloadIndex, selector.GenericArity, typeResolution);
     }
 
     private static bool TrySplitMemberQuery(string? query, out string typeQuery, out string memberSelector)
@@ -204,7 +209,7 @@ internal static class TypeFindIfMissResolver
 
         typeQuery = query[..lastDot];
         memberSelector = query[(lastDot + 1)..];
-        var (memberName, _) = FqnParser.ParseMemberFilter(memberSelector);
+        var memberName = MemberTargetSelector.Parse(memberSelector).Name;
         if (typeQuery.EndsWith(".", StringComparison.Ordinal) &&
             memberName.Equals(".ctor", StringComparison.OrdinalIgnoreCase))
         {

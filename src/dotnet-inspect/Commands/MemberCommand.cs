@@ -163,7 +163,8 @@ public static class MemberCommand
                     memberName,
                     memberName,
                     effectiveOptions.OverloadIndex,
-                    effectiveOptions.MemberDigest);
+                    effectiveOptions.MemberDigest,
+                    GenericArity: effectiveOptions.MemberGenericArity);
                 var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
@@ -477,7 +478,9 @@ public static class MemberCommand
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => MemberTargetResolver.GetCandidates(
                 apiType,
-                new MemberTargetSelector(memberName, memberName),
+                options.MemberGenericArity is { } arity
+                    ? new MemberTargetSelector(memberName, memberName, GenericArity: arity)
+                    : new MemberTargetSelector(memberName, memberName),
                 options.KindFilter)
             .Select(candidate => candidate.Member)
             .ToList();

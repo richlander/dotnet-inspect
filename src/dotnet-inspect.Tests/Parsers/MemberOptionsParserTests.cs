@@ -621,6 +621,16 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task GenericMethodShorthand_SetsGenericArity()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Deserialize<TValue>:2");
+
+        Assert.Contains("Deserialize", options.MemberFilter);
+        Assert.Equal(2, options.OverloadIndex);
+        Assert.Equal(1, options.MemberGenericArity);
+    }
+
+    [Fact]
     public async Task DigestShorthand_SetsMemberDigest()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Deserialize~abc123");

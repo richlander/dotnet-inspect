@@ -207,11 +207,12 @@ public static class SharedParsers
     /// </summary>
     /// <param name="members">The member arguments to process.</param>
     /// <returns>Extracted type filter and overload index if found.</returns>
-    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
+    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, int? GenericArity, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
     {
         string? dottedTypeFilter = null;
         int? overloadIndex = null;
         string? memberDigest = null;
+        int? genericArity = null;
         HashSet<string> kindFilter = [];
 
         for (int i = 0; i < members.Length; i++)
@@ -234,12 +235,14 @@ public static class SharedParsers
                 kindFilter.Add(selector.Kind);
             if (selector.DigestPrefix is { Length: > 0 })
                 memberDigest = selector.DigestPrefix;
+            if (selector.GenericArity is { } arity)
+                genericArity = arity;
             if (selector.OverloadIndex is { } index)
                 overloadIndex = index;
             members[i] = selector.Name;
         }
 
-        return (dottedTypeFilter, overloadIndex, memberDigest, kindFilter);
+        return (dottedTypeFilter, overloadIndex, memberDigest, genericArity, kindFilter);
     }
 
     public static (string Name, string? Digest) ParseDigestShorthand(string value)

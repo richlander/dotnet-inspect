@@ -228,7 +228,7 @@ public static class MemberOptionsParser
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
-        var (dottedTypeFilter, shorthandIndex, memberDigest, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
+        var (dottedTypeFilter, shorthandIndex, memberDigest, memberGenericArity, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
 
         // Use extracted type name if no explicit type was provided
         if (dottedTypeFilter != null && string.IsNullOrEmpty(typeName))
@@ -291,6 +291,7 @@ public static class MemberOptionsParser
             CtorOnly = ctorOnly,
             OverloadIndex = parseResult.GetValue(args.IndexOption) ?? shorthandIndex,
             MemberDigest = memberDigest,
+            MemberGenericArity = memberGenericArity,
             ShowMemberIndex = showMemberIndex,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
             CallerScopeProjects = projectSourcePath is null
