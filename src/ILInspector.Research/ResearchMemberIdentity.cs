@@ -18,7 +18,7 @@ public static class ResearchMemberIdentity
     {
         var typeName = method.DeclaringType.ToQualifiedDisplayString();
         var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
-        var selectorName = SelectorForMetadataName(method.Name, method.IsExtension);
+        var selectorName = ApiMemberIdentity.GetMemberSelectorName(method.Name, method.IsExtension);
         var parameters = string.Join(",", method.ParameterTypes.Select(BodyTypeName));
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         var methodGeneric = MethodGenericList(method);
@@ -118,16 +118,6 @@ public static class ResearchMemberIdentity
                 ? method.GenericParameterNames[index]
                 : $"!!{index}"))}>";
     }
-
-    public static string SelectorForMetadataName(string methodName, bool isExtensionMethod = false)
-        => methodName switch
-        {
-            ".ctor" => ".ctor",
-            _ when isExtensionMethod => $"extension:{methodName}",
-            _ when methodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{methodName}",
-            _ when methodName.Contains('.') => $"explicit:{methodName}",
-            _ => methodName,
-        };
 
     static string DeclaringPrimitiveName(string value)
         => value switch

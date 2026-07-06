@@ -864,12 +864,6 @@ public static class ResearchDiff
     static ResearchSubjectKey UnknownMemberSubject(string key)
         => new(ResearchDiffSubjectKind.Member, $"member:{key}", key);
 
-    internal static class ResearchMemberSelector
-    {
-        public static string ForMetadataName(string methodName, bool isExtensionMethod = false)
-            => ResearchMemberIdentity.SelectorForMetadataName(methodName, isExtensionMethod);
-    }
-
     static string BodySignalMethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
