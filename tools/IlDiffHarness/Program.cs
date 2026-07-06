@@ -549,6 +549,7 @@ static IlDiffCardMarkdownView BuildMarkdownView(ImmutableArray<IlDiffPairCard> p
     {
         Summary = SummaryRows(pairs.Length, card),
         BaselineMetrics = comparison is null ? null : BaselineMetricRows(comparison),
+        BaselineBuckets = comparison is null ? null : BaselineBucketRows(comparison),
         FailureBuckets = MarkdownBucketRows(card.FailureBuckets) ?? [],
         TopHunkKinds = MarkdownBucketRows(card.TopHunkKinds) ?? [],
         TopOpcodeFamilies = MarkdownBucketRows(card.TopOpcodeFamilies) ?? [],
@@ -565,6 +566,7 @@ static IlDiffCardTableView BuildTableView(ImmutableArray<IlDiffPairCard> pairs, 
     {
         Summary = SectionedSummaryRows(pairs.Length, card),
         BaselineMetrics = comparison is null ? null : BaselineMetricRows(comparison),
+        BaselineBuckets = comparison is null ? null : BaselineBucketRows(comparison),
         FailureBuckets = SectionedBucketRows("Failure buckets", card.FailureBuckets),
         TopHunkKinds = SectionedBucketRows("Top hunk kinds", card.TopHunkKinds),
         TopOpcodeFamilies = SectionedBucketRows("Top opcode families", card.TopOpcodeFamilies),
@@ -613,6 +615,28 @@ static MetricChange<int> MetricContext(string name, int baseline, int current)
 
 static MetricChange<int> MetricGoal(string name, int baseline, int current, string targetLabel, Goal goal)
     => new(name, baseline, current, baseline, targetLabel) { Goal = goal };
+
+static List<MultiSourceRow> BaselineBucketRows(BaselineComparison comparison) =>
+[
+    BucketChangeRow("Failure buckets", comparison.Baseline.FailureBuckets ?? [], comparison.Current.FailureBuckets ?? []),
+    BucketChangeRow("Hunk kinds", comparison.Baseline.HunkKindBuckets ?? [], comparison.Current.HunkKindBuckets ?? []),
+    BucketChangeRow("Opcode families", comparison.Baseline.OpcodeFamilyBuckets ?? [], comparison.Current.OpcodeFamilyBuckets ?? []),
+];
+
+static MultiSourceRow BucketChangeRow(string label, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+    => new(label, SegmentSource("baseline", baseline), SegmentSource("current", current));
+
+static Source SegmentSource(string role, IReadOnlyList<CardBucket> buckets)
+{
+    var segments = buckets
+        .Where(bucket => bucket.Count != 0)
+        .Take(10)
+        .Select(bucket => new Segment(bucket.Name, bucket.Count))
+        .ToArray();
+    return segments.Length == 0
+        ? new Source(role, (IMarkoutCell?)null)
+        : new Source(role, new Segments(segments));
+}
 
 static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, bool snapshotPaths = false)
 {
@@ -764,6 +788,10 @@ sealed class IlDiffCardMarkdownView
     [MarkoutSection(Name = "Baseline metric changes", IncludeSectionInStructuredRows = true)]
     public List<MetricChange<int>>? BaselineMetrics { get; init; }
 
+    [MarkoutSection(Name = "Baseline bucket changes", IncludeSectionInStructuredRows = true)]
+    [MarkoutLabelHeader("Bucket set")]
+    public List<MultiSourceRow>? BaselineBuckets { get; init; }
+
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<IlDiffBucketRow>? FailureBuckets { get; init; }
 
@@ -794,6 +822,10 @@ sealed class IlDiffCardTableView
 
     [MarkoutSection(Name = "Baseline metric changes", IncludeSectionInStructuredRows = true)]
     public List<MetricChange<int>>? BaselineMetrics { get; init; }
+
+    [MarkoutSection(Name = "Baseline bucket changes", IncludeSectionInStructuredRows = true)]
+    [MarkoutLabelHeader("Bucket set")]
+    public List<MultiSourceRow>? BaselineBuckets { get; init; }
 
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<IlDiffSectionBucketRow>? FailureBuckets { get; init; }
