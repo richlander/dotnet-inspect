@@ -809,6 +809,14 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void DiffCommand_WithMemberFilter_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "-t", "JsonSerializer", "-m", "Serialize<TValue>:1", "--package", "System.Text.Json@8.0.0..9.0.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void DiffCommand_WithAllFlag_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--all"]);

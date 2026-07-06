@@ -111,7 +111,25 @@ was added
 ### JsonConverterAttribute
 ```
 
-## 5. Name-only output
+## 5. Filter diff to a specific member
+
+> Goal: See changes for one member only, using the same selectors as `member`.
+
+```bash
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.0 -t JsonSerializer -m Serialize<TValue>:1 -v:q
+```
+
+```expect
+Serialize
+```
+
+Use a type-qualified selector when there is no `-t` context:
+
+```bash
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.0 -m JsonSerializer.Serialize<TValue>:1 -v:q
+```
+
+## 6. Name-only output
 
 > Goal: Get a quick list of which types changed, without details.
 
@@ -129,7 +147,7 @@ System.Text.Json.JsonElement
 wc -l | tr -d ' '
 ```
 
-## 6. Oneline output for scripting
+## 7. Oneline output for scripting
 
 > Goal: Columnar output showing change type and summary per type.
 

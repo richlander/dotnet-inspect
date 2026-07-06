@@ -25,6 +25,7 @@ public static class DiffOptionsParser
         Option<string?> TfmOption,
         Option<bool> AllOption,
         Option<string[]> TypeFilterOption,
+        Option<string[]> MemberFilterOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption,
         Option<bool> NameOnlyOption,
@@ -85,6 +86,7 @@ public static class DiffOptionsParser
 
         // Build type filter set
         var typeFilterValues = parseResult.GetValue(args.TypeFilterOption);
+        var memberFilterValues = parseResult.GetValue(args.MemberFilterOption);
         HashSet<string> typeFilter = [];
         if (typeFilterValues?.Length > 0 || !string.IsNullOrEmpty(typeName))
         {
@@ -98,6 +100,10 @@ public static class DiffOptionsParser
             }
         }
 
+        HashSet<string> memberFilter = [];
+        if (memberFilterValues?.Length > 0)
+            memberFilter = new HashSet<string>(memberFilterValues, StringComparer.OrdinalIgnoreCase);
+
         var options = new DiffOptions
         {
             PackageVersionRange = packageVersionRange,
@@ -108,6 +114,7 @@ public static class DiffOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
+            MemberFilter = memberFilter,
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
