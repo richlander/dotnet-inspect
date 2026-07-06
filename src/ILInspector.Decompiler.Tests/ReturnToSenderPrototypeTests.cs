@@ -311,6 +311,37 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_KeepsTypeResolvedCs0117PropertyFallback()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public static int StaticValue => 42;
+
+                public int FromStatic => Class1.StaticValue;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 3)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromStatic");
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.Contains(type.SourceFacts, fact =>
+                fact.Producer == "roslyn"
+                && fact.Id == "closure-member"
+                && fact.Detail.StartsWith("CS0117", StringComparison.Ordinal));
+            Assert.Contains(type.Members, member => member.Name == "StaticValue" && member.Kind == CompileBackMemberKind.PropertyGet);
+            Assert.Contains("public static int StaticValue", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_EmitsClosureConstructorRequirement()
     {
         var assemblyPath = CompileFixture("""
