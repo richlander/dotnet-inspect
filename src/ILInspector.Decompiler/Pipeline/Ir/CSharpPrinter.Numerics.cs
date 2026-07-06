@@ -97,8 +97,6 @@ public sealed partial class CSharpPrinter
         {
             if (binary.Kind is not BinaryKind.Subtract)
                 return false;   // `pointer + pointer` is not valid pointer arithmetic
-            if (binary.Left.ResultType!.Equals(binary.Right.ResultType))
-                return false;
             // Two pointers of the *same* one-byte-element type already difference in
             // bytes, so the default `a - b` spelling is both faithful and legal —
             // leave it untouched. Any other pairing (a wider element, or two

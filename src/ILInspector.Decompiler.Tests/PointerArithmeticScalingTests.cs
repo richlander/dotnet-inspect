@@ -98,6 +98,49 @@ public class PointerArithmeticScalingTests
     }
 
     [Fact]
+    public void RawIntPointerDifference_RoutesThroughBytePointers()
+    {
+        // A raw IL `sub` over int* values computes a byte delta. C# `int* - int*`
+        // would divide by sizeof(int), so only the byte* route preserves the IL.
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", IntPointer),
+            new LoadArgument(1, "b", IntPointer));
+        var output = Print(ReturnFunction(
+            Int64,
+            new Convert(Int64, isChecked: false, isUnsigned: false, difference),
+            new Parameter("a", IntPointer),
+            new Parameter("b", IntPointer)));
+
+        Assert.Contains("(byte*)a - (byte*)b", output);
+        Assert.DoesNotContain("return (long)(a - b);", output);
+    }
+
+    [Fact]
+    public void VoidPointerDifference_RoutesThroughBytePointers()
+    {
+        // C# does not define `void* - void*`; byte* casts keep the raw IL byte
+        // difference legal and faithful.
+        var voidPointer = TypeRef.Pointer(Void);
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", voidPointer),
+            new LoadArgument(1, "b", voidPointer));
+        var output = Print(ReturnFunction(
+            Int64,
+            new Convert(Int64, isChecked: false, isUnsigned: false, difference),
+            new Parameter("a", voidPointer),
+            new Parameter("b", voidPointer)));
+
+        Assert.Contains("(byte*)a - (byte*)b", output);
+        Assert.DoesNotContain("a - b", output.Replace("(byte*)a - (byte*)b", "", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void IntegerArithmetic_IsUnchanged()
     {
         // Negative canary: non-pointer integer arithmetic gets no `byte*` cast.

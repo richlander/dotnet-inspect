@@ -850,7 +850,8 @@ public static class IrImporter
                 {
                     int index = reader.ReadILByte();
                     var value = Pop(stack);
-                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    if (!IsStableAcrossSideEffect(value) || HasPendingUnstableValue(stack))
+                        SpillUnstableBeforeSideEffect(body, stack, state);
                     body.Add(MakeStoreArgument(method, index, value));
                     break;
                 }
@@ -858,7 +859,8 @@ public static class IrImporter
                 {
                     int index = reader.ReadILUInt16();
                     var value = Pop(stack);
-                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    if (!IsStableAcrossSideEffect(value) || HasPendingUnstableValue(stack))
+                        SpillUnstableBeforeSideEffect(body, stack, state);
                     body.Add(MakeStoreArgument(method, index, value));
                     break;
                 }
@@ -1622,10 +1624,19 @@ public static class IrImporter
                 stack.Push(value);
                 continue;
             }
+
             int slot = state.NextDupSlot++;
             body.Add(new StoreStackSlot(slot, value));
             stack.Push(new LoadStackSlot(slot, value.ResultType));
         }
+    }
+
+    static bool HasPendingUnstableValue(Stack<IrExpression> stack)
+    {
+        foreach (var value in stack)
+            if (!IsStableAcrossSideEffect(value))
+                return true;
+        return false;
     }
 
     /// <summary>
@@ -1828,7 +1839,8 @@ public static class IrImporter
     /// </summary>
     static StoreLocal MakeStoreLocalSpilling(ImportedMethod method, int index, IrExpression value, Block body, Stack<IrExpression> stack, BuildState state)
     {
-        SpillUnstableBeforeSideEffect(body, stack, state);
+        if (!IsStableAcrossSideEffect(value) || HasPendingUnstableValue(stack))
+            SpillUnstableBeforeSideEffect(body, stack, state);
         return MakeStoreLocal(method, index, value);
     }
 

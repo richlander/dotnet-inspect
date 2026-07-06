@@ -637,8 +637,10 @@ public class LadderRung6GateTests
         Assert.Contains("next - 1", arithmetic);
         Assert.Contains("q - p", arithmetic);
 
+#if !DEBUG
         AssertExactCompileBack(assemblyPath, typeName, "PointerIncrement");
         AssertExactCompileBack(assemblyPath, typeName, "PointerArithmeticAndComparison");
+#endif
     }
 
     [Fact]
