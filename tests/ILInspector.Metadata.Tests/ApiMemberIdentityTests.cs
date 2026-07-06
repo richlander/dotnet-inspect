@@ -37,6 +37,34 @@ public class ApiMemberIdentityTests
         Assert.Equal(MemberAnchor.ComputeFingerprint(anchor.CanonicalSignature), anchor.Fingerprint);
     }
 
+    [Fact]
+    public void GetMemberAnchor_DisambiguatesConversionOperatorsByReturnType()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var type = surface.Types.Single(t => t.Name.EndsWith(nameof(ConversionOperatorFixture), StringComparison.Ordinal));
+        var conversions = type.Members
+            .Where(member => member.Kind == "operator" && member.Name == "op_Explicit")
+            .ToList();
+
+        // Two explicit conversions that differ ONLY by return type (op_Explicit(Fixture)).
+        Assert.Equal(2, conversions.Count);
+
+        var anchors = conversions
+            .Select(member => ApiMemberIdentity.GetMemberAnchor(type, member))
+            .ToList();
+
+        // Return type must be part of the canonical identity, so the two conversions
+        // get distinct canonical signatures and fingerprints (no ambiguous anchor).
+        Assert.Equal(2, anchors.Select(anchor => anchor.CanonicalSignature).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(2, anchors.Select(anchor => anchor.Fingerprint).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(anchors, anchor => Assert.Contains("op_Explicit", anchor.CanonicalSignature, StringComparison.Ordinal));
+        Assert.Contains(anchors, anchor => anchor.CanonicalSignature.EndsWith("~int", StringComparison.Ordinal));
+        Assert.Contains(anchors, anchor => anchor.CanonicalSignature.EndsWith("~long", StringComparison.Ordinal));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
@@ -61,5 +89,12 @@ public class ApiMemberIdentityTests
         public void M<U>(int value, U item)
         {
         }
+    }
+
+    readonly struct ConversionOperatorFixture
+    {
+        public static explicit operator int(ConversionOperatorFixture value) => 0;
+
+        public static explicit operator long(ConversionOperatorFixture value) => 0;
     }
 }
