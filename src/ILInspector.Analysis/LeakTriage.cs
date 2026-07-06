@@ -162,6 +162,7 @@ public static class LeakTriageAnalyzer
     {
         var releases = ImmutableArray.CreateBuilder<int>();
         var safeUses = ImmutableArray.CreateBuilder<int>();
+        var throwingBoundaries = ImmutableArray.CreateBuilder<int>();
         AmbiguousUse? firstAmbiguous = null;
 
         foreach (var use in reaching.UsesOf(rent.Definition))
@@ -192,6 +193,8 @@ public static class LeakTriageAnalyzer
                         AddCandidate(candidates, method, classification.CandidateShape, classification.Evidence, rent.RentOffset, use.Offset);
                         firstAmbiguous = new AmbiguousUse(use.Offset, classification.CandidateShape);
                     }
+                    if (classification.CandidateShape == "cross-method-suppressed" && !classification.NonThrowingSetupBoundary)
+                        throwingBoundaries.Add(use.Offset);
                     break;
             }
         }
@@ -202,16 +205,15 @@ public static class LeakTriageAnalyzer
         if (firstAmbiguous is { } ambiguous)
         {
             if (ambiguous.Shape == "cross-method-suppressed"
-                && !ReleasedBeforeUseInSameBlock(graph, releaseOffsets, ambiguous.Offset)
-                && !HasCleanupReleaseForUse(exceptionRegions, releaseOffsets, ambiguous.Offset))
+                && FirstUnprotectedThrowingBoundary(graph, exceptionRegions, releaseOffsets, throwingBoundaries.ToImmutable()) is { } throwingBoundary)
             {
                 AddCandidate(
                     candidates,
                     method,
                     "exception-path-leak-candidate",
-                    $"Rented array crosses a method boundary at IL_{ambiguous.Offset:X4} before a modeled cleanup; an exception can bypass Return.",
+                    $"Rented array crosses a method boundary at IL_{throwingBoundary:X4} before a modeled cleanup; an exception can bypass Return.",
                     rent.RentOffset,
-                    ambiguous.Offset);
+                    throwingBoundary);
             }
             return;
         }
@@ -382,6 +384,24 @@ public static class LeakTriageAnalyzer
     static bool ReleasedBeforeUseInSameBlock(BlockGraph graph, ImmutableArray<int> releases, int useOffset)
         => releases.Any(release => ReachesInSameBlock(graph, release, useOffset));
 
+    static int? FirstUnprotectedThrowingBoundary(
+        BlockGraph graph,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        ImmutableArray<int> releases,
+        ImmutableArray<int> throwingBoundaries)
+    {
+        foreach (int boundary in throwingBoundaries)
+        {
+            if (!ReleasedBeforeUseInSameBlock(graph, releases, boundary)
+                && !HasCleanupReleaseForUse(exceptionRegions, releases, boundary))
+            {
+                return boundary;
+            }
+        }
+
+        return null;
+    }
+
     static bool HasCleanupReleaseForUse(
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         ImmutableArray<int> releases,
@@ -518,7 +538,9 @@ public static class LeakTriageAnalyzer
             {
                 if (IsArrayPoolReturn(callee) && extra < callee.ParameterTypes.Length)
                     return UseClassification.Release;
-                return UseClassification.CrossMethod($"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.");
+                return UseClassification.CrossMethod(
+                    $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
+                    IsNonThrowingSetupBoundary(callee));
             }
             return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
         }
@@ -650,6 +672,36 @@ public static class LeakTriageAnalyzer
         => FrameworkIdentity.IsKnownFrameworkType(type, "System.Buffers", "System.Buffers", "ArrayPool`1")
            || FrameworkIdentity.IsCoreLibraryType(type, "System.Buffers", "ArrayPool`1");
 
+    static bool IsNonThrowingSetupBoundary(MemberRef member)
+    {
+        if (member.Kind == MemberKind.Unsupported)
+            return false;
+
+        if (member.Name == "KeepAlive" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "GC"))
+            return true;
+
+        if (member.Name == "Copy" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "Array"))
+            return true;
+
+        if (member.Name == "AsSpan"
+            && (FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "MemoryExtensions")
+                || FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Memory", "System", "MemoryExtensions")))
+        {
+            return true;
+        }
+
+        return member.Name == "Clear" && IsSpanType(member.DeclaringType);
+    }
+
+    static bool IsSpanType(TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.GenericInstance || type.ElementType is not { } definition)
+            return false;
+
+        return FrameworkIdentity.IsCoreLibraryType(definition, "System", "Span`1")
+            || FrameworkIdentity.IsKnownFrameworkType(definition, "System.Memory", "System", "Span`1");
+    }
+
     static int ArgumentSlotCount(MethodIdentity method)
         => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
 
@@ -680,12 +732,12 @@ public static class LeakTriageAnalyzer
         Ambiguous,
     }
 
-    readonly record struct UseClassification(UseKind Kind, string CandidateShape, string Evidence)
+    readonly record struct UseClassification(UseKind Kind, string CandidateShape, string Evidence, bool NonThrowingSetupBoundary = false)
     {
         public static UseClassification Release { get; } = new(UseKind.Release, "", "");
         public static UseClassification LocalUse { get; } = new(UseKind.LocalUse, "", "");
         public static UseClassification AliasOrField(string evidence) => new(UseKind.Ambiguous, "alias-or-field-suppressed", evidence);
-        public static UseClassification CrossMethod(string evidence) => new(UseKind.Ambiguous, "cross-method-suppressed", evidence);
+        public static UseClassification CrossMethod(string evidence, bool nonThrowingSetupBoundary) => new(UseKind.Ambiguous, "cross-method-suppressed", evidence, nonThrowingSetupBoundary);
         public static UseClassification OwnershipTransfer(string evidence) => new(UseKind.Ambiguous, "ownership-transfer-suppressed", evidence);
     }
 
