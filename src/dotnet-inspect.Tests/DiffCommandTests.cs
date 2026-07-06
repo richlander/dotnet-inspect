@@ -146,6 +146,64 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildApiDiff_MemberFilter_RejectsAmbiguousTypeContext()
+    {
+        var oldSurface = DiffSurface("A", "Widget", DiffMember("Changed", signature: "void Changed()"));
+        var newSurface = DiffSurface("A", "Widget", DiffMember("Changed", signature: "int Changed()"));
+        oldSurface.Types.Add(DiffType("B", "Widget", DiffMember("Changed", signature: "void Changed()")));
+        newSurface.Types.Add(DiffType("B", "Widget", DiffMember("Changed", signature: "int Changed()")));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Changed"]
+            }));
+
+        Assert.Contains("ambiguous", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("A.Widget", error.Message);
+        Assert.Contains("B.Widget", error.Message);
+    }
+
+    [Fact]
+    public void BuildApiDiff_MemberFilter_PreservesWholeTypeAddedForTargetedMember()
+    {
+        var oldSurface = new ApiSurface();
+        var newSurface = DiffSurface("Sample", "Widget", DiffMember("Added", signature: "void Added()"));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            MemberFilter = ["Sample.Widget.Added"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.TypeAdded, change.Kind);
+        Assert.Equal("Sample.Widget", typeDiff.TypeFullName);
+    }
+
+    [Fact]
+    public void BuildApiDiff_MemberFilter_PreservesResolverAmbiguityDiagnostic()
+    {
+        var oldSurface = DiffSurface(
+            DiffMember("Changed", signature: "void Changed()"),
+            DiffMember("Changed", signature: "void Changed(int value)"));
+        var newSurface = DiffSurface(
+            DiffMember("Changed", signature: "void Changed()"),
+            DiffMember("Changed", signature: "void Changed(int value)"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Changed"]
+            }));
+
+        Assert.Contains("ambiguous", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Changed:1", error.Message);
+    }
+
+    [Fact]
     public void BuildApiDiff_GenericMemberFilter_ExcludesSameNameNonGenericOverload()
     {
         var oldSurface = DiffSurface(
@@ -375,18 +433,21 @@ public class DiffCommandTests
     }
 
     static ApiSurface DiffSurface(params ApiMember[] members)
+        => DiffSurface(DiffType("Sample", "Widget", members));
+
+    static ApiSurface DiffSurface(params ApiType[] types)
+        => new() { Types = [.. types] };
+
+    static ApiSurface DiffSurface(string @namespace, string name, params ApiMember[] members)
+        => new() { Types = [DiffType(@namespace, name, members)] };
+
+    static ApiType DiffType(string @namespace, string name, params ApiMember[] members)
         => new()
         {
-            Types =
-            [
-                new ApiType
-                {
-                    Namespace = "Sample",
-                    Name = "Widget",
-                    Kind = "class",
-                    Members = [.. members],
-                }
-            ],
+            Namespace = @namespace,
+            Name = name,
+            Kind = "class",
+            Members = [.. members],
         };
 
     static ApiMember DiffMember(string name, IReadOnlyList<string>? attributes = null, string? signature = null, int genericArity = 0)
