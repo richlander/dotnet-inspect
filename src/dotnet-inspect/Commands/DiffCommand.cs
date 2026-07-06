@@ -693,13 +693,16 @@ public class DiffCommand
         var parameters = signature is null
             ? "()"
             : $"({string.Join(",", signature.Parameters.Select(parameter => ResearchBodyTypeName(parameter.TypeWithModifier)))})";
-        var canonical = $"M:{target.Anchor.TypeFullName.Replace('+', '.')}.{memberName}{generic}{parameters}";
+        var canonical = $"M:{ResearchBodyDeclaringTypeName(target.Anchor.TypeFullName)}.{memberName}{generic}{parameters}";
         var selectorName = target.Anchor.StableSelector.Split('~')[0];
         identities.Add($"{selectorName}~{MemberAnchor.ComputeFingerprint(canonical)}");
         return true;
     }
 
-    static string ResearchBodyTypeName(string typeName)
+    internal static string ResearchBodyDeclaringTypeName(string typeName)
+        => StripGenericArguments(typeName.Replace('+', '.'));
+
+    internal static string ResearchBodyTypeName(string typeName)
     {
         var value = typeName.Trim();
         foreach (var prefix in (ReadOnlySpan<string>)["ref readonly ", "readonly ref ", "scoped ref ", "ref ", "out ", "in "])
@@ -718,19 +721,8 @@ public class DiffCommand
         if (arrayStart > 0 && value.EndsWith("]", StringComparison.Ordinal))
             return $"{ResearchBodyTypeName(value[..arrayStart])}{value[arrayStart..]}";
 
-        var nestedSegments = SplitTopLevel(value, '.').ToList();
-        if (nestedSegments.Count > 1 && nestedSegments.Any(segment => segment.Contains('<', StringComparison.Ordinal)))
-            return string.Join(".", nestedSegments.Select(ResearchBodyTypeName));
-
-        var genericStart = value.IndexOf('<');
-        if (genericStart > 0 && value.EndsWith(">", StringComparison.Ordinal))
-        {
-            var baseName = value[..genericStart];
-            var arguments = SplitTopLevel(value[(genericStart + 1)..^1], ',')
-                .Select(ResearchBodyTypeName)
-                .ToList();
-            return $"{baseName}`{arguments.Count}<{string.Join(",", arguments)}>";
-        }
+        if (TryRenderGenericTypeName(value, out var genericTypeName))
+            return genericTypeName;
 
         return value switch
         {
@@ -755,6 +747,63 @@ public class DiffCommand
             "void" => "System.Void",
             _ => value
         };
+    }
+
+    static bool TryRenderGenericTypeName(string value, out string typeName)
+    {
+        var segments = SplitTopLevel(value, '.').ToList();
+        List<string> renderedSegments = [];
+        List<string> genericArguments = [];
+        var sawGeneric = false;
+
+        foreach (var segment in segments)
+        {
+            var genericStart = segment.IndexOf('<');
+            if (genericStart <= 0 || !segment.EndsWith(">", StringComparison.Ordinal))
+            {
+                renderedSegments.Add(segment);
+                continue;
+            }
+
+            var arguments = SplitTopLevel(segment[(genericStart + 1)..^1], ',')
+                .Select(ResearchBodyTypeName)
+                .ToList();
+            renderedSegments.Add($"{segment[..genericStart]}`{arguments.Count}");
+            genericArguments.AddRange(arguments);
+            sawGeneric = true;
+        }
+
+        if (!sawGeneric)
+        {
+            typeName = "";
+            return false;
+        }
+
+        typeName = $"{string.Join(".", renderedSegments)}<{string.Join(",", genericArguments)}>";
+        return true;
+    }
+
+    static string StripGenericArguments(string value)
+    {
+        var result = new System.Text.StringBuilder(value.Length);
+        var depth = 0;
+        foreach (var ch in value)
+        {
+            if (ch == '<')
+            {
+                depth++;
+                continue;
+            }
+            if (ch == '>')
+            {
+                depth--;
+                continue;
+            }
+            if (depth == 0)
+                result.Append(ch);
+        }
+
+        return result.ToString();
     }
 
     static IEnumerable<string> SplitTopLevel(string value, char separator)
