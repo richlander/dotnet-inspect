@@ -27,8 +27,8 @@ diagnostic instead of falling back to partial string matching.
 
 - Lexical command helpers may still identify source/type/member argument slots,
   but semantic member resolution should flow through `MemberTargetResolver`.
-- Commands that target API changes, such as `diff -m/--member`, should resolve
-  selectors against the old/new API surfaces and filter by the resulting
+- Commands that target API or body changes, such as `diff -m/--member`, should
+  resolve selectors against the old/new API surfaces and filter by the resulting
   `MemberAnchor` identities rather than by re-parsing display text.
 - `MemberAnchor` remains the durable user/agent-facing identity; producer-native
   references remain producer evidence and should not be replaced by selectors.

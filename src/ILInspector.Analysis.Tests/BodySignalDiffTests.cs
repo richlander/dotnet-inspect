@@ -48,6 +48,24 @@ public class BodySignalDiffTests
     }
 
     [Fact]
+    public void CompareUnsafe_MethodKeyDistinguishesSameNameDifferentGenericArity()
+    {
+        var method1 = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
+        var method2 = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use") with { GenericArity = 1 };
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [method1],
+            [new UnsafeEvidence(method1, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [method2],
+            [new UnsafeEvidence(method2, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
+
+        var diff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
+
+        Assert.Contains(diff.Rows, row => row.Kind == BodySignalDiffKind.Removed);
+        Assert.Contains(diff.Rows, row => row.Kind == BodySignalDiffKind.Added);
+    }
+
+    [Fact]
     public void CompareUnsafe_PreservesCountOfRepeatedUnsafeOperations()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");

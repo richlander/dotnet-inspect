@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
@@ -491,6 +492,107 @@ public class DiffCommandTests
         Assert.DoesNotContain(result.Rows, r => r.Member.Contains("Stable"));
     }
 
+    [Fact]
+    public void BuildAnalysisDiff_MemberFilter_UsesResolverBackedTarget()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions
+        {
+            TypeFilter = ["DiffSample"],
+            MemberFilter = ["RegressesAllocInLoop"],
+            ChangedOnly = true
+        });
+
+        var row = Assert.Single(result.Rows);
+        Assert.Contains("RegressesAllocInLoop", row.Member);
+        Assert.Equal("allocations", row.Signal);
+        Assert.DoesNotContain(result.Rows, r => r.Member.Contains("ImprovesAlloc"));
+    }
+
+    [Fact]
+    public void BuildAnalysisDiff_MemberFilter_RejectsNonMethodTargets()
+    {
+        var surface = DiffSurface(DiffProperty("Value"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildAnalysisDiff([], [], new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Value"]
+            }, surface, surface));
+
+        Assert.Contains("method-like target", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("int*", "System.Int32*")]
+    [InlineData("int[,]", "System.Int32[,]")]
+    [InlineData("dynamic", "System.Object")]
+    [InlineData("nint", "System.IntPtr")]
+    [InlineData("params int[]", "System.Int32[]")]
+    [InlineData("pinned int", "pinned System.Int32")]
+    [InlineData("System.Collections.Generic.List<int>", "System.Collections.Generic.List`1<System.Int32>")]
+    [InlineData("System.Collections.Generic.List<int>.Enumerator", "System.Collections.Generic.List`1.Enumerator<System.Int32>")]
+    [InlineData("Outer<int>.Inner<string>", "Outer`1.Inner`1<System.Int32,System.String>")]
+    public void ResearchBodyTypeName_MatchesResearchDiffSubjectSpelling(string input, string expected)
+    {
+        Assert.Equal(expected, DiffCommand.ResearchBodyTypeName(input));
+    }
+
+    [Theory]
+    [InlineData("Namespace.Outer<T>.Inner<U>", "Namespace.Outer.Inner")]
+    [InlineData("Namespace.Outer+Inner<T>", "Namespace.Outer.Inner")]
+    [InlineData("System.Int32", "int")]
+    [InlineData("System.String", "string")]
+    public void ResearchBodyDeclaringTypeName_StripsApiTypeParameters(string input, string expected)
+    {
+        Assert.Equal(expected, DiffCommand.ResearchBodyDeclaringTypeName(input));
+    }
+
+    [Fact]
+    public void ResearchBodyTypeName_KeepsFullPrimitiveParameterNames()
+    {
+        Assert.Equal("System.Int32", DiffCommand.ResearchBodyTypeName("System.Int32"));
+    }
+
+    [Fact]
+    public void AddResearchBodyIdentity_PhysicalExtensionUsesExtensionSelector()
+    {
+        var type = new ApiType { Namespace = "DiffFixtureSample", Name = "ExtensionSample" };
+        var member = DiffMember("Twice", signature: "int Twice(int value)");
+        member.IsExtension = true;
+        member.DeclaringType = "DiffFixtureSample.ExtensionSample";
+        var target = ResolvedTarget(type, member);
+        HashSet<string> identities = new(StringComparer.Ordinal);
+
+        Assert.True(DiffCommand.AddResearchBodyIdentity(target, identities));
+
+        var expectedCanonical = "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)";
+        Assert.Contains($"extension:Twice~{MemberAnchor.ComputeFingerprint(expectedCanonical)}", identities);
+    }
+
+    [Fact]
+    public void AddResearchBodyIdentity_ProjectedExtensionUsesPhysicalDeclaringType()
+    {
+        var extendedType = new ApiType { Namespace = "System", Name = "Int32" };
+        var member = DiffMember("Twice", signature: "int Twice(int value)");
+        member.Kind = "extension-method";
+        member.IsExtension = true;
+        member.DeclaringType = "DiffFixtureSample.ExtensionSample";
+        var target = ResolvedTarget(
+            extendedType,
+            member,
+            new BodyTarget("DiffFixtureSample.ExtensionSample", "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)"));
+        HashSet<string> identities = new(StringComparer.Ordinal);
+
+        Assert.True(DiffCommand.AddResearchBodyIdentity(target, identities));
+
+        var expectedCanonical = "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)";
+        Assert.Contains($"extension:Twice~{MemberAnchor.ComputeFingerprint(expectedCanonical)}", identities);
+    }
+
     // #1736: a hotness-only allocation regression. The allocation count is unchanged
     // (1 -> 1) but the allocation moves into a loop (allocInLoop false -> true). The raw
     // count delta is zero, so this must still surface as an in-place allocations row with
@@ -580,6 +682,38 @@ public class DiffCommandTests
             },
             Attributes = attributes?.ToList() ?? [],
         };
+
+    static ApiMember DiffProperty(string name)
+        => new()
+        {
+            Name = name,
+            Kind = "property",
+            Signature = $"int {name}",
+            SignatureModel = new ApiSignature { MemberName = name, ReturnType = "int" }
+        };
+
+    static ResolvedMemberTarget ResolvedTarget(ApiType type, ApiMember member, BodyTarget? body = null)
+    {
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+        return new ResolvedMemberTarget(
+            type,
+            ApiMemberIdentity.CreateHandle(type, member),
+            anchor,
+            anchor.StableSelector,
+            anchor.StableSelector,
+            SelectorIndex: 1,
+            DeclaringOverloadIndex: 1,
+            OverloadIndex: null,
+            DigestPrefix: null,
+            GenericArity: member.SignatureModel?.TypeParameters.Count,
+            Kind: member.Kind switch
+            {
+                "extension-method" => MemberTargetKind.ExtensionMethod,
+                "method" => MemberTargetKind.Method,
+                _ => MemberTargetKind.Unknown
+            },
+            Body: body);
+    }
 
     static List<ApiParameter> ParseParameters(string signature)
     {

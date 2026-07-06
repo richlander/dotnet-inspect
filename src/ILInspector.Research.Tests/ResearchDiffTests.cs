@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.Instructions;
@@ -299,6 +300,67 @@ public class ResearchDiffTests
         Assert.Contains("AddsUnsafe", changed.Subject.Display);
         Assert.True(changed.ImplementationChanged);
         Assert.False(changed.ApiChanged);
+    }
+
+    [Fact]
+    public void CompareAssemblies_BodySignals_MemberTargetsKeepUnsafeRows()
+    {
+        var unfiltered = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
+        var targetId = Assert.Single(unfiltered.MembersWhere(member =>
+            member.Subject.Display.Contains("AddsUnsafe", StringComparison.Ordinal)
+            && member.HasChange("unsafe.stackalloc.added"))).Subject.Id;
+
+        var filtered = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(
+                ResearchDiffMechanism.BodySignals,
+                MemberTargetIdentities: new HashSet<string>(StringComparer.Ordinal) { targetId }));
+
+        var changed = Assert.Single(filtered.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
+        Assert.Equal(targetId, changed.Subject.Id);
+        Assert.Contains("AddsUnsafe", changed.Subject.Display);
+    }
+
+    [Fact]
+    public void CompareAssemblies_BodySignals_TypeFiltersApplyToUnsafeRows()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(
+                ResearchDiffMechanism.BodySignals,
+                TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "NoSuchType" }));
+
+        Assert.Empty(diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
+    }
+
+    [Fact]
+    public void CompareAssemblies_BodySignals_SuppressesGeneratedUnsafeRows()
+    {
+        var method = new MethodIdentity(
+            "Asm",
+            Guid.Empty,
+            TypeRef.Definition("Asm", "Generated", "<JsonContext>g__Generated|0_0"),
+            "Use",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MetadataToken: 0x06000001,
+            IsStatic: true);
+        var oldIndex = LibraryBodyIndex.FromEvidence([method], []);
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [method],
+            [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
+
+        var diff = ResearchDiff.Compare(
+            ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
+            ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
+            new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
+
+        Assert.Empty(diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
     }
 
     [Fact]
