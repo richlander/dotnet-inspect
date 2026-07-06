@@ -16,9 +16,23 @@ public sealed record LeakTriageFinding(
     int RentOffset,
     int? ILOffset);
 
+public sealed record LeakTriageCandidate(
+    MethodIdentity Method,
+    string Shape,
+    string Evidence,
+    int? RentOffset,
+    int? ILOffset);
+
+public sealed record LeakTriageResult(
+    ImmutableArray<LeakTriageFinding> Findings,
+    ImmutableArray<LeakTriageCandidate> Candidates);
+
 public static class LeakTriageAnalyzer
 {
     public static ImmutableArray<LeakTriageFinding> AnalyzeAssembly(string path)
+        => AnalyzeAssemblyDetailed(path).Findings;
+
+    public static LeakTriageResult AnalyzeAssemblyDetailed(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
@@ -29,6 +43,7 @@ public static class LeakTriageAnalyzer
         var assemblyName = reader.GetString(assembly.Name);
         var mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
+        var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -53,11 +68,13 @@ public static class LeakTriageAnalyzer
                         MetadataTokens.GetToken(methodHandle),
                         (methodDef.Attributes & MethodAttributes.Static) != 0);
                     var body = peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-                    findings.AddRange(AnalyzeMethod(
+                    var result = AnalyzeMethodDetailed(
                         method,
                         body.GetILBytes() ?? [],
                         body.ExceptionRegions,
-                        token => MemberResolver.ResolveMethod(reader, MetadataTokens.EntityHandle(token), scope)));
+                        token => MemberResolver.ResolveMethod(reader, MetadataTokens.EntityHandle(token), scope));
+                    findings.AddRange(result.Findings);
+                    candidates.AddRange(result.Candidates);
                 }
                 catch (Exception ex) when (IsRecoverable(ex))
                 {
@@ -67,10 +84,17 @@ public static class LeakTriageAnalyzer
             }
         }
 
-        return findings.ToImmutable();
+        return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable());
     }
 
     public static ImmutableArray<LeakTriageFinding> AnalyzeMethod(
+        MethodIdentity method,
+        byte[] il,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        Func<int, MemberRef> resolveMethod)
+        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod).Findings;
+
+    public static LeakTriageResult AnalyzeMethodDetailed(
         MethodIdentity method,
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
@@ -82,35 +106,48 @@ public static class LeakTriageAnalyzer
         ArgumentNullException.ThrowIfNull(resolveMethod);
 
         if (il.Length == 0)
-            return [];
+            return Empty;
 
+        bool hasArrayPoolRent = false;
         try
         {
             var instructions = InstructionDecoder.Decode(il);
+            var calls = BuildCallMap(instructions, resolveMethod);
+            hasArrayPoolRent = calls.Values.Any(IsArrayPoolRent);
+            if (!hasArrayPoolRent)
+                return Empty;
+
             var graph = BlockGraph.Build(il.Length, instructions, exceptionRegions);
             if (!graph.IsComplete)
-                return [];
+                return Suppressed(method, "incomplete-cfg-or-rd-suppressed", graph.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
 
             var reaching = ReachingDefinitions.Analyze(il, ArgumentSlotCount(method), exceptionRegions);
             if (!reaching.IsComplete)
-                return [];
+                return Suppressed(method, "incomplete-cfg-or-rd-suppressed", reaching.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
 
-            var calls = BuildCallMap(instructions, resolveMethod);
-            var rents = FindRents(method, instructions, graph, reaching, calls).ToImmutableArray();
+            var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
+            var rents = FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
             if (rents.Length == 0)
-                return [];
+                return new LeakTriageResult([], candidates.ToImmutable());
 
             var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
             foreach (var rent in rents)
-                AnalyzeRent(method, instructions, graph, reaching, calls, rent, findings);
+                AnalyzeRent(method, instructions, graph, reaching, calls, rent, findings, candidates);
 
-            return findings.ToImmutable();
+            return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable());
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
-            return [];
+            return hasArrayPoolRent
+                ? Suppressed(method, "incomplete-cfg-or-rd-suppressed", ex.Message, null, null)
+                : Empty;
         }
     }
+
+    static LeakTriageResult Empty { get; } = new([], []);
+
+    static LeakTriageResult Suppressed(MethodIdentity method, string shape, string evidence, int? rentOffset, int? ilOffset)
+        => new([], [new LeakTriageCandidate(method, shape, evidence, rentOffset, ilOffset)]);
 
     static void AnalyzeRent(
         MethodIdentity method,
@@ -119,7 +156,8 @@ public static class LeakTriageAnalyzer
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
         RentedLocal rent,
-        ImmutableArray<LeakTriageFinding>.Builder findings)
+        ImmutableArray<LeakTriageFinding>.Builder findings,
+        ImmutableArray<LeakTriageCandidate>.Builder candidates)
     {
         var releases = ImmutableArray.CreateBuilder<int>();
         var safeUses = ImmutableArray.CreateBuilder<int>();
@@ -129,12 +167,13 @@ public static class LeakTriageAnalyzer
         {
             if (use.Address)
             {
+                AddCandidate(candidates, method, "alias-or-field-suppressed", "Rented array address is observed.", rent.RentOffset, use.Offset);
                 ambiguous = true;
                 break;
             }
 
-            var kind = ClassifyUse(instructions, calls, use.Offset, rent.Slot);
-            switch (kind)
+            var classification = ClassifyUse(instructions, calls, use.Offset, rent.Slot);
+            switch (classification.Kind)
             {
                 case UseKind.Release:
                     releases.Add(use.Offset);
@@ -143,9 +182,12 @@ public static class LeakTriageAnalyzer
                     safeUses.Add(use.Offset);
                     break;
                 default:
+                    AddCandidate(candidates, method, classification.CandidateShape, classification.Evidence, rent.RentOffset, use.Offset);
                     ambiguous = true;
                     break;
             }
+            if (ambiguous)
+                break;
         }
 
         if (ambiguous)
@@ -156,9 +198,18 @@ public static class LeakTriageAnalyzer
 
         // Multiple releases often encode correlated branch predicates (`if (c) return; if (!c) return`).
         // Without predicate facts, fail closed on leaks and only keep same-block misuse shapes below.
-        if (releaseOffsets.Length <= 1
-            && PathExitsWithoutRelease(instructions, graph, calls, rent.StoreOffset, releaseOffsets))
+        var exitKind = releaseOffsets.Length <= 1
+            ? PathExitsWithoutRelease(instructions, graph, calls, rent.StoreOffset, releaseOffsets)
+            : LeakExitKind.None;
+        if (exitKind != LeakExitKind.None)
         {
+            AddCandidate(
+                candidates,
+                method,
+                exitKind == LeakExitKind.Exception ? "exception-path-leak-candidate" : "normal-path-leak-candidate",
+                $"ArrayPool<T>.Shared.Rent at IL_{rent.RentOffset:X4} reaches an unreleased {(exitKind == LeakExitKind.Exception ? "exception" : "normal")} exit.",
+                rent.RentOffset,
+                rent.RentOffset);
             findings.Add(new LeakTriageFinding(
                 method,
                 "arraypool-rent-not-returned",
@@ -172,18 +223,33 @@ public static class LeakTriageAnalyzer
         if (releaseOffsets.Length > 0
             && safeUseOffsets.Any(use => releaseOffsets.Any(release => ReachesInSameBlock(graph, release, use))))
         {
+            int useAfterReturn = safeUseOffsets.Where(use => releaseOffsets.Any(release => ReachesInSameBlock(graph, release, use))).Min();
+            AddCandidate(
+                candidates,
+                method,
+                "use-after-return-candidate",
+                $"Use of rented array reaches past Return at IL_{releaseOffsets.Min():X4}.",
+                rent.RentOffset,
+                useAfterReturn);
             findings.Add(new LeakTriageFinding(
                 method,
                 "arraypool-use-after-return",
                 $"Use of rented array reaches past Return at IL_{releaseOffsets.Min():X4}.",
                 "high",
                 rent.RentOffset,
-                safeUseOffsets.Where(use => releaseOffsets.Any(release => ReachesInSameBlock(graph, release, use))).Min()));
+                useAfterReturn));
         }
 
         if (releaseOffsets.Length > 1
             && releaseOffsets.Any(first => releaseOffsets.Any(second => first != second && ReachesInSameBlock(graph, first, second))))
         {
+            AddCandidate(
+                candidates,
+                method,
+                "double-return-candidate",
+                $"Rented array can reach a second Return after IL_{releaseOffsets.Min():X4}.",
+                rent.RentOffset,
+                releaseOffsets.Skip(1).DefaultIfEmpty(releaseOffsets[0]).Min());
             findings.Add(new LeakTriageFinding(
                 method,
                 "arraypool-double-return",
@@ -194,7 +260,16 @@ public static class LeakTriageAnalyzer
         }
     }
 
-    static bool PathExitsWithoutRelease(
+    static void AddCandidate(
+        ImmutableArray<LeakTriageCandidate>.Builder candidates,
+        MethodIdentity method,
+        string shape,
+        string evidence,
+        int? rentOffset,
+        int? ilOffset)
+        => candidates.Add(new LeakTriageCandidate(method, shape, evidence, rentOffset, ilOffset));
+
+    static LeakExitKind PathExitsWithoutRelease(
         ImmutableArray<DecodedInstruction> instructions,
         BlockGraph graph,
         IReadOnlyDictionary<int, MemberRef> calls,
@@ -203,12 +278,13 @@ public static class LeakTriageAnalyzer
     {
         int startBlock = graph.BlockIndexAt(startOffset);
         if (startBlock < 0)
-            return false;
+            return LeakExitKind.None;
 
         var releaseSet = releases.ToHashSet();
         var visited = new HashSet<(int Block, bool Released)>();
         var stack = new Stack<(int Block, bool Released, int StartOffset)>();
         stack.Push((startBlock, Released: false, StartOffset: startOffset));
+        bool sawExceptionExit = false;
 
         while (stack.Count > 0)
         {
@@ -220,12 +296,17 @@ public static class LeakTriageAnalyzer
             bool released = ProcessBlockForRelease(instructions, calls, block, blockStartOffset, releaseSet, releasedIn);
             var successors = block.Edges.Successors;
             if (!released && block.Edges.ExitsMethod && successors.Count == 0)
-                return true;
+            {
+                if (BlockExitsByException(instructions, calls, block))
+                    sawExceptionExit = true;
+                else
+                    return LeakExitKind.Normal;
+            }
             foreach (int successor in successors)
                 stack.Push((successor, released, graph.Blocks[successor].Start));
         }
 
-        return false;
+        return sawExceptionExit ? LeakExitKind.Exception : LeakExitKind.None;
     }
 
     static bool ProcessBlockForRelease(
@@ -255,6 +336,22 @@ public static class LeakTriageAnalyzer
            || (calls.TryGetValue(instruction.Offset, out var callee)
                && FrameworkIdentity.IsCoreLibraryType(callee.DeclaringType, "System", "ThrowHelper"));
 
+    static bool BlockExitsByException(
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        InstructionBlock block)
+    {
+        foreach (var instruction in instructions)
+        {
+            if (instruction.Offset < block.Start || instruction.Offset >= block.End)
+                continue;
+            if (IsDefinitelyThrowingCall(instruction, calls))
+                return true;
+        }
+
+        return false;
+    }
+
     static bool ReachesInSameBlock(BlockGraph graph, int fromOffset, int toOffset)
     {
         int fromBlock = graph.BlockIndexAt(fromOffset);
@@ -267,22 +364,50 @@ public static class LeakTriageAnalyzer
         ImmutableArray<DecodedInstruction> instructions,
         BlockGraph graph,
         ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls)
+        IReadOnlyDictionary<int, MemberRef> calls,
+        ImmutableArray<LeakTriageCandidate>.Builder candidates)
     {
         foreach (var instruction in instructions)
         {
             if (!calls.TryGetValue(instruction.Offset, out var callee) || !IsArrayPoolRent(callee))
                 continue;
             if (!RentUsesSharedReceiver(instructions, graph, calls, instruction.Offset))
+            {
+                AddCandidate(
+                    candidates,
+                    method,
+                    "ownership-transfer-suppressed",
+                    $"ArrayPool<T>.Rent at IL_{instruction.Offset:X4} does not use the Shared receiver.",
+                    instruction.Offset,
+                    instruction.Offset);
                 continue;
+            }
             if (!TryFindNextNonNop(instructions, instruction.NextOffset, out var store)
                 || !TryReadStoreLocal(store, out int slot))
+            {
+                AddCandidate(
+                    candidates,
+                    method,
+                    "ownership-transfer-suppressed",
+                    $"ArrayPool<T>.Shared.Rent at IL_{instruction.Offset:X4} is not stored to a modeled local.",
+                    instruction.Offset,
+                    instruction.Offset);
                 continue;
+            }
 
             var definition = reaching.Definitions.FirstOrDefault(d =>
                 !d.IsArgument && d.Slot == slot && d.Offset == store.Offset);
             if (definition is null)
+            {
+                AddCandidate(
+                    candidates,
+                    method,
+                    "incomplete-cfg-or-rd-suppressed",
+                    $"ArrayPool<T>.Shared.Rent local definition at IL_{store.Offset:X4} is missing from reaching definitions.",
+                    instruction.Offset,
+                    store.Offset);
                 continue;
+            }
 
             yield return new RentedLocal(instruction.Offset, store.Offset, slot, definition);
         }
@@ -315,7 +440,7 @@ public static class LeakTriageAnalyzer
         return false;
     }
 
-    static UseKind ClassifyUse(
+    static UseClassification ClassifyUse(
         ImmutableArray<DecodedInstruction> instructions,
         IReadOnlyDictionary<int, MemberRef> calls,
         int loadOffset,
@@ -323,7 +448,7 @@ public static class LeakTriageAnalyzer
     {
         if (!TryFindInstruction(instructions, loadOffset, out int index, out var load)
             || !IsLoadLocal(load, slot))
-            return UseKind.Ambiguous;
+            return UseClassification.OwnershipTransfer("Rented array use could not be classified.");
 
         int extra = 0;
         for (int i = index + 1; i < instructions.Length; i++)
@@ -336,21 +461,25 @@ public static class LeakTriageAnalyzer
                 continue;
             }
             if (opcode == ILOpCode.Ldlen)
-                return extra == 0 ? UseKind.LocalUse : UseKind.Ambiguous;
+                return extra == 0 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array length use is ambiguous.");
             if (IsElementRead(opcode))
-                return extra == 1 ? UseKind.LocalUse : UseKind.Ambiguous;
+                return extra == 1 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array element read is ambiguous.");
             if (IsElementStore(opcode))
-                return extra == 2 ? UseKind.LocalUse : UseKind.Ambiguous;
+                return extra == 2 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array element store is ambiguous.");
+            if (IsFieldStore(opcode) || IsLocalStore(opcode))
+                return UseClassification.AliasOrField("Rented array is stored into another location.");
+            if (opcode == ILOpCode.Ret)
+                return UseClassification.OwnershipTransfer("Rented array escapes through the return value.");
             if (calls.TryGetValue(instruction.Offset, out var callee))
             {
                 if (IsArrayPoolReturn(callee) && extra < callee.ParameterTypes.Length)
-                    return UseKind.Release;
-                return UseKind.Ambiguous;
+                    return UseClassification.Release;
+                return UseClassification.CrossMethod($"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.");
             }
-            return UseKind.Ambiguous;
+            return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
         }
 
-        return UseKind.Ambiguous;
+        return UseClassification.OwnershipTransfer("Rented array use reaches the end of the instruction stream.");
     }
 
     static IReadOnlyDictionary<int, MemberRef> BuildCallMap(
@@ -440,6 +569,13 @@ public static class LeakTriageAnalyzer
             or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
             or ILOpCode.Stelem_ref;
 
+    static bool IsFieldStore(ILOpCode opcode)
+        => opcode is ILOpCode.Stfld or ILOpCode.Stsfld;
+
+    static bool IsLocalStore(ILOpCode opcode)
+        => opcode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+            or ILOpCode.Stloc_s or ILOpCode.Stloc;
+
     static bool IsArrayPoolRent(MemberRef member)
         => member.Kind != MemberKind.Unsupported
            && member.Name == "Rent"
@@ -496,5 +632,21 @@ public static class LeakTriageAnalyzer
         Release,
         LocalUse,
         Ambiguous,
+    }
+
+    readonly record struct UseClassification(UseKind Kind, string CandidateShape, string Evidence)
+    {
+        public static UseClassification Release { get; } = new(UseKind.Release, "", "");
+        public static UseClassification LocalUse { get; } = new(UseKind.LocalUse, "", "");
+        public static UseClassification AliasOrField(string evidence) => new(UseKind.Ambiguous, "alias-or-field-suppressed", evidence);
+        public static UseClassification CrossMethod(string evidence) => new(UseKind.Ambiguous, "cross-method-suppressed", evidence);
+        public static UseClassification OwnershipTransfer(string evidence) => new(UseKind.Ambiguous, "ownership-transfer-suppressed", evidence);
+    }
+
+    enum LeakExitKind
+    {
+        None,
+        Normal,
+        Exception,
     }
 }

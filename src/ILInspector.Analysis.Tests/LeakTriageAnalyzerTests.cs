@@ -34,6 +34,20 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_ReportsMeasurementCandidatesWithoutChangingFindings()
+    {
+        var result = FixtureResult();
+
+        AssertSingleShape(result.Findings, nameof(ArrayPoolLeakFixtures.UseAfterReturn), "arraypool-use-after-return");
+        AssertSingleShape(result.Findings, nameof(ArrayPoolLeakFixtures.RentNotReturnedOnSomePath), "arraypool-rent-not-returned");
+        AssertSingleShape(result.Findings, nameof(ArrayPoolLeakFixtures.DoubleReturn), "arraypool-double-return");
+
+        AssertCandidate(result, nameof(ArrayPoolLeakFixtures.UseAfterReturn), "use-after-return-candidate");
+        AssertCandidate(result, nameof(ArrayPoolLeakFixtures.RentNotReturnedOnSomePath), "normal-path-leak-candidate");
+        AssertCandidate(result, nameof(ArrayPoolLeakFixtures.DoubleReturn), "double-return-candidate");
+    }
+
+    [Fact]
     public void AmbiguousArrayPoolFixtures_FailClosed()
     {
         var findings = FixtureFindings();
@@ -41,6 +55,45 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.CrossMethodReturn)));
         Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.FieldStoredArray)));
         Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.NonSharedPoolRent)));
+        Assert.Empty(ForMethod(findings, nameof(ArrayPoolLeakFixtures.ReturnsRentedArray)));
+    }
+
+    [Fact]
+    public void DetailedAnalysis_BucketsSuppressedOwnershipShapes()
+    {
+        var crossMethod = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            .. Call(TokenUnknown),
+            0x2A,
+        ], []);
+        var fieldStore = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            0x80, .. TokenBytes(TokenField),
+            0x2A,
+        ], []);
+        var returned = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            0x2A,
+        ], []);
+
+        AssertCandidate(crossMethod, nameof(Synthetic), "cross-method-suppressed");
+        AssertCandidate(fieldStore, nameof(Synthetic), "alias-or-field-suppressed");
+        AssertCandidate(returned, nameof(Synthetic), "ownership-transfer-suppressed");
+
+        var result = FixtureResult();
+        AssertCandidate(result, nameof(ArrayPoolLeakFixtures.NonSharedPoolRent), "ownership-transfer-suppressed");
     }
 
     [Fact]
@@ -67,6 +120,46 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_IncompleteDataflowWithoutRent_HasNoSuppressedBucket()
+    {
+        byte[] externalBranch = [0x2B, 0x7F, 0x2A]; // br.s outside the method, then ret
+        var method = new MethodIdentity(
+            "Fixture",
+            Guid.Empty,
+            TypeRef.Definition("Fixture", "Fixtures", "Incomplete"),
+            "Malformed",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+
+        var result = LeakTriageAnalyzer.AnalyzeMethodDetailed(
+            method,
+            externalBranch,
+            Array.Empty<ExceptionRegion>(),
+            _ => MemberRef.Unsupported("not used"));
+
+        Assert.Empty(result.Findings);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void DetailedAnalysis_IncompleteDataflowWithRent_IsSuppressedBucket()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x2B, 0x7F,
+            0x2A,
+        ], []);
+
+        Assert.Empty(result.Findings);
+        AssertCandidate(result, nameof(Synthetic), "incomplete-cfg-or-rd-suppressed");
+    }
+
+    [Fact]
     public void FaultHandlerReturn_DoesNotSatisfyNormalLeavePath()
     {
         var findings = AnalyzeSynthetic([
@@ -85,15 +178,45 @@ public sealed class LeakTriageAnalyzerTests
         AssertSingleShape(findings, nameof(Synthetic), "arraypool-rent-not-returned");
     }
 
+    [Fact]
+    public void DetailedAnalysis_ExceptionPathLeak_IsSeparateCandidateBucket()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            .. Newobj(TokenUnknown),
+            0x7A,
+        ], []);
+
+        AssertSingleShape(result.Findings, nameof(Synthetic), "arraypool-rent-not-returned");
+        AssertCandidate(result, nameof(Synthetic), "exception-path-leak-candidate");
+    }
+
+    static LeakTriageResult FixtureResult()
+    {
+        var result = LeakTriageAnalyzer.AnalyzeAssemblyDetailed(typeof(ArrayPoolLeakFixtures).Assembly.Location);
+        return result with
+        {
+            Findings = [.. result.Findings.Where(finding => finding.Method.DeclaringType.Name == nameof(ArrayPoolLeakFixtures))],
+            Candidates = [.. result.Candidates.Where(candidate => candidate.Method.DeclaringType.Name == nameof(ArrayPoolLeakFixtures))],
+        };
+    }
+
     static ImmutableArray<LeakTriageFinding> FixtureFindings()
-        => [.. LeakTriageAnalyzer.AnalyzeAssembly(typeof(ArrayPoolLeakFixtures).Assembly.Location)
-            .Where(finding => finding.Method.DeclaringType.Name == nameof(ArrayPoolLeakFixtures))];
+        => FixtureResult().Findings;
 
     const int TokenShared = 0x0A000001;
     const int TokenRent = 0x0A000002;
     const int TokenReturn = 0x0A000003;
+    const int TokenUnknown = 0x0A000004;
+    const int TokenField = 0x0A000005;
 
     static ImmutableArray<LeakTriageFinding> AnalyzeSynthetic(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+        => AnalyzeSyntheticDetailed(il, exceptionRegions).Findings;
+
+    static LeakTriageResult AnalyzeSyntheticDetailed(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         var method = new MethodIdentity(
             "Fixture",
@@ -104,7 +227,7 @@ public sealed class LeakTriageAnalyzerTests
             TypeRef.CoreLib("System", "Void"),
             0x06000001,
             IsStatic: true);
-        return LeakTriageAnalyzer.AnalyzeMethod(method, il, exceptionRegions, ResolveSyntheticMember);
+        return LeakTriageAnalyzer.AnalyzeMethodDetailed(method, il, exceptionRegions, ResolveSyntheticMember);
     }
 
     static MemberRef ResolveSyntheticMember(int token)
@@ -119,12 +242,14 @@ public sealed class LeakTriageAnalyzerTests
             TokenShared => new MemberRef(arrayPoolOfByte, "get_Shared", [], arrayPoolOfByte, MemberKind.Method),
             TokenRent => new MemberRef(arrayPoolOfByte, "Rent", [TypeRef.CoreLib("System", "Int32")], byteArray, MemberKind.Method) { HasThis = true },
             TokenReturn => new MemberRef(arrayPoolOfByte, "Return", [byteArray], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { HasThis = true },
+            TokenUnknown => new MemberRef(TypeRef.Definition("Fixture", "Fixtures", "Unknown"), "Use", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method),
             _ => MemberRef.Unsupported($"unknown token 0x{token:X8}"),
         };
     }
 
     static byte[] Call(int token) => [0x28, .. TokenBytes(token)];
     static byte[] Callvirt(int token) => [0x6F, .. TokenBytes(token)];
+    static byte[] Newobj(int token) => [0x73, .. TokenBytes(token)];
     static byte[] TokenBytes(int token) => BitConverter.GetBytes(token);
 
     static readonly ConstructorInfo s_exceptionRegionConstructor =
@@ -146,6 +271,12 @@ public sealed class LeakTriageAnalyzerTests
 
     static IEnumerable<LeakTriageFinding> ForMethod(ImmutableArray<LeakTriageFinding> findings, string methodName)
         => findings.Where(finding => finding.Method.Name == methodName);
+
+    static void AssertCandidate(LeakTriageResult result, string methodName, string shape)
+    {
+        var candidate = Assert.Single(result.Candidates.Where(candidate => candidate.Method.Name == methodName && candidate.Shape == shape));
+        Assert.Equal(shape, candidate.Shape);
+    }
 
     static void AssertSingleShape(ImmutableArray<LeakTriageFinding> findings, string methodName, string shape)
     {
@@ -288,6 +419,20 @@ internal sealed class ArrayPoolLeakFixtures
     {
         var buffer = pool.Rent(16);
         buffer[0] = 1;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static byte[] ReturnsRentedArray()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        return buffer;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void ThrowAfterRent()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        throw new InvalidOperationException(buffer.Length.ToString());
     }
 
     static void ReturnHelper(byte[] buffer)
