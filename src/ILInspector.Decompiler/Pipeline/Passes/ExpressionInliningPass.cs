@@ -95,6 +95,15 @@ public sealed class ExpressionInliningPass : IIrPass
             var load = loads[0];
             if (IsInsideCatchFilter(load))
                 continue;
+            // A load that is the target of an increment/decrement is an lvalue,
+            // not a value use: replacing it with the stored expression yields an
+            // invalid `1++`. Unreachable from real IL today (a reconstructed
+            // increment's operand is always a local/argument place, and its dup
+            // slot is read twice so it is never single-load), but guarded so the
+            // pass is correct by construction rather than by reachability (#2386
+            // adversarial review).
+            if (load.Parent is IncrementDecrement)
+                continue;
             var block = (Block)store.Parent!;
             IrNode next;
             if (store.ChildIndex + 1 < block.Children.Count)
@@ -231,6 +240,12 @@ public sealed class ExpressionInliningPass : IIrPass
                     }
                 }
                 if (blocked || use is null || useStatement is null)
+                    continue;
+
+                // An increment/decrement target is an lvalue, never a value use;
+                // replacing it with the moved expression yields an invalid `1++`
+                // (see InlineOnce). Correct-by-construction guard (#2386).
+                if (use.Parent is IncrementDecrement)
                     continue;
 
                 // A value that reads places must still evaluate first at the use

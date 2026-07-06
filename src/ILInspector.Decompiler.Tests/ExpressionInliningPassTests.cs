@@ -620,4 +620,29 @@ public class ExpressionInliningPassTests
         new ExpressionInliningPass().Run(full, PassContext.None);
         Assert.False(HasStoreLocal(full, 0));
     }
+
+    // increment-target guard (#2386 adversarial review): a stack slot whose only
+    // load is the operand of an increment is an lvalue — inlining it would emit
+    // an invalid `1++`. The gate declines it in both modes. This shape is
+    // unreachable from real IL (increment operands are local/argument places),
+    // but the guard keeps the pass correct by construction.
+    [Fact]
+    public void SlotFeedingIncrement_IsNotInlined()
+    {
+        IrFunction Make() => StraightLine(
+            [],
+            new StoreStackSlot(0, new Constant(1, Int32)),
+            new ExpressionStatement(new IncrementDecrement(
+                new LoadStackSlot(0, Int32), isIncrement: true, isPrefix: false)));
+
+        var gated = Make();
+        new ExpressionInliningPass(slotsOnly: true).Run(gated, PassContext.None);
+        Assert.True(HasStoreStackSlot(gated, 0));
+        Assert.Contains(gated.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        gated.CheckInvariant();
+
+        var full = Make();
+        new ExpressionInliningPass().Run(full, PassContext.None);
+        Assert.True(HasStoreStackSlot(full, 0));
+    }
 }
