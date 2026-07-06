@@ -35,6 +35,7 @@ The card includes:
 - pair exact-empty and changed-body counts;
 - failure count and failure buckets;
 - baseline metric changes when `--diff-baseline` is used;
+- baseline bucket changes when `--diff-baseline` is used;
 - top hunk kinds and opcode families;
 - per-pair summary rows;
 - capped examples rendered through `IlDiffPrinter`.
@@ -55,4 +56,6 @@ Markout metric-change rows for scalar metrics (`Metric | Change | Target` in
 Markdown, with goal markers in metric labels and goal-derived status inline in
 change cells; typed `before`/`after`/`target` fields plus goal-derived
 `direction`/`status` fields in JSONL) and keeps detailed finding rows for bucket
-drift and regression evidence.
+drift and regression evidence. Baseline bucket output uses Markout multi-source
+rows to compare baseline/current failure buckets, hunk kinds, and opcode
+families in Markdown and as section-aware decomposed JSONL/TSV rows.
