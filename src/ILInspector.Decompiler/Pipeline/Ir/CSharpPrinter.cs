@@ -1527,11 +1527,22 @@ public sealed partial class CSharpPrinter
         StackAllocArray => _skipLocalsInit,
         Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
+        Binary b => IsPointerArithmetic(b),
+        Comparison c => IsPointerComparison(c),
         LoadIndirect l => RendersAsPointerDeref(l.Address),
         StoreIndirect s => RendersAsPointerDeref(s.Address),
         InitObject o => RendersAsPointerDeref(o.Address),
         _ => false,
     };
+
+    static bool IsPointerArithmetic(Binary binary)
+        => binary.Kind is BinaryKind.Add or BinaryKind.Subtract
+            && (binary.Left.ResultType is { Kind: TypeRefKind.Pointer }
+                || binary.Right.ResultType is { Kind: TypeRefKind.Pointer });
+
+    static bool IsPointerComparison(Comparison comparison)
+        => comparison.Left.ResultType is { Kind: TypeRefKind.Pointer }
+            || comparison.Right.ResultType is { Kind: TypeRefKind.Pointer };
 
     /// <summary>
     /// Compat-mode requires-unsafe heuristic for a callee whose

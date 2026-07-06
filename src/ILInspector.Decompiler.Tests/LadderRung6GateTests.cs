@@ -636,6 +636,14 @@ public class LadderRung6GateTests
         var arithmetic = members.Single(m => m.Name == "PointerArithmeticAndComparison").Body;
         Assert.Contains("next - 1", arithmetic);
         Assert.Contains("q - p", arithmetic);
+        if (assemblyPath == NewUnsafePath)
+        {
+            AssertNoErrors(
+                RecompileNewRules(
+                    "static unsafe long M(int* p, int* q)",
+                    arithmetic),
+                arithmetic);
+        }
 
 #if !DEBUG
         AssertExactCompileBack(assemblyPath, typeName, "PointerIncrement");
