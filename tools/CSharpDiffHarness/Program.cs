@@ -572,7 +572,8 @@ static string Count(int count) => count.ToString(System.Globalization.CultureInf
 
 static List<MetricChange<int>> BaselineMetricRows(BaselineComparison comparison) =>
 [
-    MetricContext("Exact pairs", comparison.Baseline.Summary.ExactPairCount, comparison.Current.Summary.ExactPairCount),
+    MetricContext("Pairs", comparison.Baseline.Summary.PairCount, comparison.Current.Summary.PairCount),
+    MetricGoal("Exact pairs", comparison.Baseline.Summary.ExactPairCount, comparison.Current.Summary.ExactPairCount, "minimum exact pairs", Goal.Higher),
     MetricGoal("Changed pairs", comparison.Baseline.Summary.ChangedPairCount, comparison.Current.Summary.ChangedPairCount, "max changed pairs", Goal.Lower),
     MetricContext("Changed members", comparison.Baseline.Summary.ChangedMemberCount, comparison.Current.Summary.ChangedMemberCount),
     MetricGoal("Rows", comparison.Baseline.Summary.RowCount, comparison.Current.Summary.RowCount, "max rows", Goal.Lower),
