@@ -1,0 +1,92 @@
+{
+  "SchemaVersion": 1,
+  "Summary": {
+    "PairCount": 1,
+    "ExactPairCount": 0,
+    "ChangedPairCount": 1,
+    "ChangedMemberCount": 47,
+    "RowCount": 174,
+    "FailureCount": 1
+  },
+  "Pairs": [
+    {
+      "Old": "artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll",
+      "New": "artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll",
+      "IsExact": false,
+      "ChangedMemberCount": 47,
+      "RowCount": 174,
+      "FailureCount": 1
+    }
+  ],
+  "FailureBuckets": [
+    {
+      "Name": "Old method has no C# body.",
+      "Count": 1
+    }
+  ],
+  "ChangeIdBuckets": [
+    {
+      "Name": "csharp.line.added",
+      "Count": 76
+    },
+    {
+      "Name": "csharp.line.removed",
+      "Count": 53
+    },
+    {
+      "Name": "csharp.return-expression.changed",
+      "Count": 27
+    },
+    {
+      "Name": "csharp.call.changed",
+      "Count": 9
+    },
+    {
+      "Name": "csharp.method.removed",
+      "Count": 3
+    },
+    {
+      "Name": "csharp.switch.case.added",
+      "Count": 2
+    },
+    {
+      "Name": "csharp.switch.case.removed",
+      "Count": 2
+    },
+    {
+      "Name": "csharp.method.added",
+      "Count": 1
+    },
+    {
+      "Name": "csharp.method.body-added",
+      "Count": 1
+    }
+  ],
+  "OperationKindBuckets": [
+    {
+      "Name": "Line",
+      "Count": 129
+    },
+    {
+      "Name": "ReturnExpression",
+      "Count": 27
+    },
+    {
+      "Name": "Invocation",
+      "Count": 9
+    },
+    {
+      "Name": "Method",
+      "Count": 4
+    },
+    {
+      "Name": "SwitchCase",
+      "Count": 4
+    },
+    {
+      "Name": "MethodBody",
+      "Count": 1
+    }
+  ],
+  "Examples": []
+}
