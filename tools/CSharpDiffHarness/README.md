@@ -36,7 +36,7 @@ The card includes:
 - failure buckets;
 - top change IDs and operation kinds;
 - per-pair summary rows;
-- optional baseline/current data card and comparison rows;
+- optional baseline metric and bucket changes plus comparison rows;
 - capped examples rendered through `CSharpDiffPrinter`.
 
 Output defaults to Markout Markdown. Use `--format tsv` or `--format jsonl` to
@@ -47,6 +47,8 @@ Use `--emit-snapshot <file>` to write stable JSON card data for a run. Use
 `--diff-baseline <file>` to compare the current run against a previous snapshot.
 Baseline comparisons return exit code `1` for regressions (more failures, more
 changed pairs, more rows, fewer exact pairs, or new failure buckets) and report
-other metric and bucket changes as non-failing drift. The baseline card uses
-Markout composite cells (`Change<T>` and `Segments`) so Markdown stays compact
-while JSONL preserves typed baseline/current fields.
+other metric and bucket changes as non-failing drift. Baseline output uses
+Markout metric-change rows for scalar metrics (`Metric | Change | Target` in
+Markdown, with goal markers and inline status where a target applies) and
+multi-source rows for bucket changes. JSONL preserves typed baseline/current
+fields, direction/status, and segment values.

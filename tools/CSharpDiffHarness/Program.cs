@@ -465,12 +465,13 @@ static CSharpDiffCardMarkdownView BuildMarkdownView(ImmutableArray<CSharpDiffPai
     return new CSharpDiffCardMarkdownView
     {
         Summary = SummaryRows(pairs.Length, card),
-        BaselineCard = comparison is null ? null : BuildBaselineDataCard(comparison.Baseline, comparison.Current, comparison),
+        BaselineMetrics = comparison is null ? null : BaselineMetricRows(comparison),
+        BaselineBuckets = comparison is null ? null : BaselineBucketRows(comparison),
         FailureBuckets = MarkdownBucketRows(card.FailureBuckets) ?? [],
         TopChangeIds = MarkdownBucketRows(card.TopChangeIds) ?? [],
         TopOperationKinds = MarkdownBucketRows(card.TopOperationKinds) ?? [],
         PairSummaries = [.. pairs.Select(pair => PairSummaryRow(pair))],
-        BaselineComparison = comparison is null ? null : BaselineRows(comparison) ?? [],
+        BaselineFindings = comparison is null ? null : BaselineRows(comparison) ?? [],
         Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleMarkdownRow)],
     };
 }
@@ -481,12 +482,13 @@ static CSharpDiffCardTableView BuildTableView(ImmutableArray<CSharpDiffPairCard>
     return new CSharpDiffCardTableView
     {
         Summary = SectionedSummaryRows(pairs.Length, card),
-        BaselineCard = comparison is null ? null : BuildBaselineDataCard(comparison.Baseline, comparison.Current, comparison),
+        BaselineMetrics = comparison is null ? null : BaselineMetricRows(comparison),
+        BaselineBuckets = comparison is null ? null : BaselineBucketRows(comparison),
         FailureBuckets = SectionedBucketRows("Failure buckets", card.FailureBuckets),
         TopChangeIds = SectionedBucketRows("Top change IDs", card.TopChangeIds),
         TopOperationKinds = SectionedBucketRows("Top operation kinds", card.TopOperationKinds),
         PairSummaries = [.. pairs.Select(pair => SectionedPairSummaryRow(pair))],
-        BaselineComparison = comparison is null ? null : SectionedBaselineRows(comparison),
+        BaselineFindings = comparison is null ? null : SectionedBaselineRows(comparison),
         Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleTableRow)],
     };
 }
@@ -568,25 +570,43 @@ static List<CSharpDiffSectionMetricRow> SectionedSummaryRows(int pairCount, CSha
 
 static string Count(int count) => count.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-static CSharpDiffBaselineDataCard BuildBaselineDataCard(CSharpDiffSnapshot baseline, CSharpDiffSnapshot current, BaselineComparison comparison)
-    => new()
-    {
-        ExactPairs = new(baseline.Summary.ExactPairCount, current.Summary.ExactPairCount),
-        ChangedPairs = new(baseline.Summary.ChangedPairCount, current.Summary.ChangedPairCount),
-        ChangedMembers = new(baseline.Summary.ChangedMemberCount, current.Summary.ChangedMemberCount),
-        Rows = new(baseline.Summary.RowCount, current.Summary.RowCount),
-        Failures = new(baseline.Summary.FailureCount, current.Summary.FailureCount),
-        FailureBuckets = new(ToSegments(baseline.FailureBuckets ?? []), ToSegments(current.FailureBuckets ?? [])),
-        ChangeIds = new(ToSegments(baseline.ChangeIdBuckets ?? []), ToSegments(current.ChangeIdBuckets ?? [])),
-        OperationKinds = new(ToSegments(baseline.OperationKindBuckets ?? []), ToSegments(current.OperationKindBuckets ?? [])),
-        Verdict = comparison.HasRegressions ? "REGRESSION" : comparison.Rows.IsDefaultOrEmpty ? "MATCH" : "DRIFT",
-    };
+static List<MetricChange<int>> BaselineMetricRows(BaselineComparison comparison) =>
+[
+    MetricContext("Pairs", comparison.Baseline.Summary.PairCount, comparison.Current.Summary.PairCount),
+    MetricGoal("Exact pairs", comparison.Baseline.Summary.ExactPairCount, comparison.Current.Summary.ExactPairCount, "minimum exact pairs", Goal.Higher),
+    MetricGoal("Changed pairs", comparison.Baseline.Summary.ChangedPairCount, comparison.Current.Summary.ChangedPairCount, "max changed pairs", Goal.Lower),
+    MetricContext("Changed members", comparison.Baseline.Summary.ChangedMemberCount, comparison.Current.Summary.ChangedMemberCount),
+    MetricGoal("Rows", comparison.Baseline.Summary.RowCount, comparison.Current.Summary.RowCount, "max rows", Goal.Lower),
+    MetricGoal("Failures", comparison.Baseline.Summary.FailureCount, comparison.Current.Summary.FailureCount, "max failures", Goal.Lower),
+];
 
-static Segments ToSegments(IReadOnlyList<CardBucket> buckets)
-    => new([.. buckets
+static MetricChange<int> MetricContext(string name, int baseline, int current)
+    => new(name, baseline, current);
+
+static MetricChange<int> MetricGoal(string name, int baseline, int current, string targetLabel, Goal goal)
+    => new(name, baseline, current, baseline, targetLabel) { Goal = goal };
+
+static List<MultiSourceRow> BaselineBucketRows(BaselineComparison comparison) =>
+[
+    BucketChangeRow("Failure buckets", comparison.Baseline.FailureBuckets ?? [], comparison.Current.FailureBuckets ?? []),
+    BucketChangeRow("Change IDs", comparison.Baseline.ChangeIdBuckets ?? [], comparison.Current.ChangeIdBuckets ?? []),
+    BucketChangeRow("Operation kinds", comparison.Baseline.OperationKindBuckets ?? [], comparison.Current.OperationKindBuckets ?? []),
+];
+
+static MultiSourceRow BucketChangeRow(string label, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+    => new(label, SegmentSource("baseline", baseline), SegmentSource("current", current));
+
+static Source SegmentSource(string role, IReadOnlyList<CardBucket> buckets)
+{
+    var segments = buckets
         .Where(bucket => bucket.Count != 0)
         .Take(10)
-        .Select(bucket => new Segment(bucket.Name, bucket.Count))]);
+        .Select(bucket => new Segment(bucket.Name, bucket.Count))
+        .ToArray();
+    return segments.Length == 0
+        ? new Source(role, (IMarkoutCell?)null)
+        : new Source(role, new Segments(segments));
+}
 
 static List<BaselineFindingView>? BaselineRows(BaselineComparison comparison)
     => comparison.Rows.IsDefaultOrEmpty
@@ -596,7 +616,7 @@ static List<BaselineFindingView>? BaselineRows(BaselineComparison comparison)
 static List<BaselineSectionFindingView>? SectionedBaselineRows(BaselineComparison comparison)
     => comparison.Rows.IsDefaultOrEmpty
         ? null
-        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline comparison", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
+        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline findings", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
 
 static CSharpDiffPairSummaryRow PairSummaryRow(CSharpDiffPairCard pair)
     => new(
@@ -750,8 +770,12 @@ sealed class CSharpDiffCardMarkdownView
     [MarkoutSection(Name = "Summary")]
     public List<CSharpDiffMetricRow>? Summary { get; init; }
 
-    [MarkoutSection(Name = "Baseline card")]
-    public CSharpDiffBaselineDataCard? BaselineCard { get; init; }
+    [MarkoutSection(Name = "Baseline metric changes", IncludeSectionInStructuredRows = true)]
+    public List<MetricChange<int>>? BaselineMetrics { get; init; }
+
+    [MarkoutSection(Name = "Baseline bucket changes", IncludeSectionInStructuredRows = true)]
+    [MarkoutLabelHeader("Bucket set")]
+    public List<MultiSourceRow>? BaselineBuckets { get; init; }
 
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<CSharpDiffBucketRow>? FailureBuckets { get; init; }
@@ -765,8 +789,8 @@ sealed class CSharpDiffCardMarkdownView
     [MarkoutSection(Name = "Pair summaries")]
     public List<CSharpDiffPairSummaryRow>? PairSummaries { get; init; }
 
-    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
-    public List<BaselineFindingView>? BaselineComparison { get; init; }
+    [MarkoutSection(Name = "Baseline findings", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineFindingView>? BaselineFindings { get; init; }
 
     [MarkoutSection(Name = "Examples")]
     public List<CSharpDiffExampleMarkdownView>? Examples { get; init; }
@@ -781,8 +805,12 @@ sealed class CSharpDiffCardTableView
     [MarkoutSection(Name = "Summary")]
     public List<CSharpDiffSectionMetricRow>? Summary { get; init; }
 
-    [MarkoutSection(Name = "Baseline card")]
-    public CSharpDiffBaselineDataCard? BaselineCard { get; init; }
+    [MarkoutSection(Name = "Baseline metric changes", IncludeSectionInStructuredRows = true)]
+    public List<MetricChange<int>>? BaselineMetrics { get; init; }
+
+    [MarkoutSection(Name = "Baseline bucket changes", IncludeSectionInStructuredRows = true)]
+    [MarkoutLabelHeader("Bucket set")]
+    public List<MultiSourceRow>? BaselineBuckets { get; init; }
 
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<CSharpDiffSectionBucketRow>? FailureBuckets { get; init; }
@@ -796,8 +824,8 @@ sealed class CSharpDiffCardTableView
     [MarkoutSection(Name = "Pair summaries")]
     public List<CSharpDiffSectionPairSummaryRow>? PairSummaries { get; init; }
 
-    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
-    public List<BaselineSectionFindingView>? BaselineComparison { get; init; }
+    [MarkoutSection(Name = "Baseline findings", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineSectionFindingView>? BaselineFindings { get; init; }
 
     [MarkoutSection(Name = "Examples")]
     public List<CSharpDiffExampleTableRow>? Examples { get; init; }
@@ -805,34 +833,6 @@ sealed class CSharpDiffCardTableView
 
 [MarkoutSerializable]
 sealed record CSharpDiffMetricRow(string Metric, string Count);
-
-[MarkoutSerializable]
-sealed class CSharpDiffBaselineDataCard
-{
-    [MarkoutPropertyName("exact pairs")]
-    public Change<int> ExactPairs { get; init; }
-
-    [MarkoutPropertyName("changed pairs")]
-    public Change<int> ChangedPairs { get; init; }
-
-    [MarkoutPropertyName("changed members")]
-    public Change<int> ChangedMembers { get; init; }
-
-    public Change<int> Rows { get; init; }
-
-    public Change<int> Failures { get; init; }
-
-    [MarkoutPropertyName("failure buckets")]
-    public Change<Segments> FailureBuckets { get; init; }
-
-    [MarkoutPropertyName("change IDs")]
-    public Change<Segments> ChangeIds { get; init; }
-
-    [MarkoutPropertyName("operation kinds")]
-    public Change<Segments> OperationKinds { get; init; }
-
-    public string Verdict { get; init; } = "";
-}
 
 [MarkoutSerializable]
 sealed record CSharpDiffSectionMetricRow(string Section, string Metric, string Count);
@@ -883,7 +883,6 @@ sealed record CSharpDiffExampleTableRow(
 [MarkoutContext(typeof(CSharpDiffCardMarkdownView))]
 [MarkoutContext(typeof(CSharpDiffCardTableView))]
 [MarkoutContext(typeof(CSharpDiffMetricRow))]
-[MarkoutContext(typeof(CSharpDiffBaselineDataCard))]
 [MarkoutContext(typeof(CSharpDiffSectionMetricRow))]
 [MarkoutContext(typeof(CSharpDiffBucketRow))]
 [MarkoutContext(typeof(CSharpDiffSectionBucketRow))]
