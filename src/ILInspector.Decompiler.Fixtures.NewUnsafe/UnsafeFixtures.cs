@@ -53,6 +53,36 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public static class PointerArithmeticFixtures
+{
+    public static int PointerIncrement(int* p)
+    {
+        int sum;
+        unsafe
+        {
+            sum = *p;
+        }
+        p++;
+        unsafe
+        {
+            sum += *p;
+        }
+        --p;
+        unsafe
+        {
+            return sum + *p;
+        }
+    }
+
+    public static long PointerArithmeticAndComparison(int* p, int* q)
+    {
+        int* next = p + 1;
+        int* prev = next - 1;
+        long distance = q - p;
+        return (prev == p && next > p) ? distance : -1;
+    }
+}
+
 /// <summary>
 /// New-rules unsafe fixtures. This assembly is compiled with
 /// <c>/features:updated-memory-safety-rules</c>, so the compiler enforces the

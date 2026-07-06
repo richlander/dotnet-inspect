@@ -291,10 +291,11 @@ public class UnsafeEmitterTests
         Assert.Contains("byte* __stackalloc = stackalloc byte[", block);
         Assert.Contains("int* values = (int*)__stackalloc;", block);
         Assert.Contains("*values", block);
-        // `values[1]` is byte offset 4. C# pointer `+` auto-scales by
-        // sizeof(int), so the faithful spelling routes the IL byte offset through
-        // `byte*` rather than `*(values + 4)`, which would read element 4.
-        Assert.Contains("*((int*)((byte*)values + 4))", block);
+        // `values[1]` is byte offset 4. The printer now recognizes the canonical
+        // scaled offset and emits element arithmetic instead of the lower-altitude
+        // byte-pointer fallback.
+        Assert.Contains("*(values + 1)", block);
+        Assert.Contains("values[1]", block);
         Assert.DoesNotContain("*(values + 4)", block);
         Assert.DoesNotContain("Span", output);
     }

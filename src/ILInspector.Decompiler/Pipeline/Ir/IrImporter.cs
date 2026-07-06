@@ -847,11 +847,31 @@ public static class IrImporter
                     stack.Push(MakeLoadArgument(method, reader.ReadILUInt16()));
                     break;
                 case ILOpCode.Starg_s:
-                    body.Add(MakeStoreArgument(method, reader.ReadILByte(), Pop(stack)));
+                {
+                    int index = reader.ReadILByte();
+                    var value = Pop(stack);
+                    if (!IsStableAcrossSideEffect(value)
+                        || HasPendingUnstableValue(stack)
+                        || HasPendingArgumentRead(stack, index))
+                    {
+                        SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
+                    }
+                    body.Add(MakeStoreArgument(method, index, value));
                     break;
+                }
                 case ILOpCode.Starg:
-                    body.Add(MakeStoreArgument(method, reader.ReadILUInt16(), Pop(stack)));
+                {
+                    int index = reader.ReadILUInt16();
+                    var value = Pop(stack);
+                    if (!IsStableAcrossSideEffect(value)
+                        || HasPendingUnstableValue(stack)
+                        || HasPendingArgumentRead(stack, index))
+                    {
+                        SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
+                    }
+                    body.Add(MakeStoreArgument(method, index, value));
                     break;
+                }
 
                 case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3:
                     stack.Push(MakeLoadLocal(method, opcode - ILOpCode.Ldloc_0));
@@ -1612,6 +1632,66 @@ public static class IrImporter
                 stack.Push(value);
                 continue;
             }
+
+            int slot = state.NextDupSlot++;
+            body.Add(new StoreStackSlot(slot, value));
+            stack.Push(new LoadStackSlot(slot, value.ResultType));
+        }
+    }
+
+    static bool HasPendingUnstableValue(Stack<IrExpression> stack)
+    {
+        foreach (var value in stack)
+            if (!IsStableAcrossSideEffect(value))
+                return true;
+        return false;
+    }
+
+    static bool HasPendingLocalRead(Stack<IrExpression> stack, int index)
+    {
+        foreach (var value in stack)
+            if (ReadsLocal(value, index))
+                return true;
+        return false;
+    }
+
+    static bool HasPendingArgumentRead(Stack<IrExpression> stack, int index)
+    {
+        foreach (var value in stack)
+            if (ReadsArgument(value, index))
+                return true;
+        return false;
+    }
+
+    static bool ReadsLocal(IrNode node, int index)
+        => node is LoadLocal { Index: var readIndex } && readIndex == index
+            || node.Descendants.OfType<LoadLocal>().Any(load => load.Index == index);
+
+    static bool ReadsArgument(IrNode node, int index)
+        => node is LoadArgument { Index: var readIndex } && readIndex == index
+            || node.Descendants.OfType<LoadArgument>().Any(load => load.Index == index);
+
+    static void SpillPendingBeforeStore(Block body, Stack<IrExpression> stack, BuildState state, Func<IrExpression, bool> mustSpill)
+    {
+        if (stack.Count == 0)
+            return;
+
+        var values = stack.Reverse().ToArray(); // bottom-to-top
+        bool anySpill = false;
+        foreach (var value in values)
+            if (!IsStableAcrossSideEffect(value) || mustSpill(value)) { anySpill = true; break; }
+        if (!anySpill)
+            return;
+
+        stack.Clear();
+        foreach (var value in values)
+        {
+            if (IsStableAcrossSideEffect(value) && !mustSpill(value))
+            {
+                stack.Push(value);
+                continue;
+            }
+
             int slot = state.NextDupSlot++;
             body.Add(new StoreStackSlot(slot, value));
             stack.Push(new LoadStackSlot(slot, value.ResultType));
@@ -1627,11 +1707,15 @@ public static class IrImporter
     /// </summary>
     static bool IsStableAcrossSideEffect(IrExpression expression)
     {
-        // A managed pointer or pointer is an address: re-evaluating the address
-        // expression yields the same location even after a store, and routing it
-        // through a value slot would strip the ref-ness a later ref/out argument
-        // needs (CS1620). Treat any byref/pointer-typed value as stable.
-        if (expression.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer })
+        // A managed pointer is an address: re-evaluating the address expression
+        // yields the same location even after a store, and routing it through a
+        // value slot would strip the ref-ness a later ref/out argument needs
+        // (CS1620). Treat byref-typed values as stable. Raw pointer variables are
+        // stable too through the leaf cases below, but pointer arithmetic is
+        // order-sensitive for compile-back: csc may keep `next - 1` on the eval
+        // stack across a later store, so materialize compound pointer values at
+        // their IL evaluation point instead of re-rendering them later.
+        if (expression.ResultType is { Kind: TypeRefKind.ByRef })
             return true;
 
         return expression switch
@@ -1640,6 +1724,7 @@ public static class IrImporter
             LoadArgument or LoadLocal or LoadStackSlot => true,
             LoadLocalAddress or LoadArgumentAddress => true,
             LoadFunctionPointer or AddressOfMethod => true,
+            Binary { ResultType.Kind: TypeRefKind.Pointer } => false,
             Binary binary => IsStableAcrossSideEffect(binary.Left) && IsStableAcrossSideEffect(binary.Right),
             Comparison comparison => IsStableAcrossSideEffect(comparison.Left) && IsStableAcrossSideEffect(comparison.Right),
             Convert convert => IsStableAcrossSideEffect(convert.Operand),
@@ -1803,21 +1888,22 @@ public static class IrImporter
 
     /// <summary>
     /// Builds a <see cref="StoreLocal"/>, first pinning any IL-earlier
-    /// side-effecting value still pending lazily on the symbolic stack when the
-    /// value being stored is itself side-effecting. Storing a side-effecting
-    /// value (a call) is a sequence point; a lower lazy entry that was evaluated
-    /// earlier in IL order would otherwise materialize <em>after</em> this store
-    /// and reorder. Runtime-async (async v2) makes this reachable: it legally
-    /// keeps a value-producing <c>await</c> on the evaluation stack across a
-    /// later <c>await</c>, so <c>x = await a; y = await b;</c> imports as a bare
-    /// <c>await a</c> stranded below the <c>y = await b</c> store. Stable stored
-    /// values (locals, args, constants) carry no side effect and need no spill,
-    /// keeping output minimal.
+    /// side-effecting or order-sensitive value still pending lazily on the
+    /// symbolic stack. A local store is a sequence point for source emission: a
+    /// lower lazy entry that was evaluated earlier in IL order would otherwise
+    /// materialize <em>after</em> this store and reorder. Runtime-async (async v2)
+    /// makes this reachable with calls; pointer arithmetic also relies on it
+    /// because csc keeps values such as <c>next - 1</c> on the evaluation stack
+    /// across an unrelated local store.
     /// </summary>
     static StoreLocal MakeStoreLocalSpilling(ImportedMethod method, int index, IrExpression value, Block body, Stack<IrExpression> stack, BuildState state)
     {
-        if (!IsStableAcrossSideEffect(value))
-            SpillUnstableBeforeSideEffect(body, stack, state);
+        if (!IsStableAcrossSideEffect(value)
+            || HasPendingUnstableValue(stack)
+            || HasPendingLocalRead(stack, index))
+        {
+            SpillPendingBeforeStore(body, stack, state, value => ReadsLocal(value, index));
+        }
         return MakeStoreLocal(method, index, value);
     }
 

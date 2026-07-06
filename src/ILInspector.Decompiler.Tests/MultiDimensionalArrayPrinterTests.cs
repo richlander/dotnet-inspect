@@ -92,8 +92,10 @@ public class MultiDimensionalArrayPrinterTests
     public void SideEffectingDuplicateStackSlotIndices_AreNotRewrittenToValidWrongIndexer()
     {
         string body = RenderFixture(nameof(RectangularArraySamples.SideEffects));
-        Assert.Contains(".Get(", body);
+        Assert.Contains("return a[S_", body);
         Assert.DoesNotContain("[V_0, V_0]", body);
+        DoesNotContainPseudoMembers(body);
+        AssertCompiles("public static int M(int[,] a, ref int i, ref int j)", body);
     }
 
     static void AssertImportedBodyAndCompile(string methodName, string header, string expected)

@@ -9,10 +9,12 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
 using LegacyFixedBuffer = ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals;
+using LegacyPointerArithmetic = ILInspector.Decompiler.Fixtures.LegacyUnsafe.PointerArithmeticFixtures;
 using LegacyStringPinning = ILInspector.Decompiler.Fixtures.LegacyUnsafe.StringPinningResiduals;
 using LegacyStackallocInitializers = ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals;
 using LegacyUnsafe = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewFixedBuffer = ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals;
+using NewPointerArithmetic = ILInspector.Decompiler.Fixtures.NewUnsafe.PointerArithmeticFixtures;
 using NewStackallocInitializers = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
 using NewStringPinning = ILInspector.Decompiler.Fixtures.NewUnsafe.StringPinningResiduals;
 using NewUnsafe = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
@@ -37,6 +39,8 @@ public class LadderRung6GateTests
     static readonly string ByRefFixturePath = FixtureCatalog.DecompilerLadderRung4.AssemblyPath();
     static readonly string ByRefFixtureType = typeof(LadderRung4.CSharp7LocalSyntax).FullName!;
     static readonly string FixedBufferType = typeof(NewFixedBuffer).FullName!;
+    static readonly string LegacyPointerArithmeticType = typeof(LegacyPointerArithmetic).FullName!;
+    static readonly string PointerArithmeticType = typeof(NewPointerArithmetic).FullName!;
     static readonly string LegacyFixedBufferType = typeof(LegacyFixedBuffer).FullName!;
     static readonly string StringPinningType = typeof(NewStringPinning).FullName!;
     static readonly string LegacyStringPinningType = typeof(LegacyStringPinning).FullName!;
@@ -142,7 +146,7 @@ public class LadderRung6GateTests
         var eventData = FirstUnsafeBlockBody(NewBody("StackAllocEventData"));
         Assert.Contains("byte* __stackalloc = stackalloc byte[", eventData);
         Assert.Contains("int* values = (int*)__stackalloc;", eventData);
-        Assert.Contains("*((int*)((byte*)values + 4))", eventData);
+        Assert.Contains("*(values + 1)", eventData);
         Assert.DoesNotContain("*(values + 4)", eventData);
 
         var pinned = NewBody("SumPinned");
@@ -614,6 +618,50 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerArithmetic_RecompilesThroughFidelityHarness()
+    {
+        AssertPointerArithmeticRecovery(NewUnsafePath, PointerArithmeticType);
+        AssertPointerArithmeticRecovery(LegacyUnsafePath, LegacyPointerArithmeticType);
+    }
+
+    static void AssertPointerArithmeticRecovery(string assemblyPath, string typeName)
+    {
+        var members = LoadRaisedMembers(assemblyPath, typeName);
+        var increment = members.Single(m => m.Name == "PointerIncrement").Body;
+        Assert.Contains("p++;", increment);
+        Assert.Contains("p--;", increment);
+        Assert.DoesNotContain("p += 4", increment);
+        Assert.DoesNotContain("p -= 4", increment);
+
+        var arithmetic = members.Single(m => m.Name == "PointerArithmeticAndComparison").Body;
+        Assert.Contains("next - 1", arithmetic);
+        Assert.Contains("q - p", arithmetic);
+        if (assemblyPath == NewUnsafePath)
+        {
+            AssertNoErrors(
+                RecompileNewRules(
+                    "static unsafe long M(int* p, int* q)",
+                    arithmetic),
+                arithmetic);
+        }
+
+#if !DEBUG
+        AssertExactCompileBack(assemblyPath, typeName, "PointerIncrement");
+        AssertExactCompileBack(assemblyPath, typeName, "PointerArithmeticAndComparison");
+#endif
+    }
+
+    [Fact]
+    public void Rung6PointerStore_PreservesOriginalAddressAcrossArgumentStore()
+    {
+        var output = RaisedCfg(nameof(CfgSampleClass.PointerStoreUsesOriginalAddress));
+
+        Assert.Contains("ptr =", output);
+        Assert.Contains("*S_", output);
+        Assert.DoesNotContain("*ptr =", output);
+    }
+
+    [Fact]
     public void Rung6UnspellableVolatileAndPinnedShapes_DegradeHonestly()
     {
         var volatileLoad = VolatileIndirectRead(isVolatile: true);
@@ -687,6 +735,14 @@ public class LadderRung6GateTests
             r => r.Type == typeName && r.Method == methodName);
 
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    static string RaisedCfg(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        return CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method)).Output ?? "";
     }
 
     static List<(string Name, IrFunction Function, DecompilerResult Result, string Body)> LoadRaisedMembers(

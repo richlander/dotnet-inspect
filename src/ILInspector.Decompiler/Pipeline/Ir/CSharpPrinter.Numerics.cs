@@ -80,6 +80,12 @@ public sealed partial class CSharpPrinter
     bool TryPointerArithmeticText(Binary binary, out string text)
     {
         text = "";
+        if (binary.Kind is BinaryKind.Divide
+            && TryPointerDifferenceDivisionText(binary, out text))
+        {
+            return true;
+        }
+
         bool leftPointer = binary.Left.ResultType is { Kind: TypeRefKind.Pointer };
         bool rightPointer = binary.Right.ResultType is { Kind: TypeRefKind.Pointer };
         if (!leftPointer && !rightPointer)
@@ -111,6 +117,15 @@ public sealed partial class CSharpPrinter
 
         IrExpression pointer = leftPointer ? binary.Left : binary.Right;
         IrExpression offset = leftPointer ? binary.Right : binary.Left;
+        if (pointer.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } element }
+            && TryScaledPointerIndex(offset, element, out var index))
+        {
+            var demand = CSharpPrecedence.Of(binary);
+            text = leftPointer
+                ? $"{Operand(pointer)} {BinaryOperator(binary)} {BinaryOperand(index, demand, rightSide: true)}"
+                : $"{BinaryOperand(index, demand, rightSide: false)} {BinaryOperator(binary)} {Operand(pointer)}";
+            return true;
+        }
         // A pointer to a one-byte element (byte*, sbyte*, bool*) is not scaled by
         // the IL — `sizeof(T) == 1` leaves no `* sizeof(T)` to fold — so C#'s
         // pointer `+`/`-` already reproduces the IL byte offset. Leave it.
@@ -120,6 +135,23 @@ public sealed partial class CSharpPrinter
             ? $"{BytePointerOperand(pointer)} {BinaryOperator(binary)} {Operand(offset)}"
             : $"{Operand(offset)} {BinaryOperator(binary)} {BytePointerOperand(pointer)}";
         text = $"({TypeText(pointer.ResultType!)})({inner})";
+        return true;
+    }
+
+    bool TryPointerDifferenceDivisionText(Binary binary, out string text)
+    {
+        text = "";
+        if (binary.Left is not Binary { Kind: BinaryKind.Subtract } difference
+            || difference.Left.ResultType is not { Kind: TypeRefKind.Pointer, ElementType: { } leftElement } leftPointer
+            || difference.Right.ResultType is not { Kind: TypeRefKind.Pointer } rightPointer
+            || !leftPointer.Equals(rightPointer)
+            || ByteSize(leftElement) is not { } elementSize
+            || !IsConstant(binary.Right, elementSize))
+        {
+            return false;
+        }
+
+        text = $"({Operand(difference.Left)} - {Operand(difference.Right)})";
         return true;
     }
 
@@ -337,7 +369,7 @@ public sealed partial class CSharpPrinter
         // C# pointer operators would scale a second time and silently compute the
         // wrong value. Render through `byte*` so the IL byte offset is reproduced
         // verbatim with no implicit scaling.
-        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract
+        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Divide
             && TryPointerArithmeticText(binary, out string pointerText))
         {
             // A pointer `add.ovf`/`sub.ovf` carries an overflow check the default

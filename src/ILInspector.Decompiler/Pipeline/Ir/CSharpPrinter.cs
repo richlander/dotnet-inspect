@@ -1527,11 +1527,22 @@ public sealed partial class CSharpPrinter
         StackAllocArray => _skipLocalsInit,
         Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
+        Binary b => IsPointerArithmetic(b),
+        Comparison c => IsPointerComparison(c),
         LoadIndirect l => RendersAsPointerDeref(l.Address),
         StoreIndirect s => RendersAsPointerDeref(s.Address),
         InitObject o => RendersAsPointerDeref(o.Address),
         _ => false,
     };
+
+    static bool IsPointerArithmetic(Binary binary)
+        => binary.Kind is BinaryKind.Add or BinaryKind.Subtract
+            && (binary.Left.ResultType is { Kind: TypeRefKind.Pointer }
+                || binary.Right.ResultType is { Kind: TypeRefKind.Pointer });
+
+    static bool IsPointerComparison(Comparison comparison)
+        => comparison.Left.ResultType is { Kind: TypeRefKind.Pointer }
+            || comparison.Right.ResultType is { Kind: TypeRefKind.Pointer };
 
     /// <summary>
     /// Compat-mode requires-unsafe heuristic for a callee whose
@@ -2392,6 +2403,14 @@ public sealed partial class CSharpPrinter
             return false;
         }
 
+        if (TryConstantMultiple(offset, elementSize, out var multiple))
+        {
+            index = multiple >= int.MinValue && multiple <= int.MaxValue
+                ? new Constant((int)multiple, TypeRef.CoreLib("System", "Int32"))
+                : new Constant(multiple, TypeRef.CoreLib("System", "Int64"));
+            return true;
+        }
+
         if (offset is Binary { Kind: BinaryKind.Multiply } multiply)
         {
             if (IsConstant(multiply.Left, elementSize))
@@ -2424,6 +2443,24 @@ public sealed partial class CSharpPrinter
     static bool IsConstant(IrExpression expression, int value)
         => expression is Constant { Value: int i } && i == value
             || expression is Constant { Value: long l } && l == value;
+
+    static bool TryConstantMultiple(IrExpression expression, int divisor, out long multiple)
+    {
+        long value = expression switch
+        {
+            Constant { Value: int i } => i,
+            Constant { Value: long l } => l,
+            _ => 0,
+        };
+        if (expression is not Constant { Value: int or long } || divisor == 0 || value % divisor != 0)
+        {
+            multiple = 0;
+            return false;
+        }
+
+        multiple = value / divisor;
+        return true;
+    }
 
     static int? ByteSize(TypeRef type)
         => type is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
@@ -2747,6 +2784,17 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CompoundStatement(string target, Binary binary, TypeRef? targetType = null)
     {
+        if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
+            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract)
+        {
+            if (TryScaledPointerIndex(binary.Right, pointerElement, out var pointerIndex))
+            {
+                if (pointerIndex is Constant { Value: 1 })
+                    return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+                return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
+            }
+            return $"{target} = {CoerceText(binary, targetType)};";
+        }
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
             return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
         // The compound runs in the lvalue's type. Prefer the resolved store type

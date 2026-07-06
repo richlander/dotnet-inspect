@@ -61,7 +61,7 @@ public class PointerArithmeticScalingTests
     }
 
     [Fact]
-    public void PointerAdd_CastsResultBackToPointerType()
+    public void PointerAdd_RendersCanonicalElementOffset()
     {
         var output = Print(ReturnFunction(
             IntPointer,
@@ -69,12 +69,97 @@ public class PointerArithmeticScalingTests
             new Parameter("p", IntPointer),
             new Parameter("i", Int32)));
 
-        Assert.Contains("return (int*)((byte*)p + ", output);
-        Assert.DoesNotContain("return p + ", output);
+        Assert.Contains("return p + i;", output);
+        Assert.DoesNotContain("byte*", output);
     }
 
     [Fact]
-    public void PointerDifference_DifferencesBytePointers()
+    public void PointerAdd_ConstantMultiple_RendersCanonicalElementOffset()
+    {
+        var add = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            new Constant(16, Int32));
+        var output = Print(ReturnFunction(
+            IntPointer,
+            add,
+            new Parameter("p", IntPointer)));
+
+        Assert.Contains("return p + 4;", output);
+        Assert.DoesNotContain("byte*", output);
+    }
+
+    [Fact]
+    public void PointerSubtract_ConstantMultiple_RendersCanonicalElementOffset()
+    {
+        var subtract = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            new Constant(16, Int32));
+        var output = Print(ReturnFunction(
+            IntPointer,
+            subtract,
+            new Parameter("p", IntPointer)));
+
+        Assert.Contains("return p - 4;", output);
+        Assert.DoesNotContain("byte*", output);
+    }
+
+    [Fact]
+    public void PointerSubtract_AdditiveScaledIndex_ParenthesizesRightOperand()
+    {
+        var index = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(1, "a", Int32),
+            new LoadArgument(2, "b", Int32));
+        var offset = new Binary(
+            BinaryKind.Multiply,
+            isChecked: false,
+            isUnsigned: false,
+            new Convert(NInt, isChecked: false, isUnsigned: false, index),
+            new Constant(4, Int32));
+        var subtract = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            offset);
+        var output = Print(ReturnFunction(
+            IntPointer,
+            subtract,
+            new Parameter("p", IntPointer),
+            new Parameter("a", Int32),
+            new Parameter("b", Int32)));
+
+        Assert.Contains("return p - (a + b);", output);
+        Assert.DoesNotContain("return p - a + b;", output);
+    }
+
+    [Fact]
+    public void PointerAdd_NonMultipleConstant_KeepsBytePointerFallback()
+    {
+        var add = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            new Constant(6, Int32));
+        var output = Print(ReturnFunction(
+            IntPointer,
+            add,
+            new Parameter("p", IntPointer)));
+
+        Assert.Contains("return (int*)((byte*)p + 6);", output);
+    }
+
+    [Fact]
+    public void PointerDifference_RendersCanonicalPointerDifference()
     {
         // `(long)((a - b) / 4)`: C# `int* - int*` already yields an element count,
         // so dividing by 4 again is wrong; differencing `byte*` yields the byte
@@ -92,8 +177,78 @@ public class PointerArithmeticScalingTests
             new Parameter("a", IntPointer),
             new Parameter("b", IntPointer)));
 
-        Assert.Contains("((byte*)a - (byte*)b) / 4", output);
+        Assert.Contains("return (long)((a - b));", output);
+        Assert.DoesNotContain("byte*", output);
         Assert.DoesNotContain("(a - b) / 4", output);
+    }
+
+    [Fact]
+    public void PointerDifferenceCanonicalization_ParenthesizesInMultiplicativeParent()
+    {
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", IntPointer),
+            new LoadArgument(1, "b", IntPointer));
+        var scaled = new Binary(BinaryKind.Divide, isChecked: false, isUnsigned: false, difference, new Constant(4, Int32));
+        var multiply = new Binary(
+            BinaryKind.Multiply,
+            isChecked: false,
+            isUnsigned: false,
+            new Constant(2L, Int64),
+            new Convert(Int64, isChecked: false, isUnsigned: false, scaled));
+        var output = Print(ReturnFunction(
+            Int64,
+            multiply,
+            new Parameter("a", IntPointer),
+            new Parameter("b", IntPointer)));
+
+        Assert.Contains("return 2 * (long)((a - b));", output);
+        Assert.DoesNotContain("return 2 * (long)(a - b);", output);
+    }
+
+    [Fact]
+    public void RawIntPointerDifference_RoutesThroughBytePointers()
+    {
+        // A raw IL `sub` over int* values computes a byte delta. C# `int* - int*`
+        // would divide by sizeof(int), so only the byte* route preserves the IL.
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", IntPointer),
+            new LoadArgument(1, "b", IntPointer));
+        var output = Print(ReturnFunction(
+            Int64,
+            new Convert(Int64, isChecked: false, isUnsigned: false, difference),
+            new Parameter("a", IntPointer),
+            new Parameter("b", IntPointer)));
+
+        Assert.Contains("(byte*)a - (byte*)b", output);
+        Assert.DoesNotContain("return (long)(a - b);", output);
+    }
+
+    [Fact]
+    public void VoidPointerDifference_RoutesThroughBytePointers()
+    {
+        // C# does not define `void* - void*`; byte* casts keep the raw IL byte
+        // difference legal and faithful.
+        var voidPointer = TypeRef.Pointer(Void);
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", voidPointer),
+            new LoadArgument(1, "b", voidPointer));
+        var output = Print(ReturnFunction(
+            Int64,
+            new Convert(Int64, isChecked: false, isUnsigned: false, difference),
+            new Parameter("a", voidPointer),
+            new Parameter("b", voidPointer)));
+
+        Assert.Contains("(byte*)a - (byte*)b", output);
+        Assert.DoesNotContain("a - b", output.Replace("(byte*)a - (byte*)b", "", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -149,7 +304,7 @@ public class PointerArithmeticScalingTests
             new Parameter("p", IntPointer),
             new Parameter("i", Int32)));
 
-        Assert.Contains("return checked((int*)((byte*)p + ", output);
+        Assert.Contains("return checked(p + i);", output);
     }
 
     [Fact]
