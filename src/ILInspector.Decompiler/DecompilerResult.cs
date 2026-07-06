@@ -33,6 +33,49 @@ public readonly record struct DecompilerDiagnostic(string Id, string Message)
     public override string ToString() => $"{Id}: {Message}";
 }
 
+/// <summary>
+/// Product-owned decompiler rendering choices. Hosts and harnesses can inspect
+/// the effective options instead of reverse-engineering taste decisions from
+/// rendered text.
+/// </summary>
+public sealed record DecompilerOptions
+{
+    /// <summary>
+    /// Local names without PDB evidence may render as synthesized readable names.
+    /// Off by default so the shipped output remains IL/PDB-aligned.
+    /// </summary>
+    public bool ReadableLocalNames { get; init; }
+
+    /// <summary>
+    /// Framework type names may render in imported/simple form when the C# file
+    /// shape supplies the namespace. This is the shipped taste choice.
+    /// </summary>
+    public bool PreferFrameworkTypeImports { get; init; } = true;
+
+    public static DecompilerOptions Default { get; } = new();
+}
+
+/// <summary>
+/// A typed explanation for an intentional decompiler rendering choice. This is
+/// product evidence: harnesses may project it, but should not own the rule.
+/// </summary>
+public sealed record DecompilerDecision(
+    string RuleId,
+    string Category,
+    string Subject,
+    string Detail)
+{
+    public string? OldValue { get; init; }
+    public string? NewValue { get; init; }
+}
+
+public sealed record DecompilerResultMetadata(
+    DecompilerOptions EffectiveOptions,
+    IReadOnlyList<DecompilerDecision> Decisions)
+{
+    public static DecompilerResultMetadata Default { get; } = new(DecompilerOptions.Default, []);
+}
+
 /// <summary>Stable diagnostic identifiers. Never renumber or reuse.</summary>
 public static class DiagnosticIds
 {
@@ -176,11 +219,49 @@ public sealed record DecompilerResult(
     /// </summary>
     public DecompilerTrace? Trace { get; init; }
 
+    /// <summary>
+    /// Product-owned metadata that explains intentional render choices. The
+    /// holder keeps this evolving evidence off <see cref="DecompilerResult"/>'s
+    /// historical record equality surface.
+    /// </summary>
+    public DecompilerResultMetadata Metadata { get; init; } = DecompilerResultMetadata.Default;
+
+    /// <summary>The product options in force for this result.</summary>
+    public DecompilerOptions EffectiveOptions => Metadata.EffectiveOptions;
+
+    /// <summary>Product-owned decision evidence explaining intentional render choices.</summary>
+    public IReadOnlyList<DecompilerDecision> Decisions => Metadata.Decisions;
+
     public static DecompilerResult Success(string output)
         => new(output, DecompilationFidelity.Full, []);
 
     public static DecompilerResult Failure(string diagnosticId, string message)
         => new(null, DecompilationFidelity.Failed, [new DecompilerDiagnostic(diagnosticId, message)]);
+
+    public bool Equals(DecompilerResult? other)
+        => other is not null
+            && EqualityComparer<string?>.Default.Equals(Output, other.Output)
+            && Fidelity == other.Fidelity
+            && EqualityComparer<IReadOnlyList<DecompilerDiagnostic>>.Default.Equals(Diagnostics, other.Diagnostics)
+            && EqualityComparer<string?>.Default.Equals(ConstructorChain, other.ConstructorChain)
+            && EqualityComparer<IReadOnlyList<(string Field, string Value)>>.Default.Equals(FieldInitializers, other.FieldInitializers)
+            && RequiresAsyncBodyModifier == other.RequiresAsyncBodyModifier
+            && ContainsAwaitExpression == other.ContainsAwaitExpression
+            && EqualityComparer<DecompilerTrace?>.Default.Equals(Trace, other.Trace);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Output);
+        hash.Add(Fidelity);
+        hash.Add(Diagnostics);
+        hash.Add(ConstructorChain);
+        hash.Add(FieldInitializers);
+        hash.Add(RequiresAsyncBodyModifier);
+        hash.Add(ContainsAwaitExpression);
+        hash.Add(Trace);
+        return hash.ToHashCode();
+    }
 
     /// <summary>
     /// Runs a pipeline entry point, converting exceptions into diagnostics.

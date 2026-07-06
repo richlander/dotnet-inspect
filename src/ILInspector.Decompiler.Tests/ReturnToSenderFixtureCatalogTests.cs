@@ -1,8 +1,11 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Reflection;
 
 using DotnetInspector.Fixtures;
 using ILInspector.DecompilerHarness;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -58,6 +61,247 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.EndsWith("DiffSample.cs", result.SourcePath, StringComparison.Ordinal);
         Assert.Equal("return42;", Normalize(result.ExpectedBody));
         Assert.Equal("return42;", Normalize(result.ActualBody));
+    }
+
+    [Fact]
+    public void DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions()
+    {
+        using var source = MetadataSource.Open(FixtureCatalog.DiffV1.AssemblyPath());
+        var function = IrImporter.Import(source, "DiffFixtureSample.DiffSample", "CallToken", 0);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+
+        Assert.True(result.EffectiveOptions.PreferFrameworkTypeImports);
+        Assert.False(result.EffectiveOptions.ReadableLocalNames);
+        var decision = Assert.Single(result.Decisions, decision =>
+            decision.RuleId == "type-name.framework-imported"
+            && decision.Category == "taste"
+            && decision.Subject == "System.Math");
+        Assert.Contains("System.Math", decision.Detail);
+        Assert.Contains("Math", result.Output);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceFromProductDecision()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DiffV1.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "DiffFixtureSample.DiffSample",
+                    "CallToken",
+                    Overload: 0),
+            ]));
+
+        Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.CompileBackStatus);
+        Assert.Equal("valid_different.known_taste", result.Reason);
+        Assert.Contains("System.Math", result.Detail);
+        Assert.Equal("returnSystem.Math.Abs(value);", Normalize(result.ExpectedBody));
+        Assert.Equal("returnMath.Abs(value);", Normalize(result.ActualBody));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public int M(int value)
+                {
+                    System.Console.WriteLine(value);
+                    return System.Math.Abs(value);
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+            Assert.Equal("valid_different.known_taste", result.Reason);
+            Assert.Contains("System.Console", result.Detail);
+            Assert.Contains("System.Math", result.Detail);
+            Assert.Equal("System.Console.WriteLine(value);returnSystem.Math.Abs(value);", Normalize(result.ExpectedBody));
+            Assert.Equal("Console.WriteLine(value);returnMath.Abs(value);", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteDoesNotRewriteStringLiterals()
+    {
+        var decision = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Math",
+            "test decision");
+
+        Assert.False(TryKnownTasteDifferenceForTest(
+            """var text = "System.Math";""",
+            """var text = "Math";""",
+            [decision],
+            out _));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteDoesNotRewritePrefixCollisions()
+    {
+        var decision = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Console",
+            "test decision");
+
+        Assert.False(TryKnownTasteDifferenceForTest(
+            "System.ConsoleColor value;",
+            "ConsoleColor value;",
+            [decision],
+            out _));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteMatchesGenericFrameworkTypes()
+    {
+        var decision = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Collections.Generic.List`1",
+            "test decision")
+        {
+            OldValue = "System.Collections.Generic.List",
+            NewValue = "List",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Collections.Generic.List<int> values = null;",
+            "List<int> values = null;",
+            [decision],
+            out _));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteRewritesNestedGenericArguments()
+    {
+        var task = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Threading.Tasks.Task`1",
+            "task decision")
+        {
+            OldValue = "System.Threading.Tasks.Task",
+            NewValue = "Task",
+        };
+        var list = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Collections.Generic.List`1",
+            "list decision")
+        {
+            OldValue = "System.Collections.Generic.List",
+            NewValue = "List",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Threading.Tasks.Task<System.Collections.Generic.List<int>> values = null;",
+            "Task<List<int>> values = null;",
+            [task, list],
+            out var detail));
+        Assert.Contains("task", detail);
+        Assert.Contains("list", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTastePreservesNestedGenericTypeArguments()
+    {
+        var list = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Collections.Generic.List`1",
+            "list decision")
+        {
+            OldValue = "System.Collections.Generic.List",
+            NewValue = "List",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Collections.Generic.List<int>.Enumerator enumerator = default;",
+            "List<int>.Enumerator enumerator = default;",
+            [list],
+            out var detail));
+        Assert.Contains("list", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesOpenGenericNestedFrameworkType()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public System.Type M()
+                    => typeof(System.Collections.Generic.List<>.Enumerator);
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+            Assert.Equal("valid_different.known_taste", result.Reason);
+            Assert.Contains("System.Collections.Generic.List", result.Detail);
+            Assert.Equal("returntypeof(System.Collections.Generic.List<>.Enumerator);", Normalize(result.ExpectedBody));
+            Assert.Equal("returntypeof(List<>.Enumerator);", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteUsesMostSpecificNestedFrameworkType()
+    {
+        var environment = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Environment",
+            "environment decision")
+        {
+            OldValue = "System.Environment",
+            NewValue = "Environment",
+        };
+        var specialFolder = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Environment+SpecialFolder",
+            "special folder decision")
+        {
+            OldValue = "System.Environment.SpecialFolder",
+            NewValue = "SpecialFolder",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Environment.SpecialFolder folder = System.Environment.SpecialFolder.ApplicationData;",
+            "SpecialFolder folder = SpecialFolder.ApplicationData;",
+            [environment, specialFolder],
+            out var detail));
+        Assert.Contains("special folder", detail);
     }
 
     [Fact]
@@ -555,6 +799,22 @@ public class ReturnToSenderFixtureCatalogTests
         var emit = compilation.Emit(assemblyPath);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return (directory, assemblyPath, sourcePaths);
+    }
+
+    static bool TryKnownTasteDifferenceForTest(
+        string expected,
+        string actual,
+        IReadOnlyList<DecompilerDecision> decisions,
+        out string? detail)
+    {
+        var method = typeof(ReturnToSenderSourceProbe).GetMethod(
+            "TryKnownTasteDifference",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        object?[] args = [expected, actual, decisions, null];
+        bool result = (bool)method.Invoke(null, args)!;
+        detail = (string?)args[3];
+        return result;
     }
 
     static string? Normalize(string? text)

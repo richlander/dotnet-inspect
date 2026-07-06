@@ -31,7 +31,8 @@ static class ReturnToSender
         string? Detail,
         string TargetBody = "",
         IlDiffDisplayResult? IlDiffDiagnostic = null,
-        MemberAnchor? MemberAnchor = null);
+        MemberAnchor? MemberAnchor = null,
+        IReadOnlyList<DecompilerDecision>? Decisions = null);
 
     public sealed record RequestedTarget(string Type, string Method, int Overload);
 
@@ -725,7 +726,8 @@ static class ReturnToSender
                     null,
                     TargetBody: printed.Output,
                     IlDiffDiagnostic: ilDiffDiagnostic,
-                    MemberAnchor: memberAnchor);
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -882,7 +884,8 @@ static class ReturnToSender
                     null,
                     TargetBody: printed.Output,
                     IlDiffDiagnostic: ilDiffDiagnostic,
-                    MemberAnchor: memberAnchor);
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -1040,7 +1043,8 @@ static class ReturnToSender
                     null,
                     TargetBody: printed.Output,
                     IlDiffDiagnostic: ilDiffDiagnostic,
-                    MemberAnchor: memberAnchor);
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();

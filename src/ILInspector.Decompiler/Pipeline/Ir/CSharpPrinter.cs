@@ -41,6 +41,8 @@ public sealed partial class CSharpPrinter
 
     readonly PrinterOptions _options;
     readonly HashSet<string> _reservedScopeNames;
+    readonly List<DecompilerDecision> _decisions = [];
+    readonly HashSet<string> _decisionKeys = [];
 
     CSharpPrinter(IrFunction function, PrinterOptions? options = null, IEnumerable<string>? reservedScopeNames = null)
     {
@@ -108,13 +110,7 @@ public sealed partial class CSharpPrinter
             var printer = new CSharpPrinter(function) { _statementLines = sink };
             string output = printer.PrintBody(function);
             statementLines = sink;
-            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
-            {
-                ConstructorChain = printer._constructorChain,
-                FieldInitializers = printer._fieldInitializers,
-                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            };
+            return printer.Result(output, function);
         }
         catch (Exception ex)
         {
@@ -175,13 +171,7 @@ public sealed partial class CSharpPrinter
             var printer = new CSharpPrinter(function) { _statementLines = sink };
             string output = printer.PrintBody(function);
             statementLines = sink;
-            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
-            {
-                ConstructorChain = printer._constructorChain,
-                FieldInitializers = printer._fieldInitializers,
-                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            };
+            return printer.Result(output, function);
         }
         catch (Exception ex)
         {
@@ -210,17 +200,41 @@ public sealed partial class CSharpPrinter
         {
             var printer = new CSharpPrinter(function, options);
             string output = printer.PrintBody(function);
-            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
-            {
-                ConstructorChain = printer._constructorChain,
-                FieldInitializers = printer._fieldInitializers,
-                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            };
+            return printer.Result(output, function);
         }
         catch (Exception ex)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    DecompilerResult Result(string output, IrFunction function)
+        => new(output, function.Fidelity, [.. function.Diagnostics])
+        {
+            ConstructorChain = _constructorChain,
+            FieldInitializers = _fieldInitializers,
+            RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+            ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
+        };
+
+    DecompilerOptions EffectiveDecompilerOptions()
+        => new()
+        {
+            ReadableLocalNames = _options.ReadableLocalNames,
+            PreferFrameworkTypeImports = true,
+        };
+
+    void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
+    {
+        string key = $"{ruleId}\0{category}\0{subject}\0{detail}\0{oldValue}\0{newValue}";
+        if (_decisionKeys.Add(key))
+        {
+            _decisions.Add(new DecompilerDecision(ruleId, category, subject, detail)
+            {
+                OldValue = oldValue,
+                NewValue = newValue,
+            });
         }
     }
 
@@ -3483,8 +3497,110 @@ public sealed partial class CSharpPrinter
         // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
         string text = type.ToDisplayString(_function.DeclaringType);
         int tick = text.IndexOf('`');
-        return tick < 0 ? text : text[..tick];
+        string rendered = tick < 0 ? text : text[..tick];
+        RecordFrameworkTypeImportDecision(type, rendered);
+        return rendered;
     }
+
+    void RecordFrameworkTypeImportDecision(TypeRef type, string rendered)
+    {
+        foreach (var nested in DescendantTypes(type))
+            RecordFrameworkTypeImportDecisionCore(nested, rendered);
+    }
+
+    void RecordFrameworkTypeImportDecisionCore(TypeRef type, string rendered)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (definition is not { Kind: TypeRefKind.Definition, Namespace.Length: > 0 })
+            return;
+        if (!IsFrameworkNamespace(definition.Namespace))
+            return;
+        if (HasGenericEnclosingSegment(definition.Name))
+        {
+            RecordNestedGenericEnclosingImportDecisions(definition, rendered);
+            return;
+        }
+
+        string fullName = FrameworkMetadataName(definition);
+        string simpleName = TypeNamePath(definition.Name);
+        if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
+            return;
+
+        AddDecision(
+            "type-name.framework-imported",
+            "taste",
+            fullName,
+            $"Rendered framework type '{fullName}' as imported/simple name '{simpleName}'.",
+            oldValue: FrameworkSourceName(definition),
+            newValue: simpleName);
+    }
+
+    void RecordNestedGenericEnclosingImportDecisions(TypeRef definition, string rendered)
+    {
+        var segments = definition.Name.Split('+');
+        var sourceSegments = new List<string>(segments.Length);
+        for (int i = 0; i < segments.Length - 1; i++)
+        {
+            sourceSegments.Add(CSharpNaming.TypeNameSegment(segments[i]));
+            if (GenericArity(segments[i]) == 0)
+                continue;
+
+            string oldValue = $"{definition.Namespace}.{string.Join(".", sourceSegments)}";
+            string newValue = string.Join(".", sourceSegments);
+            if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
+                continue;
+
+            AddDecision(
+                "type-name.framework-imported",
+                "taste",
+                $"{definition.Namespace}.{string.Join("+", segments.Take(i + 1))}",
+                $"Rendered framework type '{oldValue}' as imported/simple name '{newValue}'.",
+                oldValue: oldValue,
+                newValue: newValue);
+        }
+    }
+
+    static IEnumerable<TypeRef> DescendantTypes(TypeRef type)
+    {
+        yield return type;
+        if (type.ElementType is { } element)
+        {
+            foreach (var descendant in DescendantTypes(element))
+                yield return descendant;
+        }
+        foreach (var argument in type.TypeArguments)
+        {
+            foreach (var descendant in DescendantTypes(argument))
+                yield return descendant;
+        }
+    }
+
+    static string FrameworkMetadataName(TypeRef type)
+        => type.Namespace.Length == 0 ? CSharpNaming.TypeNameSegment(type.Name) : $"{type.Namespace}.{type.Name}";
+
+    static string FrameworkSourceName(TypeRef type)
+        => type.Namespace.Length == 0
+            ? TypeNamePath(type.Name)
+            : $"{type.Namespace}.{TypeNamePath(type.Name)}";
+
+    static string TypeNamePath(string metadataName)
+        => string.Join(".", metadataName.Split('+').Select(CSharpNaming.TypeNameSegment));
+
+    static bool HasGenericEnclosingSegment(string metadataName)
+    {
+        var segments = metadataName.Split('+');
+        return segments.Length > 1
+            && segments.Take(segments.Length - 1).Any(segment => GenericArity(segment) > 0);
+    }
+
+    static int GenericArity(string metadataName)
+    {
+        int tick = metadataName.IndexOf('`', StringComparison.Ordinal);
+        return tick >= 0 && int.TryParse(metadataName[(tick + 1)..], out int arity) ? arity : 0;
+    }
+
+    static bool IsFrameworkNamespace(string ns)
+        => ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal);
 
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
         => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)
