@@ -93,6 +93,144 @@ public class ILAssemblerRoundtripTests
     }
 
     [Fact]
+    public void HandwrittenPrefixAndTypedOperandCanaries_RoundtripWithOpcodeEquality()
+    {
+        string il = """
+            .assembly extern System.Runtime { }
+            .assembly roundtrip { }
+            .class public auto ansi MiniPrefixes
+            {
+              .method public hidebysig static int32 VolatileLoad(int32&) cil managed
+              {
+                .maxstack 1
+                IL_0000: ldarg.0
+                IL_0001: volatile.
+                IL_0003: ldind.i4
+                IL_0004: ret
+              }
+
+              .method public hidebysig static string ConstrainedToString(int32) cil managed
+              {
+                .maxstack 1
+                .locals init (int32 V_0)
+                IL_0000: ldarg.0
+                IL_0001: stloc.0
+                IL_0002: ldloca.s 0
+                IL_0004: constrained. [System.Runtime]System.Int32
+                IL_000A: callvirt     instance string [System.Runtime]System.Object::ToString()
+                IL_000F: ret
+              }
+
+              .method public hidebysig static int32 ReadonlyFirst(int32[]) cil managed
+              {
+                .maxstack 2
+                IL_0000: ldarg.0
+                IL_0001: ldc.i4.0
+                IL_0002: readonly.
+                IL_0004: ldelema      [System.Runtime]System.Int32
+                IL_0009: ldind.i4
+                IL_000A: ret
+              }
+            }
+            """;
+
+        AssertHandwrittenMethodRoundtrips(il, "MiniPrefixes", "VolatileLoad",
+            ["ldarg.0", "volatile.", "ldind.i4", "ret"]);
+        AssertHandwrittenMethodRoundtrips(il, "MiniPrefixes", "ConstrainedToString",
+            ["ldarg.0", "stloc.0", "ldloca.s", "constrained.", "callvirt", "ret"]);
+        AssertHandwrittenMethodRoundtrips(il, "MiniPrefixes", "ReadonlyFirst",
+            ["ldarg.0", "ldc.i4.0", "readonly.", "ldelema", "ldind.i4", "ret"]);
+    }
+
+    [Fact]
+    public void HandwrittenBlockOperationCanaries_RoundtripWithOpcodeEquality()
+    {
+        string il = """
+            .assembly roundtrip { }
+            .class public auto ansi MiniBlockOps
+            {
+              .method public hidebysig static void InitBlock(uint8&, uint8, int32) cil managed
+              {
+                .maxstack 3
+                IL_0000: ldarg.0
+                IL_0001: ldarg.1
+                IL_0002: ldarg.2
+                IL_0003: initblk
+                IL_0005: ret
+              }
+
+              .method public hidebysig static void CopyBlock(uint8&, uint8&, int32) cil managed
+              {
+                .maxstack 3
+                IL_0000: ldarg.0
+                IL_0001: ldarg.1
+                IL_0002: ldarg.2
+                IL_0003: cpblk
+                IL_0005: ret
+              }
+            }
+            """;
+
+        AssertHandwrittenMethodRoundtrips(il, "MiniBlockOps", "InitBlock",
+            ["ldarg.0", "ldarg.1", "ldarg.2", "initblk", "ret"]);
+        AssertHandwrittenMethodRoundtrips(il, "MiniBlockOps", "CopyBlock",
+            ["ldarg.0", "ldarg.1", "ldarg.2", "cpblk", "ret"]);
+    }
+
+    [Fact]
+    public void HandwrittenFilterAndFaultCanaries_RoundtripWithRegionShape()
+    {
+        string il = """
+            .assembly extern System.Runtime { }
+            .assembly roundtrip { }
+            .class public auto ansi MiniEHShapes
+            {
+              .method public hidebysig static int32 Filtered() cil managed
+              {
+                .maxstack 2
+                .locals init (int32 V_0)
+                IL_0000: ldc.i4.0
+                IL_0001: stloc.0
+                IL_0002: leave.s      IL_0011
+                IL_0004: isinst       [System.Runtime]System.Exception
+                IL_0009: ldnull
+                IL_000A: cgt.un
+                IL_000C: endfilter
+                IL_000E: pop
+                IL_000F: ldc.i4.1
+                IL_0010: stloc.0
+                IL_0011: ldloc.0
+                IL_0012: ret
+                .try IL_0000 to IL_0004 filter IL_0004 handler IL_000E to IL_0011
+              }
+
+              .method public hidebysig static int32 Faulted() cil managed
+              {
+                .maxstack 1
+                .locals init (int32 V_0)
+                IL_0000: ldc.i4.0
+                IL_0001: stloc.0
+                IL_0002: leave.s      IL_0009
+                IL_0004: ldc.i4.1
+                IL_0005: stloc.0
+                IL_0006: endfinally
+                IL_0009: ldloc.0
+                IL_000A: ret
+                .try IL_0000 to IL_0004 fault handler IL_0004 to IL_0009
+              }
+            }
+            """;
+
+        var filtered = AssertHandwrittenMethodRoundtrips(il, "MiniEHShapes", "Filtered",
+            ["ldc.i4.0", "stloc.0", "leave.s", "isinst", "ldnull", "cgt.un", "endfilter", "pop", "ldc.i4.1", "stloc.0", "ldloc.0", "ret"]);
+        Assert.Contains(filtered.ExceptionRegions, r => r.Kind == ExceptionRegionKind.Filter);
+
+        var faulted = AssertHandwrittenMethodRoundtrips(il, "MiniEHShapes", "Faulted",
+            ["ldc.i4.0", "stloc.0", "leave.s", "ldc.i4.1", "stloc.0", "endfinally", "ldloc.0", "ret"]);
+        Assert.Contains(faulted.ExceptionRegions, r => r.Kind == ExceptionRegionKind.Fault);
+    }
+
+    [Fact]
     public void CanonicalCallOperand_Assembles()
     {
         // Pins the canonical member-ref syntax the disassembler needs to emit for
@@ -270,5 +408,34 @@ public class ILAssemblerRoundtripTests
         var result = IlasmScaffold.Assemble(il);
         Assert.False(result.Succeeded);
         Assert.NotEqual("", result.ParserErrors);
+    }
+
+    static MethodBodyBlock AssertHandwrittenMethodRoundtrips(string il, string typeName, string methodName, IReadOnlyList<string> expectedOps)
+    {
+        var source = IlasmScaffold.Assemble(il);
+        Assert.True(source.Succeeded, $"Source assembly failed:\n{source.Describe()}\n--- input ---\n{il}");
+
+        var sourceImage = source.Image!;
+        var reader = sourceImage.GetMetadataReader();
+        var method = IlasmScaffold.FindMethod(reader, typeName, methodName);
+        var original = ILDisassembler.Disassemble(sourceImage, reader, method);
+        Assert.NotNull(original);
+        Assert.Equal(expectedOps, original.Select(i => i.OpCodeName).ToList());
+
+        string scaffold = IlasmScaffold.BuildCompilationUnit(sourceImage, reader, method);
+        var result = IlasmScaffold.Assemble(scaffold);
+        Assert.True(result.Succeeded, $"Round-trip assembly failed:\n{result.Describe()}\n--- input ---\n{scaffold}");
+
+        var roundtripped = IlasmScaffold.DisassembleByName(
+            result.Image!, methodName, typeName, IlasmScaffold.ParamTypes(method));
+        Assert.NotNull(roundtripped);
+
+        var originalOps = original.Select(i => IlasmScaffold.CanonicalOpcode(i.OpCodeName)).ToList();
+        var roundtrippedOps = roundtripped.Select(i => IlasmScaffold.CanonicalOpcode(i.OpCodeName)).ToList();
+        Assert.Equal(originalOps, roundtrippedOps);
+
+        var resultImage = result.Image!;
+        return resultImage.GetMethodBody(
+            IlasmScaffold.FindMethod(resultImage.GetMetadataReader(), typeName, methodName).RelativeVirtualAddress);
     }
 }
