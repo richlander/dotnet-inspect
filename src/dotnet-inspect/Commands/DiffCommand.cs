@@ -713,6 +713,8 @@ public class DiffCommand
         var value = typeName.Trim();
         if (value.StartsWith("params ", StringComparison.Ordinal))
             value = value["params ".Length..].TrimStart();
+        if (value.StartsWith("pinned ", StringComparison.Ordinal))
+            return $"pinned {ResearchBodyTypeName(value["pinned ".Length..])}";
         foreach (var prefix in (ReadOnlySpan<string>)["ref readonly ", "readonly ref ", "scoped ref ", "ref ", "out ", "in "])
         {
             if (value.StartsWith(prefix, StringComparison.Ordinal))

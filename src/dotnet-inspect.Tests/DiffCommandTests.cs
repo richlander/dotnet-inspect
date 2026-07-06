@@ -532,6 +532,7 @@ public class DiffCommandTests
     [InlineData("dynamic", "System.Object")]
     [InlineData("nint", "System.IntPtr")]
     [InlineData("params int[]", "System.Int32[]")]
+    [InlineData("pinned int", "pinned System.Int32")]
     [InlineData("System.Collections.Generic.List<int>", "System.Collections.Generic.List`1<System.Int32>")]
     [InlineData("System.Collections.Generic.List<int>.Enumerator", "System.Collections.Generic.List`1.Enumerator<System.Int32>")]
     [InlineData("Outer<int>.Inner<string>", "Outer`1.Inner`1<System.Int32,System.String>")]
