@@ -160,6 +160,102 @@ public class ReturnToSenderFixtureCatalogTests
         }
     }
 
+    [Fact]
+    public void ReturnToSenderSourceProbe_DoesNotIndexErasedPartialMethodDefinition()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                partial void M();
+
+                public int M(int value) => value;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+            Assert.Equal("returnvalue;", Normalize(result.ExpectedBody));
+            Assert.Equal("returnvalue;", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_DoesNotIndexExplicitInterfaceImplementationUnderPublicName()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public interface IValue
+            {
+                int M();
+            }
+
+            public class Class1 : IValue
+            {
+                int IValue.M() => 0;
+
+                public int M() => 1;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+            Assert.Equal("return1;", Normalize(result.ExpectedBody));
+            Assert.Equal("return1;", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_IndexesIndexerGetter()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public int this[int index] => index;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "get_Item", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+            Assert.Equal("returnindex;", Normalize(result.ExpectedBody));
+            Assert.Equal("returnindex;", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

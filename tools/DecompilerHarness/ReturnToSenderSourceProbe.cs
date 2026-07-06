@@ -411,8 +411,12 @@ static class ReturnToSenderSourceProbe
                 {
                     switch (member)
                     {
+                        case MethodDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
+                            break;
                         case MethodDeclarationSyntax method:
                         {
+                            if (IsBodylessPartial(method))
+                                break;
                             string methodName = method.Identifier.ValueText;
                             int overload = NextOverload(overloads, methodName);
                             if (BodyText(method) is { } body)
@@ -427,6 +431,8 @@ static class ReturnToSenderSourceProbe
                                 yield return new SourceMember(fullType, methodName, overload, path, body);
                             break;
                         }
+                        case PropertyDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
+                            break;
                         case PropertyDeclarationSyntax property:
                         {
                             if (HasGetter(property))
@@ -442,6 +448,28 @@ static class ReturnToSenderSourceProbe
                                 string methodName = $"set_{property.Identifier.ValueText}";
                                 int overload = NextOverload(overloads, methodName);
                                 if (SetterBodyText(property) is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
+                            break;
+                        }
+                        case IndexerDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
+                            break;
+                        case IndexerDeclarationSyntax indexer:
+                        {
+                            if (HasGetter(indexer))
+                            {
+                                const string methodName = "get_Item";
+                                int overload = NextOverload(overloads, methodName);
+                                if (GetterBodyText(indexer) is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
+                            if (HasSetter(indexer))
+                            {
+                                const string methodName = "set_Item";
+                                int overload = NextOverload(overloads, methodName);
+                                if (SetterBodyText(indexer) is { } body)
                                     yield return new SourceMember(fullType, methodName, overload, path, body);
                             }
 
@@ -618,6 +646,11 @@ static class ReturnToSenderSourceProbe
         return null;
     }
 
+    static bool IsBodylessPartial(MethodDeclarationSyntax method)
+        => method.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && method.Body is null
+            && method.ExpressionBody is null;
+
     static string? BodyText(ConstructorDeclarationSyntax constructor)
     {
         if (constructor.Body is { } body)
@@ -657,9 +690,32 @@ static class ReturnToSenderSourceProbe
         return null;
     }
 
+    static string? GetterBodyText(IndexerDeclarationSyntax indexer)
+    {
+        if (indexer.ExpressionBody is { } expressionBody)
+            return $"return {expressionBody.Expression};";
+        var getter = indexer.AccessorList?.Accessors.FirstOrDefault(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration));
+        if (getter?.Body is { } body)
+            return StatementsText(body);
+        if (getter?.ExpressionBody is { } getterExpression)
+            return $"return {getterExpression.Expression};";
+        return null;
+    }
+
     static string? SetterBodyText(PropertyDeclarationSyntax property)
     {
         var setter = property.AccessorList?.Accessors.FirstOrDefault(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
+        if (setter?.Body is { } body)
+            return StatementsText(body);
+        if (setter?.ExpressionBody is { } setterExpression)
+            return $"{setterExpression.Expression};";
+        return null;
+    }
+
+    static string? SetterBodyText(IndexerDeclarationSyntax indexer)
+    {
+        var setter = indexer.AccessorList?.Accessors.FirstOrDefault(accessor =>
             accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
         if (setter?.Body is { } body)
             return StatementsText(body);
@@ -674,6 +730,14 @@ static class ReturnToSenderSourceProbe
 
     static bool HasSetter(PropertyDeclarationSyntax property)
         => property.AccessorList?.Accessors.Any(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
+
+    static bool HasGetter(IndexerDeclarationSyntax indexer)
+        => indexer.ExpressionBody is not null
+            || indexer.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
+
+    static bool HasSetter(IndexerDeclarationSyntax indexer)
+        => indexer.AccessorList?.Accessors.Any(accessor =>
             accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
 
     static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
