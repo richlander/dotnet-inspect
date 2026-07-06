@@ -755,9 +755,7 @@ public class FidelityCheckGeneratedFilterTests
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "fixture.dll");
-        var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => MetadataReference.CreateFromFile(path));
+        var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
         var compilation = CSharpCompilation.Create(
             Path.GetFileNameWithoutExtension(path),
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],

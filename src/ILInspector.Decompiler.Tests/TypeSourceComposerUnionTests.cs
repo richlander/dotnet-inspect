@@ -1833,17 +1833,7 @@ public class TypeSourceComposerUnionTests
     }
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
-    {
-        var references = ImmutableArray.CreateBuilder<MetadataReference>();
-        foreach (string path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                continue;
-            references.Add(MetadataReference.CreateFromFile(path));
-        }
-        return references.ToImmutable();
-    }
+        => RoslynTestReferences.TrustedPlatform;
 
     sealed class TempAssembly(string path, TempDirectory? directory = null) : IDisposable
     {
