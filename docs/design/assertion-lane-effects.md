@@ -97,8 +97,9 @@ in rough dependency order:
    `--dump --assertions`. Still open: promote it from a report/diff signal to a
    hard zero-gate, which needs an allowlist of the known `PrinterOwned` residuals
    so only *new* survivors fail.
-2. Track **obligation lifetime** — stages between accrual and discharge — as a
+2. **Landed ([#2284](https://github.com/richlander/dotnet-inspect/pull/2284)):**
+   track **obligation lifetime** — stages between accrual and discharge — as a
    construction-quality metric. Lifetime trending down means passes decide early
    rather than retrofitting a claim late.
-3. Attribute discharge to a named pass, then graduate to the per-pass effect
-   signatures above.
+3. Attribute discharge to a named pass in local dumps, then graduate to the
+   per-pass effect signatures above.

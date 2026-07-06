@@ -63,11 +63,14 @@ for the assertion-dump discipline.
 observed. At a non-final stage it prints `OBLIGATION (informational)` — the
 rewrite accrued a typing claim a downstream pass is contracted to discharge (e.g.
 coercion insertion wrapping the sink), so a mid-pipeline marker is bookkeeping,
-not a defect. Only an assertion that survives to the **final** stage prints
-`❌ UNSOUND (error)` (the first one flagged `FIRST UNSOUND SURVIVOR`): nothing
-downstream remains to discharge it, so the rendered output leans on an unproven
-claim. "Final stage is zero UNSOUND" is the real soundness statement; the
-intermediate obligations are the pipeline working as designed.
+not a defect. When the dump can match the obligation to the scan's observed
+lifetime, the marker names the discharging pass, e.g.
+`OBLIGATION (informational; discharged by coercion-insertion)`. Only an assertion
+that survives to the **final** stage prints `❌ UNSOUND (error)` (the first one
+flagged `FIRST UNSOUND SURVIVOR`): nothing downstream remains to discharge it,
+so the rendered output leans on an unproven claim. "Final stage is zero UNSOUND"
+is the real soundness statement; the intermediate obligations are the pipeline
+working as designed.
 
 Add `--assertion-fixture-guarantee` to materialize the generated inverse-node
 fixture assembly and include it in annotation coverage. The report prints a
