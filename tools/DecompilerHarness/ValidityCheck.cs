@@ -79,6 +79,16 @@ static class ValidityCheck
         public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
     }
 
+    internal sealed record RenderedBodyResult(
+        ImmutableArray<ValidityDiagnostic> MalformedDiagnostics,
+        bool SemanticChecked,
+        ImmutableArray<ValidityDiagnostic> SemanticDiagnostics)
+    {
+        public bool IsMalformed => MalformedDiagnostics.Length > 0;
+        public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
+        public bool IsValid => !IsMalformed && SemanticChecked && !HasSemanticDefect;
+    }
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null, bool lowered = false)
     {
         var results = Evaluate(assemblies, cap, lowered);
@@ -137,27 +147,8 @@ static class ValidityCheck
     internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false, int? workers = null, bool sequential = false)
     {
         var references = RuntimeReferences();
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
-        var compileOptions = new CSharpCompilationOptions(
-            OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
-            nullableContextOptions: NullableContextOptions.Disable)
-            .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic>())
-            // Import ALL members of the referenced runtime assemblies, including
-            // private ones. When a decompiled body legitimately calls a non-public
-            // overload of the target assembly (e.g. the internal `Span<T>(ref T, int)`
-            // ctor, or the PRIVATE generic helper `Enum.ToString<TUnderlying, TStorage>`
-            // that the public `Enum.ToString()` dispatches to), the external shell
-            // cannot access it; without the member imported, Roslyn never sees the
-            // intended overload and mis-binds to a public sibling, reporting a
-            // misleading diagnostic that is purely a shell artifact — CS1615/CS1620
-            // (wrong ref/out keyword) for an internal ctor, or CS0308 ("the non-generic
-            // method 'Enum.ToString()' cannot be used with type arguments") for a
-            // private generic overload, where the faithful `Enum.ToString<sbyte, byte>`
-            // call binds to the public non-generic sibling. Importing All lets Roslyn
-            // recognize the intended-but-inaccessible member (reporting CS0122, already
-            // filtered as visibility noise) instead of these phantom binding errors;
-            // the recovered call is correct and round-trips to the same member.
-            .WithMetadataImportOptions(MetadataImportOptions.All);
+        var parseOptions = ParseOptions();
+        var compileOptions = CompileOptions();
 
         int semChecked = 0;
         var results = new ConcurrentBag<MethodResult>();
@@ -214,18 +205,21 @@ static class ValidityCheck
                         return;
                     bool full = function.Fidelity == DecompilationFidelity.Full;
 
-                    string shell = Shell(function, rendered, typeName, methodName, constraints, productParameterList);
-                    var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
-                    var malformed = ImmutableArray.CreateBuilder<ValidityDiagnostic>();
-                    malformed.AddRange(SignatureDefaultDiagnostics(function, productParameterList));
-                    malformed.AddRange(tree.GetDiagnostics().Where(IsError)
-                        .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage())));
-                    malformed.AddRange(IllegalStatements(tree)
-                        .Select(s => new ValidityDiagnostic("CS0201", "illegal statement: " + s.ToString().Trim())));
+                    var syntaxOnly = EvaluateRenderedBody(
+                        function,
+                        rendered,
+                        typeName,
+                        methodName,
+                        constraints,
+                        productParameterList,
+                        references,
+                        parseOptions,
+                        compileOptions,
+                        bindSemantics: false);
 
-                    if (malformed.Count > 0)
+                    if (syntaxOnly.IsMalformed)
                     {
-                        results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, malformed.ToImmutable(), SemanticChecked: false, []));
+                        results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, syntaxOnly.MalformedDiagnostics, SemanticChecked: false, []));
                         return; // parallel return
                     }
 
@@ -240,18 +234,18 @@ static class ValidityCheck
                         results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: false, []));
                         return; // parallel return
                     }
-                    var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
-                    var semanticModel = compilation.GetSemanticModel(tree);
-                    var defects = compilation.GetDiagnostics()
-                        .Where(IsError)
-                        .Where(d => !BindingNoise.Contains(d.Id))
-                        .Where(d => !IsShellArtifact(d))
-                        .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
-                        .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
-                        .Where(d => !IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))
-                        .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
-                        .ToImmutableArray();
-                    results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: true, defects));
+                    var semantic = EvaluateRenderedBody(
+                        function,
+                        rendered,
+                        typeName,
+                        methodName,
+                        constraints,
+                        productParameterList,
+                        references,
+                        parseOptions,
+                        compileOptions,
+                        bindSemantics: true);
+                    results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: true, semantic.SemanticDiagnostics));
                 });
             }
         }
@@ -259,6 +253,69 @@ static class ValidityCheck
             .ThenBy(r => r.MethodName, StringComparer.Ordinal)
             .ThenBy(r => r.Signature, StringComparer.Ordinal)
             .ToList();
+    }
+
+    internal static CSharpParseOptions ParseOptions()
+        => new(LanguageVersion.Preview);
+
+    internal static CSharpCompilationOptions CompileOptions()
+        => new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+                nullableContextOptions: NullableContextOptions.Disable)
+            .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic>())
+            // Import ALL members of the referenced runtime assemblies, including
+            // private ones. When a decompiled body legitimately calls a non-public
+            // overload of the target assembly (e.g. the internal `Span<T>(ref T, int)`
+            // ctor, or the PRIVATE generic helper `Enum.ToString<TUnderlying, TStorage>`
+            // that the public `Enum.ToString()` dispatches to), the external shell
+            // cannot access it; without the member imported, Roslyn never sees the
+            // intended overload and mis-binds to a public sibling, reporting a
+            // misleading diagnostic that is purely a shell artifact — CS1615/CS1620
+            // (wrong ref/out keyword) for an internal ctor, or CS0308 ("the non-generic
+            // method 'Enum.ToString()' cannot be used with type arguments") for a
+            // private generic overload, where the faithful `Enum.ToString<sbyte, byte>`
+            // call binds to the public non-generic sibling. Importing All lets Roslyn
+            // recognize the intended-but-inaccessible member (reporting CS0122, already
+            // filtered as visibility noise) instead of these phantom binding errors;
+            // the recovered call is correct and round-trips to the same member.
+            .WithMetadataImportOptions(MetadataImportOptions.All);
+
+    internal static RenderedBodyResult EvaluateRenderedBody(
+        IrFunction function,
+        string body,
+        string typeName,
+        string methodName,
+        IReadOnlyDictionary<string, Dictionary<string, string>> constraints,
+        string? productParameterList,
+        ImmutableArray<MetadataReference> references,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions,
+        bool bindSemantics)
+    {
+        string shell = Shell(function, body, typeName, methodName, constraints, productParameterList);
+        var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
+        var malformed = ImmutableArray.CreateBuilder<ValidityDiagnostic>();
+        malformed.AddRange(SignatureDefaultDiagnostics(function, productParameterList));
+        malformed.AddRange(tree.GetDiagnostics().Where(IsError)
+            .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage())));
+        malformed.AddRange(IllegalStatements(tree)
+            .Select(s => new ValidityDiagnostic("CS0201", "illegal statement: " + s.ToString().Trim())));
+
+        if (malformed.Count > 0 || !bindSemantics)
+            return new RenderedBodyResult(malformed.ToImmutable(), SemanticChecked: false, []);
+
+        var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
+        var semanticModel = compilation.GetSemanticModel(tree);
+        var defects = compilation.GetDiagnostics()
+            .Where(IsError)
+            .Where(d => !BindingNoise.Contains(d.Id))
+            .Where(d => !IsShellArtifact(d))
+            .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
+            .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
+            .Where(d => !IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))
+            .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
+            .ToImmutableArray();
+        return new RenderedBodyResult([], SemanticChecked: true, defects);
     }
 
     static void Record(Dictionary<string, SortedSet<string>> map, string method, IEnumerable<string> codes)
@@ -374,7 +431,7 @@ static class ValidityCheck
         }
     }
 
-    static Dictionary<string, Queue<string>> ProductSignatureQueues(PEReader pe)
+    internal static Dictionary<string, Queue<string>> ProductSignatureQueues(PEReader pe)
     {
         var result = new Dictionary<string, Queue<string>>(StringComparer.Ordinal);
         ApiSurface surface;
@@ -393,7 +450,7 @@ static class ValidityCheck
         return result;
     }
 
-    static string? DequeueProductParameterList(Dictionary<string, Queue<string>> signatures, string typeName, string methodName)
+    internal static string? DequeueProductParameterList(Dictionary<string, Queue<string>> signatures, string typeName, string methodName)
     {
         string key = $"{typeName}::{methodName}";
         if (!signatures.TryGetValue(key, out var queue) || queue.Count == 0)

@@ -227,6 +227,23 @@ and per-row sampled denominators for semantic validity and compile-back fidelity
 so reviewers can tell when evidence is strong or thin. Paste that block as the
 PR's aggregate corpus evidence; do not re-key the table by hand.
 
+**Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
+oracle for raise and printer changes. The first run writes a method-keyed JSON
+baseline of rendered bodies; the second run compares the current render against
+that baseline and reports changed, added, and removed methods. Changed methods
+are classified on two axes:
+
+- spelling: `structural`, `paren-equivalent`, or `unparsed`;
+- semantic validity over the changed set only: `valid->valid`,
+  `invalid->valid`, `valid->invalid`, or `invalid->invalid`.
+
+The semantic lane wraps each changed body in the same validity-check method shell
+and binds it with the validity diagnostic filters. It catches regressions that
+still parse, such as `1++`, without paying a corpus-wide compile cost. A
+`valid->invalid` transition is a semantic regression; expression-moving PRs
+should report the semantic line explicitly, e.g. `A/B: 55 changed (40
+paren-equivalent, 15 structural; semantic: 0 valid->invalid)`.
+
 Add `--emit-corpus-delta <file>` with `--diff-corpus-baseline` to write the
 changed per-method rows as JSON. The quality card stays compact and names the
 artifact path; reviewers and follow-up scripts can use the JSON to pick changed

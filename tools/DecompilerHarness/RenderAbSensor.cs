@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,7 +31,7 @@ internal static class RenderAbSensor
         
         if (emitPath is not null)
         {
-            var json = JsonSerializer.Serialize(current, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(ToBodyDictionary(current), new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(emitPath, json);
             Console.WriteLine($"Wrote baseline to {emitPath} ({current.Count} methods).");
             if (diffPath is null)
@@ -64,13 +65,13 @@ internal static class RenderAbSensor
         }
     }
 
-    static Dictionary<string, string> CollectRenders(
+    static Dictionary<string, RenderedMethod> CollectRenders(
         IReadOnlyList<string> assemblies,
         int methodCap,
         int? workers,
         bool sequential)
     {
-        var renders = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var renders = new ConcurrentDictionary<string, RenderedMethod>(StringComparer.Ordinal);
         var options = new ParallelOptions { MaxDegreeOfParallelism = sequential ? 1 : (workers ?? Math.Max(1, Environment.ProcessorCount - 2)) };
         using var metadata = CorpusMetadata.Create(assemblies);
 
@@ -79,6 +80,8 @@ internal static class RenderAbSensor
             var portablePath = CorpusSensor.PortablePath(assemblyPath);
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
+            var constraints = ShellConstraints.Build(source);
+            var productSignatures = ValidityCheck.ProductSignatureQueues(source.Pe);
             var stableSample = IrImporter.GetStableSampleCandidates(source, methodCap).ToList();
 
             Parallel.ForEach(stableSample, options, item =>
@@ -86,6 +89,10 @@ internal static class RenderAbSensor
                 var typeName = item.TypeName;
                 var methodName = item.MethodName;
                 var function = item.Build(source);
+                string? productSignatureParameters = ValidityCheck.DequeueProductParameterList(productSignatures, typeName, methodName);
+                string? productParameterList = function.Signature.Parameters.Any(p => p.HasDefault)
+                    ? productSignatureParameters
+                    : null;
                 
                 try
                 {
@@ -99,7 +106,13 @@ internal static class RenderAbSensor
                     {
                         string signature = CorpusMethodIdentity.SignatureText(function.Signature);
                         string key = $"{portablePath}!{typeName}::{methodName}{signature}";
-                        renders.TryAdd(key, rendered.Trim());
+                        renders.TryAdd(key, new RenderedMethod(
+                            typeName,
+                            methodName,
+                            rendered.Trim(),
+                            function,
+                            constraints,
+                            productParameterList));
                     }
                 }
                 catch
@@ -112,26 +125,47 @@ internal static class RenderAbSensor
                       .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
     }
 
-    static int Compare(Dictionary<string, string> baseline, Dictionary<string, string> current, int maxExamples)
+    static Dictionary<string, string> ToBodyDictionary(Dictionary<string, RenderedMethod> renders)
+        => renders.ToDictionary(kv => kv.Key, kv => kv.Value.Body, StringComparer.Ordinal);
+
+    internal static int Compare(Dictionary<string, string> baseline, Dictionary<string, RenderedMethod> current, int maxExamples)
     {
         int total = 0, changed = 0, added = 0, removed = 0;
         var byClass = new Dictionary<DiffClass, int> { [DiffClass.Structural] = 0, [DiffClass.ParenEquivalent] = 0, [DiffClass.Unparsed] = 0 };
-        var diffs = new List<(string Key, string Before, string After, DiffClass Class)>();
+        var bySemantic = new Dictionary<SemanticTransition, int>
+        {
+            [SemanticTransition.ValidToValid] = 0,
+            [SemanticTransition.InvalidToValid] = 0,
+            [SemanticTransition.ValidToInvalid] = 0,
+            [SemanticTransition.InvalidToInvalid] = 0,
+        };
+        var diffs = new List<(string Key, string Before, string After, DiffClass Class, SemanticTransition Semantic)>();
+        var semanticRegressions = new List<(string Key, string Before, string After, ValidityCheck.RenderedBodyResult BeforeValidity, ValidityCheck.RenderedBodyResult AfterValidity)>();
+        var references = ValidityCheck.RuntimeReferences();
+        var parseOptions = ValidityCheck.ParseOptions();
+        var compileOptions = ValidityCheck.CompileOptions();
 
         foreach (var kvp in current)
         {
             total++;
+            var sample = kvp.Value;
             if (!baseline.TryGetValue(kvp.Key, out var before))
             {
                 added++;
             }
-            else if (before != kvp.Value)
+            else if (before != sample.Body)
             {
                 changed++;
-                var diffClass = Classify(before, kvp.Value);
+                var diffClass = Classify(before, sample.Body);
                 byClass[diffClass]++;
+                var beforeValidity = CheckSemantic(sample, before, references, parseOptions, compileOptions);
+                var afterValidity = CheckSemantic(sample, sample.Body, references, parseOptions, compileOptions);
+                var transition = SemanticTransitionOf(beforeValidity, afterValidity);
+                bySemantic[transition]++;
+                if (transition == SemanticTransition.ValidToInvalid)
+                    semanticRegressions.Add((kvp.Key, before, sample.Body, beforeValidity, afterValidity));
                 if (diffs.Count < maxExamples * 10) // Collect some for examples
-                    diffs.Add((kvp.Key, before, kvp.Value, diffClass));
+                    diffs.Add((kvp.Key, before, sample.Body, diffClass, transition));
             }
         }
 
@@ -145,6 +179,15 @@ internal static class RenderAbSensor
         Console.WriteLine(changed == 0
             ? "Changed: 0"
             : $"Changed: {changed} (structural: {byClass[DiffClass.Structural]}, paren-equivalent: {byClass[DiffClass.ParenEquivalent]}, unparsed: {byClass[DiffClass.Unparsed]})");
+        if (changed > 0)
+        {
+            Console.WriteLine(
+                "Semantic: "
+                + $"valid->valid: {bySemantic[SemanticTransition.ValidToValid]}, "
+                + $"invalid->valid: {bySemantic[SemanticTransition.InvalidToValid]}, "
+                + $"valid->invalid: {bySemantic[SemanticTransition.ValidToInvalid]}, "
+                + $"invalid->invalid: {bySemantic[SemanticTransition.InvalidToInvalid]}");
+        }
         Console.WriteLine($"Added:   {added}");
         Console.WriteLine($"Removed: {removed}");
 
@@ -160,7 +203,7 @@ internal static class RenderAbSensor
         {
             if (printed >= maxExamples)
                 break;
-            Console.WriteLine($"\nMethod: {diff.Key} [{DiffClassLabel(diff.Class)}]");
+            Console.WriteLine($"\nMethod: {diff.Key} [{DiffClassLabel(diff.Class)}, {SemanticTransitionLabel(diff.Semantic)}]");
             Console.WriteLine("--- Baseline ---");
             Console.WriteLine(diff.Before);
             Console.WriteLine("--- Current ---");
@@ -168,7 +211,24 @@ internal static class RenderAbSensor
             printed++;
         }
 
-        return 1;
+        if (semanticRegressions.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("==== Semantic Regressions (valid->invalid) ====");
+            foreach (var regression in semanticRegressions.Take(maxExamples))
+            {
+                Console.WriteLine($"\nMethod: {regression.Key}");
+                Console.WriteLine("Diagnostics:");
+                foreach (var diagnostic in Diagnostics(regression.AfterValidity).Take(5))
+                    Console.WriteLine($"  {diagnostic.Id}: {diagnostic.Message}");
+                Console.WriteLine("--- Baseline ---");
+                Console.WriteLine(regression.Before);
+                Console.WriteLine("--- Current ---");
+                Console.WriteLine(regression.After);
+            }
+        }
+
+        return semanticRegressions.Count > 0 ? 2 : 1;
     }
 
     /// <summary>
@@ -182,12 +242,52 @@ internal static class RenderAbSensor
     /// </summary>
     enum DiffClass { Structural, Unparsed, ParenEquivalent }
 
+    enum SemanticTransition { ValidToValid, InvalidToValid, ValidToInvalid, InvalidToInvalid }
+
     static string DiffClassLabel(DiffClass diffClass) => diffClass switch
     {
         DiffClass.Structural => "structural",
         DiffClass.ParenEquivalent => "paren-equivalent",
         _ => "unparsed",
     };
+
+    static string SemanticTransitionLabel(SemanticTransition transition) => transition switch
+    {
+        SemanticTransition.ValidToValid => "semantic valid->valid",
+        SemanticTransition.InvalidToValid => "semantic invalid->valid",
+        SemanticTransition.ValidToInvalid => "semantic valid->invalid",
+        _ => "semantic invalid->invalid",
+    };
+
+    static SemanticTransition SemanticTransitionOf(ValidityCheck.RenderedBodyResult before, ValidityCheck.RenderedBodyResult after)
+        => (before.IsValid, after.IsValid) switch
+        {
+            (true, true) => SemanticTransition.ValidToValid,
+            (false, true) => SemanticTransition.InvalidToValid,
+            (true, false) => SemanticTransition.ValidToInvalid,
+            _ => SemanticTransition.InvalidToInvalid,
+        };
+
+    static ValidityCheck.RenderedBodyResult CheckSemantic(
+        RenderedMethod sample,
+        string body,
+        ImmutableArray<MetadataReference> references,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions)
+        => ValidityCheck.EvaluateRenderedBody(
+            sample.Function,
+            body,
+            sample.TypeName,
+            sample.MethodName,
+            sample.Constraints,
+            sample.ProductParameterList,
+            references,
+            parseOptions,
+            compileOptions,
+            bindSemantics: true);
+
+    static IEnumerable<ValidityCheck.ValidityDiagnostic> Diagnostics(ValidityCheck.RenderedBodyResult result)
+        => result.IsMalformed ? result.MalformedDiagnostics : result.SemanticDiagnostics;
 
     static DiffClass Classify(string before, string after)
     {
@@ -219,4 +319,12 @@ internal static class RenderAbSensor
         public override SyntaxNode? VisitParenthesizedExpression(ParenthesizedExpressionSyntax node)
             => Visit(node.Expression);
     }
+
+    internal sealed record RenderedMethod(
+        string TypeName,
+        string MethodName,
+        string Body,
+        IrFunction Function,
+        IReadOnlyDictionary<string, Dictionary<string, string>> Constraints,
+        string? ProductParameterList);
 }
