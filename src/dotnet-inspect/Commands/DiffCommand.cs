@@ -518,7 +518,12 @@ public class DiffCommand
 
         // Apply classification filter
         var filtered = FilterByClassification(typeDiffs, options);
-        if (filtered.Count == 0 && options.MemberFilter.Count > 0 && (typeDiffs.Count > 0 || beforeTypeFilterCount == 0))
+        var classificationFilterActive = options.Breaking || options.Additive;
+        if (filtered.Count == 0 && typeDiffs.Count > 0 && classificationFilterActive)
+        {
+            Console.Error.WriteLine("Note: classification filter removed all changes after type/member filters.");
+        }
+        else if (filtered.Count == 0 && options.MemberFilter.Count > 0 && (typeDiffs.Count > 0 || beforeTypeFilterCount == 0))
         {
             Console.Error.WriteLine($"Note: member filter matched no changed members after other filters: {string.Join(", ", options.MemberFilter)}.");
         }

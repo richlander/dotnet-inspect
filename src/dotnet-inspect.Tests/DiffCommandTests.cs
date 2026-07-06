@@ -141,6 +141,41 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task ApplyFilters_ClassificationFilteredMemberDiff_ReportsClassificationFilter()
+    {
+        var type = DiffType("Sample", "Widget", DiffMember("Added", signature: "void Added()"));
+        var diff = new ApiDiff
+        {
+            TypeDiffs =
+            [
+                new TypeDiff("Sample.Widget",
+                [
+                    new ApiChange(
+                        ChangeKind.MemberAdded,
+                        ChangeClassification.Additive,
+                        "Member 'Added' was added",
+                        NewValue: "void Added()",
+                        Subject: ApiChangeSubject.Member(null, null, type, type.Members.Single()))
+                ])
+            ]
+        };
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            DiffCommand.ApplyFilters(diff, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Added"],
+                Breaking = true
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("classification filter removed all changes", error);
+        Assert.DoesNotContain("member filter matched no changed members", error);
+    }
+
+    [Fact]
     public void BuildApiDiff_UsesResearchSignatureScopeByDefault()
     {
         var oldSurface = DiffSurface(DiffMember("Existing", ["A"]));
