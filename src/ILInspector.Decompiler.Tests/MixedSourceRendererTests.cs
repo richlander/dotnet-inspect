@@ -1,3 +1,4 @@
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Research;
@@ -130,5 +131,31 @@ public class MixedSourceRendererTests
 
         Assert.NotNull(result.Trace);
         Assert.Equal(DecompilerSymbolSource.None, result.Trace!.Symbols);
+    }
+
+    [Fact]
+    public void DecompilerResult_MetadataDoesNotChangeEquality()
+    {
+        var left = new DecompilerResult("return 1;\n", DecompilationFidelity.Full, [])
+        {
+            Metadata = new DecompilerResultMetadata(
+                DecompilerOptions.Default,
+                [
+                    new DecompilerDecision("type-name.framework-imported", "taste", "System.Math", "test")
+                    {
+                        OldValue = "System.Math",
+                        NewValue = "Math",
+                    },
+                ]),
+        };
+        var right = new DecompilerResult("return 1;\n", DecompilationFidelity.Full, [])
+        {
+            Metadata = new DecompilerResultMetadata(
+                DecompilerOptions.Default with { ReadableLocalNames = true },
+                []),
+        };
+
+        Assert.Equal(left, right);
+        Assert.Equal(left.GetHashCode(), right.GetHashCode());
     }
 }

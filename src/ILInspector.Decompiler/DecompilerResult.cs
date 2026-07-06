@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace ILInspector.Decompiler;
 
 /// <summary>
@@ -67,6 +69,13 @@ public sealed record DecompilerDecision(
 {
     public string? OldValue { get; init; }
     public string? NewValue { get; init; }
+}
+
+public sealed record DecompilerResultMetadata(
+    DecompilerOptions EffectiveOptions,
+    IReadOnlyList<DecompilerDecision> Decisions)
+{
+    public static DecompilerResultMetadata Default { get; } = new(DecompilerOptions.Default, []);
 }
 
 /// <summary>Stable diagnostic identifiers. Never renumber or reuse.</summary>
@@ -173,6 +182,8 @@ public sealed record DecompilerResult(
     DecompilationFidelity Fidelity,
     IReadOnlyList<DecompilerDiagnostic> Diagnostics)
 {
+    static readonly ConditionalWeakTable<DecompilerResult, MetadataBox> s_metadata = new();
+
     public bool Succeeded => Output is not null;
 
     /// <summary>
@@ -212,17 +223,37 @@ public sealed record DecompilerResult(
     /// </summary>
     public DecompilerTrace? Trace { get; init; }
 
+    /// <summary>
+    /// Product-owned metadata that explains intentional render choices. The
+    /// holder keeps this evolving evidence off <see cref="DecompilerResult"/>'s
+    /// historical record equality surface.
+    /// </summary>
+    public DecompilerResultMetadata Metadata
+    {
+        get => s_metadata.TryGetValue(this, out var box) ? box.Value : DecompilerResultMetadata.Default;
+        init
+        {
+            s_metadata.Remove(this);
+            s_metadata.Add(this, new MetadataBox(value));
+        }
+    }
+
     /// <summary>The product options in force for this result.</summary>
-    public DecompilerOptions EffectiveOptions { get; init; } = DecompilerOptions.Default;
+    public DecompilerOptions EffectiveOptions => Metadata.EffectiveOptions;
 
     /// <summary>Product-owned decision evidence explaining intentional render choices.</summary>
-    public IReadOnlyList<DecompilerDecision> Decisions { get; init; } = [];
+    public IReadOnlyList<DecompilerDecision> Decisions => Metadata.Decisions;
 
     public static DecompilerResult Success(string output)
         => new(output, DecompilationFidelity.Full, []);
 
     public static DecompilerResult Failure(string diagnosticId, string message)
         => new(null, DecompilationFidelity.Failed, [new DecompilerDiagnostic(diagnosticId, message)]);
+
+    sealed class MetadataBox(DecompilerResultMetadata value)
+    {
+        public DecompilerResultMetadata Value { get; } = value;
+    }
 
     /// <summary>
     /// Runs a pipeline entry point, converting exceptions into diagnostics.

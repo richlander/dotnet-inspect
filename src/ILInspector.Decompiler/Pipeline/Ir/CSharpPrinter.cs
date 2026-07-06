@@ -215,8 +215,7 @@ public sealed partial class CSharpPrinter
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            EffectiveOptions = EffectiveDecompilerOptions(),
-            Decisions = [.. _decisions],
+            Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
 
     DecompilerOptions EffectiveDecompilerOptions()

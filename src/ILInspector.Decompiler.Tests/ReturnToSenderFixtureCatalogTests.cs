@@ -191,6 +191,37 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteRewritesNestedGenericArguments()
+    {
+        var task = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Threading.Tasks.Task`1",
+            "task decision")
+        {
+            OldValue = "System.Threading.Tasks.Task",
+            NewValue = "Task",
+        };
+        var list = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Collections.Generic.List`1",
+            "list decision")
+        {
+            OldValue = "System.Collections.Generic.List",
+            NewValue = "List",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Threading.Tasks.Task<System.Collections.Generic.List<int>> values = null;",
+            "Task<List<int>> values = null;",
+            [task, list],
+            out var detail));
+        Assert.Contains("task", detail);
+        Assert.Contains("list", detail);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_KnownTasteUsesMostSpecificNestedFrameworkType()
     {
         var environment = new DecompilerDecision(
