@@ -593,6 +593,9 @@ public class DiffCommand
             return diff;
 
         var candidateTypeDiffs = ApplyTypeFilterOnly(diff.TypeDiffs, options.TypeFilter);
+        if (candidateTypeDiffs.Count == 0 && diff.TypeDiffs.Count > 0 && options.TypeFilter.Count > 0)
+            Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
+
         var filtered = FilterApiDiffByMemberTargets(diff, fromSurface, toSurface, options);
         if (filtered.TypeDiffs.Count == 0 && candidateTypeDiffs.Count > 0)
             Console.Error.WriteLine($"Note: member filter matched no changed members after type filters: {string.Join(", ", options.MemberFilter)}.");

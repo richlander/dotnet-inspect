@@ -3838,6 +3838,28 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_OutputFlagBeforeBareToken_KeepsBareTokenAsRouteTarget()
+    {
+        var (exit, output, error) = await RunAppAsync("--json", "frobnicate");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Package 'frobnicate' not found", error);
+        Assert.DoesNotContain("Package '--json' not found", error);
+    }
+
+    [Fact]
+    public async Task Router_ValueOptionBeforeBareToken_SkipsOptionValueWhenFindingRouteTarget()
+    {
+        var (exit, output, error) = await RunAppAsync("--type", "Widget", "frobnicate");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Package 'frobnicate' not found", error);
+        Assert.DoesNotContain("Package 'Widget' not found", error);
+    }
+
+    [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(

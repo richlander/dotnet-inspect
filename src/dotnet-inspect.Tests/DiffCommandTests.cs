@@ -166,6 +166,30 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task BuildApiDiff_TypeFilterWithNoChangedTypesAndMemberFilter_ReportsTypeFilter()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            var oldSurface = DiffSurface(
+                DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+                DiffType("Sample", "Changed", DiffMember("Changed", signature: "void Changed()")));
+            var newSurface = DiffSurface(
+                DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+                DiffType("Sample", "Changed", DiffMember("Changed", signature: "int Changed()")));
+
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Quiet"],
+                MemberFilter = ["Keep"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("type filter matched no changed types: Quiet", error);
+        Assert.DoesNotContain("member filter matched no changed members", error);
+    }
+
+    [Fact]
     public async Task ApplyFilters_ClassificationFilteredMemberDiff_ReportsClassificationFilter()
     {
         var type = DiffType("Sample", "Widget", DiffMember("Added", signature: "void Added()"));

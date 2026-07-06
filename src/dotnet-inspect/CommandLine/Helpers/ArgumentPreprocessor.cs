@@ -95,12 +95,20 @@ public static class ArgumentPreprocessor
         int firstPositional = -1;
         for (int i = 0; i < args.Length; i++)
         {
-            if (!args[i].StartsWith('-'))
+            var token = args[i];
+            if (!token.StartsWith('-'))
             {
-                // Skip the value token that follows -n, --head, or --tail (it's a number, not a command)
-                if (i > 0 && (args[i - 1] == "-n" || args[i - 1] == "--head" || args[i - 1] == "--tail")) continue;
                 firstPositional = i;
                 break;
+            }
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
             }
         }
 
@@ -114,9 +122,7 @@ public static class ArgumentPreprocessor
 
             // Route bare names through the router command (platform-preferred, NuGet fallback)
             RequestTelemetry.Breadcrumb("implicit-router", args[firstPositional]);
-            if (HasHelpBefore(args, firstPositional))
-                return ["router", args[firstPositional], .. args[..firstPositional], .. args[(firstPositional + 1)..]];
-            return ["router", .. args];
+            return ["router", args[firstPositional], .. args[..firstPositional], .. args[(firstPositional + 1)..]];
         }
 
         // Bare discovery flags (-S, --select) with no positional args → route to router
@@ -146,9 +152,6 @@ public static class ArgumentPreprocessor
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
-
-    private static bool HasHelpBefore(string[] args, int firstPositional)
-        => args[..firstPositional].Any(token => token is "--help" or "-h" or "-?");
 
     private static string[] RewriteValuedPlatformForSearchCommands(string[] args)
     {
