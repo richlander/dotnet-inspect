@@ -21,19 +21,41 @@ namespace ILInspector.Decompiler.Pipeline;
 /// in between writes what the value reads. Effect-free values reorder freely;
 /// the interference scan keeps a value that reads a place from crossing a write
 /// to it.</para>
+///
+/// <para><c>slotsOnly</c> restricts <see cref="InlineOnce"/> to synthetic stack
+/// slots (never user locals). This is the F2 mode (#2386): the pass runs a third
+/// time late in the pipeline — before <see cref="SlotMaterializationPass"/> — to
+/// inline the single-use spill slots that structuring and reconstruction mint
+/// after the earlier runs, which would otherwise materialize as
+/// <c>T S_n = expr;</c> declarations. It must stay slots-only there because by
+/// that point <see cref="IncrementDecrementPass"/> has folded
+/// <c>x = x + 1</c> into <c>x++</c>; a reconstructed increment hides a store
+/// from the single-store/single-load keys, so inlining a user local into it
+/// would emit an invalid <c>1++</c> (#2379 piece 1 census). Stack slots are the
+/// compiler's spill scratch and are never the target of increment
+/// reconstruction, so the slots-only late run is regression-free.</para>
 /// </summary>
 public sealed class ExpressionInliningPass : IIrPass
 {
     public string Name => "expression-inlining";
 
+    readonly bool _slotsOnly;
+
+    /// <param name="slotsOnly">
+    /// When true, <see cref="InlineOnce"/> considers only synthetic stack slots,
+    /// not user locals — the F2 late-run contract (#2386). Defaults to false so
+    /// the early full-pipeline runs are unchanged.
+    /// </param>
+    public ExpressionInliningPass(bool slotsOnly = false) => _slotsOnly = slotsOnly;
+
     public void Run(IrFunction function, PassContext context)
     {
-        while (InlineOnce(function, context) || InlineLiveRangeOnce(function, context))
+        while (InlineOnce(function, context, _slotsOnly) || InlineLiveRangeOnce(function, context))
         {
         }
     }
 
-    static bool InlineOnce(IrFunction function, PassContext context)
+    static bool InlineOnce(IrFunction function, PassContext context, bool slotsOnly)
     {
         var locals = new Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)>();
         var argumentAddresses = new HashSet<int>();
@@ -61,6 +83,12 @@ public sealed class ExpressionInliningPass : IIrPass
 
         foreach (var ((isSlot, _), (loads, stores, addressTaken)) in locals)
         {
+            // F2 (#2386): the late run inlines only synthetic stack slots. A user
+            // local reaching a reconstructed `x++` looks single-use (the folded
+            // increment hides its store), so inlining a constant into it would
+            // emit an invalid `1++`.
+            if (slotsOnly && !isSlot)
+                continue;
             if (addressTaken || loads.Count != 1 || stores.Count != 1)
                 continue;
             var store = stores[0];
