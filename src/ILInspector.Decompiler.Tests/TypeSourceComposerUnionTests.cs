@@ -130,7 +130,9 @@ public class TypeSourceComposerUnionTests
                     }
                 }
             }
-            """);
+            """,
+            unsupportedDiagnostic: "CS9374",
+            skipReason: "Installed preview SDK does not yet support non-public single-parameter union constructors.");
 
         var source = ComposeType(assembly.Path, "UnionFixtures.Result");
 
@@ -1711,27 +1713,45 @@ public class TypeSourceComposerUnionTests
         return new TempAssembly(path);
     }
 
-    static async Task<TempAssembly> CompileWithSdk(string source)
+    static async Task<TempAssembly> CompileWithSdk(
+        string source,
+        string? unsupportedDiagnostic = null,
+        string? skipReason = null)
     {
         var project = TempDirectory.Create();
-        File.WriteAllText(Path.Combine(project.Path, "union-fixture.csproj"), """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup>
-                <TargetFramework>net11.0</TargetFramework>
-                <LangVersion>preview</LangVersion>
-                <Nullable>enable</Nullable>
-              </PropertyGroup>
-            </Project>
-            """);
-        File.WriteAllText(Path.Combine(project.Path, "Fixture.cs"), source);
+        try
+        {
+            File.WriteAllText(Path.Combine(project.Path, "union-fixture.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <LangVersion>preview</LangVersion>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(project.Path, "Fixture.cs"), source);
 
-        var result = await RunDotnetBuild(project.Path);
-        Assert.True(result.ExitCode == 0,
-            "Union fixture must build with the preview SDK, got exit "
-            + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
+            var result = await RunDotnetBuild(project.Path);
+            if (result.ExitCode != 0
+                && unsupportedDiagnostic is not null
+                && result.Output.Contains(unsupportedDiagnostic, StringComparison.Ordinal))
+            {
+                Assert.Skip(skipReason ?? $"Installed preview SDK does not support diagnostic {unsupportedDiagnostic} fixture.");
+            }
 
-        string dll = Path.Combine(project.Path, "bin", "Release", "net11.0", "union-fixture.dll");
-        return new TempAssembly(dll, project);
+            Assert.True(result.ExitCode == 0,
+                "Union fixture must build with the preview SDK, got exit "
+                + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
+
+            string dll = Path.Combine(project.Path, "bin", "Release", "net11.0", "union-fixture.dll");
+            return new TempAssembly(dll, project);
+        }
+        catch
+        {
+            project.Dispose();
+            throw;
+        }
     }
 
     static string RenderMember(string assemblyPath, string typeName, string methodName)
