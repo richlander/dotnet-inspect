@@ -53,3 +53,20 @@ Markdown, with goal markers and inline status where a target applies) and
 goal-aware segment-change rows for failure buckets. Change IDs and operation
 kinds remain context bucket rows. JSONL preserves typed baseline/current fields,
 direction/status, and segment values.
+
+`tools/CSharpDiffHarness/corpus/diff-fixtures-baseline.json` is the pinned
+baseline for the CI `csharp-diff-smoke` job over `DiffFixtures.V1` /
+`DiffFixtures.V2`. Update it intentionally when C# diff row/failure semantics or
+fixture output changes:
+
+```bash
+dotnet build tools/CSharpDiffHarness/CSharpDiffHarness.csproj -c Release --configfile nuget.config
+dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release --configfile nuget.config
+dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release --configfile nuget.config
+dotnet run --project tools/CSharpDiffHarness -c Release --no-build -- \
+  artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll \
+  artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
+  --emit-snapshot tools/CSharpDiffHarness/corpus/diff-fixtures-baseline.json \
+  --format jsonl \
+  --max-examples 0
+```

@@ -346,10 +346,10 @@ jobs:
 
           dotnet run --project tools/CSharpDiffHarness -c Release --no-build -- \
             "$old" "$new" \
-            --diff-baseline artifacts/csharp-diff-smoke/snapshot.json \
+            --diff-baseline tools/CSharpDiffHarness/corpus/diff-fixtures-baseline.json \
             --format jsonl \
             --max-examples 0 \
-            > artifacts/csharp-diff-smoke/exact.jsonl
+            > artifacts/csharp-diff-smoke/baseline.jsonl
 
           cat > /tmp/csharp-diff-mutate-baseline.cs <<'CS'
           using System.Text.Json.Nodes;
@@ -387,7 +387,7 @@ jobs:
           CS
           dotnet run /tmp/csharp-diff-parse-jsonl.cs -- \
             artifacts/csharp-diff-smoke/snapshot.jsonl \
-            artifacts/csharp-diff-smoke/exact.jsonl \
+            artifacts/csharp-diff-smoke/baseline.jsonl \
             artifacts/csharp-diff-smoke/regression.jsonl
 
       - name: Upload C# Diff smoke artifact
