@@ -629,7 +629,7 @@ static string DisplayPath(string path)
         : relative;
 }
 
-static string SnapshotPath(string path) => DisplayPath(path);
+static string SnapshotPath(string path) => DisplayPath(path).Replace('\\', '/');
 
 static string PathLabel(string path, bool snapshotPath)
     => snapshotPath ? SnapshotPath(path) : DisplayPath(path);
