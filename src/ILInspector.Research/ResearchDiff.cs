@@ -341,7 +341,8 @@ public static class ResearchDiff
             var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex);
             foreach (var row in BodySignalDiff.CompareUnsafe(oldIndex, newIndex).Rows)
             {
-                var subject = methods.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member);
+                if (!methods.TryGetValue(row.Member, out var subject))
+                    continue;
                 if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
                     continue;
                 if (!MatchesMemberTargets(subject, memberTargetIdentities))
