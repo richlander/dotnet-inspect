@@ -12,6 +12,16 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 {
     public static readonly TypeRefDecoder Instance = new();
 
+    // Attacker-controlled metadata can encode a self-referential resolution scope,
+    // TypeSpecification, or nested-type chain, which recurses into an *uncatchable*
+    // StackOverflow (the try/catch filters around these calls cannot catch it). Guard the
+    // recursive descents with a per-thread depth limit — the decoder is a shared singleton
+    // used under Parallel, so the counter must be thread-local — and fail closed to
+    // Unsupported. Real metadata nests shallowly, so the limit only trips on malformed input.
+    [ThreadStatic]
+    static int s_recursionDepth;
+    const int MaxRecursionDepth = 256;
+
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
         => TypeRef.CoreLib("System", typeCode switch
         {
@@ -43,8 +53,20 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         string ns = reader.GetString(typeDef.Namespace);
         if (typeDef.IsNested)
         {
-            var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
-            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", declaring.TrustedFrameworkAssembly, declaring.TrustedProtobufAssembly);
+            if (s_recursionDepth >= MaxRecursionDepth)
+                return TypeRef.Unsupported("type-definition nesting depth exceeded");
+            s_recursionDepth++;
+            try
+            {
+                var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
+                if (declaring.Kind == TypeRefKind.Unsupported)
+                    return declaring;
+                return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", declaring.TrustedFrameworkAssembly, declaring.TrustedProtobufAssembly);
+            }
+            finally
+            {
+                s_recursionDepth--;
+            }
         }
         string assembly = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
@@ -81,7 +103,19 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    {
+        if (s_recursionDepth >= MaxRecursionDepth)
+            return TypeRef.Unsupported("type-specification recursion depth exceeded");
+        s_recursionDepth++;
+        try
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        }
+        finally
+        {
+            s_recursionDepth--;
+        }
+    }
 
     public TypeRef GetSZArrayType(TypeRef elementType) => TypeRef.SzArray(elementType);
     public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape) => TypeRef.MdArray(elementType, shape.Rank);
@@ -100,8 +134,20 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     static TypeRef NestedReference(MetadataReader reader, TypeReferenceHandle declaringHandle, string nestedName)
     {
-        var declaring = Instance.GetTypeFromReference(reader, declaringHandle, 0);
-        return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{nestedName}", declaring.TrustedFrameworkAssembly, declaring.TrustedProtobufAssembly);
+        if (s_recursionDepth >= MaxRecursionDepth)
+            return TypeRef.Unsupported("type-reference resolution-scope recursion depth exceeded");
+        s_recursionDepth++;
+        try
+        {
+            var declaring = Instance.GetTypeFromReference(reader, declaringHandle, 0);
+            if (declaring.Kind == TypeRefKind.Unsupported)
+                return declaring;
+            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{nestedName}", declaring.TrustedFrameworkAssembly, declaring.TrustedProtobufAssembly);
+        }
+        finally
+        {
+            s_recursionDepth--;
+        }
     }
 
     static string NameAt(ImmutableArray<string> names, int index)
