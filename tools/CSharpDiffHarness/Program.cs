@@ -385,12 +385,12 @@ static BaselineComparison CompareSnapshots(CSharpDiffSnapshot baseline, CSharpDi
     AddNewFailureBuckets(regressions, baseline.FailureBuckets ?? [], current.FailureBuckets ?? []);
 
     AddDrift(drift, "Pairs", baseline.Summary.PairCount, current.Summary.PairCount);
-    AddDrift(drift, "Exact pairs", baseline.Summary.ExactPairCount, current.Summary.ExactPairCount);
-    AddDrift(drift, "Changed pairs", baseline.Summary.ChangedPairCount, current.Summary.ChangedPairCount);
+    AddDriftIfImproved(drift, "Exact pairs", baseline.Summary.ExactPairCount, current.Summary.ExactPairCount, improvementWhenCurrentIsLower: false);
+    AddDriftIfImproved(drift, "Changed pairs", baseline.Summary.ChangedPairCount, current.Summary.ChangedPairCount, improvementWhenCurrentIsLower: true);
     AddDrift(drift, "Changed members", baseline.Summary.ChangedMemberCount, current.Summary.ChangedMemberCount);
-    AddDrift(drift, "Rows", baseline.Summary.RowCount, current.Summary.RowCount);
+    AddDriftIfImproved(drift, "Rows", baseline.Summary.RowCount, current.Summary.RowCount, improvementWhenCurrentIsLower: true);
     AddDriftIfImproved(drift, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount, improvementWhenCurrentIsLower: true);
-    AddBucketDrift(drift, "Failure bucket", baseline.FailureBuckets ?? [], current.FailureBuckets ?? []);
+    AddExistingFailureBucketDrift(drift, baseline.FailureBuckets ?? [], current.FailureBuckets ?? []);
     AddBucketDrift(drift, "Change ID", baseline.ChangeIdBuckets ?? [], current.ChangeIdBuckets ?? []);
     AddBucketDrift(drift, "Operation kind", baseline.OperationKindBuckets ?? [], current.OperationKindBuckets ?? []);
 
@@ -414,6 +414,16 @@ static void AddNewFailureBuckets(ImmutableArray<BaselineFinding>.Builder finding
     var baselineNames = baseline.Select(bucket => bucket.Name).ToHashSet(StringComparer.Ordinal);
     foreach (var bucket in current.Where(bucket => bucket.Count > 0 && !baselineNames.Contains(bucket.Name)))
         findings.Add(new BaselineFinding("Regression", $"Failure bucket `{bucket.Name}`", "0", Count(bucket.Count), "new failure bucket"));
+}
+
+static void AddExistingFailureBucketDrift(ImmutableArray<BaselineFinding>.Builder findings, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineNames = baseline.Select(bucket => bucket.Name).ToHashSet(StringComparer.Ordinal);
+    AddBucketDrift(
+        findings,
+        "Failure bucket",
+        baseline,
+        current.Where(bucket => baselineNames.Contains(bucket.Name)).ToArray());
 }
 
 static void AddDrift(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
