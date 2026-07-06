@@ -802,6 +802,79 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsNestedClosureMemberRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Outer
+            {
+                internal static int Leak() => 13;
+
+                public class Inner
+                {
+                    public static int GetValue() => 42;
+                }
+            }
+
+            public class Class1
+            {
+                public int FromNested => Outer.Inner.GetValue();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "Outer"
+                && !type.Members.Any(member => member.Name == "Leak")
+                && type.NestedTypes.Any(nested =>
+                    nested.Name == "Inner"
+                    && nested.Members.Any(member => member.Name == "GetValue"
+                        && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue"))));
+            Assert.Contains("public static int GetValue()", result.Source);
+            Assert.DoesNotContain("Leak", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_EmitsTargetNestedMemberRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public class Inner
+                {
+                    public static int GetValue() => 42;
+                }
+
+                public int FromNested => Inner.GetValue();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.Contains(type.NestedTypes, nested =>
+                nested.Name == "Inner"
+                && nested.Members.Any(member => member.Name == "GetValue"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue")));
+            Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains("public static int GetValue()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_DoesNotSurfaceOuterMembersForTypeOnlyNestedClosure()
     {
         var assemblyPath = CompileFixture("""

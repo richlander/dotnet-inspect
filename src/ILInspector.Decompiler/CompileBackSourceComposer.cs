@@ -363,27 +363,14 @@ public static class CompileBackSourceComposer
                 PrimaryConstructor: null,
                 targetFacts)
         };
+        AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
         {
             if (dependency == targetRoot)
                 continue;
 
-            var dependencyDef = reader.GetTypeDefinition(dependency);
-            var dependencyIdentity = CompileBackTypeIdentity.FromDefinition(reader, dependencyDef);
-            if (requirements.Any(requirement => requirement.Type.MetadataFullName == dependencyIdentity.MetadataFullName))
-                continue;
-
-            requirements.Add(new CompileBackTypeRequirement(
-                dependencyIdentity,
-                ShellKind(reader, dependencyDef),
-                RequiredMembers: closureMemberRequirements.TryGetValue(dependency, out var requiredMembers)
-                    ? requiredMembers.ToArray()
-                    : [],
-                PrimaryConstructor: null,
-                SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
-                    ? facts.ToArray()
-                    : [new CompileBackFact("closure", "closure-root", dependencyIdentity.FullName)]));
+            AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
         var declarations = TypeProducer.Produce(reader, requirements, diagnostics);
@@ -417,6 +404,43 @@ public static class CompileBackSourceComposer
         foreach (var required in requiredMembers)
             if (!members.Any(existing => existing.Kind == required.Kind && existing.Identity == required.Identity))
                 members.Add(required);
+    }
+
+    static void AddClosureTypeRequirements(
+        List<CompileBackTypeRequirement> requirements,
+        MetadataReader reader,
+        TypeDefinitionHandle root,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+    {
+        AddClosureTypeRequirement(root);
+        foreach (var handle in closureMemberRequirements.Keys
+            .Where(handle => handle != root && TopLevelRootOf(reader, handle) == root)
+            .OrderBy(handle => MetadataTokens.GetToken(handle)))
+        {
+            AddClosureTypeRequirement(handle);
+        }
+
+        void AddClosureTypeRequirement(TypeDefinitionHandle handle)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            if (requirements.Any(requirement => requirement.Type.MetadataFullName == identity.MetadataFullName))
+                return;
+
+            requirements.Add(new CompileBackTypeRequirement(
+                identity,
+                ShellKind(reader, typeDef),
+                RequiredMembers: closureMemberRequirements.TryGetValue(handle, out var requiredMembers)
+                    ? requiredMembers.ToArray()
+                    : [],
+                PrimaryConstructor: null,
+                SourceFacts: closureFacts.TryGetValue(handle, out var facts)
+                    ? facts.ToArray()
+                    : handle == root
+                        ? [new CompileBackFact("closure", "closure-root", identity.FullName)]
+                        : [new CompileBackFact("metadata", "nested-closure-member-owner", identity.FullName)]));
+        }
     }
 
     public static CompileBackSourceResult ComposePropertySetter(
@@ -488,27 +512,14 @@ public static class CompileBackSourceComposer
                 PrimaryConstructor: null,
                 targetFacts)
         };
+        AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
         {
             if (dependency == targetRoot)
                 continue;
 
-            var dependencyDef = reader.GetTypeDefinition(dependency);
-            var dependencyIdentity = CompileBackTypeIdentity.FromDefinition(reader, dependencyDef);
-            if (requirements.Any(requirement => requirement.Type.MetadataFullName == dependencyIdentity.MetadataFullName))
-                continue;
-
-            requirements.Add(new CompileBackTypeRequirement(
-                dependencyIdentity,
-                ShellKind(reader, dependencyDef),
-                RequiredMembers: closureMemberRequirements.TryGetValue(dependency, out var requiredMembers)
-                    ? requiredMembers.ToArray()
-                    : [],
-                PrimaryConstructor: null,
-                SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
-                    ? facts.ToArray()
-                    : [new CompileBackFact("closure", "closure-root", dependencyIdentity.FullName)]));
+            AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
         var declarations = TypeProducer.Produce(reader, requirements, diagnostics);
@@ -613,21 +624,7 @@ public static class CompileBackSourceComposer
             if (dependency == targetRoot)
                 continue;
 
-            var dependencyDef = reader.GetTypeDefinition(dependency);
-            var dependencyIdentity = CompileBackTypeIdentity.FromDefinition(reader, dependencyDef);
-            if (requirements.Any(requirement => requirement.Type.MetadataFullName == dependencyIdentity.MetadataFullName))
-                continue;
-
-            requirements.Add(new CompileBackTypeRequirement(
-                dependencyIdentity,
-                ShellKind(reader, dependencyDef),
-                RequiredMembers: closureMemberRequirements.TryGetValue(dependency, out var requiredMembers)
-                    ? requiredMembers.ToArray()
-                    : [],
-                PrimaryConstructor: null,
-                SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
-                    ? facts.ToArray()
-                    : [new CompileBackFact("closure", "closure-root", dependencyIdentity.FullName)]));
+            AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
         var declarations = TypeProducer.Produce(reader, requirements, diagnostics);

@@ -1466,11 +1466,11 @@ static class ReturnToSender
             if (TryResolveHandle(definition) is not { } handle)
                 return;
             var root = TopLevelRootOf(reader, handle);
-            if (root == targetRoot || root != handle)
+            if (root == targetRoot && handle == root)
                 return;
             AddClosureFact(
                 closureFacts,
-                root,
+                handle,
                 new CompileBackFact("metadata", "typed-member-ref", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
         }
 
@@ -1502,14 +1502,12 @@ static class ReturnToSender
             if (TryResolveHandle(definition) is not { } handle)
                 return;
             var root = TopLevelRootOf(reader, handle);
-            if (root == targetRoot && !allowTargetRoot)
-                return;
-            if (root != handle)
+            if (root == targetRoot && handle == root && !allowTargetRoot)
                 return;
             if (create(handle) is not { } requirement)
                 return;
-            if (!closureMemberRequirements.TryGetValue(root, out var requirements))
-                closureMemberRequirements[root] = requirements = [];
+            if (!closureMemberRequirements.TryGetValue(handle, out var requirements))
+                closureMemberRequirements[handle] = requirements = [];
             if (!requirements.Any(existing => existing.Kind == requirement.Kind && existing.Identity == requirement.Identity))
                 requirements.Add(requirement);
         }
