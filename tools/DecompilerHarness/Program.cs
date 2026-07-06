@@ -533,7 +533,18 @@ static class Program
                 {
                     Record(bucket, id);
                     if (byShape && bucket == "structuring: switch-branch")
-                        RecordShape(switchShapes, SwitchShapeClassifier.Classify(prePass!), id);
+                    {
+                        var shape = SwitchShapeClassifier.Classify(prePass!);
+                        if (shape == "no-residual-switch")
+                        {
+                            // Cross-method reconstruction can replace the kickoff
+                            // body with a sibling body; the kickoff's imported CFG
+                            // has no switch to classify. Keep this honest instead
+                            // of reporting a false no-switch shape.
+                            shape = "reconstructed-body-unclassified";
+                        }
+                        RecordShape(switchShapes, shape, id);
+                    }
                     // The residual conditional survives in the finished tree, so
                     // classify the post-pass function rather than the pre-pass clone.
                     if (byShape && bucket == "structuring: conditional-branch")
