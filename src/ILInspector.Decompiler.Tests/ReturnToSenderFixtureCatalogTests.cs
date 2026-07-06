@@ -256,6 +256,42 @@ public class ReturnToSenderFixtureCatalogTests
         }
     }
 
+    [Fact]
+    public void ReturnToSenderSourceProbe_IndexesUnsignedRightShiftOperator()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static Class1 operator >>>(Class1 value, int shift)
+                    => new Class1(value._value >>> shift);
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "op_UnsignedRightShift", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+            Assert.Equal("returnnewClass1(value._value>>>shift);", Normalize(result.ExpectedBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

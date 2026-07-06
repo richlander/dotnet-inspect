@@ -164,6 +164,8 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
+            SourceMember? sourceMember = null;
+            bool sourceFound = sourceIndex?.TryFind(target, out sourceMember) == true;
             if (result.Status is FidelityCheck.CompileBackStatus.RecompileFail
                 or FidelityCheck.CompileBackStatus.ContextFail)
             {
@@ -173,8 +175,8 @@ static class ReturnToSenderSourceProbe
                     result.Status,
                     FailureReason(result),
                     result.Detail,
-                    SourcePath: null,
-                    ExpectedBody: null,
+                    SourcePath: sourceMember?.SourcePath,
+                    ExpectedBody: sourceMember?.Body,
                     ActualBody: result.TargetBody));
                 continue;
             }
@@ -207,7 +209,7 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
-            if (!sourceIndex.TryFind(target, out var sourceMember))
+            if (!sourceFound || sourceMember is null)
             {
                 results.Add(new ReturnToSenderSourceProbeResult(
                     target,
@@ -771,6 +773,7 @@ static class ReturnToSenderSourceProbe
             SyntaxKind.CaretToken => "op_ExclusiveOr",
             SyntaxKind.LessThanLessThanToken => "op_LeftShift",
             SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
+            SyntaxKind.GreaterThanGreaterThanGreaterThanToken => "op_UnsignedRightShift",
             SyntaxKind.EqualsEqualsToken => "op_Equality",
             SyntaxKind.ExclamationEqualsToken => "op_Inequality",
             SyntaxKind.LessThanToken => "op_LessThan",
