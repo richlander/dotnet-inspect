@@ -2,12 +2,32 @@ using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Instructions;
 
 namespace ILInspector.Research.Tests;
 
 public class ResearchDiffTests
 {
+    [Fact]
+    public void ResearchMemberIdentity_SubjectFromAnchor_PreservesAnchorIdentity()
+    {
+        var anchor = new MemberAnchor(
+            "M~1234567890",
+            "M:Sample.Widget.M()",
+            "1234567890",
+            "Sample.Widget",
+            "M");
+
+        var subject = ResearchMemberIdentity.SubjectFromAnchor(anchor);
+
+        Assert.Equal(ResearchDiffSubjectKind.Member, subject.Kind);
+        Assert.Equal(anchor.StableSelector, subject.Id);
+        Assert.Equal("Sample.Widget.M", subject.Display);
+        Assert.Equal(anchor.TypeFullName, subject.TypeName);
+        Assert.Equal(anchor.MemberName, subject.MemberName);
+    }
+
     [Fact]
     public void MetadataApiDiff_DefaultScope_IgnoresAttributeOnlyChanges()
     {
