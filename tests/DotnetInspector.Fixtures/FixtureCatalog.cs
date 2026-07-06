@@ -5,10 +5,26 @@ public sealed record FixtureDefinition(
     string ProjectName,
     string AssemblyFileName,
     IReadOnlyList<string> Tags,
+    IReadOnlyList<FixtureBoundary> Boundaries,
     IReadOnlyList<FixtureAsset> Assets)
 {
     public string AssemblyPath() => FixtureCatalog.AssemblyPath(Id);
     public string AssetPath(string name) => FixtureCatalog.AssetPath(Id, name);
+}
+
+public enum FixtureBoundary
+{
+    AssemblyIdentity,
+    AssemblyName,
+    CompilerLowering,
+    CrossAssemblyBoundary,
+    ExternAlias,
+    FrameworkReference,
+    ModuleAttribute,
+    OutputKind,
+    SidecarAsset,
+    TargetFramework,
+    VersionPair,
 }
 
 public sealed record FixtureAsset(string Name, string ProjectName, string RelativePath);
@@ -73,126 +89,147 @@ public static class FixtureCatalog
         FixtureIds.DiffV1,
         "DiffFixtures.V1",
         "DiffFixtureSample.dll",
+        Boundaries(FixtureBoundary.VersionPair),
         "diff", "version-pair", "analysis", "decompiler", "rts-candidate");
 
     public static readonly FixtureDefinition DiffV2 = Fixture(
         FixtureIds.DiffV2,
         "DiffFixtures.V2",
         "DiffFixtureSample.dll",
+        Boundaries(FixtureBoundary.VersionPair),
         "diff", "version-pair", "analysis", "decompiler", "rts-candidate");
 
     public static readonly FixtureDefinition DiffAsmCaller = Fixture(
         FixtureIds.DiffAsmCaller,
         "DiffAsmFixtures.Caller",
         "DiffAsmCaller.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity),
         "diff", "assembly-identity", "caller");
 
     public static readonly FixtureDefinition DiffAsmLibA = Fixture(
         FixtureIds.DiffAsmLibA,
         "DiffAsmFixtures.LibA",
         "DiffAsmLibA.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity),
         "diff", "assembly-identity", "same-fqn");
 
     public static readonly FixtureDefinition DiffAsmLibB = Fixture(
         FixtureIds.DiffAsmLibB,
         "DiffAsmFixtures.LibB",
         "DiffAsmLibB.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity),
         "diff", "assembly-identity", "same-fqn");
 
     public static readonly FixtureDefinition DiffAsmTarget = Fixture(
         FixtureIds.DiffAsmTarget,
         "DiffAsmFixtures.Target",
         "DiffAsmTarget.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity),
         "diff", "assembly-identity", "target");
 
     public static readonly FixtureDefinition AnalysisCallerGraphCaller = Fixture(
         FixtureIds.AnalysisCallerGraphCaller,
         "ILInspector.Analysis.CallerGraphCaller",
         "ILInspector.Analysis.CallerGraphCaller.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "caller");
 
     public static readonly FixtureDefinition AnalysisCallerGraphCallerTwin = Fixture(
         FixtureIds.AnalysisCallerGraphCallerTwin,
         "ILInspector.Analysis.CallerGraphCallerTwin",
         "ILInspector.Analysis.CallerGraphCallerTwin.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "caller", "twin");
 
     public static readonly FixtureDefinition AnalysisCallerGraphLookalikeCaller = Fixture(
         FixtureIds.AnalysisCallerGraphLookalikeCaller,
         "ILInspector.Analysis.CallerGraphLookalikeCaller",
         "ILInspector.Analysis.CallerGraphLookalikeCaller.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "lookalike");
 
     public static readonly FixtureDefinition AnalysisCallerGraphTarget = Fixture(
         FixtureIds.AnalysisCallerGraphTarget,
         "ILInspector.Analysis.CallerGraphTarget",
         "ILInspector.Analysis.CallerGraphTarget.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "target");
 
     public static readonly FixtureDefinition AnalysisCrossAsmCollision = Fixture(
         FixtureIds.AnalysisCrossAsmCollision,
         "ILInspector.Analysis.CrossAsmCollisionFixtures",
         "ILInspector.Analysis.CrossAsmCollisionFixtures.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.ExternAlias),
         "analysis", "cross-assembly", "collision");
 
     public static readonly FixtureDefinition AnalysisCrossAsmShape = Fixture(
         FixtureIds.AnalysisCrossAsmShape,
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "cross-assembly", "shape");
 
     public static readonly FixtureDefinition AnalysisExceptionBase = Fixture(
         FixtureIds.AnalysisExceptionBase,
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "exception");
 
     public static readonly FixtureDefinition AnalysisFacade = Fixture(
         FixtureIds.AnalysisFacade,
         "ILInspector.Analysis.FacadeFixtures",
         "ILInspector.Analysis.FacadeFixtures.dll",
+        Boundaries(FixtureBoundary.TargetFramework),
         "analysis", "facade", "netstandard");
 
     public static readonly FixtureDefinition AnalysisLookalike = Fixture(
         FixtureIds.AnalysisLookalike,
         "ILInspector.Analysis.LookalikeFixtures",
         "ILInspector.Analysis.LookalikeFixtures.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity),
         "analysis", "lookalike");
 
     public static readonly FixtureDefinition AnalysisProtobuf = Fixture(
         FixtureIds.AnalysisProtobuf,
         "ILInspector.Analysis.ProtobufFixtures",
         "Google.Protobuf.dll",
+        Boundaries(FixtureBoundary.AssemblyName),
         "analysis", "protobuf", "assembly-name-axis");
 
     public static readonly FixtureDefinition AnalysisRender = Fixture(
         FixtureIds.AnalysisRender,
         "ILInspector.Analysis.RenderFixtures",
         "ILInspector.Analysis.RenderFixtures.dll",
+        Boundaries(FixtureBoundary.FrameworkReference),
         "analysis", "render");
 
     public static readonly FixtureDefinition AnalysisSpoofSystemLinq = Fixture(
         FixtureIds.AnalysisSpoofSystemLinq,
         "ILInspector.Analysis.SpoofFixtures",
         "System.Linq.dll",
+        Boundaries(FixtureBoundary.AssemblyName),
         "analysis", "spoof", "assembly-name-axis", "system-linq");
 
     public static readonly FixtureDefinition AnalysisSpoofSystemRuntime = Fixture(
         FixtureIds.AnalysisSpoofSystemRuntime,
         "ILInspector.Analysis.SpoofRuntimeFixtures",
         "System.Runtime.dll",
+        Boundaries(FixtureBoundary.AssemblyName),
         "analysis", "spoof", "assembly-name-axis", "system-runtime");
 
     public static readonly FixtureDefinition DecompilerCheckedArithmetic = Fixture(
         FixtureIds.DecompilerCheckedArithmetic,
         "ILInspector.Decompiler.Fixtures.CheckedArithmetic",
         "ILInspector.Decompiler.Fixtures.CheckedArithmetic.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "checked-arithmetic", "compiler-axis");
 
     public static readonly FixtureDefinition DecompilerClassicAsync = Fixture(
         FixtureIds.DecompilerClassicAsync,
         "ILInspector.Decompiler.Fixtures.ClassicAsync",
         "ILInspector.Decompiler.Fixtures.ClassicAsync.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "async", "classic-async", "compiler-axis", "rts-candidate");
 
     public static readonly FixtureDefinition DecompilerLadderIterator = Fixture(
@@ -241,30 +278,35 @@ public static class FixtureCatalog
         FixtureIds.DecompilerUnsafeLegacy,
         "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
         "ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+        Boundaries(FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "legacy-memory-safety");
 
     public static readonly FixtureDefinition DecompilerUnsafeNew = Fixture(
         FixtureIds.DecompilerUnsafeNew,
         "ILInspector.Decompiler.Fixtures.NewUnsafe",
         "ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+        Boundaries(FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "updated-memory-safety");
 
     public static readonly FixtureDefinition DecompilerUnsafeChainA = Fixture(
         FixtureIds.DecompilerUnsafeChainA,
         "ILInspector.Decompiler.Fixtures.UnsafeChainA",
         "ILInspector.Decompiler.Fixtures.UnsafeChainA.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary, FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "chain", "updated-memory-safety");
 
     public static readonly FixtureDefinition DecompilerUnsafeChainB = Fixture(
         FixtureIds.DecompilerUnsafeChainB,
         "ILInspector.Decompiler.Fixtures.UnsafeChainB",
         "ILInspector.Decompiler.Fixtures.UnsafeChainB.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary, FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "chain", "updated-memory-safety");
 
     public static readonly FixtureDefinition DecompilerUnsafeChainC = Fixture(
         FixtureIds.DecompilerUnsafeChainC,
         "ILInspector.Decompiler.Fixtures.UnsafeChainC",
         "ILInspector.Decompiler.Fixtures.UnsafeChainC.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary, FixtureBoundary.ModuleAttribute, FixtureBoundary.OutputKind),
         "decompiler", "unsafe", "chain", "legacy-memory-safety", "executable");
 
     public static readonly FixtureDefinition RunFasterAllocation = Fixture(
@@ -272,6 +314,7 @@ public static class FixtureCatalog
         "RunFaster.AllocationFixture",
         "RunFaster.AllocationFixture.dll",
         ["runfaster", "allocation", "trace-coupled"],
+        Boundaries(FixtureBoundary.SidecarAsset),
         Asset("fixture.nettrace", "runfaster.Tests", "Fixtures/RunFaster.AllocationFixture/fixture.nettrace"));
 
     public static readonly IReadOnlyList<FixtureDefinition> All =
@@ -469,13 +512,19 @@ public static class FixtureCatalog
     }
 
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, params string[] tags)
-        => new(id, projectName, assemblyFileName, tags, []);
+        => new(id, projectName, assemblyFileName, tags, [], []);
 
-    static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, string[] tags, params FixtureAsset[] assets)
-        => new(id, projectName, assemblyFileName, tags, assets);
+    static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, FixtureBoundary[] boundaries, params string[] tags)
+        => new(id, projectName, assemblyFileName, tags, boundaries, []);
+
+    static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, string[] tags, FixtureBoundary[] boundaries, params FixtureAsset[] assets)
+        => new(id, projectName, assemblyFileName, tags, boundaries, assets);
 
     static FixtureAsset Asset(string name, string projectName, string relativePath)
         => new(name, projectName, relativePath);
+
+    static FixtureBoundary[] Boundaries(params FixtureBoundary[] boundaries)
+        => boundaries;
 
     static string CurrentConfiguration()
     {

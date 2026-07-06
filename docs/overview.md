@@ -40,6 +40,7 @@ Agents working in this repo should preserve these principles:
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.
+- [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
 - [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.
