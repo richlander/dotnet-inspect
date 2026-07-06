@@ -1704,13 +1704,6 @@ static class ReturnToSender
                     var key = typeName.Contains('.', StringComparison.Ordinal) ? typeName : NormalizeTypeName(typeName);
                     var typeGrew = AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts, out var typeResolved);
                     grew |= typeGrew;
-                    if (!typeResolved)
-                    {
-                        string memberName = names[1];
-                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                        grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                        grew |= AddRoots(indexes, indexes.Fields, memberName, diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                    }
                 }
                 else
                 {

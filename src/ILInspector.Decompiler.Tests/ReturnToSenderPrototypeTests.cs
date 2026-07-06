@@ -342,6 +342,40 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_KeepsTypeResolvedCs1061PropertyFallback()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Other => 42;
+
+                public int FromOther(Class1 self) => self.Other;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "FromOther", 0)]));
+
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            var type = Assert.Single(result.Plan.Types);
+            Assert.Contains(type.SourceFacts, fact =>
+                fact.Producer == "roslyn"
+                && fact.Id == "closure-member"
+                && fact.Detail.StartsWith("CS1061", StringComparison.Ordinal));
+            Assert.Contains(type.Members, member => member.Name == "Other" && member.Kind == CompileBackMemberKind.PropertyGet);
+            Assert.Contains("public int Other", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_EmitsClosureConstructorRequirement()
     {
         var assemblyPath = CompileFixture("""
