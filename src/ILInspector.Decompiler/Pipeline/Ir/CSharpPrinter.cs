@@ -2392,9 +2392,11 @@ public sealed partial class CSharpPrinter
             return false;
         }
 
-        if (IsConstant(offset, elementSize))
+        if (TryConstantMultiple(offset, elementSize, out var multiple))
         {
-            index = new Constant(1, TypeRef.CoreLib("System", "Int32"));
+            index = multiple >= int.MinValue && multiple <= int.MaxValue
+                ? new Constant((int)multiple, TypeRef.CoreLib("System", "Int32"))
+                : new Constant(multiple, TypeRef.CoreLib("System", "Int64"));
             return true;
         }
 
@@ -2430,6 +2432,24 @@ public sealed partial class CSharpPrinter
     static bool IsConstant(IrExpression expression, int value)
         => expression is Constant { Value: int i } && i == value
             || expression is Constant { Value: long l } && l == value;
+
+    static bool TryConstantMultiple(IrExpression expression, int divisor, out long multiple)
+    {
+        long value = expression switch
+        {
+            Constant { Value: int i } => i,
+            Constant { Value: long l } => l,
+            _ => 0,
+        };
+        if (expression is not Constant { Value: int or long } || divisor == 0 || value % divisor != 0)
+        {
+            multiple = 0;
+            return false;
+        }
+
+        multiple = value / divisor;
+        return true;
+    }
 
     static int? ByteSize(TypeRef type)
         => type is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }

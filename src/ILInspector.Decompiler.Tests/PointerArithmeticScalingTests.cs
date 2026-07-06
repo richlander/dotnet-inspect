@@ -74,6 +74,59 @@ public class PointerArithmeticScalingTests
     }
 
     [Fact]
+    public void PointerAdd_ConstantMultiple_RendersCanonicalElementOffset()
+    {
+        var add = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            new Constant(16, Int32));
+        var output = Print(ReturnFunction(
+            IntPointer,
+            add,
+            new Parameter("p", IntPointer)));
+
+        Assert.Contains("return p + 4;", output);
+        Assert.DoesNotContain("byte*", output);
+    }
+
+    [Fact]
+    public void PointerSubtract_ConstantMultiple_RendersCanonicalElementOffset()
+    {
+        var subtract = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            new Constant(16, Int32));
+        var output = Print(ReturnFunction(
+            IntPointer,
+            subtract,
+            new Parameter("p", IntPointer)));
+
+        Assert.Contains("return p - 4;", output);
+        Assert.DoesNotContain("byte*", output);
+    }
+
+    [Fact]
+    public void PointerAdd_NonMultipleConstant_KeepsBytePointerFallback()
+    {
+        var add = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            new Constant(6, Int32));
+        var output = Print(ReturnFunction(
+            IntPointer,
+            add,
+            new Parameter("p", IntPointer)));
+
+        Assert.Contains("return (int*)((byte*)p + 6);", output);
+    }
+
+    [Fact]
     public void PointerDifference_RendersCanonicalPointerDifference()
     {
         // `(long)((a - b) / 4)`: C# `int* - int*` already yields an element count,
