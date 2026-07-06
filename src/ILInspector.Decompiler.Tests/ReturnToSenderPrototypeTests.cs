@@ -2836,9 +2836,7 @@ public class ReturnToSenderPrototypeTests
         directory ??= Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, $"{assemblyName}.dll");
-        var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => MetadataReference.CreateFromFile(path))
+        var references = RoslynTestReferences.TrustedPlatform
             .Concat(additionalReferences ?? []);
         var compilation = CSharpCompilation.Create(
             Path.GetFileNameWithoutExtension(path),

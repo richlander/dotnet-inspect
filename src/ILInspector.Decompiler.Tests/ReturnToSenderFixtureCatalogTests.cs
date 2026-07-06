@@ -306,9 +306,7 @@ public class ReturnToSenderFixtureCatalogTests
         }
 
         string assemblyPath = Path.Combine(directory, "SourceProbe.dll");
-        var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => MetadataReference.CreateFromFile(path));
+        var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
         var trees = sourcePaths.Select(path =>
             CSharpSyntaxTree.ParseText(
                 File.ReadAllText(path),

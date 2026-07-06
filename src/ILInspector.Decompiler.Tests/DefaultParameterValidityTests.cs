@@ -88,18 +88,7 @@ public class DefaultParameterValidityTests
     }
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
-    {
-        var builder = ImmutableArray.CreateBuilder<MetadataReference>();
-        foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                continue;
-            try { builder.Add(MetadataReference.CreateFromFile(path)); }
-            catch { }
-        }
-        return builder.ToImmutable();
-    }
+        => RoslynTestReferences.TrustedPlatform;
 
     static void AssertInvalid(
         IReadOnlyDictionary<string, List<string>> results,

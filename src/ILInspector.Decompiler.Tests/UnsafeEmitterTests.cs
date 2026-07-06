@@ -462,18 +462,5 @@ public class UnsafeEmitterTests
     }
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
-    {
-        var trustedPlatformAssemblies =
-            (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
-        var references = ImmutableArray.CreateBuilder<MetadataReference>();
-        foreach (var path in trustedPlatformAssemblies)
-        {
-            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                continue;
-            try { references.Add(MetadataReference.CreateFromFile(path)); }
-            catch { /* skip an unreadable TPA entry */ }
-        }
-        return references.ToImmutable();
-    }
+        => RoslynTestReferences.TrustedPlatform;
 }

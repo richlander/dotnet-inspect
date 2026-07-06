@@ -264,12 +264,5 @@ public class NestedScopeNameCollisionTests
     }
 
     static IEnumerable<MetadataReference> RuntimeReferences()
-    {
-        foreach (string path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                yield return MetadataReference.CreateFromFile(path);
-        }
-    }
+        => RoslynTestReferences.TrustedPlatform;
 }

@@ -2077,10 +2077,7 @@ public class RaisingPassTests
             }
             """;
         var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
-        var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Distinct(StringComparer.Ordinal)
-            .Select(path => MetadataReference.CreateFromFile(path));
+        var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
         var compilation = CSharpCompilation.Create(
             "RefLocalCanary",
             [tree],

@@ -374,20 +374,7 @@ public class CrossAssemblyMethodFactsTests
         }
 
         static ImmutableArray<MetadataReference> RuntimeReferences()
-        {
-            var trustedPlatformAssemblies =
-                (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-                    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
-            var references = ImmutableArray.CreateBuilder<MetadataReference>();
-            foreach (var path in trustedPlatformAssemblies)
-            {
-                if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                try { references.Add(MetadataReference.CreateFromFile(path)); }
-                catch { }
-            }
-            return references.ToImmutable();
-        }
+            => RoslynTestReferences.TrustedPlatform;
 
         public void Dispose() => Directory.Delete(_directory, recursive: true);
     }

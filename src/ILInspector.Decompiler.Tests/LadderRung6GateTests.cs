@@ -772,20 +772,7 @@ public class LadderRung6GateTests
     }
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
-    {
-        var trustedPlatformAssemblies =
-            (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
-        var references = ImmutableArray.CreateBuilder<MetadataReference>();
-        foreach (var path in trustedPlatformAssemblies)
-        {
-            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                continue;
-            try { references.Add(MetadataReference.CreateFromFile(path)); }
-            catch { }
-        }
-        return references.ToImmutable();
-    }
+        => RoslynTestReferences.TrustedPlatform;
 
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef String = TypeRef.CoreLib("System", "String");
