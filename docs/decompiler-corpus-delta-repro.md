@@ -40,7 +40,7 @@ to regenerate the card from the current PR head.
 ## Reproduce the PR quick quality card
 
 The PR quick card must use the PR quick corpus script with the PR quick baseline.
-Do not mix it with the daily/manual corpus script or baseline.
+Do not mix it with the Deep Inspect corpus script or baseline.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
@@ -80,10 +80,10 @@ The JSON delta records method-level changes such as `fullyRaised`, `residual`,
 yet have per-method snapshot rows require their own evidence layer before a full
 row-level delta can be reproduced.
 
-## Reproduce the daily/manual real-world card
+## Reproduce the Deep Inspect real-world card
 
 Use this broader card when reviewing risky decompiler behavior or validating a
-manual corpus claim. It uses the daily/manual corpus script and baseline.
+manual corpus claim. It uses the Deep Inspect corpus script and baseline.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false

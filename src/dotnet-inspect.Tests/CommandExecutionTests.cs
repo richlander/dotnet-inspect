@@ -16,6 +16,7 @@ namespace DotnetInspector.Tests;
 /// Uses platform libraries and the test assembly itself as data sources — no network required.
 /// </summary>
 [Collection("Console")]
+[Trait("Speed", "Slow")]
 public class CommandExecutionTests
 {
     private static readonly string TestAssemblyPath =

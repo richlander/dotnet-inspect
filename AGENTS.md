@@ -84,6 +84,7 @@ dotnet run --project src/ILInspector.Analysis.Tests -c Release
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 dotnet run --project src/DotnetInspector.Services.Tests -c Release
 dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 ```
 
@@ -157,8 +158,10 @@ Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if n
 
 `DotnetInspector.ILRoundtrip.Tests` requires the vendored managed ILAssembler
 (orphan branch `vendor/ilassembler`); run `eng/restore-ilassembler.sh` once to
-materialize it at `external/ILAssembler`. Edits under `external/ILAssembler`
-commit directly to the vendor branch — see its README for the fork policy.
+materialize it at `external/ILAssembler`. Use `-- -trait- "Speed=Slow"` for the
+fast PR subset; run the unfiltered command for the full assembly-wide sweep.
+Edits under `external/ILAssembler` commit directly to the vendor branch — see its
+README for the fork policy.
 
 ## Output Verbosity Contract
 
@@ -275,7 +278,7 @@ CI is intentionally lean so this stays cheap. Do not re-expand it without a
 reason:
 
 - `test` runs on PRs only; push-to-main is not re-tested (the PR validates the
-  merge commit, and `decompiler-daily.yml` is the daily safety net).
+  merge commit; Deep Inspect and publish provide opt-in/full safety nets).
 - `pack`/`pack-rid` run only on PRs that change build/packaging config.
 - Release packages are built at publish time in `release.yml`, so CI never
   produces release artifacts.

@@ -100,7 +100,7 @@ public class FidelityGateTests
         // CharConditionalElementStore (#1784): the char ternary element store
         // spills to temps and recompiles to a different (valid) stream. Honest
         // over-render. Pre-existing slow-docket gap surfaced by running the gate
-        // locally — the lowered/sugared gates are Speed=Slow (daily only).
+        // locally — the lowered/sugared gates are Speed=Slow (Deep Inspect / publish only).
         "CharConditionalElementStore",
         // Unmasked by the in/out skeleton-parameter fix (#1931): these CfgSampleClass
         // methods were RecompileFail before — the whole reconstructed type failed to

@@ -1,9 +1,17 @@
-name: Decompiler Daily
+name: Deep Inspect
 
 on:
-  schedule:
-    - cron: '0 9 * * *'
   workflow_dispatch:
+    inputs:
+      lane:
+        description: 'Which opt-in lane to run'
+        required: true
+        default: test
+        type: choice
+        options:
+          - test
+          - census
+          - all
 
 env:
   DOTNET_NOLOGO: true
@@ -11,11 +19,13 @@ env:
   DOTNET_INSPECT_TIPS: q
 
 concurrency:
-  group: decompiler-daily-${{ github.ref }}
+  group: deep-inspect-${{ github.ref }}-${{ inputs.lane }}
   cancel-in-progress: true
 
 jobs:
-  decompiler:
+  test:
+    name: Test lane
+    if: inputs.lane == 'test' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -26,8 +36,19 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Build managed tool
         run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+
+      - name: Run CLI tests (including slow integration)
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       - name: Install ilasm/ildasm
         continue-on-error: true
@@ -53,14 +74,41 @@ jobs:
           echo "$ILASM_DIR" >> "$GITHUB_PATH"
           echo "$ILDASM_DIR" >> "$GITHUB_PATH"
 
-      - name: Run decompiler tests
+      - name: Run decompiler tests (including slow)
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 
-      # Analysis tests including the Slow generated-fixture catalogue (#1819), which the PR
-      # lane excludes for cost. The daily run is the catalogue's automated home: it materializes
-      # and grades every fixture so the analysis ledger does not drift unobserved.
       - name: Run analysis tests (including slow)
         run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
+
+      - name: Restore vendored ILAssembler
+        run: bash eng/restore-ilassembler.sh
+
+      - name: Run IL round-trip tests (including slow sweep)
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+
+  census:
+    name: Census lane
+    if: inputs.lane == 'census' || inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build managed tool
+        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
 
       - name: Prepare real-world corpus
         run: bash eng/prepare-decompiler-corpus.sh corpus-assemblies.txt
@@ -69,9 +117,9 @@ jobs:
         shell: bash
         run: |
           mapfile -t assemblies < corpus-assemblies.txt
-          mkdir -p artifacts/decompiler-daily
+          mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
-            --emit-corpus-snapshot artifacts/decompiler-daily/corpus-snapshot.json \
+            --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
             --compile-cap 25 \
             --corpus-fidelity-cap 3 \
@@ -82,23 +130,23 @@ jobs:
         run: |
           set -o pipefail
           mapfile -t assemblies < corpus-assemblies.txt
-          mkdir -p artifacts/decompiler-daily
+          mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-predicate-scan \
             --max-examples 10 \
-            | tee artifacts/decompiler-daily/validity-predicate-scan.txt
+            | tee artifacts/deep-inspect/validity-predicate-scan.txt
 
       - name: Run uncapped validity sweep
         shell: bash
         run: |
           set -o pipefail
           mapfile -t assemblies < corpus-assemblies.txt
-          mkdir -p artifacts/decompiler-daily
+          mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-check \
             --compile-cap all \
             --max-examples 10 \
-            | tee artifacts/decompiler-daily/validity-check-uncapped.txt
+            | tee artifacts/deep-inspect/validity-check-uncapped.txt
 
       - name: Run assertion scan coverage report
         continue-on-error: true
@@ -117,39 +165,28 @@ jobs:
           echo "$status" > artifacts/assertion-scan/exit-code.txt
           exit 0
 
-      # Analysis corpus stability sensor (#1818, Layer 2): same pinned corpus, but it checks
-      # analyzer robustness (every assembly opens, no analyzer-diagnostic jump) against a
-      # committed baseline. Signal-count drift is reported, not failed; only a regression
-      # (stops opening / times out / diagnostics increase) is nonzero.
       - name: Run analysis corpus sensor
         shell: bash
         run: |
-          mkdir -p artifacts/analysis-daily
+          mkdir -p artifacts/analysis-census
           dotnet run --project tools/AnalysisHarness -c Release -- \
             --corpus-list corpus-assemblies.txt \
-            --emit-corpus-snapshot artifacts/analysis-daily/analysis-corpus-snapshot.json \
+            --emit-corpus-snapshot artifacts/analysis-census/analysis-corpus-snapshot.json \
             --diff-corpus-baseline tools/AnalysisHarness/corpus/analysis-baseline.json
 
-      # Analysis recall gate (#1818, Layer 3): curated paydirt sites are a
-      # mechanical oracle once selected. Keep this daily/manual, not PR CI.
       - name: Run analysis paydirt recall
         run: |
           dotnet run --project tools/AnalysisHarness -c Release -- \
             --paydirt-recall artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll \
             --reference tools/AnalysisHarness/corpus/paydirt-reference.json
 
-      - name: Upload corpus snapshot
+      - name: Upload deep inspect artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: decompiler-corpus-snapshot
-          path: artifacts/decompiler-daily/
-          if-no-files-found: warn
-
-      - name: Upload assertion scan report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: assertion-scan-report
-          path: artifacts/assertion-scan/
+          name: deep-inspect-census
+          path: |
+            artifacts/deep-inspect/
+            artifacts/assertion-scan/
+            artifacts/analysis-census/
           if-no-files-found: warn

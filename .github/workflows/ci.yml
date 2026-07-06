@@ -98,9 +98,9 @@ jobs:
             case "$file" in
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
             esac
-            # The IL round-trip oracle is also expensive (vendored ILAssembler
-            # round-trip over a broad corpus). It depends on ILInspector.Metadata
-            # -> { DotnetInspector.Core, ILInspector.MetadataPrimitives } plus the
+            # The IL round-trip oracle has a fast PR subset plus a slow assembly
+            # sweep. It depends on ILInspector.Metadata ->
+            # { DotnetInspector.Core, ILInspector.MetadataPrimitives } plus the
             # vendored ILAssembler restore script and the test project itself.
             case "$file" in
               tests/DotnetInspector.ILRoundtrip.Tests/*) ILROUNDTRIP=true ;;
@@ -256,8 +256,8 @@ jobs:
           echo "$ILASM_DIR" >> "$GITHUB_PATH"
           echo "$ILDASM_DIR" >> "$GITHUB_PATH"
 
-      - name: Run CLI tests
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+      - name: Run CLI tests (fast)
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
@@ -274,8 +274,8 @@ jobs:
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
       # and classification regressions. Slow compile-back/recompile, corpus-sweep,
       # and fidelity tests are tagged [Trait("Speed", "Slow")] and excluded here;
-      # the full suite (including those) runs in decompiler-daily.yml. Mark any new
-      # Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
+      # the full suite (including those) runs in Deep Inspect / publish. Mark any
+      # new Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
       - name: Run decompiler unit tests (fast)
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
@@ -285,17 +285,17 @@ jobs:
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
 
-      # The IL round-trip oracle (vendored managed ILAssembler) is
-      # platform-neutral at the IL level, so one leg suffices. It is expensive,
-      # so it only runs when the round-trip tests or their source dependencies
-      # change (see the `ilroundtrip` filter in the changes job).
+      # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
+      # in PR CI when the round-trip tests or source dependencies change. The
+      # assembly-wide sweep is tagged [Trait("Speed", "Slow")] and runs in
+      # Deep Inspect / publish / full local runs.
       - name: Restore vendored ILAssembler
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: bash eng/restore-ilassembler.sh
 
-      - name: Run IL round-trip tests
+      - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test
   # lane so CSharpDiffHarness/card changes get focused snapshot/baseline JSONL

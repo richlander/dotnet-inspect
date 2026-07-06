@@ -37,8 +37,73 @@ jobs:
   # so per-PR/per-merge CI never has to build or upload release artifacts.
   # Windows/macOS build on their native runners; the Linux RIDs build here too
   # (they used to be produced by CI's pack/pack-rid jobs).
-  build-native:
+  deep-inspect-test:
     needs: resolve
+    runs-on: ubuntu-26.04
+    if: github.event.inputs.confirm == 'publish'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build managed tool
+        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+
+      - name: Run CLI tests (including slow integration)
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+
+      - name: Install ilasm/ildasm
+        continue-on-error: true
+        shell: bash
+        run: |
+          RID=linux-x64
+          VERSION=11.0.0-preview.1.26104.118
+          PACKAGES_DIR=$(mktemp -d)
+          PROJ_DIR=$(mktemp -d)
+          cat > "$PROJ_DIR/iltools.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup>
+            <ItemGroup>
+              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
+              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
+            </ItemGroup>
+          </Project>
+          EOF
+          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR" --source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --source https://api.nuget.org/v3/index.json
+          ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
+          ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
+          chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
+          echo "$ILASM_DIR" >> "$GITHUB_PATH"
+          echo "$ILDASM_DIR" >> "$GITHUB_PATH"
+
+      - name: Run decompiler tests (including slow)
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+
+      - name: Run analysis tests (including slow)
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
+
+      - name: Restore vendored ILAssembler
+        run: bash eng/restore-ilassembler.sh
+
+      - name: Run IL round-trip tests (including slow sweep)
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+
+  build-native:
+    needs: [resolve, deep-inspect-test]
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +144,7 @@ jobs:
   # TFM-agnostic pointer. These used to come from CI's pack job; they are now
   # built here at publish time so CI never produces release artifacts.
   build-portable:
-    needs: resolve
+    needs: [resolve, deep-inspect-test]
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -118,7 +183,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [resolve, build-native, build-portable]
+    needs: [resolve, deep-inspect-test, build-native, build-portable]
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
     environment: nuget

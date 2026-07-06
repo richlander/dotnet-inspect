@@ -117,12 +117,12 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --max-examples 10
 ```
 
-`decompiler-daily.yml` runs the same corpus plus the generated fixture guarantee
-as a report-only artifact named `assertion-scan-report`. The artifact's
+Deep Inspect's census lane runs the same corpus plus the generated fixture
+guarantee as a report-only artifact named `assertion-scan-report`. The artifact's
 `assertion-scan.txt` lists exercised and unexercised `[InverseOf]` nodes by
 cause; a non-empty importer-emitted list is follow-up work for corpus/fixture
 breadth, while a non-empty pass-raised list or fixture regression alarm is a
-raise-pass or fixture-gap investigation signal, not a failed daily gate.
+raise-pass or fixture-gap investigation signal, not a failed PR gate.
 
 **Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
 generated-fixture catalogue entries into a temporary class library, runs the
@@ -185,11 +185,11 @@ library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
 `--top-libraries N` limits the detailed library sections to the noisiest
 libraries, and `--json` emits the same data as structured JSON.
 
-**Real-world corpus sensor** (`--diff-corpus-baseline`): the daily/manual
+**Real-world corpus sensor** (`--diff-corpus-baseline`): the Deep Inspect
 baseline for #1166. It measures the fixed #1150 corpus — pinned NuGet assemblies
 plus dotnet-inspect's own assemblies — and compares the run against
-`tools/DecompilerHarness/corpus/real-world-baseline.json`. The scheduled
-Decompiler Daily workflow tracks fully-raised rate,
+`tools/DecompilerHarness/corpus/real-world-baseline.json`. Deep Inspect's census
+lane tracks fully-raised rate,
 `structuring: conditional-branch`, forward-merge structuring stops
 (`cond-target-past-region` + `forward-branch-not-region-exit`), Full malformed
 output, semantic validity defects, compile-back fidelity defects, and pass bugs.
@@ -197,8 +197,8 @@ The validity and fidelity caps are per assembly so the sensor samples every
 corpus member at bounded cost without adding that cost to every PR. When you
 want to compare a baseline cap with a larger exploratory cap, repeat
 `--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
-fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) while surfacing recompile- and context-failure buckets for triage. Each daily run
-uploads the current JSON snapshot as the `decompiler-corpus-snapshot` artifact so
+fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) while surfacing recompile- and context-failure buckets for triage. Each Deep Inspect census run
+uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
 
 Standalone `--fidelity-check` reports also print bounded examples for every
@@ -292,7 +292,7 @@ rather than repo growth. Aggregate fully-raised, conditional-residual, and
 forward-merge rate movement still appears in the table and in an advisory block
 when it crosses tolerance, but it is not a normal PR quick hard gate. Risky
 decompiler changes can opt back into aggregate rate hard-fails with
-`--quality-card-risky`, and non-card/daily runs still use the aggregate rates.
+`--quality-card-risky`, and non-card Deep Inspect runs still use the aggregate rates.
 Pass-bug crashes always gate on the full aggregate. The pinned gate is computed
 from the per-method snapshots both baseline and current carry, so no baseline
 regen is required; it falls back to aggregate counts/rates when a snapshot lacks
@@ -302,22 +302,22 @@ Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering
 family (for example forward-merge or retained-label control flow), then refresh
 the baseline and prove a no-op `--emit-corpus-delta` stays empty. Keep the PR
-quick corpus small; broad shape additions belong in the daily/manual corpus
+quick corpus small; broad shape additions belong in the Deep Inspect corpus
 unless they are cheap and stable enough for every PR.
 
 **PR quick corpus** (`tools/DecompilerHarness/corpus/pr-quick-baseline.json`):
 CI also runs a small artifact-producing corpus sensor after the managed tool
 build. It takes a deterministic hash-ranked sample of 100 methods per assembly
 across a mixed 15-assembly set: System.Private.CoreLib, the pinned package
-libraries used by the daily corpus, and dotnet-inspect's managed product
+libraries used by the Deep Inspect corpus, and dotnet-inspect's managed product
 assemblies. The hash-ranked sample avoids the order churn of "first N" metadata
 rows while still staying small. The run skips the expensive semantic validity
-and compile-back fidelity oracles so it stays small; the daily workflow remains
+and compile-back fidelity oracles so it stays small; the Deep Inspect census lane remains
 the authoritative full-corpus signal.
 
 Keep the corpus-prep script paired with its matching baseline. The PR quick card
 uses `eng/prepare-decompiler-pr-corpus.sh` with
-`tools/DecompilerHarness/corpus/pr-quick-baseline.json`; the daily/manual
+`tools/DecompilerHarness/corpus/pr-quick-baseline.json`; the Deep Inspect
 real-world card uses `eng/prepare-decompiler-corpus.sh` with
 `tools/DecompilerHarness/corpus/real-world-baseline.json`. Do not mix the full
 corpus script with the PR quick baseline, or the card will report artificial
@@ -496,8 +496,8 @@ conditional arms that need a numeric cast to their merged join type, and
 conditionals whose result type needs a numeric cast at a typed sink. Use this as
 the "discovered class -> predicate -> corpus-wide census" loop; use
 `--validity-check` or `--diff-validity-defects` as the binding oracle for a fix.
-The daily workflow runs both this scan and an uncapped validity sweep, while PR
-quality cards keep capped validity for cost.
+Deep Inspect's census lane runs both this scan and an uncapped validity sweep,
+while PR quality cards keep capped validity for cost.
 
 *Defect tracking — prove a fix regressed nothing.* A raw count (e.g. "CS0266: 263") tells you a bucket shrank but not *which* methods changed, so it cannot distinguish a real fix from a fix that also broke something else. `--emit-validity-defects <file>` writes the per-method defect map (one `Type::Method<TAB>CODE,CODE` row per method) before your change; after the change, `--diff-validity-defects <file>` re-runs the check and prints the differential against that baseline — **REGRESSED** (methods that gained a code) and **IMPROVED** (methods that lost one), per code. A clean fix shows entries only under IMPROVED with an empty REGRESSED; any REGRESSED row is a method your change broke. Only methods checked in *both* runs are compared (cap-boundary methods are excluded), so keep `--compile-cap` identical across the baseline and diff runs. This is the regression-proof loop behind a "N→M occurrences, 0 regressions" claim.
 
