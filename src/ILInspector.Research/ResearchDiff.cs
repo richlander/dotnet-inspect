@@ -679,7 +679,7 @@ public static class ResearchDiff
 
         foreach (var row in diff.Rows)
         {
-            var subject = ResearchMemberIdentity.SubjectFromAnchor(row.Anchor);
+            var subject = ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member);
             var direction = row.Kind switch
             {
                 CSharpDiffKind.Add => ResearchDiffDirection.Added,
@@ -702,7 +702,7 @@ public static class ResearchDiff
 
     static void AddCSharpFailureEvidence(ResultBuilder builder, CSharpDiffFailureRow failure)
     {
-        var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor);
+        var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
         var direction = failure.Kind switch
         {
             CSharpDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,

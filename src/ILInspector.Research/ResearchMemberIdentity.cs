@@ -6,11 +6,11 @@ namespace ILInspector.Research;
 
 public static class ResearchMemberIdentity
 {
-    public static ResearchSubjectKey SubjectFromAnchor(MemberAnchor anchor)
+    public static ResearchSubjectKey SubjectFromAnchor(MemberAnchor anchor, string display)
         => new(
             ResearchDiffSubjectKind.Member,
             anchor.StableSelector,
-            $"{anchor.TypeFullName}.{anchor.MemberName}",
+            display,
             anchor.TypeFullName,
             anchor.MemberName);
 

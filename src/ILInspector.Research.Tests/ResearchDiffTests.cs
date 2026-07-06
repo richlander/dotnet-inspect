@@ -10,7 +10,7 @@ namespace ILInspector.Research.Tests;
 public class ResearchDiffTests
 {
     [Fact]
-    public void ResearchMemberIdentity_SubjectFromAnchor_PreservesAnchorIdentity()
+    public void ResearchMemberIdentity_SubjectFromAnchor_PreservesAnchorIdentityAndDisplay()
     {
         var anchor = new MemberAnchor(
             "M~1234567890",
@@ -19,11 +19,11 @@ public class ResearchDiffTests
             "Sample.Widget",
             "M");
 
-        var subject = ResearchMemberIdentity.SubjectFromAnchor(anchor);
+        var subject = ResearchMemberIdentity.SubjectFromAnchor(anchor, "Sample.Widget.M(System.Int32)");
 
         Assert.Equal(ResearchDiffSubjectKind.Member, subject.Kind);
         Assert.Equal(anchor.StableSelector, subject.Id);
-        Assert.Equal("Sample.Widget.M", subject.Display);
+        Assert.Equal("Sample.Widget.M(System.Int32)", subject.Display);
         Assert.Equal(anchor.TypeFullName, subject.TypeName);
         Assert.Equal(anchor.MemberName, subject.MemberName);
     }
@@ -443,6 +443,7 @@ public class ResearchDiffTests
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.Display.Contains("SemanticReturnExpression", StringComparison.Ordinal)
             && member.HasChange("csharp.return-expression.changed")));
+        Assert.Contains("SemanticReturnExpression(System.Int32)", changed.Subject.Display, StringComparison.Ordinal);
         var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.return-expression.changed");
         Assert.Equal("value + 1", evidence.OldValue);
         Assert.Equal("value + 2", evidence.NewValue);
@@ -464,6 +465,7 @@ public class ResearchDiffTests
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.Display.Contains("BodyStateSample", StringComparison.Ordinal)
             && member.HasChange("csharp.diff.old-body-missing")));
+        Assert.Contains("BodyStateSample.BodyState()", changed.Subject.Display, StringComparison.Ordinal);
         var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.diff.old-body-missing");
         Assert.Equal(ResearchDiffDirection.Added, evidence.Direction);
         Assert.NotNull(evidence.CSharpDisplayFailureRow);
