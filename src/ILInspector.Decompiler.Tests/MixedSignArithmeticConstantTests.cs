@@ -66,7 +66,7 @@ public class MixedSignArithmeticConstantTests
     [Fact]
     public void NestedConstantArithmetic_WrapsOnlyOutermost_Left()
         => Assert.Equal(
-            "return unchecked(((uint)-1 * 2) + 3);",
+            "return unchecked((uint)-1 * 2 + 3);",
             Render(Arith(BinaryKind.Add,
                 Arith(BinaryKind.Multiply, new Constant(-1, s_int), new Constant(2u, s_uint)),
                 new Constant(3u, s_uint))));

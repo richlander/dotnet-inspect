@@ -55,6 +55,6 @@ public class MixedSignBitwiseTests
         // so the outer `+ count` (uint) stays unsigned without a spurious cast.
         var output = Render(nameof(CfgSampleClass.NestedMixedSignArithmetic));
 
-        Assert.Contains("(a * (uint)b) + count", output);
+        Assert.Contains("a * (uint)b + count", output);
     }
 }
