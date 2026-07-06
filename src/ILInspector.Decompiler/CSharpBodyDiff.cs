@@ -302,20 +302,14 @@ public static class CSharpBodyDiff
                     continue;
 
                 var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
-                var apiSignature = method.DecodeSignature(
-                    TypeRefDecoder.Instance,
-                    new GenericScope(TypeParameterNames(reader, type), MethodParameterNames(reader, method)));
                 string returnType = CanonicalTypeName(signature.ReturnType);
                 var parameters = signature.ParameterTypes.Select(CanonicalTypeName).ToImmutableArray();
                 int genericArity = method.GetGenericParameters().Count;
                 string methodGeneric = GenericParameterList(genericArity, isMethod: true);
-                string selectorName = MemberSelectorForMetadataName(methodName, IsExtensionMethod(reader, type, method));
                 string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
                 string canonicalName = CanonicalMemberName(methodName);
                 string rawKey = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
-                string apiMemberName = ApiMemberName(reader, methodName, method);
-                string anchorCanonical = $"M:{ApiTypeName(reader, typeHandle)}.{apiMemberName}{ApiParameterList(apiSignature.ParameterTypes)}";
-                var anchor = CreateMemberAnchor(ApiTypeName(reader, typeHandle), selectorName, apiMemberName, anchorCanonical);
+                var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
                 string displayName = methodName == ".ctor" ? "#ctor" : methodName;
                 string display = $"{typeDisplay}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
                 yield return new CSharpMethodEntry(
@@ -341,70 +335,6 @@ public static class CSharpBodyDiff
 
     static string CanonicalMemberName(string methodName)
         => methodName == ".ctor" ? "#ctor" : methodName;
-
-    static string ApiTypeName(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        var type = reader.GetTypeDefinition(handle);
-        var genericNames = type.GetGenericParameters()
-            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
-            .ToArray();
-        string name = reader.GetString(type.Name);
-        int tick = name.IndexOf('`');
-        string simple = tick < 0 ? name : name[..tick];
-        if (genericNames.Length > 0)
-            simple += $"<{string.Join(",", genericNames)}>";
-        var declaring = type.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{ApiTypeName(reader, declaring)}.{simple}";
-        string ns = reader.GetString(type.Namespace);
-        return string.IsNullOrEmpty(ns) ? simple : $"{ns}.{simple}";
-    }
-
-    static string ApiMemberName(MetadataReader reader, string methodName, MethodDefinition method)
-    {
-        if (methodName == ".ctor")
-            return "#ctor";
-        var genericNames = MethodParameterNames(reader, method)
-            .ToArray();
-        return genericNames.Length == 0 ? methodName : $"{methodName}<{string.Join(",", genericNames)}>";
-    }
-
-    static string ApiParameterList(IEnumerable<TypeRef> parameterTypes)
-        => $"({string.Join(",", parameterTypes.Select(ApiTypeName))})";
-
-    static string ApiTypeName(TypeRef type)
-        => type.Kind switch
-        {
-            TypeRefKind.Definition => type.Namespace.Length == 0
-                ? type.Name.Replace("+", ".", StringComparison.Ordinal)
-                : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
-            TypeRefKind.GenericInstance => $"{ApiTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(ApiTypeName))}>",
-            TypeRefKind.SzArray => $"{ApiTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{ApiTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
-            TypeRefKind.ByRef => $"{ApiTypeName(type.ElementType!)}&",
-            TypeRefKind.Pointer => $"{ApiTypeName(type.ElementType!)}*",
-            TypeRefKind.Pinned => $"pinned {ApiTypeName(type.ElementType!)}",
-            TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
-                => type.GenericParameterName.Length == 0 ? $"!{type.GenericParameterIndex}" : type.GenericParameterName,
-            TypeRefKind.FunctionPointer => $"delegate*<{string.Join(",", type.TypeArguments.Select(ApiTypeName).Append(ApiTypeName(type.ElementType!)))}>",
-            _ => $"<unsupported:{type.UnsupportedReason}>",
-        };
-
-    static ImmutableArray<string> TypeParameterNames(MetadataReader reader, TypeDefinition type)
-        => ParameterNames(reader, type.GetGenericParameters());
-
-    static ImmutableArray<string> MethodParameterNames(MetadataReader reader, MethodDefinition method)
-        => ParameterNames(reader, method.GetGenericParameters());
-
-    static ImmutableArray<string> ParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
-    {
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
-    }
 
     static bool IsExtensionMethod(MetadataReader reader, TypeDefinition type, MethodDefinition method)
         => type.Attributes.HasFlag(TypeAttributes.Abstract)
@@ -447,14 +377,6 @@ public static class CSharpBodyDiff
         var prefix = isMethod ? "!!" : "!";
         return $"<{string.Join(",", Enumerable.Range(0, arity).Select(index => $"{prefix}{index}"))}>";
     }
-
-    static MemberAnchor CreateMemberAnchor(string typeFullName, string selectorName, string memberName, string canonicalSignature)
-        => new(
-            $"{selectorName}~{MemberAnchor.ComputeFingerprint(canonicalSignature)}",
-            canonicalSignature,
-            MemberAnchor.ComputeFingerprint(canonicalSignature),
-            typeFullName,
-            memberName);
 
     static string DuplicateDiscriminator(MetadataReader reader, MethodDefinition method)
     {
@@ -770,16 +692,6 @@ public static class CSharpBodyDiff
 
         return false;
     }
-
-    static string MemberSelectorForMetadataName(string methodName, bool isExtensionMethod = false)
-        => methodName switch
-        {
-            ".ctor" => ".ctor",
-            _ when isExtensionMethod => $"extension:{methodName}",
-            _ when methodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{methodName}",
-            _ when methodName.Contains('.') => $"explicit:{methodName}",
-            _ => methodName,
-        };
 
     static bool MatchesTypeFilter(string typeFullName, string filter)
     {
