@@ -352,7 +352,7 @@ public static class CompileBackSourceComposer
                 propertyDeclaration.Attributes,
                 MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes)
         };
-        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -402,9 +402,15 @@ public static class CompileBackSourceComposer
         if (!requirementsByRoot.TryGetValue(root, out var requiredMembers))
             return;
         foreach (var required in requiredMembers)
-            if (!members.Any(existing => existing.Kind == required.Kind && existing.Identity == required.Identity))
+            if (!members.Any(existing => SameMemberDeclaration(existing, required)))
                 members.Add(required);
     }
+
+    static bool SameMemberDeclaration(CompileBackMemberRequirement left, CompileBackMemberRequirement right)
+        => left.Kind == right.Kind
+            && left.Identity.Type == right.Identity.Type
+            && left.Identity.Method == right.Identity.Method
+            && left.Identity.Signature == right.Identity.Signature;
 
     static void AddClosureTypeRequirements(
         List<CompileBackTypeRequirement> requirements,
@@ -501,7 +507,7 @@ public static class CompileBackSourceComposer
                     ]
                     : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))])
         };
-        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -608,6 +614,8 @@ public static class CompileBackSourceComposer
         {
             targetMembers.Add(typedEqualsSibling);
         }
+        if (!targetTypeDef.GetDeclaringType().IsNil)
+            AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
         var requirements = new List<CompileBackTypeRequirement>
         {

@@ -1061,6 +1061,38 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_EmitsNestedTargetMemberRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public class Inner
+                {
+                    public int FromSibling() => GetValue();
+                    public int GetValue() => 42;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1.Inner", "FromSibling", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var inner = Assert.Single(Assert.Single(result.Plan.Types).NestedTypes);
+            Assert.Contains(inner.Members, member => member.Name == "GetValue"
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue"));
+            Assert.DoesNotContain(inner.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains("public int GetValue()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsConstructorAssigningGetOnlyAutoProperty()
     {
         var assemblyPath = CompileFixture("""
