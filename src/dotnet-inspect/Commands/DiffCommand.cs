@@ -628,8 +628,10 @@ public class DiffCommand
                     typeNames.Add(newType.FullName);
             }
 
+            if (diagnostic is { Length: > 0 })
+                throw new InvalidOperationException(diagnostic);
             if (!found)
-                throw new InvalidOperationException(diagnostic ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
+                throw new InvalidOperationException($"Member target '{rawTarget}' did not resolve in either diff input.");
         }
 
         return new ResolvedDiffMemberTargets(identities, typeNames);

@@ -204,6 +204,25 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildApiDiff_MemberFilter_RejectsAmbiguityEvenWhenOtherSideResolves()
+    {
+        var oldSurface = DiffSurface(DiffMember("Changed", signature: "void Changed()"));
+        var newSurface = DiffSurface(
+            DiffMember("Changed", signature: "void Changed()"),
+            DiffMember("Changed", signature: "void Changed(int value)"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Changed"]
+            }));
+
+        Assert.Contains("ambiguous", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Changed:1", error.Message);
+    }
+
+    [Fact]
     public void BuildApiDiff_GenericMemberFilter_ExcludesSameNameNonGenericOverload()
     {
         var oldSurface = DiffSurface(
