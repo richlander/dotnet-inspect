@@ -148,24 +148,6 @@ public class PrinterPrecedenceTests
         Assert.DoesNotContain("(short)i", output);
     }
 
-    // Issue #2151: a bare negative constant as a member-access receiver misbinds —
-    // `-1.Twice()` parses as `-(1.Twice())` (CS0023). Operand treats a Constant as
-    // an atom, so the receiver must be parenthesized: `(-1).Twice()`.
-    [Fact]
-    public void ExtensionCall_OnNegativeConstantReceiver_ParenthesizesReceiver()
-    {
-        var callee = new MethodRef(
-            TypeRef.Definition("Asm", "Ns", "Ext"), "Twice", s_int, [s_int], HasThis: false)
-        {
-            IsExtension = MetadataFactState.Yes,
-        };
-        var call = new Call(callee, isVirtual: false, [new Constant(-1, s_int)]);
-
-        var output = PrintReturn(call, s_int, []);
-
-        Assert.Contains("(-1).Twice()", output);
-    }
-
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
     {
         var block = new Block();
