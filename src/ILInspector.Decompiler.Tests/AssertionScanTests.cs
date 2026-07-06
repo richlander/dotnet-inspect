@@ -293,6 +293,33 @@ public class AssertionScanTests
     }
 
     [Fact]
+    public void AssertionPrinter_NamesKnownDischargerForObligation()
+    {
+        var summary = AssertionScan.EvaluateFunction(
+            "synthetic",
+            "synthetic.dll",
+            "Samples.Holder",
+            "EnumReturn",
+            overload: 0,
+            Function(Returning(new LoadArgument(0, "raw", Int32)), Enum32, new Parameter("raw", Int32)));
+        var dischargePassByStageIdentity = summary.Violations.ToDictionary(
+            v => v.StageIdentity,
+            v => v.DischargePass,
+            StringComparer.Ordinal);
+
+        var function = Function(
+            Returning(new LoadArgument(0, "raw", Int32)),
+            Enum32,
+            new Parameter("raw", Int32));
+        var printer = new AssertionPrinter.StatefulPrinter(3, dischargePassByStageIdentity);
+
+        var stage1 = printer.Dump(function);
+
+        Assert.Contains("OBLIGATION (informational; discharged by coercion-insertion)", stage1);
+        Assert.DoesNotContain("UNSOUND", stage1);
+    }
+
+    [Fact]
     public void AssertionPrinter_DefaultSingleStage_TreatsViolationAsUnsound()
     {
         var function = Function(

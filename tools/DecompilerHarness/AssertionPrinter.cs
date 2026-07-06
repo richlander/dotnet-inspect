@@ -20,6 +20,8 @@ public static class AssertionPrinter
     public sealed class StatefulPrinter
     {
         readonly int _finalStage;
+        readonly IReadOnlyDictionary<string, string> _dischargePassByStageIdentity;
+        readonly Dictionary<string, Dictionary<IrNode, int>> _occurrenceOrdinals = new(StringComparer.Ordinal);
         int _stage;
         bool _firstUnsoundFlagged;
 
@@ -30,8 +32,19 @@ public static class AssertionPrinter
         /// <c>UNSOUND</c> rather than an <c>OBLIGATION</c>. Defaults to 1 (every
         /// stage treated as final) for single-stage callers.
         /// </param>
-        public StatefulPrinter(int totalStages = 1)
-            => _finalStage = totalStages;
+        /// <param name="dischargePassByStageIdentity">
+        /// Optional precomputed map from pass-independent assertion identity to
+        /// the pass that discharged it. When provided, non-final obligations can
+        /// name their observed discharger instead of forcing readers to infer it
+        /// from later stages.
+        /// </param>
+        public StatefulPrinter(
+            int totalStages = 1,
+            IReadOnlyDictionary<string, string>? dischargePassByStageIdentity = null)
+        {
+            _finalStage = totalStages;
+            _dischargePassByStageIdentity = dischargePassByStageIdentity ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        }
 
         public string Dump(IrFunction function)
         {
@@ -40,7 +53,14 @@ public static class AssertionPrinter
             var sb = new StringBuilder();
 
             var allViolations = AssertionEvaluator.EvaluateAssumptions(function)
-                .SelectMany(r => r.Violations)
+                .SelectMany(predicate => predicate.Violations.Select(violation =>
+                {
+                    string node = violation.Node.GetType().Name;
+                    string sinkType = AssertionScan.SinkType(violation.Message);
+                    string identity = $"{predicate.Name}|{node}|{sinkType}|{violation.Message}";
+                    int ordinal = OccurrenceOrdinal(identity, violation.Node);
+                    return new AssertionMarker(violation.Node, violation.Message, $"{identity}#{ordinal}");
+                }))
                 .ToList();
             var unannotated = InverseLedger.Unannotated(typeof(IrFunction).Assembly).ToHashSet(StringComparer.Ordinal);
 
@@ -68,7 +88,7 @@ public static class AssertionPrinter
 
                 // Match violation by exact reference identity, not a lossy substring of Describe()
                 var related = allViolations.FirstOrDefault(v => ReferenceEquals(v.Node, node));
-                if (related.Node != null)
+                if (related is not null)
                 {
                     if (isFinalStage)
                     {
@@ -82,7 +102,11 @@ public static class AssertionPrinter
                     {
                         // Stage-relative: a downstream pass is contracted to
                         // discharge this typing obligation before the final stage.
-                        sb.Append(' ', indent * 2).AppendLine($"// OBLIGATION (informational): {related.Message}");
+                        string suffix = _dischargePassByStageIdentity.TryGetValue(related.StageIdentity, out var discharger)
+                            && discharger.Length > 0
+                            ? $"; discharged by {discharger}"
+                            : "";
+                        sb.Append(' ', indent * 2).AppendLine($"// OBLIGATION (informational{suffix}): {related.Message}");
                     }
                 }
 
@@ -97,5 +121,18 @@ public static class AssertionPrinter
             sb.AppendLine($"// fidelity: {function.Fidelity}");
             return sb.ToString();
         }
+
+        int OccurrenceOrdinal(string identity, IrNode node)
+        {
+            if (!_occurrenceOrdinals.TryGetValue(identity, out var byNode))
+                _occurrenceOrdinals[identity] = byNode = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
+            if (byNode.TryGetValue(node, out int ordinal))
+                return ordinal;
+            ordinal = byNode.Count;
+            byNode.Add(node, ordinal);
+            return ordinal;
+        }
+
+        sealed record AssertionMarker(IrNode Node, string Message, string StageIdentity);
     }
 }

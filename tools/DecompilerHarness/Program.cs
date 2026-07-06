@@ -1001,8 +1001,24 @@ static class Program
             if (function is null)
                 continue;
 
+            var dischargePassByStageIdentity = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (IrImporter.Import(source, typeName, methodName, overloadIndex) is { } functionForHints)
+            {
+                var assertionSummary = AssertionScan.EvaluateFunction(
+                    source.AssemblyName,
+                    assemblyPath,
+                    typeName,
+                    methodName,
+                    overloadIndex,
+                    functionForHints,
+                    ImportSeam(source));
+                foreach (var violation in assertionSummary.Violations)
+                    if (!violation.FinalStageSurvivor && violation.DischargePass.Length > 0)
+                        dischargePassByStageIdentity[violation.StageIdentity] = violation.DischargePass;
+            }
+
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, assertions)");
-            var printer = new AssertionPrinter.StatefulPrinter(IrPasses.Default.Length + 1);
+            var printer = new AssertionPrinter.StatefulPrinter(IrPasses.Default.Length + 1, dischargePassByStageIdentity);
             var stages = IrPasses.RunWithStages(function, IrPasses.Default, printer.Dump, ImportSeam(source));
             Console.Write(StageDump.Format(stages));
             return 0;
