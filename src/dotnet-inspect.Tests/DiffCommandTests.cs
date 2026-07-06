@@ -541,9 +541,17 @@ public class DiffCommandTests
     [Theory]
     [InlineData("Namespace.Outer<T>.Inner<U>", "Namespace.Outer.Inner")]
     [InlineData("Namespace.Outer+Inner<T>", "Namespace.Outer.Inner")]
+    [InlineData("System.Int32", "int")]
+    [InlineData("System.String", "string")]
     public void ResearchBodyDeclaringTypeName_StripsApiTypeParameters(string input, string expected)
     {
         Assert.Equal(expected, DiffCommand.ResearchBodyDeclaringTypeName(input));
+    }
+
+    [Fact]
+    public void ResearchBodyTypeName_KeepsFullPrimitiveParameterNames()
+    {
+        Assert.Equal("System.Int32", DiffCommand.ResearchBodyTypeName("System.Int32"));
     }
 
     // #1736: a hotness-only allocation regression. The allocation count is unchanged

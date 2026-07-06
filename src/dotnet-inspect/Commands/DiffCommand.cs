@@ -700,7 +700,7 @@ public class DiffCommand
     }
 
     internal static string ResearchBodyDeclaringTypeName(string typeName)
-        => StripGenericArguments(typeName.Replace('+', '.'));
+        => ResearchBodyDeclaringPrimitiveName(StripGenericArguments(typeName.Replace('+', '.')));
 
     internal static string ResearchBodyTypeName(string typeName)
     {
@@ -724,7 +724,35 @@ public class DiffCommand
         if (TryRenderGenericTypeName(value, out var genericTypeName))
             return genericTypeName;
 
-        return value switch
+        return ResearchBodyParameterPrimitiveName(value);
+    }
+
+    static string ResearchBodyDeclaringPrimitiveName(string value)
+        => value switch
+        {
+            "System.Boolean" => "bool",
+            "System.Byte" => "byte",
+            "System.SByte" => "sbyte",
+            "System.Char" => "char",
+            "System.Decimal" => "decimal",
+            "System.Double" => "double",
+            "System.Single" => "float",
+            "System.Int32" => "int",
+            "System.UInt32" => "uint",
+            "System.Int64" => "long",
+            "System.UInt64" => "ulong",
+            "System.IntPtr" => "nint",
+            "System.UIntPtr" => "nuint",
+            "System.Object" => "object",
+            "System.Int16" => "short",
+            "System.UInt16" => "ushort",
+            "System.String" => "string",
+            "System.Void" => "void",
+            _ => value
+        };
+
+    static string ResearchBodyParameterPrimitiveName(string value)
+        => value switch
         {
             "bool" => "System.Boolean",
             "byte" => "System.Byte",
@@ -747,7 +775,6 @@ public class DiffCommand
             "void" => "System.Void",
             _ => value
         };
-    }
 
     static bool TryRenderGenericTypeName(string value, out string typeName)
     {
