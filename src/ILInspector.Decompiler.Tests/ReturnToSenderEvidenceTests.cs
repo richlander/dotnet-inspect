@@ -95,6 +95,9 @@ public class ReturnToSenderEvidenceTests
 
         var subject = Assert.Single(research.Subjects);
         Assert.Equal(anchor.StableSelector, subject.Subject.Id);
+        Assert.Equal("TestType.Method1", subject.Subject.Display);
+        Assert.Equal("TestType", subject.Subject.TypeName);
+        Assert.Equal("Method1", subject.Subject.MemberName);
         Assert.Contains(subject.Evidence, item =>
             item.Mechanism == ResearchDiffMechanism.ReturnToSender
             && item.ChangeId == "rts.status.fail");
