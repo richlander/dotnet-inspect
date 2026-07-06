@@ -1,6 +1,7 @@
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Research;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
@@ -538,7 +539,7 @@ public class DiffCommandTests
     [InlineData("Outer<int>.Inner<string>", "Outer`1.Inner`1<System.Int32,System.String>")]
     public void ResearchBodyTypeName_MatchesResearchDiffSubjectSpelling(string input, string expected)
     {
-        Assert.Equal(expected, DiffCommand.ResearchBodyTypeName(input));
+        Assert.Equal(expected, ResearchMemberIdentity.BodyParameterTypeName(input));
     }
 
     [Theory]
@@ -548,13 +549,13 @@ public class DiffCommandTests
     [InlineData("System.String", "string")]
     public void ResearchBodyDeclaringTypeName_StripsApiTypeParameters(string input, string expected)
     {
-        Assert.Equal(expected, DiffCommand.ResearchBodyDeclaringTypeName(input));
+        Assert.Equal(expected, ResearchMemberIdentity.BodyDeclaringTypeName(input));
     }
 
     [Fact]
     public void ResearchBodyTypeName_KeepsFullPrimitiveParameterNames()
     {
-        Assert.Equal("System.Int32", DiffCommand.ResearchBodyTypeName("System.Int32"));
+        Assert.Equal("System.Int32", ResearchMemberIdentity.BodyParameterTypeName("System.Int32"));
     }
 
     [Fact]
@@ -567,7 +568,7 @@ public class DiffCommandTests
         var target = ResolvedTarget(type, member);
         HashSet<string> identities = new(StringComparer.Ordinal);
 
-        Assert.True(DiffCommand.AddResearchBodyIdentity(target, identities));
+        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(target, identities));
 
         var expectedCanonical = "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)";
         Assert.Contains($"extension:Twice~{MemberAnchor.ComputeFingerprint(expectedCanonical)}", identities);
@@ -587,7 +588,7 @@ public class DiffCommandTests
             new BodyTarget("DiffFixtureSample.ExtensionSample", "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)"));
         HashSet<string> identities = new(StringComparer.Ordinal);
 
-        Assert.True(DiffCommand.AddResearchBodyIdentity(target, identities));
+        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(target, identities));
 
         var expectedCanonical = "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)";
         Assert.Contains($"extension:Twice~{MemberAnchor.ComputeFingerprint(expectedCanonical)}", identities);

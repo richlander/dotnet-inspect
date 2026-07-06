@@ -30,6 +30,9 @@ diagnostic instead of falling back to partial string matching.
 - Commands that target API or body changes, such as `diff -m/--member`, should
   resolve selectors against the old/new API surfaces and filter by the resulting
   `MemberAnchor` identities rather than by re-parsing display text.
+- Body evidence should flow through `ResearchMemberIdentity`, which formats
+  `MethodIdentity` subjects and API-derived `ResolvedMemberTarget` body aliases
+  with the same canonical spelling.
 - `MemberAnchor` remains the durable user/agent-facing identity; producer-native
   references remain producer evidence and should not be replaced by selectors.
 - The resolver lives in `ILInspector.Metadata`, so it stays SRM-only and has no
