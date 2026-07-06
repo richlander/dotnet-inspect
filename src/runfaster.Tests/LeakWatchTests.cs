@@ -256,6 +256,64 @@ public class LeakWatchTests
     }
 
     [Fact]
+    public void Analyze_MonotonicTailAboveThreshold_IsManagedRetention()
+    {
+        // GPT: a monotonic tail (10 GB → 10.4 GB → 10.8 GB) crosses the retention
+        // threshold at the FINAL sample. A middle-of-tail estimator would fall below it
+        // and report Healthy (and spuriously imply reclaim); the last sample must win.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 10500 * MB, 10000 * MB, 9500 * MB),
+            Sample(2, 10900 * MB, 10400 * MB, 9900 * MB),
+            Sample(4, 11300 * MB, 10800 * MB, 10300 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.ManagedRetention, result.Verdict);
+        Assert.False(result.HeapReclaimedByGen2);
+    }
+
+    [Fact]
+    public void Analyze_TerminalCollectionEndsTrace_IsNotManagedRetention()
+    {
+        // Gemini: a high-churn window whose FINAL sample is a forced collection (the GC
+        // a gcdump capture triggers) that reclaims the heap to baseline. The last sample
+        // holds the true reclaimed footprint; a middle-of-tail estimator would keep the
+        // pre-collection peak and falsely report a managed leak.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 500 * MB, 100 * MB, 80 * MB),
+            Sample(2, 10240 * MB, 10000 * MB, 9500 * MB, allocated: 8000L * MB, gcPause: 1.4),
+            Sample(4, 10240 * MB, 10000 * MB, 9500 * MB, allocated: 8000L * MB, gcPause: 1.4),
+            Sample(6, 500 * MB, 100 * MB, 80 * MB, gen2Collections: 1),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.NotEqual(LeakWatchVerdict.ManagedRetention, result.Verdict);
+        Assert.NotEqual(LeakWatchVerdict.NativeOrCommittedGrowth, result.Verdict);
+    }
+
+    [Fact]
+    public void Analyze_SlowLinearLeak_IsManagedRetention()
+    {
+        // Gemini: a slow linear leak climbing 100 MB → 600 MB → 1100 MB across the tail.
+        // A middle-of-tail estimator evaluates 600 MB (below threshold) and misses the
+        // 1 GB leak; the last sample captures its full size.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 200 * MB, 100 * MB, 80 * MB),
+            Sample(2, 700 * MB, 600 * MB, 550 * MB),
+            Sample(4, 1200 * MB, 1100 * MB, 1050 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.ManagedRetention, result.Verdict);
+    }
+
+    [Fact]
     public void CountersCsv_ParsesGroupedTimestampsAndComputesLiveHeap()
     {
         var lines = new[]

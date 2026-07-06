@@ -101,14 +101,20 @@ static class LeakWatchAnalyzer
         long reclaimThreshold = (long)(thresholds.RetainedGapBytes / 4);
         long liveHeapBase = Math.Max(liveHeapFirst, 16L * 1024 * 1024);
 
-        // Steady-state ("retained") footprint at the END of the window, resistant to a
-        // single final-sample blip (a GC dip or a transient spike) by taking the median
-        // of the last few samples. Retention is about what the process is STILL holding
-        // at the end relative to its baseline — not the global peak. Anchoring to global
-        // peaks blinds the model to leaks smaller than a historical transient spike, and
-        // to steady-state gaps that never peaked (a pure native leak on a flat heap).
-        long liveHeapRetained = TailMedian(samples, static s => s.LiveHeap);
-        long wsRetained = TailMedian(samples, static s => s.WorkingSet);
+        // Steady-state ("retained") footprint = the LAST sample. Retention is about what
+        // the process is STILL holding at the end relative to its baseline — not the
+        // global peak (which blinds the model to leaks smaller than a historical spike,
+        // and to steady gaps that never peaked). The last sample is the most current
+        // truth: it respects a terminal collection (e.g. the forced GC a gcdump capture
+        // triggers, ending the trace on the real reclaimed footprint) and captures the
+        // full size of a still-climbing linear leak — a mid-tail smoother (median) would
+        // corrupt both (a monotonic tail's median falls below the final level; a
+        // terminal-GC tail's median stays at the pre-collection peak). The one residual
+        // is a single transient upward spike on the final sample, which can over-flag
+        // ManagedRetention; a gcdump disambiguates that, and it errs toward catching
+        // leaks rather than hiding them.
+        long liveHeapRetained = liveHeapLast;
+        long wsRetained = wsLast;
 
         bool gen2CollectionObserved = samples.Any(s => s.Gen2CollectionsInWindow > 0);
 
@@ -206,19 +212,6 @@ static class LeakWatchAnalyzer
             retainedFloorAfterGen2, liveHeapAtFloor, gapRatio, totalAllocated,
             duration, pauseFraction, gen2Collections, heapReclaimedByGen2,
             Math.Max(threadGrowth, 0), notes.ToImmutable());
-    }
-
-    // Steady-state estimator: the median of the last few samples, resistant to a single
-    // final-sample blip (a transient GC dip or spike) while still reflecting the
-    // end-of-window footprint rather than a historical peak.
-    static long TailMedian(IReadOnlyList<LeakWatchSample> samples, Func<LeakWatchSample, long> selector)
-    {
-        int k = Math.Min(3, samples.Count);
-        var tail = new long[k];
-        for (int i = 0; i < k; i++)
-            tail[i] = selector(samples[samples.Count - k + i]);
-        Array.Sort(tail);
-        return tail[tail.Length / 2];
     }
 
     static string Fmt(long bytes)
