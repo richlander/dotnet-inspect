@@ -16,6 +16,12 @@ dotnet run --project tools/CSharpDiffHarness -c Release -- \
 
 dotnet run --project tools/CSharpDiffHarness -c Release -- \
   --pairs pairs.tsv --format jsonl --max-examples 5
+
+dotnet run --project tools/CSharpDiffHarness -c Release -- \
+  --pairs pairs.tsv --emit-snapshot baseline.json
+
+dotnet run --project tools/CSharpDiffHarness -c Release -- \
+  --pairs pairs.tsv --diff-baseline baseline.json
 ```
 
 Pair manifests use one old/new assembly pair per line, separated by a tab.
@@ -30,8 +36,17 @@ The card includes:
 - failure buckets;
 - top change IDs and operation kinds;
 - per-pair summary rows;
+- optional baseline/current data card and comparison rows;
 - capped examples rendered through `CSharpDiffPrinter`.
 
 Output defaults to Markout Markdown. Use `--format tsv` or `--format jsonl` to
 render the same card sections through Markout table formats. JSONL output omits
 Markdown section separators so each non-empty line is a JSON object.
+
+Use `--emit-snapshot <file>` to write stable JSON card data for a run. Use
+`--diff-baseline <file>` to compare the current run against a previous snapshot.
+Baseline comparisons return exit code `1` for regressions (more failures, more
+changed pairs, more rows, fewer exact pairs, or new failure buckets) and report
+other metric and bucket changes as non-failing drift. The baseline card uses
+Markout composite cells (`Change<T>` and `Segments`) so Markdown stays compact
+while JSONL preserves typed baseline/current fields.
