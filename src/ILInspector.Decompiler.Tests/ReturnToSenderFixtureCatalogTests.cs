@@ -485,6 +485,43 @@ public class ReturnToSenderFixtureCatalogTests
         }
     }
 
+    [Fact]
+    public void ReturnToSenderSourceProbe_UsesIndexerNameFromCrossFilePartialDefinition()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.Part1.cs", """
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                [System.Runtime.CompilerServices.IndexerName("Custom")]
+                public partial int this[int index] { get; }
+            }
+            """),
+            ("Class1.Part2.cs", """
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                public partial int this[int index] => index;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "get_Custom", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+            Assert.Equal("returnindex;", Normalize(result.ExpectedBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

@@ -268,11 +268,17 @@ static class ReturnToSenderSourceProbe
         {
             var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
             var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+            var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
             foreach (var sourcePath in sourcePaths)
             {
-                if (!TryAddSourceFile(members, overloads, sourcePath))
+                if (!TryReadSourceFile(sourcePath, out var root))
                     return null;
+                sourceFiles.Add((sourcePath, root));
             }
+
+            var partialIndexerNames = PartialIndexerMetadataNames(sourceFiles.Select(file => file.Root));
+            foreach (var sourceFile in sourceFiles)
+                AddSourceFile(members, overloads, sourceFile.Path, sourceFile.Root, partialIndexerNames);
 
             return new FixtureSourceIndex(members);
         }
@@ -332,10 +338,7 @@ static class ReturnToSenderSourceProbe
         public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
             => _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
 
-        static bool TryAddSourceFile(
-            Dictionary<string, SourceMember> members,
-            Dictionary<string, Dictionary<string, int>> overloads,
-            string sourcePath)
+        static bool TryReadSourceFile(string sourcePath, out CompilationUnitSyntax root)
         {
             string source;
             try
@@ -344,22 +347,33 @@ static class ReturnToSenderSourceProbe
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             {
+                root = null!;
                 return false;
             }
 
             var tree = CSharpSyntaxTree.ParseText(source, path: sourcePath);
-            var root = tree.GetCompilationUnitRoot();
-            foreach (var member in SourceMembers(root, sourcePath, overloads))
-                members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+            root = tree.GetCompilationUnitRoot();
             return true;
+        }
+
+        static void AddSourceFile(
+            Dictionary<string, SourceMember> members,
+            Dictionary<string, Dictionary<string, int>> overloads,
+            string sourcePath,
+            CompilationUnitSyntax root,
+            IReadOnlyDictionary<string, string> partialIndexerNames)
+        {
+            foreach (var member in SourceMembers(root, sourcePath, overloads, partialIndexerNames))
+                members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
         }
 
         static IEnumerable<SourceMember> SourceMembers(
             CompilationUnitSyntax root,
             string sourcePath,
-            Dictionary<string, Dictionary<string, int>> overloads)
+            Dictionary<string, Dictionary<string, int>> overloads,
+            IReadOnlyDictionary<string, string> partialIndexerNames)
         {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads))
+            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads, partialIndexerNames))
                 yield return member;
         }
 
@@ -368,7 +382,8 @@ static class ReturnToSenderSourceProbe
             string namespaceName,
             IReadOnlyList<string> containingTypes,
             string sourcePath,
-            Dictionary<string, Dictionary<string, int>> overloads)
+            Dictionary<string, Dictionary<string, int>> overloads,
+            IReadOnlyDictionary<string, string> partialIndexerNames)
         {
             foreach (var declaration in declarations)
             {
@@ -379,7 +394,7 @@ static class ReturnToSenderSourceProbe
                         string nextNamespace = namespaceName.Length == 0
                             ? ns.Name.ToString()
                             : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads))
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads, partialIndexerNames))
                             yield return member;
                         break;
                     }
@@ -391,9 +406,9 @@ static class ReturnToSenderSourceProbe
                             ? string.Join(".", typeStack)
                             : $"{namespaceName}.{string.Join(".", typeStack)}";
 
-                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads))
+                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, partialIndexerNames))
                             yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads))
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads, partialIndexerNames))
                             yield return member;
                         break;
                     }
@@ -404,7 +419,8 @@ static class ReturnToSenderSourceProbe
                 TypeDeclarationSyntax type,
                 string fullType,
                 string path,
-                Dictionary<string, Dictionary<string, int>> overloadsByType)
+                Dictionary<string, Dictionary<string, int>> overloadsByType,
+                IReadOnlyDictionary<string, string> partialIndexerNames)
             {
                 if (!overloadsByType.TryGetValue(fullType, out var overloads))
                     overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -466,7 +482,7 @@ static class ReturnToSenderSourceProbe
                         {
                             if (IsBodylessPartial(indexer))
                                 break;
-                            string metadataName = IndexerMetadataName(indexer, type);
+                            string metadataName = IndexerMetadataName(indexer, type, fullType, partialIndexerNames);
                             if (HasGetter(indexer))
                             {
                                 string methodName = $"get_{metadataName}";
@@ -512,6 +528,52 @@ static class ReturnToSenderSourceProbe
                 int overload = overloads.GetValueOrDefault(methodName);
                 overloads[methodName] = overload + 1;
                 return overload;
+            }
+        }
+
+        static IReadOnlyDictionary<string, string> PartialIndexerMetadataNames(IEnumerable<CompilationUnitSyntax> roots)
+        {
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var root in roots)
+                AddPartialIndexerNames(root.Members, namespaceName: "", containingTypes: [], names);
+            return names;
+        }
+
+        static void AddPartialIndexerNames(
+            SyntaxList<MemberDeclarationSyntax> declarations,
+            string namespaceName,
+            IReadOnlyList<string> containingTypes,
+            Dictionary<string, string> names)
+        {
+            foreach (var declaration in declarations)
+            {
+                switch (declaration)
+                {
+                    case BaseNamespaceDeclarationSyntax ns:
+                    {
+                        string nextNamespace = namespaceName.Length == 0
+                            ? ns.Name.ToString()
+                            : $"{namespaceName}.{ns.Name}";
+                        AddPartialIndexerNames(ns.Members, nextNamespace, containingTypes, names);
+                        break;
+                    }
+                    case TypeDeclarationSyntax type:
+                    {
+                        string typeName = type.Identifier.ValueText;
+                        var typeStack = containingTypes.Concat([typeName]).ToArray();
+                        string fullType = namespaceName.Length == 0
+                            ? string.Join(".", typeStack)
+                            : $"{namespaceName}.{string.Join(".", typeStack)}";
+                        foreach (var indexer in type.Members.OfType<IndexerDeclarationSyntax>().Where(IsBodylessPartial))
+                        {
+                            if (IndexerMetadataName(indexer) is { } metadataName)
+                                names.TryAdd(PartialIndexerKey(fullType, indexer), metadataName);
+                        }
+
+                        AddPartialIndexerNames(type.Members, namespaceName, typeStack, names);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -781,8 +843,15 @@ static class ReturnToSenderSourceProbe
     static string NormalizeBody(string text)
         => Regex.Replace(text, @"\s+", "");
 
-    static string IndexerMetadataName(IndexerDeclarationSyntax indexer, TypeDeclarationSyntax declaringType)
+    static string IndexerMetadataName(
+        IndexerDeclarationSyntax indexer,
+        TypeDeclarationSyntax declaringType,
+        string fullType,
+        IReadOnlyDictionary<string, string> partialIndexerNames)
         => IndexerMetadataName(indexer)
+            ?? (partialIndexerNames.TryGetValue(PartialIndexerKey(fullType, indexer), out var partialMetadataName)
+                ? partialMetadataName
+                : null)
             ?? declaringType.Members
                 .OfType<IndexerDeclarationSyntax>()
                 .Where(candidate => !ReferenceEquals(candidate, indexer)
@@ -813,6 +882,9 @@ static class ReturnToSenderSourceProbe
 
         return null;
     }
+
+    static string PartialIndexerKey(string fullType, IndexerDeclarationSyntax indexer)
+        => $"{fullType}({string.Join(",", indexer.ParameterList.Parameters.Select(parameter => parameter.Type?.ToString() ?? ""))})";
 
     static bool IndexerParametersMatch(IndexerDeclarationSyntax left, IndexerDeclarationSyntax right)
     {
