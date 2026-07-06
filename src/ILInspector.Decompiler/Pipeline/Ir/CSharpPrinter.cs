@@ -41,6 +41,8 @@ public sealed partial class CSharpPrinter
 
     readonly PrinterOptions _options;
     readonly HashSet<string> _reservedScopeNames;
+    readonly List<DecompilerDecision> _decisions = [];
+    readonly HashSet<string> _decisionKeys = [];
 
     CSharpPrinter(IrFunction function, PrinterOptions? options = null, IEnumerable<string>? reservedScopeNames = null)
     {
@@ -108,13 +110,7 @@ public sealed partial class CSharpPrinter
             var printer = new CSharpPrinter(function) { _statementLines = sink };
             string output = printer.PrintBody(function);
             statementLines = sink;
-            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
-            {
-                ConstructorChain = printer._constructorChain,
-                FieldInitializers = printer._fieldInitializers,
-                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            };
+            return printer.Result(output, function);
         }
         catch (Exception ex)
         {
@@ -175,13 +171,7 @@ public sealed partial class CSharpPrinter
             var printer = new CSharpPrinter(function) { _statementLines = sink };
             string output = printer.PrintBody(function);
             statementLines = sink;
-            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
-            {
-                ConstructorChain = printer._constructorChain,
-                FieldInitializers = printer._fieldInitializers,
-                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            };
+            return printer.Result(output, function);
         }
         catch (Exception ex)
         {
@@ -210,18 +200,37 @@ public sealed partial class CSharpPrinter
         {
             var printer = new CSharpPrinter(function, options);
             string output = printer.PrintBody(function);
-            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
-            {
-                ConstructorChain = printer._constructorChain,
-                FieldInitializers = printer._fieldInitializers,
-                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            };
+            return printer.Result(output, function);
         }
         catch (Exception ex)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    DecompilerResult Result(string output, IrFunction function)
+        => new(output, function.Fidelity, [.. function.Diagnostics])
+        {
+            ConstructorChain = _constructorChain,
+            FieldInitializers = _fieldInitializers,
+            RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+            ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            EffectiveOptions = EffectiveDecompilerOptions(),
+            Decisions = [.. _decisions],
+        };
+
+    DecompilerOptions EffectiveDecompilerOptions()
+        => new()
+        {
+            ReadableLocalNames = _options.ReadableLocalNames,
+            PreferFrameworkTypeImports = true,
+        };
+
+    void AddDecision(string ruleId, string category, string subject, string detail)
+    {
+        string key = $"{ruleId}\0{category}\0{subject}\0{detail}";
+        if (_decisionKeys.Add(key))
+            _decisions.Add(new DecompilerDecision(ruleId, category, subject, detail));
     }
 
     /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
@@ -3483,8 +3492,33 @@ public sealed partial class CSharpPrinter
         // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
         string text = type.ToDisplayString(_function.DeclaringType);
         int tick = text.IndexOf('`');
-        return tick < 0 ? text : text[..tick];
+        string rendered = tick < 0 ? text : text[..tick];
+        RecordFrameworkTypeImportDecision(type, rendered);
+        return rendered;
     }
+
+    void RecordFrameworkTypeImportDecision(TypeRef type, string rendered)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (definition is not { Kind: TypeRefKind.Definition, Namespace.Length: > 0 })
+            return;
+        if (!IsFrameworkNamespace(definition.Namespace))
+            return;
+        string fullName = $"{definition.Namespace}.{CSharpNaming.TypeNameSegment(definition.Name)}";
+        if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
+            return;
+        if (!rendered.Contains(CSharpNaming.TypeNameSegment(definition.Name), StringComparison.Ordinal))
+            return;
+
+        AddDecision(
+            "type-name.framework-imported",
+            "taste",
+            fullName,
+            $"Rendered framework type '{fullName}' as imported/simple name '{rendered}'.");
+    }
+
+    static bool IsFrameworkNamespace(string ns)
+        => ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal);
 
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
         => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)

@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
 
 using DotnetInspector.Fixtures;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -239,12 +240,16 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
+            var decisions = result.Decisions ?? [];
+            string reason = TryKnownTasteDifference(expected, actual, decisions, out var tasteDetail)
+                ? "valid_different.known_taste"
+                : "valid_different.unclassified";
             results.Add(new ReturnToSenderSourceProbeResult(
                 target,
                 ReturnToSenderSourceOutcome.ValidDifferent,
                 result.Status,
-                "valid_different.unclassified",
-                Detail: "decompiled body is Roslyn-valid but differs from the fixture source slice",
+                reason,
+                Detail: tasteDetail ?? "decompiled body is Roslyn-valid but differs from the fixture source slice",
                 sourceMember.SourcePath,
                 expected,
                 actual));
@@ -899,6 +904,141 @@ static class ReturnToSenderSourceProbe
         }
 
         return true;
+    }
+
+    static bool TryKnownTasteDifference(
+        string expected,
+        string actual,
+        IReadOnlyList<DecompilerDecision> decisions,
+        out string? detail)
+    {
+        var rewrites = decisions
+            .Where(decision => decision is { Category: "taste", RuleId: "type-name.framework-imported" })
+            .Select(decision =>
+            {
+                string oldValue = decision.OldValue ?? decision.Subject.Replace('+', '.');
+                int lastDot = oldValue.LastIndexOf('.');
+                return lastDot < 0 || lastDot == oldValue.Length - 1
+                    ? null
+                    : new FrameworkTypeRewrite(
+                        oldValue,
+                        decision.NewValue ?? oldValue[(lastDot + 1)..],
+                        decision);
+            })
+            .Where(rewrite => rewrite is not null)
+            .Select(rewrite => rewrite!)
+            .ToArray();
+        if (rewrites.Length == 0)
+        {
+            detail = null;
+            return false;
+        }
+
+        string wrapped = "{" + Environment.NewLine + expected + Environment.NewLine + "}";
+        var tree = CSharpSyntaxTree.ParseText(wrapped);
+        var root = tree.GetCompilationUnitRoot();
+        var rewriter = new FrameworkTypeNameRewriter(rewrites);
+        var rewrittenRoot = rewriter.Visit(root);
+        if (rewrittenRoot is null || rewriter.Applied.Count == 0)
+        {
+            detail = null;
+            return false;
+        }
+
+        string rewrittenExpected = rewrittenRoot.ToFullString();
+        int openBrace = rewrittenExpected.IndexOf('{');
+        int closeBrace = rewrittenExpected.LastIndexOf('}');
+        if (openBrace >= 0 && closeBrace > openBrace)
+            rewrittenExpected = rewrittenExpected[(openBrace + 1)..closeBrace];
+
+        if (NormalizeBody(rewrittenExpected) == NormalizeBody(actual))
+        {
+            detail = string.Join("; ", rewriter.Applied.Distinct().Select(decision => decision.Detail));
+            return true;
+        }
+
+        detail = null;
+        return false;
+    }
+
+    sealed record FrameworkTypeRewrite(string FullName, string SimpleName, DecompilerDecision Decision);
+
+    sealed class FrameworkTypeNameRewriter(IReadOnlyList<FrameworkTypeRewrite> rewrites) : CSharpSyntaxRewriter
+    {
+        public List<DecompilerDecision> Applied { get; } = [];
+
+        public override SyntaxNode? VisitQualifiedName(QualifiedNameSyntax node)
+        {
+            var rewrite = FindRewrite(node);
+            var visited = (QualifiedNameSyntax)base.VisitQualifiedName(node)!;
+            return rewrite is not null
+                ? ApplyRewrite(visited, rewrite)
+                : RewriteName(visited) ?? visited;
+        }
+
+        public override SyntaxNode? VisitAliasQualifiedName(AliasQualifiedNameSyntax node)
+        {
+            var rewrite = FindRewrite(node);
+            var visited = (AliasQualifiedNameSyntax)base.VisitAliasQualifiedName(node)!;
+            return rewrite is not null
+                ? ApplyRewrite(visited, rewrite)
+                : RewriteName(visited) ?? visited;
+        }
+
+        public override SyntaxNode? VisitMemberAccessExpression(MemberAccessExpressionSyntax node)
+        {
+            var rewrite = FindRewrite(node);
+            var visited = (MemberAccessExpressionSyntax)base.VisitMemberAccessExpression(node)!;
+            return rewrite is not null
+                ? ApplyRewrite(visited, rewrite)
+                : RewriteName(visited) ?? visited;
+        }
+
+        SyntaxNode? RewriteName(SyntaxNode node)
+            => FindRewrite(node) is { } rewrite ? ApplyRewrite(node, rewrite) : null;
+
+        FrameworkTypeRewrite? FindRewrite(SyntaxNode node)
+        {
+            string canonical = CanonicalNameText(node);
+            return rewrites
+                .Where(rewrite => canonical == rewrite.FullName)
+                .OrderByDescending(rewrite => rewrite.FullName.Length)
+                .FirstOrDefault();
+        }
+
+        SyntaxNode ApplyRewrite(SyntaxNode node, FrameworkTypeRewrite rewrite)
+        {
+            Applied.Add(rewrite.Decision);
+            return ReplacementName(node, rewrite.SimpleName).WithTriviaFrom(node);
+        }
+
+        static string CanonicalNameText(SyntaxNode node)
+            => node switch
+            {
+                GenericNameSyntax generic => generic.Identifier.ValueText,
+                QualifiedNameSyntax qualified => $"{CanonicalNameText(qualified.Left)}.{CanonicalNameText(qualified.Right)}",
+                AliasQualifiedNameSyntax aliasQualified => $"{aliasQualified.Alias.Identifier.ValueText}::{CanonicalNameText(aliasQualified.Name)}",
+                MemberAccessExpressionSyntax memberAccess => $"{CanonicalNameText(memberAccess.Expression)}.{CanonicalNameText(memberAccess.Name)}",
+                IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+                PredefinedTypeSyntax predefined => predefined.Keyword.ValueText,
+                NameSyntax name => name.ToString(),
+                _ => node.ToString(),
+            };
+
+        static SimpleNameSyntax ReplacementName(SyntaxNode original, string simpleName)
+            => original switch
+            {
+                GenericNameSyntax generic => SyntaxFactory.GenericName(
+                    SyntaxFactory.Identifier(simpleName),
+                    generic.TypeArgumentList),
+                QualifiedNameSyntax { Right: GenericNameSyntax generic } => SyntaxFactory.GenericName(
+                    SyntaxFactory.Identifier(simpleName),
+                    generic.TypeArgumentList),
+                MemberAccessExpressionSyntax { Name: GenericNameSyntax generic } => SyntaxFactory.GenericName(
+                    SyntaxFactory.Identifier(simpleName),
+                    generic.TypeArgumentList),
+                _ => SyntaxFactory.IdentifierName(simpleName),
+            };
     }
 
     static string OperatorMetadataName(OperatorDeclarationSyntax op)

@@ -33,6 +33,38 @@ public readonly record struct DecompilerDiagnostic(string Id, string Message)
     public override string ToString() => $"{Id}: {Message}";
 }
 
+/// <summary>
+/// Product-owned decompiler rendering choices. Hosts and harnesses can inspect
+/// the effective options instead of reverse-engineering taste decisions from
+/// rendered text.
+/// </summary>
+public sealed record DecompilerOptions
+{
+    /// <summary>
+    /// Local names without PDB evidence may render as synthesized readable names.
+    /// Off by default so the shipped output remains IL/PDB-aligned.
+    /// </summary>
+    public bool ReadableLocalNames { get; init; }
+
+    /// <summary>
+    /// Framework type names may render in imported/simple form when the C# file
+    /// shape supplies the namespace. This is the shipped taste choice.
+    /// </summary>
+    public bool PreferFrameworkTypeImports { get; init; } = true;
+
+    public static DecompilerOptions Default { get; } = new();
+}
+
+/// <summary>
+/// A typed explanation for an intentional decompiler rendering choice. This is
+/// product evidence: harnesses may project it, but should not own the rule.
+/// </summary>
+public sealed record DecompilerDecision(
+    string RuleId,
+    string Category,
+    string Subject,
+    string Detail);
+
 /// <summary>Stable diagnostic identifiers. Never renumber or reuse.</summary>
 public static class DiagnosticIds
 {
@@ -175,6 +207,12 @@ public sealed record DecompilerResult(
     /// one (only the C# render entry points populate it today).
     /// </summary>
     public DecompilerTrace? Trace { get; init; }
+
+    /// <summary>The product options in force for this result.</summary>
+    public DecompilerOptions EffectiveOptions { get; init; } = DecompilerOptions.Default;
+
+    /// <summary>Product-owned decision evidence explaining intentional render choices.</summary>
+    public IReadOnlyList<DecompilerDecision> Decisions { get; init; } = [];
 
     public static DecompilerResult Success(string output)
         => new(output, DecompilationFidelity.Full, []);

@@ -3,6 +3,8 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using ILInspector.DecompilerHarness;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -58,6 +60,45 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.EndsWith("DiffSample.cs", result.SourcePath, StringComparison.Ordinal);
         Assert.Equal("return42;", Normalize(result.ExpectedBody));
         Assert.Equal("return42;", Normalize(result.ActualBody));
+    }
+
+    [Fact]
+    public void DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions()
+    {
+        using var source = MetadataSource.Open(FixtureCatalog.DiffV1.AssemblyPath());
+        var function = IrImporter.Import(source, "DiffFixtureSample.DiffSample", "CallToken", 0);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+
+        Assert.True(result.EffectiveOptions.PreferFrameworkTypeImports);
+        Assert.False(result.EffectiveOptions.ReadableLocalNames);
+        var decision = Assert.Single(result.Decisions, decision =>
+            decision.RuleId == "type-name.framework-imported"
+            && decision.Category == "taste"
+            && decision.Subject == "System.Math");
+        Assert.Contains("System.Math", decision.Detail);
+        Assert.Contains("Math", result.Output);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceFromProductDecision()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DiffV1.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "DiffFixtureSample.DiffSample",
+                    "CallToken",
+                    Overload: 0),
+            ]));
+
+        Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.CompileBackStatus);
+        Assert.Equal("valid_different.known_taste", result.Reason);
+        Assert.Contains("System.Math", result.Detail);
+        Assert.Equal("returnSystem.Math.Abs(value);", Normalize(result.ExpectedBody));
+        Assert.Equal("returnMath.Abs(value);", Normalize(result.ActualBody));
     }
 
     [Fact]

@@ -162,9 +162,12 @@ The source probe reuses RTS target discovery/import/render/compile-back plumbing
 and, for catalog fixtures, compares the decompiled target body against the
 checked-in fixture source slice. It reports coarse source-fidelity outcomes:
 `valid_match`, `valid_different`, `invalid`, `source_unavailable`, and
-`unsupported_target`; valid-but-different rows are intentionally classified
-coarsely first so later Roslyn-assisted analysis can grow stable taxonomy
-buckets.
+`unsupported_target`. Valid-but-different rows may be split by product-owned
+decompiler decision evidence, such as `valid_different.known_taste` for a
+documented taste rule versus `valid_different.unclassified` for source deltas
+that still need analysis. Roslyn-assisted source comparison stays in the harness;
+the product decompiler owns effective options and typed decisions that explain
+intentional output choices.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape
