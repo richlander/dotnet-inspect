@@ -217,6 +217,22 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
+                && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
+                && effectiveOptions.MemberGenericArity.HasValue
+                && effectiveOptions.MemberFilter.Count == 1)
+            {
+                var memberName = effectiveOptions.MemberFilter.First();
+                var arityCandidates = GetCandidateMembers(apiType, effectiveOptions, memberName);
+                if (arityCandidates.Count == 0)
+                {
+                    Console.Error.WriteLine($"Error: No members matched selector '{memberName}' with generic arity {effectiveOptions.MemberGenericArity.Value}.");
+                    return 1;
+                }
+
+                apiType.Members = arityCandidates;
+            }
+
+            if (effectiveOptions.OverloadIndex is null
                 && effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true
                 && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
             {

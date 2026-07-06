@@ -7036,6 +7036,19 @@ public class CommandExecutionTests
         Assert.DoesNotContain("GenericChoice(string value)", output);
     }
 
+    [Fact]
+    public async Task Member_GenericMethodSelector_FiltersInventoryByMethodArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberGenericSelectorFixture).FullName!, "--library", TestAssemblyPath,
+            "GenericChoice<T>", "--rows", "-n", "10", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("GenericChoice<T>(T value)", output);
+        Assert.DoesNotContain("GenericChoice(string value)", output);
+    }
+
     [Theory]
     [InlineData("GenericChoice<T>")]
     [InlineData("GenericChoice<T>:1")]
@@ -7045,6 +7058,20 @@ public class CommandExecutionTests
             "member", $"{typeof(MemberGenericSelectorFixture).FullName!}.{memberSelector}",
             "--library", TestAssemblyPath,
             "-S", "Signature", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("GenericChoice<T>(T value)", output);
+        Assert.DoesNotContain("GenericChoice(string value)", output);
+    }
+
+    [Fact]
+    public async Task Member_DottedGenericMethodSelector_FiltersInventoryByMethodArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", $"{typeof(MemberGenericSelectorFixture).FullName!}.GenericChoice<T>",
+            "--library", TestAssemblyPath,
+            "--rows", "-n", "10", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
