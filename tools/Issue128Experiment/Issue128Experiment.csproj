@@ -6,15 +6,13 @@
     <LangVersion>preview</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
-    <AssemblyName>il-diff-harness</AssemblyName>
-    <RootNamespace>ILInspector.IlDiffHarness</RootNamespace>
+    <AssemblyName>issue128-experiment</AssemblyName>
+    <RootNamespace>ILInspector.Issue128Experiment</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
-    <!-- Markout projectref (experiment/issue-128): local Markout instead of PackageReference. -->
+    <!-- Markout projectref (experiment/issue-128): local Markout 0.17-dev. -->
     <ProjectReference Include="../../../markout/src/Markout/Markout.csproj" />
     <ProjectReference Include="../../../markout/src/Markout.SourceGeneration/Markout.SourceGeneration.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
