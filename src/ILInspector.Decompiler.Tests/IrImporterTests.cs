@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -996,7 +997,7 @@ public class IrImporterTests
         // Release can materialize a pointer through a native-int stack slot before
         // an indirect read/write. Deref-ing the slot itself (`*S_257`) is CS0193;
         // the access must cast the native int back to the opcode's pointer type.
-        using var source = MetadataSource.Open(typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).Assembly.Location);
+        using var source = MetadataSource.Open(FixtureCatalog.DecompilerUnsafeChainA.AssemblyPath());
         var function = IrImporter.Import(
             source,
             typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).FullName!,
@@ -2716,7 +2717,7 @@ public class RaisingPassTests
         // A stackalloc expression cannot be returned directly as a pointer, nor
         // explicitly cast in expression position (CS8346). Route it through a
         // pointer local and cast that local to the signature's pointer type.
-        using var source = MetadataSource.Open(typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).Assembly.Location);
+        using var source = MetadataSource.Open(FixtureCatalog.DecompilerUnsafeChainA.AssemblyPath());
         var function = IrImporter.Import(
             source,
             typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).FullName!,

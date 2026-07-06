@@ -8,7 +8,7 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_SelfDiffHasNoRows()
     {
-        var path = DiffFixturePath("DiffFixtures.V1");
+        var path = FixtureCatalog.DiffPair.OldAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(path, path);
 
@@ -19,8 +19,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_ConstantChangeSurfacesProductCSharpRows()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
 
@@ -55,8 +55,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_GenericParameterRenameDoesNotBreakMethodIdentity()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
 
@@ -66,8 +66,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_GenericMethodCanonicalSignatureUsesMethodGenericParameter()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
 
@@ -81,8 +81,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_TokenTargetChangeIsNotSkippedByFastPath()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
 
@@ -309,8 +309,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_ProtectedMethodsAreIncludedInDefaultSurface()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ProtectedSample" });
 
@@ -327,8 +327,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_GenericArityOverloadsDoNotCollide()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GenericOverloadSample" });
 
@@ -346,7 +346,7 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_DuplicateInputPathsDoNotThrowOrCreateRows()
     {
-        var path = DiffFixturePath("DiffFixtures.V1");
+        var path = FixtureCatalog.DiffPair.OldAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies([path, path], [path, path], typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
 
@@ -356,8 +356,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_OneSidedDuplicateInputPathsKeepMatchingStable()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies([v1, v1], [v2], typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
 
@@ -374,7 +374,7 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_DistinctPathsWithSameAssemblyIdentityRemainOccurrenceDistinct()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
         var copy = Path.Combine(Path.GetTempPath(), $"DiffFixtureSample-{Guid.NewGuid():N}.dll");
         File.Copy(v1, copy);
         try
@@ -393,8 +393,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_GenericTypeArityDoesNotCollapseDeclaringTypes()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*GenericTypeAritySample*" });
 
@@ -412,8 +412,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_NestedGenericDeclaringArityDoesNotCollapse()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*NestedGenericOuter*" });
 
@@ -431,8 +431,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_ConstructorsUseMemberIndexCanonicalName()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorSample" });
 
@@ -446,8 +446,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_ConversionOperatorsIncludeReturnTypeInCanonicalSignature()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConversionSample" });
 
@@ -504,8 +504,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_CheckedConversionOperatorsIncludeReturnTypeInCanonicalSignature()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "CheckedConversionSample" });
 
@@ -519,8 +519,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_TypeAndMethodGenericParametersStayDistinct()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*GenericParameterCollisionSample*" });
 
@@ -534,8 +534,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_MethodRemovalUsesMethodLevelMessage()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" });
 
@@ -553,8 +553,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_NoBodyToBodyUsesSyntheticBodyAddedRow()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" });
 
@@ -578,8 +578,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_BodyToNoBodyUsesSyntheticBodyRemovedRow()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v2, v1, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" });
 
@@ -603,8 +603,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void Printer_FailureRows_RenderFromStructuredFailureRows()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" });
 
@@ -622,8 +622,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_ExplicitInterfaceImplementationsAreInDefaultSurface()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExplicitSurface" });
 
@@ -640,8 +640,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_InternalExplicitInterfaceImplementationsStayOutOfDefaultSurface()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "InternalExplicitSurface" });
 
@@ -651,8 +651,8 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_DefaultSurfaceSkipsInternalTypesAndTheirNestedPublicTypes()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "InternalSurfaceSample" });
 
@@ -666,21 +666,12 @@ public class CSharpBodyDiffTests
     [Fact]
     public void CompareAssemblies_GlobTypeFilterCanLimitRows()
     {
-        var v1 = DiffFixturePath("DiffFixtures.V1");
-        var v2 = DiffFixturePath("DiffFixtures.V2");
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*NoSuchType" });
 
         Assert.Empty(diff.Rows);
     }
 
-    static string DiffFixturePath(string project)
-    {
-        var outputDirectory = new DirectoryInfo(
-            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        string path = Path.GetFullPath(Path.Combine(
-            outputDirectory.FullName, "..", "..", project, outputDirectory.Name, "DiffFixtureSample.dll"));
-        Assert.True(File.Exists(path), $"Expected diff fixture assembly at {path}");
-        return path;
-    }
 }

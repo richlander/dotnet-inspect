@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
@@ -23,11 +24,11 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class LadderRung6GateTests
 {
-    static readonly string NewUnsafePath = typeof(NewUnsafe).Assembly.Location;
-    static readonly string LegacyUnsafePath = typeof(LegacyUnsafe).Assembly.Location;
+    static readonly string NewUnsafePath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
+    static readonly string LegacyUnsafePath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
     static readonly string NewUnsafeType = typeof(NewUnsafe).FullName!;
     static readonly string LegacyUnsafeType = typeof(LegacyUnsafe).FullName!;
-    static readonly string ByRefFixturePath = typeof(LadderRung4.CSharp7LocalSyntax).Assembly.Location;
+    static readonly string ByRefFixturePath = FixtureCatalog.DecompilerLadderRung4.AssemblyPath();
     static readonly string ByRefFixtureType = typeof(LadderRung4.CSharp7LocalSyntax).FullName!;
 
     static readonly string[] ExpectedUnsafeMembers =
