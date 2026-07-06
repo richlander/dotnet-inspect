@@ -46,6 +46,12 @@ public static class InspectionCommandDefinitions
             AllowMultipleArgumentsPerToken = true
         };
         typeFilterOption.Aliases.Add("--type");
+        var memberFilterOption = new Option<string[]>("-m")
+        {
+            Description = "Filter to specific member selector(s); use with --type or pass Type.Member",
+            AllowMultipleArgumentsPerToken = true
+        };
+        memberFilterOption.Aliases.Add("--member");
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
         var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
@@ -61,6 +67,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
         diffCommand.Options.Add(typeFilterOption);
+        diffCommand.Options.Add(memberFilterOption);
         opts.AddTableOptionsTo(diffCommand);
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
@@ -76,7 +83,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, opts.OneLine, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, legendOption);
+            typeFilterOption, memberFilterOption, opts.OneLine, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {

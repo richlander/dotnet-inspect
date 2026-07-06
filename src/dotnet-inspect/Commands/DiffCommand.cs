@@ -100,6 +100,12 @@ public class DiffCommand
             {
                 if (SelectsAnalysisDiff(options))
                 {
+                    if (options.MemberFilter.Count > 0)
+                    {
+                        Console.Error.WriteLine("Error: --member is currently supported for API diff output; Analysis Diff member targeting is a follow-up.");
+                        return 1;
+                    }
+
                     var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options);
                     var view = DiffOutputFormatter.BuildAnalysisDiffView(inputs.Name, analysis.Rows, analysis.Summary, inputs.FromVersion, inputs.ToVersion);
                     if (options.Tsv || options.Jsonl)
@@ -533,14 +539,196 @@ public class DiffCommand
     }
 
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
-        => ResearchDiff.Compare(
-            ResearchDiffInput.FromApiSurface(fromSurface),
-            ResearchDiffInput.FromApiSurface(toSurface),
-            new ResearchDiffOptions(
-                ResearchDiffMechanism.Api,
-                IncludeAllApi: options.IncludeAll,
-                ApiScope: ApiDiffScope.Signature)).ApiDiff
+    {
+        var diff = ResearchDiff.Compare(
+                ResearchDiffInput.FromApiSurface(fromSurface),
+                ResearchDiffInput.FromApiSurface(toSurface),
+                new ResearchDiffOptions(
+                    ResearchDiffMechanism.Api,
+                    IncludeAllApi: options.IncludeAll,
+                    ApiScope: ApiDiffScope.Signature)).ApiDiff
             ?? new ApiDiff();
+
+        return options.MemberFilter.Count == 0
+            ? diff
+            : FilterApiDiffByMemberTargets(diff, fromSurface, toSurface, options);
+    }
+
+    internal static ApiDiff FilterApiDiffByMemberTargets(ApiDiff diff, ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
+    {
+        if (options.MemberFilter.Count == 0)
+            return diff;
+
+        var targetIdentities = ResolveMemberTargetIdentities(fromSurface, toSurface, options.MemberFilter, options.TypeFilter);
+        List<TypeDiff> filtered = [];
+        foreach (var typeDiff in diff.TypeDiffs)
+        {
+            var changes = typeDiff.Changes
+                .Where(change => IsMemberChange(change.Kind) && MatchesMemberTarget(change, targetIdentities))
+                .ToList();
+            if (changes.Count > 0)
+                filtered.Add(new TypeDiff(typeDiff.TypeFullName, changes));
+        }
+
+        return new ApiDiff
+        {
+            TypeDiffs = filtered,
+            TotalBreaking = filtered.Sum(typeDiff => typeDiff.BreakingCount),
+            TotalAdditive = filtered.Sum(typeDiff => typeDiff.AdditiveCount),
+            TotalPotentiallyBreaking = filtered.Sum(typeDiff => typeDiff.PotentiallyBreakingCount)
+        };
+    }
+
+    static bool MatchesMemberTarget(ApiChange change, IReadOnlySet<string> targetIdentities)
+        => MatchesHandle(change.Subject?.OldMember, targetIdentities)
+           || MatchesHandle(change.Subject?.NewMember, targetIdentities);
+
+    static bool MatchesHandle(ApiMemberHandle? handle, IReadOnlySet<string> targetIdentities)
+        => handle is not null
+           && ((handle.StableSelector is { } stable && targetIdentities.Contains(stable))
+               || (handle.CanonicalSignature is { } canonical && targetIdentities.Contains(canonical))
+               || targetIdentities.Contains(handle.Identity));
+
+    static HashSet<string> ResolveMemberTargetIdentities(
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        IReadOnlyCollection<string> memberTargets,
+        IReadOnlyCollection<string> typeFilters)
+    {
+        HashSet<string> identities = new(StringComparer.Ordinal);
+        foreach (var rawTarget in memberTargets)
+        {
+            var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
+            var found = false;
+            var oldType = FindType(fromSurface, parsed.TypeName);
+            var newType = FindType(toSurface, parsed.TypeName);
+
+            if (oldType is not null)
+                found |= AddResolvedIdentities(oldType, parsed.Selector, identities);
+            if (newType is not null)
+                found |= AddResolvedIdentities(newType, parsed.Selector, identities);
+
+            if (!found)
+                throw new InvalidOperationException($"Member target '{rawTarget}' did not resolve in either diff input.");
+        }
+
+        return identities;
+    }
+
+    static bool AddResolvedIdentities(ApiType type, MemberTargetSelector selector, HashSet<string> identities)
+    {
+        var resolution = MemberTargetResolver.Resolve(type, selector);
+        if (!resolution.Found)
+            return false;
+
+        identities.Add(resolution.Target!.Anchor.StableSelector);
+        identities.Add(resolution.Target.Anchor.CanonicalSignature);
+        return true;
+    }
+
+    sealed record ParsedDiffMemberTarget(string TypeName, MemberTargetSelector Selector);
+
+    static ParsedDiffMemberTarget ParseDiffMemberTarget(
+        string rawTarget,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        IReadOnlyCollection<string> typeFilters)
+    {
+        if (TrySplitTypeQualifiedMemberTarget(rawTarget, fromSurface, toSurface, out var typeName, out var memberSelector))
+            return new ParsedDiffMemberTarget(typeName, MemberTargetSelector.Parse(memberSelector));
+
+        var typeContext = ResolveTypeContext(fromSurface, toSurface, typeFilters);
+        if (typeContext is null)
+            throw new InvalidOperationException($"--member '{rawTarget}' requires exactly one --type filter or a type-qualified selector.");
+
+        return new ParsedDiffMemberTarget(typeContext, MemberTargetSelector.Parse(rawTarget));
+    }
+
+    static bool TrySplitTypeQualifiedMemberTarget(
+        string rawTarget,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        out string typeName,
+        out string memberSelector)
+    {
+        foreach (var marker in (ReadOnlySpan<string>)[".operator:", ".explicit:", ".extension:"])
+        {
+            var markerIndex = rawTarget.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex > 0)
+            {
+                var candidate = rawTarget[..markerIndex];
+                if (TryFindType(fromSurface, toSurface, candidate, out typeName))
+                {
+                    memberSelector = rawTarget[(markerIndex + 1)..];
+                    return true;
+                }
+            }
+        }
+
+        foreach (var dot in TopLevelDotPositionsFromRight(rawTarget))
+        {
+            var candidate = rawTarget[..dot];
+            if (TryFindType(fromSurface, toSurface, candidate, out typeName))
+            {
+                memberSelector = rawTarget[(dot + 1)..];
+                return true;
+            }
+        }
+
+        typeName = "";
+        memberSelector = rawTarget;
+        return false;
+    }
+
+    static IEnumerable<int> TopLevelDotPositionsFromRight(string value)
+    {
+        var depth = 0;
+        for (var i = value.Length - 1; i >= 0; i--)
+        {
+            var ch = value[i];
+            if (ch == '>')
+                depth++;
+            else if (ch == '<')
+                depth--;
+            else if (ch == '.' && depth == 0)
+                yield return i;
+        }
+    }
+
+    static string? ResolveTypeContext(ApiSurface fromSurface, ApiSurface toSurface, IReadOnlyCollection<string> typeFilters)
+    {
+        if (typeFilters.Count != 1)
+            return null;
+
+        var query = typeFilters.First();
+        return TryFindType(fromSurface, toSurface, query, out var typeName) ? typeName : null;
+    }
+
+    static bool TryFindType(ApiSurface fromSurface, ApiSurface toSurface, string query, out string typeName)
+    {
+        var match = FindType(fromSurface, query) ?? FindType(toSurface, query);
+        if (match is null)
+        {
+            typeName = "";
+            return false;
+        }
+
+        typeName = match.FullName;
+        return true;
+    }
+
+    static ApiType? FindType(ApiSurface surface, string query)
+    {
+        var lookup = TypeMatcher.Lookup(surface.Types.Select(type => type.FullName), query);
+        return lookup.Match is null
+            ? null
+            : surface.Types.First(type => type.FullName == lookup.Match);
+    }
+
+    static bool IsMemberChange(ChangeKind kind)
+        => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
+            or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged
+            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved;
 
     private static IReadOnlyList<TypeDiff> FilterByClassification(IReadOnlyList<TypeDiff> typeDiffs, DiffOptions options)
     {
@@ -575,6 +763,7 @@ public record DiffOptions
     public bool IncludeAll { get; init; }
     public bool Verbose { get; init; }
     public HashSet<string> TypeFilter { get; init; } = [];
+    public HashSet<string> MemberFilter { get; init; } = [];
     public bool OneLine { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }

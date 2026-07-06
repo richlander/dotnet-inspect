@@ -102,6 +102,71 @@ public class DiffCommandTests
         Assert.Empty(diff.TypeDiffs);
     }
 
+    [Fact]
+    public void BuildApiDiff_MemberFilter_UsesTargetResolverWithTypeFilter()
+    {
+        var oldSurface = DiffSurface(
+            DiffMember("Changed", signature: "void Changed()"),
+            DiffMember("Other", signature: "void Other()"));
+        var newSurface = DiffSurface(
+            DiffMember("Changed", signature: "int Changed()"),
+            DiffMember("Other", signature: "int Other()"));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            TypeFilter = ["Widget"],
+            MemberFilter = ["Changed"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Contains("Changed", change.Message);
+    }
+
+    [Fact]
+    public void BuildApiDiff_MemberFilter_UsesTypeQualifiedSelector()
+    {
+        var oldSurface = DiffSurface(
+            DiffMember("Changed", signature: "void Changed()"),
+            DiffMember("Other", signature: "void Other()"));
+        var newSurface = DiffSurface(
+            DiffMember("Changed", signature: "int Changed()"),
+            DiffMember("Other", signature: "int Other()"));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            MemberFilter = ["Sample.Widget.Changed"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Contains("Changed", change.Message);
+    }
+
+    [Fact]
+    public void BuildApiDiff_GenericMemberFilter_ExcludesSameNameNonGenericOverload()
+    {
+        var oldSurface = DiffSurface(
+            DiffMember("GenericChoice", signature: "string GenericChoice(string value)"),
+            DiffMember("GenericChoice", signature: "T GenericChoice<T>(T value)", genericArity: 1));
+        var newSurface = DiffSurface(
+            DiffMember("GenericChoice", signature: "string GenericChoice(string value)"),
+            DiffMember("GenericChoice", signature: "T GenericChoice<T>(T value, int count)", genericArity: 1));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            TypeFilter = ["Widget"],
+            MemberFilter = ["GenericChoice<T>"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Contains("<T>", change.NewValue);
+    }
+
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
         => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", inLoop ? "in-loop" : null, null), magnitude, direction, inBoth, inLoop);
 
@@ -324,14 +389,40 @@ public class DiffCommandTests
             ],
         };
 
-    static ApiMember DiffMember(string name, IReadOnlyList<string>? attributes = null)
+    static ApiMember DiffMember(string name, IReadOnlyList<string>? attributes = null, string? signature = null, int genericArity = 0)
         => new()
         {
             Name = name,
             Kind = "method",
-            Signature = $"void {name}()",
+            Signature = signature ?? $"void {name}()",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                TypeParameters = [.. Enumerable.Range(0, genericArity).Select(index => new TypeParameter { Name = index == 0 ? "T" : $"T{index}" })],
+                Parameters = ParseParameters(signature ?? $"void {name}()")
+            },
             Attributes = attributes?.ToList() ?? [],
         };
+
+    static List<ApiParameter> ParseParameters(string signature)
+    {
+        var open = signature.IndexOf('(');
+        var close = signature.LastIndexOf(')');
+        if (open < 0 || close <= open + 1)
+            return [];
+
+        return [.. signature[(open + 1)..close]
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select((parameter, index) =>
+            {
+                var parts = parameter.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                return new ApiParameter
+                {
+                    Name = parts.Length > 1 ? parts[^1] : $"p{index}",
+                    Type = parts.Length > 1 ? string.Join(' ', parts[..^1]) : parts[0]
+                };
+            })];
+    }
 
     // Key-path audit: the analysis-diff member key must distinguish members that
     // TypeRef.Equals distinguishes but display strings do not — same-name/different-arity
