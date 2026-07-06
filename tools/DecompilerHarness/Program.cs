@@ -215,6 +215,9 @@ static class Program
             }
         }
 
+        if (returnToSenderMarkout && !returnToSenderCatalog)
+            return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
+
         if (generatedFixtures)
         {
             if (inputs.Count > 0)

@@ -156,14 +156,14 @@ internal static class ReturnToSenderCatalogReport
             subject.CompileBackStatus ?? subject.RtsStatus ?? "unknown",
             subject.Detail ?? "-",
             string.Join(", ", subject.ChangeCounts.Select(count => $"{count.ChangeId}: {count.Count}")),
-            string.Join(Environment.NewLine, subject.IlEvidence.SelectMany(evidence =>
+            [.. subject.IlEvidence.SelectMany(evidence =>
             {
                 var lines = new List<string>();
                 if (evidence.Failure is { } failure)
                     lines.Add($"{evidence.ChangeId}: {failure.UnifiedLine}");
                 lines.AddRange(evidence.Rows.Select(row => $"{evidence.ChangeId}: {row.UnifiedLine}"));
                 return lines;
-            })));
+            })]);
 
     static ReturnToSenderBucketRow BucketRow(ReturnToSenderCatalogReportBucket bucket)
         => new(bucket.Key, bucket.Count);
@@ -174,9 +174,6 @@ internal static class ReturnToSenderCatalogReport
         string closure = row.ClosureEvidence is null
             ? ""
             : $"types={row.ClosureEvidence.RequiredTypes} members={row.ClosureEvidence.RequiredMembers} roslyn-types={row.ClosureEvidence.RoslynRecoveredTypes} roslyn-member-surfaces={row.ClosureEvidence.RoslynRecoveredMemberSurfaces}";
-        string ilDiff = row.IlDiffDiagnostic is null
-            ? ""
-            : string.Join(Environment.NewLine, IlDiffPrinter.ToUnifiedLines(row.IlDiffDiagnostic));
         return new ReturnToSenderFailedFixtureRow(
             fixtureId,
             row.DisplayMember,
@@ -186,7 +183,7 @@ internal static class ReturnToSenderCatalogReport
             row.MemberAnchor?.CanonicalSignature,
             closure,
             row.Detail,
-            ilDiff);
+            row.IlDiffDiagnostic is null ? [] : [.. IlDiffPrinter.ToUnifiedLines(row.IlDiffDiagnostic)]);
     }
 
     static IReadOnlyList<ReturnToSenderCatalogReportBucket> Buckets(IEnumerable<GeneratedFixtureReturnToSenderResult> rows)
@@ -338,7 +335,7 @@ internal sealed record ReturnToSenderActionableRow(
     string Status,
     string Detail,
     string Changes,
-    [property: MarkoutPropertyName("IL display")] string IlDisplay);
+    [property: MarkoutPropertyName("IL display")] List<string> IlDisplay);
 
 [MarkoutSerializable]
 internal sealed record ReturnToSenderBucketRow(string Bucket, int Count);
@@ -353,7 +350,7 @@ internal sealed record ReturnToSenderFailedFixtureRow(
     [property: MarkoutPropertyName("Canonical signature")] string? CanonicalSignature,
     string? Closure,
     string? Detail,
-    [property: MarkoutPropertyName("IL diff")] string? IlDiff);
+    [property: MarkoutPropertyName("IL diff")] List<string> IlDiff);
 
 [MarkoutSerializable]
 internal sealed record ReturnToSenderPassedFixtureRow(string Fixture);

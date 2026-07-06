@@ -1205,6 +1205,10 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("## Actionable subjects", markout);
         Assert.Contains("Method1~abcdef1234", markout);
         Assert.Contains("il.operation.added: 1", markout);
+        Assert.Contains("IL display:", markout);
+        Assert.Contains("- il.operation.removed: h0 - IL_0000 ldc.i4 1", markout);
+        Assert.Contains("IL diff:", markout);
+        Assert.Contains("- h0 + IL_0000 ldc.i4 2", markout);
         Assert.Contains("      il-display:", report);
         Assert.Contains("        il.operation.removed: h0 - IL_0000 ldc.i4 1", report);
         Assert.Contains("        il.operation.added: h0 + IL_0000 ldc.i4 2", report);
