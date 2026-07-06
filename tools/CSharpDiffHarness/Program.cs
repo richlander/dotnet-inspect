@@ -471,7 +471,7 @@ static CSharpDiffCardMarkdownView BuildMarkdownView(ImmutableArray<CSharpDiffPai
         TopChangeIds = MarkdownBucketRows(card.TopChangeIds) ?? [],
         TopOperationKinds = MarkdownBucketRows(card.TopOperationKinds) ?? [],
         PairSummaries = [.. pairs.Select(pair => PairSummaryRow(pair))],
-        BaselineComparison = comparison is null ? null : BaselineRows(comparison) ?? [],
+        BaselineFindings = comparison is null ? null : BaselineRows(comparison) ?? [],
         Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleMarkdownRow)],
     };
 }
@@ -488,7 +488,7 @@ static CSharpDiffCardTableView BuildTableView(ImmutableArray<CSharpDiffPairCard>
         TopChangeIds = SectionedBucketRows("Top change IDs", card.TopChangeIds),
         TopOperationKinds = SectionedBucketRows("Top operation kinds", card.TopOperationKinds),
         PairSummaries = [.. pairs.Select(pair => SectionedPairSummaryRow(pair))],
-        BaselineComparison = comparison is null ? null : SectionedBaselineRows(comparison),
+        BaselineFindings = comparison is null ? null : SectionedBaselineRows(comparison),
         Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleTableRow)],
     };
 }
@@ -616,7 +616,7 @@ static List<BaselineFindingView>? BaselineRows(BaselineComparison comparison)
 static List<BaselineSectionFindingView>? SectionedBaselineRows(BaselineComparison comparison)
     => comparison.Rows.IsDefaultOrEmpty
         ? null
-        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline comparison", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
+        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline findings", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
 
 static CSharpDiffPairSummaryRow PairSummaryRow(CSharpDiffPairCard pair)
     => new(
@@ -789,8 +789,8 @@ sealed class CSharpDiffCardMarkdownView
     [MarkoutSection(Name = "Pair summaries")]
     public List<CSharpDiffPairSummaryRow>? PairSummaries { get; init; }
 
-    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
-    public List<BaselineFindingView>? BaselineComparison { get; init; }
+    [MarkoutSection(Name = "Baseline findings", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineFindingView>? BaselineFindings { get; init; }
 
     [MarkoutSection(Name = "Examples")]
     public List<CSharpDiffExampleMarkdownView>? Examples { get; init; }
@@ -824,8 +824,8 @@ sealed class CSharpDiffCardTableView
     [MarkoutSection(Name = "Pair summaries")]
     public List<CSharpDiffSectionPairSummaryRow>? PairSummaries { get; init; }
 
-    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
-    public List<BaselineSectionFindingView>? BaselineComparison { get; init; }
+    [MarkoutSection(Name = "Baseline findings", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineSectionFindingView>? BaselineFindings { get; init; }
 
     [MarkoutSection(Name = "Examples")]
     public List<CSharpDiffExampleTableRow>? Examples { get; init; }
