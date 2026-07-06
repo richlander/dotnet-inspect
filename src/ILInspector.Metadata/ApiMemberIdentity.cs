@@ -285,8 +285,9 @@ public static class ApiMemberIdentity
         var canonical = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
         // Conversion operators overload on return type, so the parameter list alone
         // is an ambiguous identity (every System.Decimal.op_Explicit(Decimal) collides).
-        // Append the return type using the DocId "~ReturnType" convention, matching
-        // TryGetXmlDocMemberIdentity, so each conversion gets a distinct anchor.
+        // Append a product-owned return-type suffix. It intentionally uses the
+        // same "~ReturnType" delimiter as XML doc identity so conversion anchors
+        // and XML lookups do not grow divergent spellings for the same fact.
         if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType))
             canonical += $"~{NormalizeCanonicalCommas(signature.ReturnType!)}";
         canonicalSignature = canonical;

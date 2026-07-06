@@ -40,10 +40,14 @@ Member identity has two related vocabularies:
 
 Conversion operators are a special API-identity case: C# overloads
 `op_Implicit`, `op_Explicit`, and `op_CheckedExplicit` by return type. Their
-API canonical signatures therefore include the DocId-style return suffix
+API canonical signatures therefore include a product-owned return-type suffix
 `~ReturnType`, for example
 `M:System.Decimal.op_Explicit(System.Decimal)~int`. Without the suffix, all
-conversions with the same source parameter collapse to one anchor digest.
+conversions with the same source parameter collapse to one anchor digest. The
+suffix deliberately uses the same delimiter shape as XML documentation member
+identity so XML lookup and API anchors do not invent divergent spellings for the
+same return-type disambiguator; XML documentation is precedent, not the owning
+authority for the API identity grammar.
 
 ## Boundaries
 
