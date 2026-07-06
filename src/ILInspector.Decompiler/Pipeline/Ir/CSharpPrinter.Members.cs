@@ -79,7 +79,7 @@ public sealed partial class CSharpPrinter
     }
 
     static bool IsCoreObjectOrValueType(TypeRef type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" or "ValueType" };
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" or "ValueType" or "Enum" };
 
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {

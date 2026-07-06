@@ -335,6 +335,29 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerInheritedEnumMethod_RendersArrowAndRecompiles()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "LadderRung6", "E", ValueTypeHint.ValueType);
+        var enumPointer = TypeRef.Pointer(enumType);
+        var toString = new MethodRef(TypeRef.CoreLib("System", "Enum"), "ToString", String, [], HasThis: true);
+        var body = CSharpPrinter.Print(Function(
+            "PointerEnumToString",
+            String,
+            [new Parameter("p", enumPointer)],
+            [],
+            new Return(new Call(toString, isVirtual: true, [new LoadArgument(0, "p", enumPointer)])))).Output!;
+
+        Assert.Contains("return p->ToString();", body);
+        Assert.DoesNotContain("p.ToString()", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe string M(E* p)",
+                body,
+                "public enum E { A }"),
+            body);
+    }
+
+    [Fact]
     public void Rung6PointerRefExtensionMethod_RendersArrowAndRecompiles()
     {
         var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
