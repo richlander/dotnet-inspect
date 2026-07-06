@@ -2042,7 +2042,8 @@ public static class CompileBackSourceComposer
             try
             {
                 var signature = method.DecodeSignature(TypeRefDecoder.Instance, IrImporter.CallerScope(reader, typeDef, method));
-                return signature.ParameterTypes.Length == methodRef.ParameterTypes.Length;
+                return signature.ParameterTypes.Length == methodRef.ParameterTypes.Length
+                    && signature.ParameterTypes.SequenceEqual(methodRef.ParameterTypes);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -2122,12 +2123,12 @@ public static class CompileBackSourceComposer
         {
             var method = reader.GetMethodDefinition(methodHandle);
             string name = reader.GetString(method.Name);
+            bool isConstructor = name == ".ctor";
             if (name == ".cctor"
                 || name.Contains('<', StringComparison.Ordinal)
-                || name.Contains('.', StringComparison.Ordinal))
+                || (!isConstructor && name.Contains('.', StringComparison.Ordinal)))
                 return null;
 
-            bool isConstructor = name == ".ctor";
             if (!isConstructor && method.Attributes.HasFlag(MethodAttributes.SpecialName))
                 return null;
 
