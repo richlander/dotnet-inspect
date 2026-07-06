@@ -7,6 +7,9 @@ joined against real allocation traces.
 
 Related docs:
 
+- [Dynamic Leak-Watch](dynamic-leak-watch.md) — the dynamic retention axis that
+  complements this static cost-shape side (managed leak vs churn storm vs
+  native/committed growth).
 - [Graph signal annotations](graph-signal-annotations.md) — the signal/leverage
   triage axes allocation rows plug into
 - [Hidden-fact annotations](hidden-fact-annotations.md) — the per-method
