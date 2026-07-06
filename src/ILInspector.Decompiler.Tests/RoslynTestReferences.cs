@@ -17,10 +17,13 @@ static class RoslynTestReferences
     static readonly Lazy<ImmutableArray<MetadataReference>> s_trustedPlatform = new(() =>
     {
         var builder = ImmutableArray.CreateBuilder<MetadataReference>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (string path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!seen.Add(path))
                 continue;
             try { builder.Add(MetadataReference.CreateFromFile(path)); }
             catch { }
