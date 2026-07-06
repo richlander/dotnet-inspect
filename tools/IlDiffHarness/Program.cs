@@ -709,7 +709,7 @@ static List<BaselineFindingView>? BaselineRows(BaselineComparison comparison)
 static List<BaselineSectionFindingView>? SectionedBaselineRows(BaselineComparison comparison)
     => comparison.Rows.IsDefaultOrEmpty
         ? null
-        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline comparison", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
+        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline findings", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
 
 static string DisplayPath(string path)
 {
