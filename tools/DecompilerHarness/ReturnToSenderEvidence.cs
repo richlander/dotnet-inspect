@@ -151,14 +151,7 @@ internal static class ReturnToSenderEvidence
     static ResearchSubjectKey SubjectKey(ReturnToSenderEvidenceRow row)
     {
         if (row.Anchor is { } anchor)
-        {
-            return new ResearchSubjectKey(
-                ResearchDiffSubjectKind.Member,
-                anchor.StableSelector,
-                $"{anchor.TypeFullName}.{anchor.MemberName}",
-                anchor.TypeFullName,
-                anchor.MemberName);
-        }
+            return ResearchMemberIdentity.SubjectFromAnchor(anchor, $"{anchor.TypeFullName}.{anchor.MemberName}");
 
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
