@@ -163,6 +163,42 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerFieldAccess_RendersArrowAndRecompiles()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var fieldX = new FieldRef(point, "X", Int32);
+        var fieldY = new FieldRef(point, "Y", Int32);
+        var p = new LoadArgument(0, "p", pointPointer);
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerField",
+            Int32,
+            [new Parameter("p", pointPointer)],
+            [],
+            new StoreField(
+                fieldX,
+                p,
+                new Binary(
+                    BinaryKind.Add,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadField(fieldX, (IrExpression)p.Clone()),
+                    new LoadField(fieldY, (IrExpression)p.Clone()))),
+            new Return(new LoadField(fieldX, (IrExpression)p.Clone())))).Output!;
+
+        Assert.Contains("p->X += p->Y;", body);
+        Assert.Contains("return p->X;", body);
+        Assert.DoesNotContain("p.X", body);
+        Assert.DoesNotContain("p.Y", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(Point* p)",
+                body,
+                "public struct Point { public int X; public int Y; }"),
+            body);
+    }
+
+    [Fact]
     public void Rung6ByRefFixture_PreservesRefKinds()
     {
         using var pe = new PEReader(File.OpenRead(ByRefFixturePath));
@@ -263,12 +299,20 @@ public class LadderRung6GateTests
         string methodHeader,
         string body,
         params MetadataReference[] extraReferences)
+        => RecompileNewRules(methodHeader, body, "", extraReferences);
+
+    static ImmutableArray<Diagnostic> RecompileNewRules(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        params MetadataReference[] extraReferences)
     {
         string source = $$"""
             using System;
             using ILInspector.Decompiler.Fixtures.NewUnsafe;
             using System.Runtime.CompilerServices;
             using System.Runtime.InteropServices;
+            {{extraDeclarations}}
             static class __Gate
             {
                 {{methodHeader}}
