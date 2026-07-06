@@ -392,16 +392,17 @@ public sealed partial class CSharpPrinter
             && IsIntegerConstantExpression(binary)
             && IsUnsignedFixedWidthInteger(EffectiveType(binary))
             && !mixedSign;
+        var demand = CSharpPrecedence.Of(binary);
         string left = mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
             : castLeft ? UnsignedOperand(binary.Left)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Left, EffectiveType(binary))
-            : Operand(binary.Left);
+            : BinaryOperand(binary.Left, demand, rightSide: false);
         bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         string right = isShift ? ShiftCount(binary)
             : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !covered)
             : castBoth ? UnsignedOperand(binary.Right)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Right, EffectiveType(binary))
-            : Operand(binary.Right);
+            : BinaryOperand(binary.Right, demand, rightSide: true);
         string text = $"{left} {BinaryOperator(binary)} {right}";
         // add.ovf/sub.ovf/mul.ovf (and their .un forms) carry an overflow check
         // the default (unchecked) C# context would drop — spell it explicitly so
@@ -411,6 +412,19 @@ public sealed partial class CSharpPrinter
             return $"checked({text})";
         return uncheckedConstant || uncheckedOverflow ? $"unchecked({text})" : text;
     }
+
+    string BinaryOperand(IrExpression operand, Precedence parentPrecedence, bool rightSide)
+    {
+        // Binary operators are left-associative in C#. The right operand is the
+        // hazard side for equal-precedence children (`a - (b - c)`, `a << (b << c)`),
+        // so demand the next-tighter level there. The left side can associate
+        // bare at equal precedence (`(a - b) - c`).
+        var demand = rightSide ? TighterThan(parentPrecedence) : parentPrecedence;
+        return RenderedExpression(operand).At(demand);
+    }
+
+    static Precedence TighterThan(Precedence precedence)
+        => precedence == Precedence.Primary ? Precedence.Primary : (Precedence)((int)precedence + 1);
 
     string? EnumArithmeticText(Binary binary)
     {

@@ -93,7 +93,7 @@ public class LambdaRaisingPassTests
 
     [Fact]
     public void MultipleCaptures_AllSubstitutedIntoRaisedBody()
-        => Assert.Equal("return x => (x + a) - b;", PrintRaised(nameof(CfgSampleClass.TwoCaptureLambda)));
+        => Assert.Equal("return x => x + a - b;", PrintRaised(nameof(CfgSampleClass.TwoCaptureLambda)));
 
     [Fact]
     public void LocalBearingBody_RaisesBlockLambdaWithNestedLocalScope()

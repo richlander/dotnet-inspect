@@ -200,6 +200,44 @@ public class PrinterPrecedenceTests
         Assert.DoesNotContain("return (E)-1;", output);
     }
 
+    [Fact]
+    public void BinaryOperand_TighterLeftChild_RendersBare()
+    {
+        var multiply = new Binary(BinaryKind.Multiply, false, false,
+            new LoadArgument(0, "a", s_int),
+            new LoadArgument(1, "b", s_int));
+        var add = new Binary(BinaryKind.Add, false, false,
+            multiply,
+            new LoadArgument(2, "c", s_int));
+
+        var output = PrintReturn(
+            add,
+            s_int,
+            [new Parameter("a", s_int), new Parameter("b", s_int), new Parameter("c", s_int)]);
+
+        Assert.Contains("return a * b + c;", output);
+        Assert.DoesNotContain("(a * b) + c", output);
+    }
+
+    [Fact]
+    public void BinaryOperand_RightEqualPrecedenceChild_StaysParenthesized()
+    {
+        var nested = new Binary(BinaryKind.Subtract, false, false,
+            new LoadArgument(1, "b", s_int),
+            new LoadArgument(2, "c", s_int));
+        var subtract = new Binary(BinaryKind.Subtract, false, false,
+            new LoadArgument(0, "a", s_int),
+            nested);
+
+        var output = PrintReturn(
+            subtract,
+            s_int,
+            [new Parameter("a", s_int), new Parameter("b", s_int), new Parameter("c", s_int)]);
+
+        Assert.Contains("return a - (b - c);", output);
+        Assert.DoesNotContain("return a - b - c;", output);
+    }
+
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
     {
         var block = new Block();

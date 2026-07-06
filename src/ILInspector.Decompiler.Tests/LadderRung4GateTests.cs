@@ -96,7 +96,7 @@ public class LadderRung4GateTests
         var recursiveLocal = Body("RecursiveLocalFunction");
         Assert.Contains("return Fact(value);", recursiveLocal);
         Assert.Contains("static int Fact(int n)", recursiveLocal);
-        Assert.Contains("return n * (Fact(n - 1));", recursiveLocal);
+        Assert.Contains("return n * Fact(n - 1);", recursiveLocal);
         Assert.DoesNotContain("CSharp7LocalSyntax.Fact", recursiveLocal);
         Assert.DoesNotContain("g__", recursiveLocal);
 

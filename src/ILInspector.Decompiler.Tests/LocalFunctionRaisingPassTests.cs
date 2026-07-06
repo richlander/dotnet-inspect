@@ -89,7 +89,7 @@ public class LocalFunctionRaisingPassTests
 
         Assert.Contains("return Fact(n);", output);
         Assert.Contains("static int Fact(int v)", output);
-        Assert.Contains("return v * (Fact(v - 1));", output);
+        Assert.Contains("return v * Fact(v - 1);", output);
         Assert.DoesNotContain("CfgSampleClass.Fact", output);
         Assert.DoesNotContain("g__", output);
     }

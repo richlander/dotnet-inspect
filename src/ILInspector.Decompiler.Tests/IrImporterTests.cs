@@ -2529,7 +2529,7 @@ public class RaisingPassTests
         Assert.Equal(1, output.Split("RecordIndex()", StringSplitOptions.None).Length - 1);
         Assert.Contains("ref int", output);
         Assert.Contains("= ref a[CfgSampleClass.RecordIndex()];", output);
-        Assert.Contains(") + v;", output);
+        Assert.Contains("+ v;", output);
     }
 
     [Fact]

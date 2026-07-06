@@ -54,7 +54,7 @@ public class CheckedUncheckedInsertTests
     [Fact]
     public void CheckedAdd_DivUnChild_WrapsSynthesizedCasts()
         => Assert.Equal(
-            "return checked(a + (unchecked((uint)b) / unchecked((uint)c)));",
+            "return checked(a + unchecked((uint)b) / unchecked((uint)c));",
             Render(Checked(BinaryKind.Add, A, Unsigned(BinaryKind.Divide, B, C))));
 
     // Paren safety: when the div.un sub-expression is an operand of an op of equal
@@ -144,12 +144,11 @@ public class CheckedUncheckedInsertTests
             Render(CheckedConvert(s_short, Plain(BinaryKind.Add, A, B))));
 
     // Positive canary: an implicit widening conversion (int -> long) never flips to
-    // conv.ovf inside checked, so it is left bare — no unchecked wrapper (the cast's
-    // usual operand parens are unchanged by #1425).
+    // conv.ovf inside checked, so it is left bare — no unchecked wrapper.
     [Fact]
     public void CheckedAdd_PlainWideningConvertChild_StaysBare()
         => Assert.Equal(
-            "return checked(d + ((long)a));",
+            "return checked(d + (long)a);",
             Render(Checked(BinaryKind.Add, D, PlainConvert(s_long, A))));
 
     // Positive canary: an all-checked expression keeps a single outer wrapper and
@@ -157,7 +156,7 @@ public class CheckedUncheckedInsertTests
     [Fact]
     public void CheckedAdd_AllCheckedChildren_SingleWrapperNoUnchecked()
         => Assert.Equal(
-            "return checked(a + (b * c));",
+            "return checked(a + b * c);",
             Render(Checked(BinaryKind.Add, A, Checked(BinaryKind.Multiply, B, C))));
 
     // Positive canary: a plain add with no enclosing checked context is untouched.
@@ -167,11 +166,10 @@ public class CheckedUncheckedInsertTests
             "return a + b;",
             Render(Plain(BinaryKind.Add, A, B)));
 
-    // Positive canary: nested checked-in-checked still collapses to a single
-    // wrapper (the inner add keeps its usual operand parens, unchanged by #1425).
+    // Positive canary: nested checked-in-checked still collapses to a single wrapper.
     [Fact]
     public void CheckedAdd_NestedCheckedChild_CollapsesToSingleWrapper()
         => Assert.Equal(
-            "return checked((a + b) + c);",
+            "return checked(a + b + c);",
             Render(Checked(BinaryKind.Add, Checked(BinaryKind.Add, A, B), C)));
 }
