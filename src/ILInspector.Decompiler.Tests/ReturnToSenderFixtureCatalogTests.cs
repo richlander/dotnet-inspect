@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Reflection;
 
 using DotnetInspector.Fixtures;
 using ILInspector.DecompilerHarness;
@@ -135,6 +136,38 @@ public class ReturnToSenderFixtureCatalogTests
         {
             Directory.Delete(fixture.Directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteDoesNotRewriteStringLiterals()
+    {
+        var decision = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Math",
+            "test decision");
+
+        Assert.False(TryKnownTasteDifferenceForTest(
+            """var text = "System.Math";""",
+            """var text = "Math";""",
+            [decision],
+            out _));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteDoesNotRewritePrefixCollisions()
+    {
+        var decision = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Console",
+            "test decision");
+
+        Assert.False(TryKnownTasteDifferenceForTest(
+            "System.ConsoleColor value;",
+            "ConsoleColor value;",
+            [decision],
+            out _));
     }
 
     [Fact]
@@ -632,6 +665,22 @@ public class ReturnToSenderFixtureCatalogTests
         var emit = compilation.Emit(assemblyPath);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return (directory, assemblyPath, sourcePaths);
+    }
+
+    static bool TryKnownTasteDifferenceForTest(
+        string expected,
+        string actual,
+        IReadOnlyList<DecompilerDecision> decisions,
+        out string? detail)
+    {
+        var method = typeof(ReturnToSenderSourceProbe).GetMethod(
+            "TryKnownTasteDifference",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        object?[] args = [expected, actual, decisions, null];
+        bool result = (bool)method.Invoke(null, args)!;
+        detail = (string?)args[3];
+        return result;
     }
 
     static string? Normalize(string? text)
