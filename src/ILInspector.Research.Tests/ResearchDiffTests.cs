@@ -28,6 +28,45 @@ public class ResearchDiffTests
         Assert.Equal(anchor.MemberName, subject.MemberName);
     }
 
+    [Theory]
+    [InlineData(".ctor", false)]
+    [InlineData("op_Addition", false)]
+    [InlineData("Twice", true)]
+    [InlineData("IFoo.Bar", false)]
+    [InlineData("M", false)]
+    public void ResearchMemberIdentity_SubjectFromMethod_UsesMetadataSelectorPolicy(string methodName, bool isExtension)
+    {
+        var method = new MethodIdentity(
+            "Asm",
+            Guid.Empty,
+            TypeRef.Definition("Asm", "Sample", "Widget"),
+            methodName,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MetadataToken: 0x06000001,
+            IsStatic: true,
+            IsExtension: isExtension);
+
+        var subject = ResearchMemberIdentity.SubjectFromMethod(method);
+
+        Assert.StartsWith($"{ApiMemberIdentity.GetMemberSelectorName(methodName, isExtension)}~", subject.Id, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(".ctor", false)]
+    [InlineData("op_Addition", false)]
+    [InlineData("Twice", true)]
+    [InlineData("IFoo.Bar", false)]
+    [InlineData("M", false)]
+    public void ResearchMemberIdentity_SelectorForMetadataName_DelegatesToMetadataPolicy(string methodName, bool isExtension)
+    {
+#pragma warning disable CS0618
+        var selector = ResearchMemberIdentity.SelectorForMetadataName(methodName, isExtension);
+#pragma warning restore CS0618
+
+        Assert.Equal(ApiMemberIdentity.GetMemberSelectorName(methodName, isExtension), selector);
+    }
+
     [Fact]
     public void MetadataApiDiff_DefaultScope_IgnoresAttributeOnlyChanges()
     {
