@@ -334,24 +334,28 @@ public class LeakWatchTests
     [Fact]
     public void CountersCsv_DropsTruncatedFinalBlockWithoutHeapRows()
     {
-        // GPT + Gemini: a Ctrl+C capture leaves the final timestamp block with a
-        // working-set row but no heap-generation rows. That block must be dropped, not
-        // emitted with a live heap of 0 (which would invert the steady-state verdict).
+        // GPT + Gemini: a Ctrl+C capture tears the final timestamp block — before any
+        // heap row, OR mid-heap (some generations flushed, others not). Either way the
+        // block must be dropped, not emitted with a live heap computed from a subset of
+        // generations (which would erase whole generations and invert the verdict).
         var csv = new[]
         {
             "Timestamp,Provider,Counter Name,Counter Type,Mean/Increment",
             "2026-01-01T00:00:00Z,System.Runtime,dotnet.process.memory.working_set (By),Metric,1000000000",
             "2026-01-01T00:00:00Z,System.Runtime,dotnet.gc.last_collection.heap.size (By)[gc.heap.generation=gen2],Metric,900000000",
+            "2026-01-01T00:00:00Z,System.Runtime,dotnet.gc.last_collection.heap.size (By)[gc.heap.generation=loh],Metric,50000000",
             "2026-01-01T00:00:02Z,System.Runtime,dotnet.process.memory.working_set (By),Metric,1100000000",
             "2026-01-01T00:00:02Z,System.Runtime,dotnet.gc.last_collection.heap.size (By)[gc.heap.generation=gen2],Metric,1000000000",
-            // Truncated final block: working set only, no heap rows.
+            "2026-01-01T00:00:02Z,System.Runtime,dotnet.gc.last_collection.heap.size (By)[gc.heap.generation=loh],Metric,50000000",
+            // Torn final block: working set + loh present, gen2 truncated by EOF.
             "2026-01-01T00:00:04Z,System.Runtime,dotnet.process.memory.working_set (By),Metric,1200000000",
+            "2026-01-01T00:00:04Z,System.Runtime,dotnet.gc.last_collection.heap.size (By)[gc.heap.generation=loh],Metric,50000000",
         };
 
         var samples = LeakWatchCountersCsv.Parse(csv);
 
         Assert.Equal(2, samples.Count);
-        Assert.All(samples, s => Assert.True(s.LiveHeap > 0));
+        Assert.All(samples, s => Assert.True(s.LiveHeap > 500_000_000));
     }
 
     [Fact]
@@ -365,6 +369,7 @@ public class LeakWatchTests
             "07/06/2026 12:45:38,System.Runtime,dotnet.process.memory.working_set (By),Metric,8000000000",
             "07/06/2026 12:45:38,System.Runtime,dotnet.gc.heap.total_allocated (By / 2 sec),Metric,1000000000",
             "07/06/2026 12:45:40,System.Runtime,dotnet.gc.last_collection.heap.size (By)[gc.heap.generation=gen2],Metric,3200000000",
+            "07/06/2026 12:45:40,System.Runtime,dotnet.gc.last_collection.heap.size (By)[gc.heap.generation=loh],Metric,500000000",
             "07/06/2026 12:45:40,System.Runtime,dotnet.process.memory.working_set (By),Metric,9000000000",
         };
 

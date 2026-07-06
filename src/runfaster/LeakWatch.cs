@@ -274,6 +274,22 @@ static class LeakWatchCountersCsv
             map[name] = value;
         }
 
+        // The complete heap-generation key set = the richest block's set. dotnet-counters
+        // emits each generation (gen0/gen1/gen2/loh/poh) as a SEPARATE CSV row, and the
+        // exact set varies by runtime version (poh did not exist before .NET 5). A
+        // Ctrl+C capture can tear a block anywhere — before all heap rows, or in the
+        // middle of them — so validating by "any heap row present" or a fixed generation
+        // list is unsafe. Deriving the reference set from the data lets us drop any block
+        // (terminal or mid-stream) whose generation set is incomplete, while keeping a
+        // complete final block (which the last-sample steady-state model depends on).
+        var referenceGens = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var ts in order)
+        {
+            var gens = HeapGenKeys(byTimestamp[ts]);
+            if (gens.Count > referenceGens.Count)
+                referenceGens = gens;
+        }
+
         var samples = new List<LeakWatchSample>(order.Count);
         double? firstSeconds = null;
         DateTime? firstTime = null;
@@ -283,12 +299,11 @@ static class LeakWatchCountersCsv
             // A sample must carry a working-set reading to be meaningful.
             if (!map.TryGetValue(WorkingSet, out double ws))
                 continue;
-            // ...and a live-heap reading. dotnet-counters flushes a timestamp block's
-            // rows sequentially, so an abruptly-terminated capture (Ctrl+C) commonly
-            // leaves the final block with a working-set row but no heap-generation rows.
-            // Emitting that truncated block would read the live heap as 0 and invert the
-            // steady-state verdict, so drop any block without heap data.
-            if (!HasHeapReading(map))
+            // ...and a COMPLETE live-heap reading. A block missing any of the reference
+            // generation rows (a torn Ctrl+C capture) would compute the live heap from a
+            // subset — erasing whole generations — and invert the steady-state verdict,
+            // so drop any block whose generation set is not complete.
+            if (referenceGens.Count == 0 || !referenceGens.IsSubsetOf(HeapGenKeys(map)))
                 continue;
 
             long liveHeap = (long)(
@@ -324,16 +339,17 @@ static class LeakWatchCountersCsv
     static double Gen(Dictionary<string, double> map, string gen)
         => Get(map, $"dotnet.gc.last_collection.heap.size (By)[gc.heap.generation={gen}]");
 
-    // A timestamp block is complete enough to trust as a steady-state anchor only if it
-    // carries at least one live-heap generation reading.
-    static bool HasHeapReading(Dictionary<string, double> map)
+    // The heap-generation keys present in a timestamp block. dotnet-counters emits each
+    // generation as a separate row; a complete block carries the full set.
+    static HashSet<string> HeapGenKeys(Dictionary<string, double> map)
     {
+        var gens = new HashSet<string>(StringComparer.Ordinal);
         foreach (var k in map.Keys)
         {
             if (k.StartsWith("dotnet.gc.last_collection.heap.size", StringComparison.Ordinal))
-                return true;
+                gens.Add(k);
         }
-        return false;
+        return gens;
     }
 
     static double Get(Dictionary<string, double> map, string name)
