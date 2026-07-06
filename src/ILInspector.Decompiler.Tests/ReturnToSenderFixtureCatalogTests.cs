@@ -243,6 +243,38 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesOpenGenericNestedFrameworkType()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public System.Type M()
+                    => typeof(System.Collections.Generic.List<>.Enumerator);
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+            Assert.Equal("valid_different.known_taste", result.Reason);
+            Assert.Contains("System.Collections.Generic.List", result.Detail);
+            Assert.Equal("returntypeof(System.Collections.Generic.List<>.Enumerator);", Normalize(result.ExpectedBody));
+            Assert.Equal("returntypeof(List<>.Enumerator);", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_KnownTasteUsesMostSpecificNestedFrameworkType()
     {
         var environment = new DecompilerDecision(

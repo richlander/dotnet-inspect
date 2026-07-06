@@ -3517,8 +3517,7 @@ public sealed partial class CSharpPrinter
             return;
         if (HasGenericEnclosingSegment(definition.Name))
         {
-            if (type.Kind == TypeRefKind.GenericInstance)
-                RecordNestedGenericEnclosingImportDecisions(definition, rendered);
+            RecordNestedGenericEnclosingImportDecisions(definition, rendered);
             return;
         }
 
