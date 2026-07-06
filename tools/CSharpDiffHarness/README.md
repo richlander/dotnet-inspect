@@ -51,8 +51,8 @@ other metric and bucket changes as non-failing drift. Baseline output uses
 Markout metric-change rows for scalar metrics (`Metric | Change | Target` in
 Markdown, with goal markers and inline status where a target applies) and
 goal-aware segment-change rows for failure buckets. Change IDs and operation
-kinds remain context bucket rows. JSONL preserves typed baseline/current fields,
-direction/status, and segment values.
+kinds remain context bucket rows. JSONL preserves decomposed typed
+`change_before_*` / `change_after_*` segment fields plus direction/status.
 
 `tools/CSharpDiffHarness/corpus/diff-fixtures-baseline.json` is the pinned
 baseline for the CI `csharp-diff-smoke` job over `DiffFixtures.V1` /
