@@ -189,7 +189,7 @@ try
     Console.Write(FormatCard(cards, maxExamples, outputFormat, comparison));
     return comparison?.HasRegressions == true ? 1 : 0;
 }
-catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or BadImageFormatException or JsonException)
+catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException or UnauthorizedAccessException or BadImageFormatException or JsonException)
 {
     Console.Error.WriteLine(ex.Message);
     return 2;
@@ -629,7 +629,7 @@ static string DisplayPath(string path)
         : relative;
 }
 
-static string SnapshotPath(string path) => Path.GetFullPath(path);
+static string SnapshotPath(string path) => DisplayPath(path);
 
 static string PathLabel(string path, bool snapshotPath)
     => snapshotPath ? SnapshotPath(path) : DisplayPath(path);
