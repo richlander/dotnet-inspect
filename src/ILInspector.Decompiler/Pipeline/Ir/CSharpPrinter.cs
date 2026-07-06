@@ -2774,12 +2774,15 @@ public sealed partial class CSharpPrinter
     string CompoundStatement(string target, Binary binary, TypeRef? targetType = null)
     {
         if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
-            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract
-            && TryScaledPointerIndex(binary.Right, pointerElement, out var pointerIndex))
+            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract)
         {
-            if (pointerIndex is Constant { Value: 1 })
-                return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-            return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
+            if (TryScaledPointerIndex(binary.Right, pointerElement, out var pointerIndex))
+            {
+                if (pointerIndex is Constant { Value: 1 })
+                    return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+                return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
+            }
+            return $"{target} = {CoerceText(binary, targetType)};";
         }
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
             return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";

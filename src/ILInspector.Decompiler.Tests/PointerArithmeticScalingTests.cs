@@ -145,9 +145,35 @@ public class PointerArithmeticScalingTests
             new Parameter("a", IntPointer),
             new Parameter("b", IntPointer)));
 
-        Assert.Contains("return (long)(a - b);", output);
+        Assert.Contains("return (long)((a - b));", output);
         Assert.DoesNotContain("byte*", output);
         Assert.DoesNotContain("(a - b) / 4", output);
+    }
+
+    [Fact]
+    public void PointerDifferenceCanonicalization_ParenthesizesInMultiplicativeParent()
+    {
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", IntPointer),
+            new LoadArgument(1, "b", IntPointer));
+        var scaled = new Binary(BinaryKind.Divide, isChecked: false, isUnsigned: false, difference, new Constant(4, Int32));
+        var multiply = new Binary(
+            BinaryKind.Multiply,
+            isChecked: false,
+            isUnsigned: false,
+            new Constant(2L, Int64),
+            new Convert(Int64, isChecked: false, isUnsigned: false, scaled));
+        var output = Print(ReturnFunction(
+            Int64,
+            multiply,
+            new Parameter("a", IntPointer),
+            new Parameter("b", IntPointer)));
+
+        Assert.Contains("return 2 * (long)((a - b));", output);
+        Assert.DoesNotContain("return 2 * (long)(a - b);", output);
     }
 
     [Fact]

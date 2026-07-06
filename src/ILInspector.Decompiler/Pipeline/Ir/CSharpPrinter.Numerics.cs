@@ -150,7 +150,7 @@ public sealed partial class CSharpPrinter
             return false;
         }
 
-        text = $"{Operand(difference.Left)} - {Operand(difference.Right)}";
+        text = $"({Operand(difference.Left)} - {Operand(difference.Right)})";
         return true;
     }
 
