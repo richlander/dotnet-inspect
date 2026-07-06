@@ -2180,6 +2180,18 @@ public sealed partial class CSharpPrinter
             // would be `bool == int` (CS0019), so it is its own truth value (#2377).
             || (operand is LoadStackSlot load && TypeFamilies.IsBoolean(StackSlotRenderType(load.Slot, load.Type)));
 
+    Rendered RenderedExpression(IrExpression node)
+    {
+        string text = Expression(node);
+        if (node is Call call && OperatorCallPrecedence(call) is { } operatorPrecedence)
+            return new Rendered(text, operatorPrecedence);
+        if (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("))
+            return Rendered.Primary(text);
+        if (node is Coerce && IsSimpleAtomText(text))
+            return Rendered.Primary(text);
+        return new Rendered(text, CSharpPrecedence.Of(node));
+    }
+
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)
     {
@@ -2822,6 +2834,37 @@ public sealed partial class CSharpPrinter
         _ => false,
     };
 
+    static Precedence? OperatorCallPrecedence(Call call)
+    {
+        var arguments = call.Arguments;
+        string name = call.Callee.Name;
+        if (name.StartsWith("op_Checked", StringComparison.Ordinal))
+            name = "op_" + name["op_Checked".Length..];
+
+        return arguments.Count switch
+        {
+            2 => name switch
+            {
+                "op_Equality" or "op_Inequality" => Precedence.Equality,
+                "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" => Precedence.Relational,
+                "op_Addition" or "op_Subtraction" => Precedence.Additive,
+                "op_Multiply" or "op_Division" or "op_Modulus" => Precedence.Multiplicative,
+                "op_BitwiseAnd" => Precedence.BitwiseAnd,
+                "op_BitwiseOr" => Precedence.BitwiseOr,
+                "op_ExclusiveOr" => Precedence.BitwiseXor,
+                "op_LeftShift" or "op_RightShift" or "op_UnsignedRightShift" => Precedence.Shift,
+                _ => null,
+            },
+            1 => name switch
+            {
+                "op_UnaryNegation" or "op_UnaryPlus" or "op_LogicalNot" or "op_OnesComplement"
+                    or "op_Implicit" or "op_Explicit" => Precedence.Unary,
+                _ => null,
+            },
+            _ => null,
+        };
+    }
+
     /// <summary>
     /// True when <paramref name="type"/> is a value type, so an <c>isinst</c>
     /// type-test must spell <c>obj is T</c> — <c>obj as T</c> is CS0077 on a
@@ -2894,10 +2937,8 @@ public sealed partial class CSharpPrinter
 
     string ConversionOperatorSpelling(TypeRef target, IrExpression value)
     {
-        string operand = OperatorOperand(value);
         string targetText = TypeText(target);
-        if (NeedsCastOperandParentheses(operand, targetText))
-            operand = $"({operand})";
+        string operand = CastOperand(OperatorOperand(value), targetText);
         return $"({targetText}){operand}";
     }
 
@@ -3223,19 +3264,21 @@ public sealed partial class CSharpPrinter
             && TypeFamilies.WideningZeroExtendSibling(EffectiveType(convert.Operand), convert.Target) is { } zeroExtendWiden)
             operand = $"({TypeText(zeroExtendWiden)}){operand}";
         string targetText = TypeText(convert.Target);
-        // A cast whose operand begins with a unary `-`/`+` is parsed as binary
-        // subtraction/addition (CS0075) unless the target spelling is a predefined
-        // keyword type the parser treats as cast-disambiguating. `nint`/`nuint`
-        // are contextual keywords and named types are not, so `(nint)-1` misparses
-        // — wrap the operand: `(nint)(-1)`. The parens are opcode-identical.
-        if (NeedsCastOperandParentheses(operand, targetText))
-            operand = $"({operand})";
+        operand = CastOperand(operand, targetText);
         string cast = $"({targetText}){operand}";
         if (wrap)
             return $"checked({cast})";
         return uncheckedOverflow ? $"unchecked({cast})" : cast;
     }
 
+    static string CastOperand(string operand, string targetText)
+        => NeedsCastOperandParentheses(operand, targetText) ? $"({operand})" : operand;
+
+    // A cast whose operand begins with a unary `-`/`+` is parsed as binary
+    // subtraction/addition (CS0075) unless the target spelling is a predefined
+    // keyword type the parser treats as cast-disambiguating. `nint`/`nuint`
+    // are contextual keywords and named types are not, so `(nint)-1` misparses
+    // — wrap the operand: `(nint)(-1)`. The parens are opcode-identical.
     static bool NeedsCastOperandParentheses(string operand, string targetText)
         => operand.Length > 0
             && operand[0] is '-' or '+'
