@@ -32,14 +32,16 @@ project or create one shared fixture project for that area.
 ## Catalog metadata
 
 `FixtureDefinition.Boundaries` records the semantic axes that make a fixture's
-build or assembly shape meaningful. Tags remain useful for selection and groups;
-boundaries explain why a fixture cannot be mechanically merged or why a consumer
-must preserve a specific binary shape.
+separate project, build, or assembly shape meaningful. Tags remain useful for
+selection and groups; boundaries explain why a fixture cannot be mechanically
+merged or why a consumer must preserve a specific binary shape.
 
-Every intentionally single-fixture project should have at least one boundary
-entry. Consolidated buckets, such as `ILInspector.Analysis.Fixtures` and
-`ILInspector.Decompiler.Fixtures.Ladder`, can contain multiple fixture IDs when
-their source-level subjects do not require distinct project boundaries.
+Every project that is not an intentional consolidated source bucket should have
+boundary metadata. Consolidated buckets, such as
+`ILInspector.Analysis.Fixtures` and `ILInspector.Decompiler.Fixtures.Ladder`,
+can contain multiple fixture IDs when their source-level subjects do not require
+distinct project boundaries; those fixture IDs should not carry project-boundary
+metadata just because consumers observe them from another assembly.
 
 ## Consumer rules
 

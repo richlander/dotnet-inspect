@@ -115,18 +115,18 @@ public class FixtureCatalogTests
     [Fact]
     public void BoundaryMetadata_CoversIntentionalSeparateFixtureProjects()
     {
-        var consolidatedProjects = new HashSet<string>(StringComparer.Ordinal)
+        var consolidatedSourceBucketProjects = new HashSet<string>(StringComparer.Ordinal)
         {
             "ILInspector.Analysis.Fixtures",
             "ILInspector.Decompiler.Fixtures.Ladder",
         };
 
-        var singleFixtureProjects = FixtureCatalog.All
+        var separateProjectFixtures = FixtureCatalog.All
             .GroupBy(fixture => fixture.ProjectName, StringComparer.Ordinal)
-            .Where(group => group.Count() == 1 && !consolidatedProjects.Contains(group.Key))
-            .Select(group => group.Single());
+            .Where(group => !consolidatedSourceBucketProjects.Contains(group.Key))
+            .SelectMany(group => group);
 
-        Assert.All(singleFixtureProjects, fixture =>
+        Assert.All(separateProjectFixtures, fixture =>
             Assert.NotEmpty(fixture.Boundaries));
     }
 
@@ -139,8 +139,6 @@ public class FixtureCatalogTests
     [InlineData(FixtureIds.AnalysisCallerGraphLookalikeCaller, FixtureBoundary.CrossAssemblyBoundary)]
     [InlineData(FixtureIds.AnalysisCallerGraphTarget, FixtureBoundary.CrossAssemblyBoundary)]
     [InlineData(FixtureIds.AnalysisCrossAsmCollision, FixtureBoundary.ExternAlias)]
-    [InlineData(FixtureIds.AnalysisCrossAsmShape, FixtureBoundary.CrossAssemblyBoundary)]
-    [InlineData(FixtureIds.AnalysisExceptionBase, FixtureBoundary.CrossAssemblyBoundary)]
     [InlineData(FixtureIds.AnalysisFacade, FixtureBoundary.TargetFramework)]
     [InlineData(FixtureIds.AnalysisLookalike, FixtureBoundary.AssemblyIdentity)]
     [InlineData(FixtureIds.AnalysisRender, FixtureBoundary.FrameworkReference)]
@@ -161,12 +159,12 @@ public class FixtureCatalogTests
     public void ConsolidatedFixtureBuckets_ShareAssemblyWithoutProjectBoundaryAxes()
     {
         Assert.Equal(FixtureCatalog.AnalysisCrossAsmShape.ProjectName, FixtureCatalog.AnalysisExceptionBase.ProjectName);
-        Assert.Equal(FixtureCatalog.AnalysisCrossAsmShape.AssemblyPath(), FixtureCatalog.AnalysisExceptionBase.AssemblyPath());
+        Assert.Equal(FixtureCatalog.AnalysisCrossAsmShape.AssemblyFileName, FixtureCatalog.AnalysisExceptionBase.AssemblyFileName);
+        Assert.Empty(FixtureCatalog.AnalysisCrossAsmShape.Boundaries);
+        Assert.Empty(FixtureCatalog.AnalysisExceptionBase.Boundaries);
 
-        Assert.DoesNotContain(FixtureBoundary.AssemblyName, FixtureCatalog.AnalysisCrossAsmShape.Boundaries);
-        Assert.DoesNotContain(FixtureBoundary.AssemblyName, FixtureCatalog.AnalysisExceptionBase.Boundaries);
-        Assert.DoesNotContain(FixtureBoundary.TargetFramework, FixtureCatalog.AnalysisCrossAsmShape.Boundaries);
-        Assert.DoesNotContain(FixtureBoundary.TargetFramework, FixtureCatalog.AnalysisExceptionBase.Boundaries);
+        Assert.All(FixtureCatalog.DecompilerLadderFixtures.Fixtures, fixture =>
+            Assert.Empty(fixture.Boundaries));
     }
 
     [Fact]

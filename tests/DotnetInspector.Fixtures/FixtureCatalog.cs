@@ -166,14 +166,12 @@ public static class FixtureCatalog
         FixtureIds.AnalysisCrossAsmShape,
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
-        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "cross-assembly", "shape");
 
     public static readonly FixtureDefinition AnalysisExceptionBase = Fixture(
         FixtureIds.AnalysisExceptionBase,
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
-        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "exception");
 
     public static readonly FixtureDefinition AnalysisFacade = Fixture(
