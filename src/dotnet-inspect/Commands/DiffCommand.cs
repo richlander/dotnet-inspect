@@ -608,6 +608,7 @@ public class DiffCommand
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
             var found = false;
             MemberTargetDiagnostic? diagnostic = null;
+            MemberTargetDiagnostic? nonFatalDiagnostic = null;
             var oldType = FindExactType(fromSurface, parsed.TypeName);
             var newType = FindExactType(toSurface, parsed.TypeName);
 
@@ -615,8 +616,13 @@ public class DiffCommand
             {
                 var oldResult = AddResolvedIdentities(oldType, parsed.Selector, identities);
                 found |= oldResult.Found;
-                if (oldResult.Diagnostic is { } oldDiagnostic && IsFatalTargetDiagnostic(oldDiagnostic.Kind))
-                    diagnostic ??= oldDiagnostic;
+                if (oldResult.Diagnostic is { } oldDiagnostic)
+                {
+                    if (IsFatalTargetDiagnostic(oldDiagnostic.Kind))
+                        diagnostic ??= oldDiagnostic;
+                    else
+                        nonFatalDiagnostic ??= oldDiagnostic;
+                }
                 if (oldResult.Found)
                     typeNames.Add(oldType.FullName);
             }
@@ -624,8 +630,13 @@ public class DiffCommand
             {
                 var newResult = AddResolvedIdentities(newType, parsed.Selector, identities);
                 found |= newResult.Found;
-                if (newResult.Diagnostic is { } newDiagnostic && IsFatalTargetDiagnostic(newDiagnostic.Kind))
-                    diagnostic ??= newDiagnostic;
+                if (newResult.Diagnostic is { } newDiagnostic)
+                {
+                    if (IsFatalTargetDiagnostic(newDiagnostic.Kind))
+                        diagnostic ??= newDiagnostic;
+                    else
+                        nonFatalDiagnostic ??= newDiagnostic;
+                }
                 if (newResult.Found)
                     typeNames.Add(newType.FullName);
             }
@@ -633,7 +644,7 @@ public class DiffCommand
             if (diagnostic is not null)
                 throw new InvalidOperationException(diagnostic.Message);
             if (!found)
-                throw new InvalidOperationException($"Member target '{rawTarget}' did not resolve in either diff input.");
+                throw new InvalidOperationException(nonFatalDiagnostic?.Message ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
         }
 
         return new ResolvedDiffMemberTargets(identities, typeNames);
@@ -653,7 +664,6 @@ public class DiffCommand
     static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)
         => kind is MemberTargetDiagnosticKind.AmbiguousMember
             or MemberTargetDiagnosticKind.DigestAmbiguous
-            or MemberTargetDiagnosticKind.OverloadOutOfRange
             or MemberTargetDiagnosticKind.ConflictingSelectors;
 
     sealed record ParsedDiffMemberTarget(string TypeName, MemberTargetSelector Selector);

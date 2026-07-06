@@ -223,6 +223,63 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildApiDiff_MemberFilter_AllowsAddedOverloadOutOfRangeOnOldSide()
+    {
+        var oldSurface = DiffSurface(DiffMember("Changed", signature: "void Changed()"));
+        var newSurface = DiffSurface(
+            DiffMember("Changed", signature: "void Changed()"),
+            DiffMember("Changed", signature: "void Changed(int value)"));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            TypeFilter = ["Widget"],
+            MemberFilter = ["Changed:2"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.MemberAdded, change.Kind);
+        Assert.Contains("Changed", change.Message);
+    }
+
+    [Fact]
+    public void BuildApiDiff_MemberFilter_AllowsRemovedOverloadOutOfRangeOnNewSide()
+    {
+        var oldSurface = DiffSurface(
+            DiffMember("Changed", signature: "void Changed()"),
+            DiffMember("Changed", signature: "void Changed(int value)"));
+        var newSurface = DiffSurface(DiffMember("Changed", signature: "void Changed()"));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            TypeFilter = ["Widget"],
+            MemberFilter = ["Changed:2"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.MemberRemoved, change.Kind);
+        Assert.Contains("Changed", change.Message);
+    }
+
+    [Fact]
+    public void BuildApiDiff_MemberFilter_PreservesOutOfRangeDiagnosticWhenNeitherSideResolves()
+    {
+        var oldSurface = DiffSurface(DiffMember("Changed", signature: "void Changed()"));
+        var newSurface = DiffSurface(DiffMember("Changed", signature: "void Changed()"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Changed:2"]
+            }));
+
+        Assert.Contains("out of range", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Changed:1", error.Message);
+    }
+
+    [Fact]
     public void BuildApiDiff_MemberFilter_PreservesResolverAmbiguityDiagnostic()
     {
         var oldSurface = DiffSurface(
