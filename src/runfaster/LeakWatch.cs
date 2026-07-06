@@ -124,6 +124,12 @@ static class LeakWatchAnalyzer
         // is, by construction, not live managed objects — native allocation or
         // GC-committed segments the runtime returns to the OS lazily.
         long nativeGap = wsRetained - liveHeapRetained;
+        // How much the native gap GREW over the window: RSS growth that outpaces the
+        // managed heap. A fixed native baseline (a large gap present from the start) that
+        // the managed heap then grows on top of is managed retention, not native growth —
+        // only a WIDENING gap indicates native/committed growth.
+        long baselineGap = wsFirst - liveHeapFirst;
+        long nativeGapGrowth = nativeGap - baselineGap;
 
         // The heap peaked well above where it SETTLED and settled near baseline: the
         // transient-churn signature (peaked high, came back down). Independent of whether
@@ -174,7 +180,8 @@ static class LeakWatchAnalyzer
 
         bool highChurn = duration > 0 && pauseFraction >= thresholds.PauseFraction;
 
-        if (workingSetGrew && gapRatio >= thresholds.GapRatio && nativeGap >= thresholds.RetainedGapBytes)
+        if (workingSetGrew && gapRatio >= thresholds.GapRatio && nativeGap >= thresholds.RetainedGapBytes
+            && nativeGapGrowth >= thresholds.RetainedGapBytes)
         {
             verdict = LeakWatchVerdict.NativeOrCommittedGrowth;
             headline = $"Native/committed growth: working set grew to {Fmt(wsPeak)} and holds {Fmt(wsRetained)} ({gapRatio:F1}× the {Fmt(liveHeapRetained)} live heap) — staying {Fmt(nativeGap)} above the live heap{afterCollectionClause}. RSS is not following the heap down — native allocation or GC-committed regions returned to the OS lazily.";
@@ -273,8 +280,15 @@ static class LeakWatchCountersCsv
         for (int i = 0; i < order.Count; i++)
         {
             var map = byTimestamp[order[i]];
-            // A sample must at least carry a working-set reading to be meaningful.
+            // A sample must carry a working-set reading to be meaningful.
             if (!map.TryGetValue(WorkingSet, out double ws))
+                continue;
+            // ...and a live-heap reading. dotnet-counters flushes a timestamp block's
+            // rows sequentially, so an abruptly-terminated capture (Ctrl+C) commonly
+            // leaves the final block with a working-set row but no heap-generation rows.
+            // Emitting that truncated block would read the live heap as 0 and invert the
+            // steady-state verdict, so drop any block without heap data.
+            if (!HasHeapReading(map))
                 continue;
 
             long liveHeap = (long)(
@@ -309,6 +323,18 @@ static class LeakWatchCountersCsv
 
     static double Gen(Dictionary<string, double> map, string gen)
         => Get(map, $"dotnet.gc.last_collection.heap.size (By)[gc.heap.generation={gen}]");
+
+    // A timestamp block is complete enough to trust as a steady-state anchor only if it
+    // carries at least one live-heap generation reading.
+    static bool HasHeapReading(Dictionary<string, double> map)
+    {
+        foreach (var k in map.Keys)
+        {
+            if (k.StartsWith("dotnet.gc.last_collection.heap.size", StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
 
     static double Get(Dictionary<string, double> map, string name)
         => map.TryGetValue(name, out double v) ? v : 0;
