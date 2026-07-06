@@ -68,6 +68,8 @@
              Link="ReturnToSenderClosureEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderSourceProbe.cs"
              Link="ReturnToSenderSourceProbe.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\CSharpSourceIdentity.cs"
+             Link="CSharpSourceIdentity.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderCatalogReport.cs"
              Link="ReturnToSenderCatalogReport.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\GeneratedFixtures.cs"
