@@ -161,11 +161,15 @@ public static class ApiMemberIdentity
         var signature = method.DecodeSignature(AnchorSignatureTypeProvider.Instance, GenericContext.ForMethod(reader, type, method));
         string typeFullName = FormatDefinitionName(reader, typeHandle);
         string memberName = MethodMemberName(reader, methodName, method);
-        string canonicalSignature = $"M:{typeFullName}.{memberName}({string.Join(",", signature.ParameterTypes)})";
-        // Conversion operators overload on return type; apply the same disambiguation rule
-        // here so this SRM-direct anchor producer does not collide (its own full-name vocabulary).
-        if (IsConversionOperator(methodName) && !string.IsNullOrWhiteSpace(signature.ReturnType))
-            canonicalSignature += $"~{signature.ReturnType}";
+        // Route the SRM-direct producer through the single full-name grammar core so it
+        // cannot drift from other producers. Conversion operators overload on return type,
+        // so pass the return type for their disambiguation suffix only.
+        string canonicalSignature = MemberCanonicalSignature.Build(
+            "M",
+            typeFullName,
+            memberName,
+            signature.ParameterTypes,
+            IsConversionOperator(methodName) ? signature.ReturnType : null);
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
         return CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature);
     }
