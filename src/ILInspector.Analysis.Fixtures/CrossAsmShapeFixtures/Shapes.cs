@@ -5,14 +5,14 @@ namespace ILInspector.Analysis.CrossAsmShapeFixtures;
 // sees these types only as TypeRef/TypeSpec metadata. They let the tests assert that the
 // allocation signal classifies a `newobj` of each shape honestly (#1804):
 //
-//   * CrossValueStruct       — non-generic struct: value-type-ness is UNRESOLVABLE from the
+//   * CrossValueStruct       - non-generic struct: value-type-ness is UNRESOLVABLE from the
 //                              consumer alone (a bare TypeRef), so its `newobj` is an owned
 //                              false-positive allocation at the no-assembly-loading boundary.
-//   * CrossGenericStruct<T>  — constructed generic struct: the consumer's own TypeSpec
+//   * CrossGenericStruct<T>  - constructed generic struct: the consumer's own TypeSpec
 //                              signature blob encodes VALUETYPE, so its `newobj` IS resolved
 //                              as non-heap.
-//   * CrossRefType           — reference type: its `newobj` is a real heap allocation.
-//   * CrossEnum              — enum: a value type; cast/use must not be a heap allocation.
+//   * CrossRefType           - reference type: its `newobj` is a real heap allocation.
+//   * CrossEnum              - enum: a value type; cast/use must not be a heap allocation.
 
 public struct CrossValueStruct
 {

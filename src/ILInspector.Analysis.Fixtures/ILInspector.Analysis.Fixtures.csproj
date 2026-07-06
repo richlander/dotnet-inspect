@@ -15,9 +15,4 @@
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Compile Include="..\ILInspector.Analysis.CrossAsmShapeFixtures\*.cs" Link="CrossAsmShapeFixtures\%(Filename)%(Extension)" />
-    <Compile Include="..\ILInspector.Analysis.ExceptionBaseFixtures\*.cs" Link="ExceptionBaseFixtures\%(Filename)%(Extension)" />
-  </ItemGroup>
-
 </Project>
