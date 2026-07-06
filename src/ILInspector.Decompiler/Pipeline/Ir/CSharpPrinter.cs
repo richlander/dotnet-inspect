@@ -3517,7 +3517,7 @@ public sealed partial class CSharpPrinter
         if (!IsFrameworkNamespace(definition.Namespace))
             return;
         string fullName = FrameworkMetadataName(definition);
-        string simpleName = CSharpNaming.TypeNameSegment(definition.Name);
+        string simpleName = TypeNamePath(definition.Name);
         if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
             return;
         if (!rendered.Contains(simpleName, StringComparison.Ordinal))
