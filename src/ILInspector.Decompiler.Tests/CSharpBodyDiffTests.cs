@@ -455,7 +455,9 @@ public class CSharpBodyDiffTests
             row.Anchor.CanonicalSignature.Contains("op_Implicit", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
         Assert.StartsWith("operator:op_Implicit~", row.Anchor.StableSelector, StringComparison.Ordinal);
-        Assert.Equal("M:DiffFixtureSample.ConversionSample.op_Implicit(DiffFixtureSample.ConversionSample)", row.Anchor.CanonicalSignature);
+        Assert.Equal("M:DiffFixtureSample.ConversionSample.op_Implicit(DiffFixtureSample.ConversionSample)~System.Int32", row.Anchor.CanonicalSignature);
+        // The string-returning op_Implicit body is unchanged across V1/V2, so it is not a
+        // changed row; the int-returning one is disambiguated by ~System.Int32 above.
         Assert.DoesNotContain(diff.Rows, row => row.Anchor.CanonicalSignature.EndsWith("~System.String", StringComparison.Ordinal));
     }
 
@@ -513,7 +515,7 @@ public class CSharpBodyDiffTests
             row.Anchor.CanonicalSignature.Contains("op_CheckedExplicit", StringComparison.Ordinal)
             && row.Kind == CSharpDiffKind.Remove);
         Assert.StartsWith("operator:op_CheckedExplicit~", row.Anchor.StableSelector, StringComparison.Ordinal);
-        Assert.Equal("M:DiffFixtureSample.CheckedConversionSample.op_CheckedExplicit(DiffFixtureSample.CheckedConversionSample)", row.Anchor.CanonicalSignature);
+        Assert.Equal("M:DiffFixtureSample.CheckedConversionSample.op_CheckedExplicit(DiffFixtureSample.CheckedConversionSample)~System.Int32", row.Anchor.CanonicalSignature);
     }
 
     [Fact]

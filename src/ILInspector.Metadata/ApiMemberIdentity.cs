@@ -162,6 +162,10 @@ public static class ApiMemberIdentity
         string typeFullName = FormatDefinitionName(reader, typeHandle);
         string memberName = MethodMemberName(reader, methodName, method);
         string canonicalSignature = $"M:{typeFullName}.{memberName}({string.Join(",", signature.ParameterTypes)})";
+        // Conversion operators overload on return type; apply the same disambiguation rule
+        // here so this SRM-direct anchor producer does not collide (its own full-name vocabulary).
+        if (IsConversionOperator(methodName) && !string.IsNullOrWhiteSpace(signature.ReturnType))
+            canonicalSignature += $"~{signature.ReturnType}";
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
         return CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature);
     }
@@ -246,7 +250,12 @@ public static class ApiMemberIdentity
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
         var parameters = ExtractCanonicalParameterList(signature);
-        return $"{kindCode}:{declaringType}.{memberName}{parameters}";
+        var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
+        // Mirror the conversion-operator return-type disambiguation so member identity
+        // is not dependent on whether SignatureModel was populated (the Try path above).
+        if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(member.ReturnType))
+            canonical += $"~{NormalizeCanonicalCommas(member.ReturnType!)}";
+        return canonical;
     }
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
@@ -282,7 +291,15 @@ public static class ApiMemberIdentity
                   ? member.Name
                   : signature.MemberName!);
         memberName = NormalizeCanonicalCommas(memberName);
-        canonicalSignature = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
+        var canonical = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
+        // Conversion operators overload on return type, so the parameter list alone
+        // is an ambiguous identity (every System.Decimal.op_Explicit(Decimal) collides).
+        // Append a product-owned return-type suffix. It intentionally uses the
+        // same "~ReturnType" delimiter as XML doc identity so conversion anchors
+        // and XML lookups do not grow divergent spellings for the same fact.
+        if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType))
+            canonical += $"~{NormalizeCanonicalCommas(signature.ReturnType!)}";
+        canonicalSignature = canonical;
         return true;
     }
 
@@ -741,7 +758,7 @@ public static class ApiMemberIdentity
                 .Replace('<', '{')
                 .Replace('>', '}');
 
-    static bool IsConversionOperator(string memberName)
+    internal static bool IsConversionOperator(string memberName)
         => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 
     static bool TryGetArraySuffix(string type, out string elementType, out string suffix)
