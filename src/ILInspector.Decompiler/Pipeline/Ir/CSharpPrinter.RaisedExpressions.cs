@@ -220,7 +220,7 @@ public sealed partial class CSharpPrinter
             }
             else if (part.ExpressionIndex >= 0 && part.ExpressionIndex < node.FormattedValues.Count)
             {
-                sb.Append('{').Append(InterpolatedExpression(node.FormattedValues[part.ExpressionIndex]));
+                sb.Append('{').Append(InterpolatedExpression(node.FormattedValues[part.ExpressionIndex], part.Format?.FormatString is not null));
                 if (part.Format is { } format)
                 {
                     if (format.HasAlignment)
@@ -234,10 +234,15 @@ public sealed partial class CSharpPrinter
         return sb.Append('"').ToString();
     }
 
-    string InterpolatedExpression(IrExpression value)
-        => value is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField or LoadProperty or Call
-            ? Expression(value)
-            : $"({Expression(value)})";
+    string InterpolatedExpression(IrExpression value, bool hasFormat)
+    {
+        // A format clause's ':' competes with the conditional operator's ':',
+        // so conditional-precedence fragments wrap when a format is present.
+        // Without a format clause, preserve the historical conservative
+        // parenthesization until broad interpolation-hole churn has its own A/B.
+        var demand = hasFormat ? Precedence.NullCoalescing : Precedence.Primary;
+        return RenderedExpression(value).At(demand);
+    }
 
     static string InterpolatedLiteralText(string value)
     {

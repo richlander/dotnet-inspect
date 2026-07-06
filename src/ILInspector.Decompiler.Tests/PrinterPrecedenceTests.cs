@@ -11,6 +11,7 @@ public class PrinterPrecedenceTests
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
 
     static IrFunction Raised(string methodName)
     {
@@ -146,6 +147,57 @@ public class PrinterPrecedenceTests
             [new Parameter("flag", s_bool), new Parameter("s", s_short), new Parameter("i", s_int)]);
 
         Assert.DoesNotContain("(short)i", output);
+    }
+
+    [Fact]
+    public void InterpolationHole_BinaryExpressionWithFormat_RendersBare()
+    {
+        var value = new Binary(BinaryKind.Add, false, false,
+            new LoadArgument(0, "a", s_int),
+            new LoadArgument(1, "b", s_int));
+        var interpolation = new InterpolatedStringExpression(
+            [InterpolatedStringPart.FormattedValue(0, new InterpolationFormat(0, HasAlignment: false, "X"))],
+            [value]);
+
+        var output = PrintReturn(
+            interpolation,
+            s_string,
+            [new Parameter("a", s_int), new Parameter("b", s_int)]);
+
+        Assert.Contains("return $\"{a + b:X}\";", output);
+        Assert.DoesNotContain("{(a + b):X}", output);
+    }
+
+    [Fact]
+    public void InterpolationHole_ConditionalWithFormat_StaysParenthesized()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "a", s_int),
+            new LoadArgument(2, "b", s_int));
+        var interpolation = new InterpolatedStringExpression(
+            [InterpolatedStringPart.FormattedValue(0, new InterpolationFormat(0, HasAlignment: false, "X"))],
+            [conditional]);
+
+        var output = PrintReturn(
+            interpolation,
+            s_string,
+            [new Parameter("flag", s_bool), new Parameter("a", s_int), new Parameter("b", s_int)]);
+
+        Assert.Contains("return $\"{(flag ? a : b):X}\";", output);
+        Assert.DoesNotContain("{flag ? a : b:X}", output);
+    }
+
+    [Fact]
+    public void CastOperand_NamedTargetNegativeLiteral_StaysParenthesized()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "E");
+        var convert = new Pipeline.Convert(enumType, isChecked: false, isUnsigned: false, new Constant(-1, s_int));
+
+        var output = PrintReturn(convert, enumType, []);
+
+        Assert.Contains("return (E)(-1);", output);
+        Assert.DoesNotContain("return (E)-1;", output);
     }
 
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
