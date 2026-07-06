@@ -1,60 +1,62 @@
 ---
-name: daily-decompiler-analysis
-description: Use for morning triage of decompiler-daily runs, corpus snapshots, pinned-subset drift, and routing failures into issues or tracker updates.
+name: deep-inspect-analysis
+description: Use for opt-in Deep Inspect run triage: test lane failures, census artifacts, pinned-subset drift, and routing findings into issues or tracker updates.
 ---
 
-# Daily decompiler analysis
+# Deep Inspect analysis
 
-Use this skill when the user asks for "daily decompiler analysis" or wants the
-morning decompiler signal reviewed. Produce a short status report: whether the
-nightly decompiler signal is green, whether corpus health moved, and whether any
-result needs a durable issue, tracker row, rebaseline note, or no-action note.
+Use this skill when the user asks for Deep Inspect analysis or wants an opt-in
+validation/census run reviewed. Produce a short status report: whether the test
+lane passed, whether census health moved, and whether any result needs a durable
+issue, tracker row, rebaseline note, or no-action note.
 
 Run from the repository root and prefer `gh` for GitHub Actions and issue data.
 
 ## Read the latest runs
 
-Start with recent `decompiler-daily.yml` runs:
+Start with recent `deep-inspect.yml` runs:
 
 ```bash
-gh run list --workflow decompiler-daily.yml --limit 10 \
+gh run list --workflow deep-inspect.yml --limit 10 \
   --json databaseId,status,conclusion,createdAt,updatedAt,event,headBranch,headSha,url
 ```
 
-Pick the newest completed run, but scan the last few runs for repeated or newly
-appearing failures. For failed runs, classify the failing step before diagnosing:
+Pick the relevant completed run. Check whether it ran `lane=test`, `lane=census`,
+or `lane=all`, then classify failures by lane:
 
 ```bash
 gh run view <run-id> --json jobs,conclusion,status,createdAt,updatedAt
 gh run view <run-id> --log-failed
 ```
 
-Use these failure classes: setup/build, `ILInspector.Decompiler.Tests`,
-corpus-prep, corpus sensor, artifact upload, cancelled/environmental.
+Test-lane failure classes: setup/build, full decompiler tests, full analysis
+tests, ILAssembler restore, IL round-trip sweep, cancelled/environmental.
+Census-lane failure classes: corpus prep, corpus sensor, validity scan, validity
+sweep, assertion scan, analysis corpus sensor, paydirt recall, artifact upload,
+cancelled/environmental.
 
-## Read the corpus snapshot
+## Read census artifacts
 
-If the run produced a `decompiler-corpus-snapshot` artifact, download it to
-`/tmp`:
+If the run produced `deep-inspect-census`, download it to `/tmp`:
 
 ```bash
-rm -rf /tmp/decompiler-daily-<run-id>
-mkdir -p /tmp/decompiler-daily-<run-id>
-gh run download <run-id> -n decompiler-corpus-snapshot \
-  -D /tmp/decompiler-daily-<run-id>
+rm -rf /tmp/deep-inspect-<run-id>
+mkdir -p /tmp/deep-inspect-<run-id>
+gh run download <run-id> -n deep-inspect-census \
+  -D /tmp/deep-inspect-<run-id>
 ```
 
-Summarize the snapshot first:
+Summarize the corpus snapshot first:
 
 ```bash
 jq '{generatedUtc, validityCompileCap, fidelityCompileCap, methodCap, metrics}' \
-  /tmp/decompiler-daily-<run-id>/corpus-snapshot.json
+  /tmp/deep-inspect-<run-id>/deep-inspect/corpus-snapshot.json
 ```
 
 Then list actionable rows:
 
 ```bash
-snapshot=/tmp/decompiler-daily-<run-id>/corpus-snapshot.json
+snapshot=/tmp/deep-inspect-<run-id>/deep-inspect/corpus-snapshot.json
 
 printf '\nFULL_MALFORMED\n'
 jq -r '.methods[] | select((.validity // "") | startswith("full-malformed:")) |
@@ -75,13 +77,13 @@ jq -r '.methods[] | select(.passBug != null) |
 
 ## Separate pinned signal from repo-growth drift
 
-Daily aggregate counts include dotnet-inspect self assemblies, so repo growth can
-move totals without a decompiler regression. Treat the pinned NuGet subset as the
+Aggregate counts include dotnet-inspect self assemblies, so repo growth can move
+totals without a decompiler regression. Treat the pinned NuGet subset as the
 stable regression signal and report aggregate drift separately.
 
 ```bash
 baseline=tools/DecompilerHarness/corpus/real-world-baseline.json
-snapshot=/tmp/decompiler-daily-<run-id>/corpus-snapshot.json
+snapshot=/tmp/deep-inspect-<run-id>/deep-inspect/corpus-snapshot.json
 
 jq -n --slurpfile b "$baseline" --slurpfile c "$snapshot" '
   def pinned($s):
@@ -114,20 +116,20 @@ Use `docs/decompiler-correctness-pipeline.md` vocabulary:
 - Stage 9: corpus-card movement or baseline staleness.
 - Stage 10: changed-method fidelity/skeleton failures.
 
-Before creating new work, check #1584 for nightly triage comments and #1568 for
-active burndowns. The current pattern is to cluster repeated rows into focused
+Before creating new work, check #1584 for triage comments and #1568 for active
+burndowns. The current pattern is to cluster repeated rows into focused
 burndowns like #1687 (invalid Full printer) or #1688 (changed-method fidelity
 skeleton), not to file one issue per assembly.
 
 ## Report shape
 
-Keep the morning report short:
+Keep the report short:
 
 ```md
-Daily decompiler analysis: <green | failed | moved>
+Deep Inspect analysis: <green | failed | moved>
 
-- Latest run: <id>, <sha>, <conclusion>, <duration/link>.
-- Failure class: <none | test | corpus sensor | environment>, with root cause if known.
+- Latest run: <id>, <sha>, <lane>, <conclusion>, <duration/link>.
+- Failure class: <none | test | census | environment>, with root cause if known.
 - Corpus health: fully raised, conditional residual, forward-merge, Full malformed,
   semantic defects, pass bugs, fidelity exact/opcode-diff/recompile/context counts.
 - Pinned-subset signal: <unchanged | improved | regressed>; separate aggregate drift.

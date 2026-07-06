@@ -13,7 +13,7 @@ env:
 # Cancel superseded PR runs (e.g. when an agent pushes again to the same branch)
 # so only the latest commit of a PR consumes a full CI run. Pushes to main are
 # not cancelled, but they only run the lightweight changes/markdownlint legs
-# (test/pack/pack-rid are PR-only), so there is little to cancel. release.yml
+# (test/pack are PR-only), so there is little to cancel. release.yml
 # builds all release packages fresh at publish time and does not consume CI
 # artifacts.
 concurrency:
@@ -98,9 +98,9 @@ jobs:
             case "$file" in
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
             esac
-            # The IL round-trip oracle is also expensive (vendored ILAssembler
-            # round-trip over a broad corpus). It depends on ILInspector.Metadata
-            # -> { DotnetInspector.Core, ILInspector.MetadataPrimitives } plus the
+            # The IL round-trip oracle has a fast PR subset plus a slow assembly
+            # sweep. It depends on ILInspector.Metadata ->
+            # { DotnetInspector.Core, ILInspector.MetadataPrimitives } plus the
             # vendored ILAssembler restore script and the test project itself.
             case "$file" in
               tests/DotnetInspector.ILRoundtrip.Tests/*) ILROUNDTRIP=true ;;
@@ -110,15 +110,15 @@ jobs:
               *.props|*.targets|*.sln|*.slnx) ILROUNDTRIP=true ;;
             esac
             # Packaging/pack-smoke validation only needs to run when something
-            # that affects the *packaged* tool changes. pack/pack-rid only run
+            # that affects the *packaged* tool changes. The pack job runs
             # `dotnet pack src/dotnet-inspect`, so the output is determined by
             # that project's csproj plus shared build infra (root + src build
             # props/targets, global.json/nuget config) and the pack workflow
             # itself. Test/harness csproj changes and unrelated workflow edits
             # don't affect the package, so they must not trip this. Most PRs
             # (e.g. decompiler raises) touch none of these, keeping pack off the
-            # hot PR path. pack/pack-rid are a PR-only packaging smoke test and
-            # never produce release artifacts: release.yml builds all packages
+            # hot PR path. The pack job is a PR-only packaging smoke test and
+            # never produces release artifacts: release.yml builds all packages
             # fresh at publish time from the resolved commit SHA.
             case "$file" in
               src/dotnet-inspect/dotnet-inspect.csproj) PACKAGING=true ;;
@@ -256,8 +256,8 @@ jobs:
           echo "$ILASM_DIR" >> "$GITHUB_PATH"
           echo "$ILDASM_DIR" >> "$GITHUB_PATH"
 
-      - name: Run CLI tests
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+      - name: Run CLI tests (fast)
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
@@ -274,8 +274,8 @@ jobs:
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
       # and classification regressions. Slow compile-back/recompile, corpus-sweep,
       # and fidelity tests are tagged [Trait("Speed", "Slow")] and excluded here;
-      # the full suite (including those) runs in decompiler-daily.yml. Mark any new
-      # Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
+      # the full suite (including those) runs in Deep Inspect / publish. Mark any
+      # new Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
       - name: Run decompiler unit tests (fast)
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
@@ -285,17 +285,17 @@ jobs:
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
 
-      # The IL round-trip oracle (vendored managed ILAssembler) is
-      # platform-neutral at the IL level, so one leg suffices. It is expensive,
-      # so it only runs when the round-trip tests or their source dependencies
-      # change (see the `ilroundtrip` filter in the changes job).
+      # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
+      # in PR CI when the round-trip tests or source dependencies change. The
+      # assembly-wide sweep is tagged [Trait("Speed", "Slow")] and runs in
+      # Deep Inspect / publish / full local runs.
       - name: Restore vendored ILAssembler
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: bash eng/restore-ilassembler.sh
 
-      - name: Run IL round-trip tests
+      - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test
   # lane so CSharpDiffHarness/card changes get focused snapshot/baseline JSONL
@@ -500,11 +500,11 @@ jobs:
           if-no-files-found: warn
 
   # Pack and smoke test on Ubuntu. This is a packaging smoke test only: it
-  # validates that the tool still packs and installs. It is NOT the source of
-  # release artifacts (release.yml builds those itself at publish time), so it
-  # runs only on PRs that touch build/packaging configuration. Most PRs (e.g.
-  # decompiler raises) skip it, which removes two jobs from the per-PR runner
-  # demand and shortens queue times under concurrent-agent load.
+  # validates the pointer package, the any fallback, one RID-specific AOT pack,
+  # and local tool install/smoke. It is NOT the source of release artifacts
+  # (release.yml builds those itself at publish time), so it runs only on PRs
+  # that touch build/packaging configuration. Most PRs (e.g. decompiler raises)
+  # skip it, which removes packaging work from the hot PR path.
   pack:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.packaging == 'true'
@@ -625,38 +625,3 @@ jobs:
 
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
-
-  # Linux-arm64 AOT pack smoke test. Like the `pack` job, this only verifies
-  # that the RID-specific AOT package builds; it is not a release artifact
-  # source (release.yml builds all RID packages at publish time). Gated to PRs
-  # that touch build/packaging configuration so it stays off the hot PR path.
-  pack-rid:
-    needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.packaging == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - rid: linux-arm64
-            os: ubuntu-26.04-arm
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
-
-      - name: Pack RID-specific package
-        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
-
-      - name: Upload RID package
-        uses: actions/upload-artifact@v7
-        with:
-          name: package-${{ matrix.rid }}
-          path: artifacts/package/release/*.nupkg
-          if-no-files-found: error

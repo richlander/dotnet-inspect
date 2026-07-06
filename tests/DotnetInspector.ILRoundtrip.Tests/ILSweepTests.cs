@@ -11,6 +11,7 @@ namespace DotnetInspector.ILRoundtrip.Tests;
 /// here means either a canonical-IL rendering regression or a vendored
 /// assembler regression after a sync.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class ILSweepTests
 {
     public static TheoryData<string> SweptAssemblies => new(

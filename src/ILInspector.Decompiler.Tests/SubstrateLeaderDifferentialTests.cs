@@ -18,6 +18,7 @@ namespace ILInspector.Decompiler.Tests;
 /// proves no under-split and quantifies the extra granularity that the eventual minimal-CFG
 /// refactor would move to an Analysis Layer-1 concern.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class SubstrateLeaderDifferentialTests
 {
     [Fact]

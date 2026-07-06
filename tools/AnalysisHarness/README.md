@@ -107,9 +107,9 @@ loop+high triage candidate (a recall regression). `--precision-sample` emits the
 candidates as a labeling worksheet — there is no automatic precision oracle, so an agent/human
 labels true vs false positive.
 
-The daily workflow runs the generated-fixture catalogue, corpus stability sensor, and paydirt
-recall gate. Precision labeling, baseline refreshes, and recall-reference edits remain
-maintainer-owned upkeep: they are documented conventions, not automatic CI gates.
+Deep Inspect's census lane runs the generated-fixture catalogue, corpus stability sensor,
+and paydirt recall gate. Precision labeling, baseline refreshes, and recall-reference
+edits remain maintainer-owned upkeep: they are documented conventions, not automatic CI gates.
 
 ## Leak triage corpus sensor (#1992)
 
@@ -182,7 +182,7 @@ Use this convention for precision pilots and recurring reviews:
 - **Storage:** post the labeled worksheet as an issue or PR comment on the tracker that requested
   the sample. Do not commit labels unless they are promoted into curated recall references.
 - **Cadence:** run on demand for behavior changes, ranking changes, new shape families, or a
-  suspected false-positive cluster. Do not add it to PR CI or daily automation.
+  suspected false-positive cluster. Do not add it to PR CI or automatic schedules.
 - **Sample size:** start with `--top 20` for a normal review. Use a smaller sample only for a pilot
   that validates the convention itself; state the sample size in the comment.
 - **Bar:** a sample is healthy when at least 80% of labeled rows are true positives and no
@@ -261,7 +261,7 @@ dotnet run --project tools/AnalysisHarness -c Release -- \
   --reference tools/AnalysisHarness/corpus/paydirt-reference.json
 ```
 
-Daily failure triage:
+Deep Inspect failure triage:
 
 | Symptom | First classification | Expected action |
 | --- | --- | --- |

@@ -512,7 +512,7 @@ the rate increased from, for example, `82.17%` to `82.66%`. Counts still use raw
 signed count deltas in `Count delta`.
 
 For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
-sensor values are enough when you need the broader daily/manual signal:
+sensor values are enough when you need the broader Deep Inspect signal:
 
 Run the sensor with the same command documented in the harness README. The
 `--quality-diff-card` flag is what emits the PR-ready Markdown block:

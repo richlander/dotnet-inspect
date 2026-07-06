@@ -47,7 +47,7 @@ The correctness system should have these properties:
 | 6 | Altitude boss | idiom scorecard, `LoweringCoverage`, sidecar rows | The output reached the intended C# idiom. | Soundness around near misses. |
 | 7 | Structure boss | `--gaps`, `--structuring-stops`, `--by-shape` | Which control-flow or fidelity shapes remain unraised. | That raised shapes are semantically faithful. |
 | 8 | Opcode boss | `--fidelity-check`, fixture fidelity gates, lowered fidelity gates | Decompiled body recompiles to the same canonical opcode stream. | Methods the check cannot recompile. |
-| 9 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card`, daily corpus, PR quick corpus | Aggregate movement across real assemblies, including regressions and coverage. | That the changed methods were opcode-checked. |
+| 9 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card`, Deep Inspect corpus, PR quick corpus | Aggregate movement across real assemblies, including regressions and coverage. | That the changed methods were opcode-checked. |
 | 10 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` | The methods a behavior PR changed are identified and attempted by compile-back fidelity. | That uncheckable changed methods are safe. |
 | 11 | Final boss | changed-method fidelity over the risky target population, improved examples, still-flat near misses, adversarial review | A risky raise/structuring PR has evidence over the methods it actually changed and its nearest false positives. | Whole-program semantic equivalence. |
 
@@ -103,16 +103,25 @@ Notes:
   of the entry gate for behavior changes, but iterate against a class filter and
   run the full suite before requesting review.
 - **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
-  `dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait-
-  "Speed=Slow"` plus `ILInspector.Analysis.Tests`, gating pass logic, printer,
-  importer facts, identity, and classification regressions in seconds. The slow
-  compile-back/recompile, corpus-sweep, bind, scorecard, and fidelity tests are
-  tagged `[Trait("Speed", "Slow")]` and run only in `decompiler-daily.yml`
-  (alongside the corpus sensor). **Mark any new Roslyn-heavy / recompile /
-  corpus-sweeping test `[Trait("Speed", "Slow")]`** — at the class level for a
+  `dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait-
+  "Speed=Slow"`, `dotnet run --project src/ILInspector.Decompiler.Tests -c
+  Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
+  round-trip filters. These gate command surface, pass logic, printer, importer
+  facts, identity, and classification regressions without the broad integration
+  and sweep costs. The slow CLI integration, compile-back/recompile,
+  corpus-sweep, bind, scorecard, fidelity, and broad differential tests are
+  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / publish /
+  full local runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
+  broad integration test `[Trait("Speed", "Slow")]`** — at the class level for a
   wholly-slow class, or the method level for one slow case in an otherwise fast
   class — so it stays out of the PR gate. A green PR CI run therefore does *not*
   prove the slow suite is green; run the full suite locally before review.
+- The IL round-trip oracle follows the same shape: PR CI runs
+  `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
+  -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
+  `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
+  Deep Inspect / publish / full local coverage. Mark new broad/corpus-style
+  round-trip checks `[Trait("Speed", "Slow")]`.
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
 

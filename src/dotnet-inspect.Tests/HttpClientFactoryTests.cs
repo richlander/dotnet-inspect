@@ -253,19 +253,22 @@ public class HttpClientFactoryTests : IDisposable
     {
         using var diagram = RequestMermaidDiagram.Start();
         using var scope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
+        var category = $"platform-frameworks-{Guid.NewGuid():N}";
+        var key = $"installed-frameworks-{Guid.NewGuid():N}";
 
-        CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Hit);
-        CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Hit);
-        CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Miss);
-        CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Miss);
-        CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Store);
-        CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Hit);
+        CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
+        CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
+        CacheTelemetry.Record(category, key, CacheAccessResult.Miss);
+        CacheTelemetry.Record(category, key, CacheAccessResult.Miss);
+        CacheTelemetry.Record(category, key, CacheAccessResult.Store);
+        CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
 
         var mermaid = diagram.ToMermaid();
+        var label = $"{category} {key}";
 
-        Assert.Equal(1, CountOccurrences(mermaid, "cache hit<br/>platform-frameworks installed-frameworks"));
-        Assert.Equal(2, CountOccurrences(mermaid, "cache miss<br/>platform-frameworks installed-frameworks"));
-        Assert.Equal(1, CountOccurrences(mermaid, "cache store<br/>platform-frameworks installed-frameworks"));
+        Assert.Equal(1, CountOccurrences(mermaid, $"cache hit<br/>{label}"));
+        Assert.Equal(2, CountOccurrences(mermaid, $"cache miss<br/>{label}"));
+        Assert.Equal(1, CountOccurrences(mermaid, $"cache store<br/>{label}"));
     }
 
     private static async Task<string> CaptureTrafficLogAsync(
