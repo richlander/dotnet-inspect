@@ -197,44 +197,44 @@ public static class FixtureCatalog
 
     public static readonly FixtureDefinition DecompilerLadderIterator = Fixture(
         FixtureIds.DecompilerLadderIterator,
-        "ILInspector.Decompiler.Fixtures.LadderIterator",
-        "ILInspector.Decompiler.Fixtures.LadderIterator.dll",
+        "ILInspector.Decompiler.Fixtures.Ladder",
+        "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "iterator");
 
     public static readonly FixtureDefinition DecompilerLadderRung1 = Fixture(
         FixtureIds.DecompilerLadderRung1,
-        "ILInspector.Decompiler.Fixtures.LadderRung1",
-        "ILInspector.Decompiler.Fixtures.LadderRung1.dll",
+        "ILInspector.Decompiler.Fixtures.Ladder",
+        "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung1");
 
     public static readonly FixtureDefinition DecompilerLadderRung2 = Fixture(
         FixtureIds.DecompilerLadderRung2,
-        "ILInspector.Decompiler.Fixtures.LadderRung2",
-        "ILInspector.Decompiler.Fixtures.LadderRung2.dll",
+        "ILInspector.Decompiler.Fixtures.Ladder",
+        "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung2");
 
     public static readonly FixtureDefinition DecompilerLadderRung3 = Fixture(
         FixtureIds.DecompilerLadderRung3,
-        "ILInspector.Decompiler.Fixtures.LadderRung3",
-        "ILInspector.Decompiler.Fixtures.LadderRung3.dll",
+        "ILInspector.Decompiler.Fixtures.Ladder",
+        "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung3");
 
     public static readonly FixtureDefinition DecompilerLadderRung4 = Fixture(
         FixtureIds.DecompilerLadderRung4,
-        "ILInspector.Decompiler.Fixtures.LadderRung4",
-        "ILInspector.Decompiler.Fixtures.LadderRung4.dll",
+        "ILInspector.Decompiler.Fixtures.Ladder",
+        "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung4");
 
     public static readonly FixtureDefinition DecompilerLadderRung5 = Fixture(
         FixtureIds.DecompilerLadderRung5,
-        "ILInspector.Decompiler.Fixtures.LadderRung5",
-        "ILInspector.Decompiler.Fixtures.LadderRung5.dll",
+        "ILInspector.Decompiler.Fixtures.Ladder",
+        "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung5");
 
     public static readonly FixtureDefinition DecompilerLadderRung9 = Fixture(
         FixtureIds.DecompilerLadderRung9,
-        "ILInspector.Decompiler.Fixtures.LadderRung9",
-        "ILInspector.Decompiler.Fixtures.LadderRung9.dll",
+        "ILInspector.Decompiler.Fixtures.Ladder",
+        "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung9");
 
     public static readonly FixtureDefinition DecompilerUnsafeLegacy = Fixture(

@@ -1,3 +1,5 @@
+#nullable enable
+
 namespace LadderRung4;
 
 // Rung 4 of the decompiler product quality ladder (#1599): C# 7 local syntax.

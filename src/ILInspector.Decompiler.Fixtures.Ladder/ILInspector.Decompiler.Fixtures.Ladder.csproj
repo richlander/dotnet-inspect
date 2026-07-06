@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Consolidated fixture assembly for the decompiler product quality ladder
+    (#1599). The source namespaces remain rung-specific (LadderRung1,
+    LadderRung2, ..., LadderIterator); this project only consolidates the build
+    boundary now that tests consume fixtures through FixtureCatalog IDs.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.LadderIterator\*.cs" Link="LadderIterator\%(Filename)%(Extension)" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.LadderRung1\*.cs" Link="LadderRung1\%(Filename)%(Extension)" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.LadderRung2\*.cs" Link="LadderRung2\%(Filename)%(Extension)" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.LadderRung3\*.cs" Link="LadderRung3\%(Filename)%(Extension)" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.LadderRung4\*.cs" Link="LadderRung4\%(Filename)%(Extension)" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.LadderRung5\*.cs" Link="LadderRung5\%(Filename)%(Extension)" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.LadderRung9\*.cs" Link="LadderRung9\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>
