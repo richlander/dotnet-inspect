@@ -1,4 +1,6 @@
 using DotnetInspector.Fixtures;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspector.Fixtures.Tests;
 
@@ -105,10 +107,82 @@ public class FixtureCatalogTests
         AssertFixtureFileName(FixtureCatalog.AnalysisSpoofSystemRuntime, "System.Runtime.dll");
     }
 
+    [Fact]
+    public void UnsafeFixtures_PreserveMemorySafetyBuildAxis()
+    {
+        Assert.Contains("legacy-memory-safety", FixtureCatalog.DecompilerUnsafeLegacy.Tags);
+        Assert.DoesNotContain("updated-memory-safety", FixtureCatalog.DecompilerUnsafeLegacy.Tags);
+        Assert.Contains("updated-memory-safety", FixtureCatalog.DecompilerUnsafeNew.Tags);
+        Assert.NotEqual(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+
+        Assert.False(HasAttributeNamed(FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(), "MemorySafetyRulesAttribute"));
+        Assert.True(HasAttributeNamed(FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(), "MemorySafetyRulesAttribute"));
+    }
+
+    [Fact]
+    public void UnsafeChainFixtures_PreserveCrossAssemblyBoundaries()
+    {
+        Assert.Contains("updated-memory-safety", FixtureCatalog.DecompilerUnsafeChainA.Tags);
+        Assert.Contains("updated-memory-safety", FixtureCatalog.DecompilerUnsafeChainB.Tags);
+        Assert.Contains("legacy-memory-safety", FixtureCatalog.DecompilerUnsafeChainC.Tags);
+        Assert.Contains("executable", FixtureCatalog.DecompilerUnsafeChainC.Tags);
+
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerUnsafeChainB,
+            "ILInspector.Decompiler.Fixtures.UnsafeChainA");
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerUnsafeChainC,
+            "ILInspector.Decompiler.Fixtures.UnsafeChainA",
+            "ILInspector.Decompiler.Fixtures.UnsafeChainB");
+    }
+
     static void AssertFixtureFileName(FixtureDefinition fixture, string expectedFileName)
     {
         string path = fixture.AssemblyPath();
         Assert.Equal(expectedFileName, Path.GetFileName(path));
         Assert.Equal(fixture.ProjectName, new DirectoryInfo(path).Parent?.Parent?.Name);
+    }
+
+    static void AssertAssemblyReferences(FixtureDefinition fixture, params string[] expectedReferences)
+    {
+        using var stream = File.OpenRead(fixture.AssemblyPath());
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var references = reader.AssemblyReferences
+            .Select(handle => reader.GetString(reader.GetAssemblyReference(handle).Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.All(expectedReferences, reference =>
+            Assert.Contains(reference, references));
+    }
+
+    static bool HasAttributeNamed(string assemblyPath, string attributeName)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        return reader.GetModuleDefinition()
+            .GetCustomAttributes()
+            .Select(reader.GetCustomAttribute)
+            .Any(attribute => AttributeTypeName(reader, attribute.Constructor) == attributeName);
+    }
+
+    static string AttributeTypeName(MetadataReader reader, EntityHandle constructor)
+    {
+        var typeHandle = constructor.Kind switch
+        {
+            HandleKind.MemberReference => reader.GetMemberReference((MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition => reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
+            _ => default,
+        };
+
+        return typeHandle.Kind switch
+        {
+            HandleKind.TypeReference => reader.GetString(reader.GetTypeReference((TypeReferenceHandle)typeHandle).Name),
+            HandleKind.TypeDefinition => reader.GetString(reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle).Name),
+            _ => string.Empty,
+        };
     }
 }
