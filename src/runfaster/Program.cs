@@ -8,6 +8,7 @@ using Microsoft.Diagnostics.Tracing.Etlx;
 
 var root = new RootCommand("runfaster - correlate dotnet-* diagnostic artifacts with static .NET library allocation evidence");
 root.Subcommands.Add(CreateCorrelateCommand());
+root.Subcommands.Add(CreateLeakWatchCommand());
 root.SetAction(parseResult =>
 {
     if (parseResult.Tokens.Count == 0)
@@ -138,6 +139,115 @@ static Command CreateCorrelateCommand()
     });
 
     return command;
+}
+
+static Command CreateLeakWatchCommand()
+{
+    var command = new Command("leak-watch", "Classify process memory growth (managed retention vs churn vs native/committed) from a dotnet-counters System.Runtime CSV");
+
+    var countersOption = new Option<string>("--counters")
+    {
+        Description = "dotnet-counters CSV: `dotnet-counters collect --process-id <pid> --counters System.Runtime --format csv -o <file>`",
+        Required = true,
+    };
+    var gcdumpReportOption = new Option<string>("--gcdump-report")
+    {
+        Description = "Optional `dotnet-gcdump report <file.gcdump>` text: top retained types shown alongside the verdict",
+    };
+    var jsonOption = new Option<bool>("--json") { Description = "Emit the result as JSON" };
+
+    command.Options.Add(countersOption);
+    command.Options.Add(gcdumpReportOption);
+    command.Options.Add(jsonOption);
+
+    command.SetAction(parseResult =>
+    {
+        string countersPath = parseResult.GetValue(countersOption)!;
+        if (!File.Exists(countersPath))
+        {
+            Console.Error.WriteLine($"Error: counters file not found: {countersPath}");
+            return 1;
+        }
+
+        var samples = LeakWatchCountersCsv.Parse(File.ReadLines(countersPath));
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+        string? gcdumpReportPath = parseResult.GetValue(gcdumpReportOption);
+
+        if (parseResult.GetValue(jsonOption))
+            RenderLeakWatchJson(result, samples.Count);
+        else
+            RenderLeakWatchMarkdown(result, samples.Count, gcdumpReportPath);
+        return 0;
+    });
+
+    return command;
+}
+
+static void RenderLeakWatchMarkdown(LeakWatchResult result, int sampleCount, string? gcdumpReportPath)
+{
+    Console.WriteLine("# runfaster leak-watch");
+    Console.WriteLine();
+    Console.WriteLine($"Samples: {sampleCount.ToString(CultureInfo.InvariantCulture)} | Verdict: `{result.Verdict}`");
+    Console.WriteLine();
+    Console.WriteLine("## Conclusion");
+    Console.WriteLine();
+    Console.WriteLine(result.Headline);
+    Console.WriteLine();
+    Console.WriteLine("## Evidence");
+    Console.WriteLine();
+    foreach (var note in result.Notes)
+        Console.WriteLine($"- {note}");
+    Console.WriteLine();
+
+    if (gcdumpReportPath is { Length: > 0 } && File.Exists(gcdumpReportPath))
+    {
+        Console.WriteLine("## Top retained types (gcdump)");
+        Console.WriteLine();
+        Console.WriteLine("These survive a forced collection (gcdump triggers a gen2), so they name the retained roots — the 'what' behind a managed-retention verdict.");
+        Console.WriteLine();
+        Console.WriteLine("```text");
+        foreach (var line in File.ReadLines(gcdumpReportPath).Where(l => l.Trim().Length > 0).Take(12))
+            Console.WriteLine(line);
+        Console.WriteLine("```");
+        Console.WriteLine();
+    }
+
+    Console.WriteLine("## Reading the verdict");
+    Console.WriteLine();
+    Console.WriteLine("- `ManagedRetention` — the live heap grows and a gen2 collection does not reclaim it (a managed leak; a gcdump names the roots).");
+    Console.WriteLine("- `NativeOrCommittedGrowth` — the working set stays far above the live heap after a gen2 collection (native allocation or GC-committed regions returned to the OS lazily).");
+    Console.WriteLine("- `ChurnStorm` — a high allocation rate promotes to gen2 but the heap is reclaimed (allocation rate / parallelism, not a leak).");
+    Console.WriteLine("- `Healthy` — working set tracks the live heap.");
+}
+
+static void RenderLeakWatchJson(LeakWatchResult result, int sampleCount)
+{
+    using var stream = Console.OpenStandardOutput();
+    using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+    writer.WriteStartObject();
+    writer.WriteNumber("samples", sampleCount);
+    writer.WriteString("verdict", result.Verdict.ToString());
+    writer.WriteString("headline", result.Headline);
+    writer.WriteNumber("workingSetFirst", result.WorkingSetFirst);
+    writer.WriteNumber("workingSetPeak", result.WorkingSetPeak);
+    writer.WriteNumber("workingSetLast", result.WorkingSetLast);
+    writer.WriteNumber("liveHeapPeak", result.LiveHeapPeak);
+    writer.WriteNumber("retainedFloorAfterGen2", result.RetainedFloorAfterGen2);
+    writer.WriteNumber("liveHeapAtFloor", result.LiveHeapAtFloor);
+    writer.WriteNumber("gapRatio", result.GapRatio);
+    writer.WriteNumber("totalAllocated", result.TotalAllocated);
+    writer.WriteNumber("durationSeconds", result.DurationSeconds);
+    writer.WriteNumber("gcPauseFraction", result.GcPauseFraction);
+    writer.WriteNumber("gen2Collections", result.Gen2Collections);
+    writer.WriteBoolean("heapReclaimedByGen2", result.HeapReclaimedByGen2);
+    writer.WriteNumber("threadGrowth", result.ThreadGrowth);
+    writer.WriteStartArray("notes");
+    foreach (var note in result.Notes)
+        writer.WriteStringValue(note);
+    writer.WriteEndArray();
+    writer.WriteEndObject();
+    writer.Flush();
+    Console.WriteLine();
 }
 
 static Option<string[]> CreateInputOption(string name, string description) => new(name)
