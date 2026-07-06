@@ -181,6 +181,7 @@ public static class TypeSourceComposer
     {
         ForceAsync = forceAsync,
         ForceUnsafe = forceUnsafe,
+        IncludeCustomAttributes = false,
         IncludeObsoleteAttribute = false,
         OmitInterfaceMemberModifiers = true
     };
@@ -461,6 +462,9 @@ public static class TypeSourceComposer
                     if (!first) sb.AppendLine();
                     first = false;
                     any = true;
+                    foreach (var attribute in AttributeReader.RenderEventAttributes(
+                        reader, typeHandle, member.Name, bodyNamespaces))
+                        sb.AppendLine($"    [{attribute}]");
                     string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
                         type,
                         member,

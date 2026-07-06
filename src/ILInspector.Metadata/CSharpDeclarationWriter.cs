@@ -25,6 +25,7 @@ public sealed record CSharpDeclarationOptions
     public bool TerminateMemberDeclaration { get; init; }
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
+    public bool IncludeCustomAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
 }
@@ -86,7 +87,7 @@ public static class CSharpDeclarationWriter
             .Concat(memberList.SelectMany(CollectMemberTypeReferences));
         var plan = TypeNamePlan.Create(references, options);
 
-        List<string> lines = [plan.Apply(RenderTypeDeclarationCore(type))];
+        List<string> lines = [plan.Apply(RenderTypeDeclarationCore(type, options))];
         lines.Add("{");
         foreach (var member in memberList)
         {
@@ -109,7 +110,7 @@ public static class CSharpDeclarationWriter
     {
         options ??= new CSharpDeclarationOptions();
         var plan = TypeNamePlan.Create(CollectTypeReferences(type), options);
-        return plan.Apply(RenderTypeDeclarationCore(type));
+        return plan.Apply(RenderTypeDeclarationCore(type, options));
     }
 
     static string ComposeUnit(IReadOnlyList<string> bodyLines, IReadOnlyList<string> usings, CSharpDeclarationOptions options)
@@ -134,7 +135,7 @@ public static class CSharpDeclarationWriter
         return sb.ToString().TrimEnd();
     }
 
-    static string RenderTypeDeclarationCore(ApiType type)
+    static string RenderTypeDeclarationCore(ApiType type, CSharpDeclarationOptions options)
     {
         var parts = new List<string> { "public" };
         if (type.Kind == "class")
@@ -169,7 +170,7 @@ public static class CSharpDeclarationWriter
             declaration += " : " + string.Join(", ", bases);
 
         declaration = AppendTypeParameterConstraints(declaration, type.TypeParameters);
-        return type.Attributes.Count == 0
+        return !options.IncludeCustomAttributes || type.Attributes.Count == 0
             ? declaration
             : $"[{string.Join(", ", type.Attributes)}] {declaration}";
     }
@@ -243,8 +244,11 @@ public static class CSharpDeclarationWriter
             signature = EscapeParameterLists(signature);
 
         List<string> parts = [];
-        foreach (var attribute in member.Attributes)
-            parts.Add($"[{attribute}]");
+        if (options.IncludeCustomAttributes)
+        {
+            foreach (var attribute in member.Attributes)
+                parts.Add($"[{attribute}]");
+        }
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
         if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
