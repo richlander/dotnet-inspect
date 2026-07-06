@@ -141,6 +141,62 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_NonThrowingSetupBoundary_DoesNotAddExceptionPathCandidate()
+    {
+        var keepAlive = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            .. Call(TokenKeepAlive),
+            0x2A,
+        ], []);
+        var arrayCopy = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            0x06,
+            0x17,
+            .. Call(TokenArrayCopy),
+            0x2A,
+        ], []);
+
+        Assert.Empty(keepAlive.Findings);
+        AssertCandidate(keepAlive, nameof(Synthetic), "cross-method-suppressed");
+        AssertNoCandidate(keepAlive, nameof(Synthetic), "exception-path-leak-candidate");
+
+        Assert.Empty(arrayCopy.Findings);
+        AssertCandidate(arrayCopy, nameof(Synthetic), "cross-method-suppressed");
+        AssertNoCandidate(arrayCopy, nameof(Synthetic), "exception-path-leak-candidate");
+    }
+
+    [Fact]
+    public void DetailedAnalysis_ThrowingBoundaryAfterSetup_IsExceptionPathCandidate()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            .. Call(TokenKeepAlive),
+            0x06,
+            .. Call(TokenUnknown),
+            .. Call(TokenShared),
+            0x06,
+            .. Callvirt(TokenReturn),
+            0x2A,
+        ], []);
+
+        Assert.Empty(result.Findings);
+        AssertCandidate(result, nameof(Synthetic), "cross-method-suppressed");
+        AssertCandidate(result, nameof(Synthetic), "exception-path-leak-candidate");
+    }
+
+    [Fact]
     public void IncompleteDataflow_FailsClosed()
     {
         byte[] externalBranch = [0x2B, 0x7F, 0x2A]; // br.s outside the method, then ret
@@ -256,6 +312,8 @@ public sealed class LeakTriageAnalyzerTests
     const int TokenReturn = 0x0A000003;
     const int TokenUnknown = 0x0A000004;
     const int TokenField = 0x0A000005;
+    const int TokenKeepAlive = 0x0A000006;
+    const int TokenArrayCopy = 0x0A000007;
 
     static ImmutableArray<LeakTriageFinding> AnalyzeSynthetic(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
         => AnalyzeSyntheticDetailed(il, exceptionRegions).Findings;
@@ -287,6 +345,13 @@ public sealed class LeakTriageAnalyzerTests
             TokenRent => new MemberRef(arrayPoolOfByte, "Rent", [TypeRef.CoreLib("System", "Int32")], byteArray, MemberKind.Method) { HasThis = true },
             TokenReturn => new MemberRef(arrayPoolOfByte, "Return", [byteArray], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { HasThis = true },
             TokenUnknown => new MemberRef(TypeRef.Definition("Fixture", "Fixtures", "Unknown"), "Use", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method),
+            TokenKeepAlive => new MemberRef(TypeRef.CoreLib("System", "GC"), "KeepAlive", [TypeRef.CoreLib("System", "Object")], TypeRef.CoreLib("System", "Void"), MemberKind.Method),
+            TokenArrayCopy => new MemberRef(
+                TypeRef.CoreLib("System", "Array"),
+                "Copy",
+                [TypeRef.CoreLib("System", "Array"), TypeRef.CoreLib("System", "Array"), TypeRef.CoreLib("System", "Int32")],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
             _ => MemberRef.Unsupported($"unknown token 0x{token:X8}"),
         };
     }
