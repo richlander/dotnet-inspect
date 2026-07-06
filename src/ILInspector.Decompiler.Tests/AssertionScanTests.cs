@@ -320,6 +320,24 @@ public class AssertionScanTests
     }
 
     [Fact]
+    public void AssertionPrinter_RejectsReuseAcrossFunctions()
+    {
+        var printer = new AssertionPrinter.StatefulPrinter(totalStages: 3);
+        var first = Function(
+            Returning(new LoadArgument(0, "raw", Int32)),
+            Enum32,
+            new Parameter("raw", Int32));
+        var second = Function(
+            Returning(new LoadArgument(0, "raw", Int32)),
+            Enum32,
+            new Parameter("raw", Int32));
+
+        printer.Dump(first);
+
+        Assert.Throws<InvalidOperationException>(() => printer.Dump(second));
+    }
+
+    [Fact]
     public void AssertionPrinter_DefaultSingleStage_TreatsViolationAsUnsound()
     {
         var function = Function(

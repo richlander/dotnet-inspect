@@ -22,6 +22,7 @@ public static class AssertionPrinter
         readonly int _finalStage;
         readonly IReadOnlyDictionary<string, string> _dischargePassByStageIdentity;
         readonly Dictionary<string, Dictionary<IrNode, int>> _occurrenceOrdinals = new(StringComparer.Ordinal);
+        IrFunction? _function;
         int _stage;
         bool _firstUnsoundFlagged;
 
@@ -48,6 +49,11 @@ public static class AssertionPrinter
 
         public string Dump(IrFunction function)
         {
+            if (_function is null)
+                _function = function;
+            else if (!ReferenceEquals(_function, function))
+                throw new InvalidOperationException("AssertionPrinter.StatefulPrinter is single-method; create a new instance for each IrFunction.");
+
             _stage++;
             bool isFinalStage = _stage >= _finalStage;
             var sb = new StringBuilder();
