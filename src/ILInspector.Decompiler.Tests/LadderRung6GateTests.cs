@@ -8,7 +8,9 @@ using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using LegacyStackallocInitializers = ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals;
 using LegacyUnsafe = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
+using NewStackallocInitializers = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
 using NewUnsafe = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
 
 namespace ILInspector.Decompiler.Tests;
@@ -30,6 +32,8 @@ public class LadderRung6GateTests
     static readonly string LegacyUnsafeType = typeof(LegacyUnsafe).FullName!;
     static readonly string ByRefFixturePath = FixtureCatalog.DecompilerLadderRung4.AssemblyPath();
     static readonly string ByRefFixtureType = typeof(LadderRung4.CSharp7LocalSyntax).FullName!;
+    static readonly string StackallocInitializerType = typeof(NewStackallocInitializers).FullName!;
+    static readonly string LegacyStackallocInitializerType = typeof(LegacyStackallocInitializers).FullName!;
 
     static readonly string[] ExpectedUnsafeMembers =
     [
@@ -215,6 +219,25 @@ public class LadderRung6GateTests
         var raisedPinnedOutput = CSharpPrinter.Print(raisedPinned).Output;
         Assert.Contains("fixed (int* V_0 = ", raisedPinnedOutput);
         Assert.DoesNotContain("pinned", raisedPinnedOutput);
+    }
+
+    [Fact]
+    public void Rung6StackallocInitializerResiduals_DegradeHonestly()
+    {
+        AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
+        AssertStackallocInitializerResiduals(LegacyUnsafePath, LegacyStackallocInitializerType);
+    }
+
+    static void AssertStackallocInitializerResiduals(string assemblyPath, string typeName)
+    {
+        var members = LoadRaisedMembers(assemblyPath, typeName);
+        foreach (var name in new[] { "StackallocPointerInitializer", "StackallocSpanInitializer" })
+        {
+            var member = members.Single(m => m.Name == name);
+            Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
+            Assert.Contains(FidelityRemarks.Collect(member.Function), r => r.Code == DiagnosticIds.UnsupportedConstruct);
+            Assert.Contains("cpblk", member.Body);
+        }
     }
 
     static void AssertExactCompileBack(string assemblyPath, string typeName, string methodName)
