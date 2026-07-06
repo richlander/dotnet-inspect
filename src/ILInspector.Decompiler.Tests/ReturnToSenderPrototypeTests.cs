@@ -278,6 +278,39 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_UsesTypedClosureFieldForStaticMemberAccess()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public static int Value = 42;
+            }
+
+            public class Class1
+            {
+                public int FromHelper => Helper.Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "Helper"
+                && !type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member")
+                && type.Members.Any(member => member.Name == "Value"
+                    && member.Kind == CompileBackMemberKind.Field
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-field" && fact.Detail == "Value")));
+            Assert.Contains("public static int Value;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_EmitsClosureConstructorRequirement()
     {
         var assemblyPath = CompileFixture("""
