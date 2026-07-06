@@ -363,6 +363,38 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ConsumesStructPrimaryConstructorSlot()
+    {
+        var fixture = CompileSourceFixture(
+            ("Struct1.cs", """
+            namespace SourceProbe;
+
+            public struct Struct1(int value)
+            {
+                public Struct1() : this(1)
+                {
+                }
+
+                public int Value() => value;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Struct1", ".ctor", Overload: 1)],
+                fixture.SourcePaths));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+            Assert.Equal("", Normalize(result.ExpectedBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_DoesNotIndexErasedPartialPropertyDefinition()
     {
         var fixture = CompileSourceFixture(

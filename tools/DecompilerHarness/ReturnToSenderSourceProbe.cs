@@ -660,6 +660,7 @@ static class ReturnToSenderSourceProbe
         => type switch
         {
             ClassDeclarationSyntax { ParameterList: not null } => true,
+            StructDeclarationSyntax { ParameterList: not null } => true,
             RecordDeclarationSyntax { ParameterList: not null } => true,
             _ => false,
         };
