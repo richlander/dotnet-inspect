@@ -6,6 +6,18 @@ namespace ILInspector.Research;
 
 public static class ResearchMemberIdentity
 {
+    readonly record struct BodyMemberIdentity(
+        string SelectorName,
+        string TypeName,
+        string MemberName,
+        string GenericList,
+        string ParameterList)
+    {
+        public string CanonicalSignature => $"M:{TypeName}.{MemberName}{GenericList}{ParameterList}";
+        public string Fingerprint => MemberAnchor.ComputeFingerprint(CanonicalSignature);
+        public string StableSelector => $"{SelectorName}~{Fingerprint}";
+    }
+
     public static ResearchSubjectKey SubjectFromAnchor(MemberAnchor anchor, string display)
         => new(
             ResearchDiffSubjectKind.Member,
@@ -16,20 +28,14 @@ public static class ResearchMemberIdentity
 
     public static ResearchSubjectKey SubjectFromMethod(MethodIdentity method)
     {
-        var typeName = method.DeclaringType.ToQualifiedDisplayString();
-        var memberName = method.Name == ".ctor" ? "#ctor" : method.Name;
-        var selectorName = ApiMemberIdentity.GetMemberSelectorName(method.Name, method.IsExtension);
-        var parameters = string.Join(",", method.ParameterTypes.Select(BodyTypeName));
+        var identity = BodyIdentityFromMethod(method);
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
-        var methodGeneric = MethodGenericList(method);
-        var canonical = $"M:{typeName}.{memberName}{methodGeneric}({parameters})";
-        var fingerprint = MemberAnchor.ComputeFingerprint(canonical);
         return new ResearchSubjectKey(
             ResearchDiffSubjectKind.Member,
-            $"{selectorName}~{fingerprint}",
-            $"{typeName}.{memberName}({displayParameters})",
-            typeName,
-            memberName);
+            identity.StableSelector,
+            $"{identity.TypeName}.{identity.MemberName}({displayParameters})",
+            identity.TypeName,
+            identity.MemberName);
     }
 
     public static bool TryAddTargetIdentity(ResolvedMemberTarget target, ISet<string> identities)
@@ -38,6 +44,21 @@ public static class ResearchMemberIdentity
         if (member.Kind is "property" or "field" or "event")
             return false;
 
+        identities.Add(BodyIdentityFromTarget(target).StableSelector);
+        return true;
+    }
+
+    static BodyMemberIdentity BodyIdentityFromMethod(MethodIdentity method)
+        => CreateBodyIdentity(
+            ApiMemberIdentity.GetMemberSelectorName(method.Name, method.IsExtension),
+            method.DeclaringType.ToQualifiedDisplayString(),
+            method.Name == ".ctor" ? "#ctor" : method.Name,
+            MethodGenericList(method),
+            $"({string.Join(",", method.ParameterTypes.Select(BodyTypeName))})");
+
+    static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
+    {
+        var member = target.ApiMember.Member;
         var signature = member.SignatureModel;
         var memberName = member.Kind == "constructor"
             ? "#ctor"
@@ -52,13 +73,24 @@ public static class ResearchMemberIdentity
             ?? (member.IsExtension && !string.IsNullOrWhiteSpace(member.DeclaringType)
                 ? member.DeclaringType!
                 : target.Anchor.TypeFullName);
-        var canonical = $"M:{BodyDeclaringTypeName(declaringType)}.{memberName}{generic}{parameters}";
         var selectorName = target.Anchor.StableSelector.Split('~')[0];
         if (member.IsExtension && !selectorName.StartsWith("extension:", StringComparison.Ordinal))
             selectorName = $"extension:{selectorName}";
-        identities.Add($"{selectorName}~{MemberAnchor.ComputeFingerprint(canonical)}");
-        return true;
+        return CreateBodyIdentity(
+            selectorName,
+            BodyDeclaringTypeName(declaringType),
+            memberName,
+            generic,
+            parameters);
     }
+
+    static BodyMemberIdentity CreateBodyIdentity(
+        string selectorName,
+        string typeName,
+        string memberName,
+        string genericList,
+        string parameterList)
+        => new(selectorName, typeName, memberName, genericList, parameterList);
 
     public static string BodyDeclaringTypeName(string typeName)
         => DeclaringPrimitiveName(StripGenericArguments(typeName.Replace('+', '.')));
