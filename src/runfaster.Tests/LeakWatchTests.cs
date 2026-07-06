@@ -157,6 +157,27 @@ public class LeakWatchTests
     }
 
     [Fact]
+    public void Analyze_LeakAlongsideCollectibleChurn_IsManagedRetention()
+    {
+        // A real leak (100 MB → ~1 GB retained) plus transient churn on top. A gen2
+        // collection reclaims the churn but the leak stays resident: the partial reclaim
+        // must not mask the retained growth.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 300 * MB, 100 * MB, 80 * MB),
+            Sample(2, 1600 * MB, 1200 * MB, 1100 * MB, allocated: 400 * MB, gen2Collections: 1),
+            // churn (200 MB) reclaimed, but ~1 GB leak stays.
+            Sample(4, 1500 * MB, 1000 * MB, 950 * MB, allocated: 400 * MB),
+            Sample(6, 1550 * MB, 1050 * MB, 1000 * MB, allocated: 400 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.ManagedRetention, result.Verdict);
+        Assert.False(result.HeapReclaimedByGen2);
+    }
+
+    [Fact]
     public void CountersCsv_ParsesGroupedTimestampsAndComputesLiveHeap()
     {
         var lines = new[]

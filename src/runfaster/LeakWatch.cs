@@ -99,10 +99,9 @@ static class LeakWatchAnalyzer
         int threadGrowth = samples.Max(s => s.Threads) - samples[0].Threads;
 
         long reclaimThreshold = (long)(thresholds.RetainedGapBytes / 4);
+        long liveHeapBase = Math.Max(liveHeapFirst, 16L * 1024 * 1024);
 
-        // Index of the live-heap high-water mark. "Reclaimed" only counts if the TOTAL
-        // live heap (not just gen2) falls substantially AFTER that peak — a collection
-        // that fired before later monotonic growth must not mask a real leak.
+        // Index of the live-heap high-water mark.
         int liveHeapPeakIndex = 0;
         for (int i = 1; i < samples.Count; i++)
         {
@@ -110,47 +109,48 @@ static class LeakWatchAnalyzer
                 liveHeapPeakIndex = i;
         }
 
-        bool heapReclaimedAfterPeak = false;
-        int reclaimIndex = -1;
-        long liveHeapFloorAfterPeak = liveHeapPeak;
-        for (int i = liveHeapPeakIndex + 1; i < samples.Count; i++)
+        // The level the live heap SETTLES to from its peak onward — the retained floor.
+        // A managed leak is distinguished not by whether the heap dropped at all (a
+        // collection reclaiming transient churn can still leave a large leak behind) but
+        // by whether that floor stays far above the baseline. Reclaiming 200 MB of churn
+        // while 10 GB stays resident is retention, not a clean collection.
+        long retainedLiveFloor = samples[liveHeapPeakIndex].LiveHeap;
+        int retainedFloorIndex = liveHeapPeakIndex;
+        for (int i = liveHeapPeakIndex; i < samples.Count; i++)
         {
-            if (samples[i].LiveHeap < liveHeapPeak - reclaimThreshold)
+            if (samples[i].LiveHeap < retainedLiveFloor)
             {
-                heapReclaimedAfterPeak = true;
-                if (samples[i].LiveHeap < liveHeapFloorAfterPeak)
-                {
-                    liveHeapFloorAfterPeak = samples[i].LiveHeap;
-                    reclaimIndex = i;
-                }
+                retainedLiveFloor = samples[i].LiveHeap;
+                retainedFloorIndex = i;
             }
         }
-        bool gen2CollectionObserved = samples.Any(s => s.Gen2CollectionsInWindow > 0);
-        bool heapReclaimedByGen2 = heapReclaimedAfterPeak;
 
-        // The working-set floor after the live-heap was reclaimed: does RSS follow the
-        // heap down? Only meaningful when a reclaim was actually observed; otherwise the
-        // relevant gap is simply the end-of-window gap.
-        long retainedFloorAfterGen2;
-        long liveHeapAtFloor;
-        if (reclaimIndex >= 0)
+        bool gen2CollectionObserved = samples.Any(s => s.Gen2CollectionsInWindow > 0);
+
+        // The heap grew significantly from its baseline.
+        bool grewSignificantly = liveHeapPeak >= liveHeapBase * thresholds.ManagedGrowthFactor
+            && liveHeapPeak - liveHeapFirst >= thresholds.RetainedGapBytes;
+        // A collection returned the heap toward its baseline (came back down), as opposed
+        // to reclaiming only a slice while a large amount stays resident.
+        bool heapReturnedToBaseline = retainedLiveFloor <= liveHeapBase * 3 / 2
+            && liveHeapPeak - retainedLiveFloor >= reclaimThreshold;
+        // "Reclaimed" for verdict purposes: a collection brought the heap back toward
+        // baseline (independent of whether it had grown significantly first).
+        bool heapReclaimedByGen2 = heapReturnedToBaseline;
+
+        // The working-set floor at/after the retained live-heap floor: does RSS follow
+        // the heap down?
+        long retainedFloorAfterGen2 = long.MaxValue;
+        long liveHeapAtFloor = samples[retainedFloorIndex].LiveHeap;
+        for (int i = retainedFloorIndex; i < samples.Count; i++)
         {
-            retainedFloorAfterGen2 = long.MaxValue;
-            liveHeapAtFloor = liveHeapLast;
-            for (int i = reclaimIndex; i < samples.Count; i++)
+            if (samples[i].WorkingSet < retainedFloorAfterGen2)
             {
-                if (samples[i].WorkingSet < retainedFloorAfterGen2)
-                {
-                    retainedFloorAfterGen2 = samples[i].WorkingSet;
-                    liveHeapAtFloor = samples[i].LiveHeap;
-                }
+                retainedFloorAfterGen2 = samples[i].WorkingSet;
+                liveHeapAtFloor = samples[i].LiveHeap;
             }
         }
-        else
-        {
-            retainedFloorAfterGen2 = wsLast;
-            liveHeapAtFloor = liveHeapLast;
-        }
+        long liveHeapFloorAfterPeak = retainedLiveFloor;
 
         // Working set must actually GROW over the window for a growth verdict; a stable
         // high native baseline (large gap but flat) is not growth.
@@ -179,16 +179,12 @@ static class LeakWatchAnalyzer
         LeakWatchVerdict verdict;
         string headline;
 
-        // Growth relative to a small floor so a heap that starts near zero is not missed.
-        long liveHeapBase = Math.Max(liveHeapFirst, 16L * 1024 * 1024);
-        bool liveHeapGrew = liveHeapPeak > liveHeapBase * thresholds.ManagedGrowthFactor
-            && liveHeapPeak - liveHeapFirst >= thresholds.RetainedGapBytes;
         bool highChurn = duration > 0 && pauseFraction >= thresholds.PauseFraction;
 
-        if (liveHeapGrew && !heapReclaimedByGen2)
+        if (grewSignificantly && !heapReturnedToBaseline)
         {
             verdict = LeakWatchVerdict.ManagedRetention;
-            headline = $"Managed retention: live GC heap grew to {Fmt(liveHeapPeak)} and no collection reclaimed it — a managed leak. Capture a gcdump and inspect the top retained types.";
+            headline = $"Managed retention: live GC heap grew to {Fmt(liveHeapPeak)} and stayed at {Fmt(retainedLiveFloor)} at its post-peak floor — a collection did not return it to baseline, so it is a managed leak. Capture a gcdump and inspect the top retained types.";
             notes.Add("The growth is on the managed heap and survives collection: this is the class the static ArrayPool leak-triage targets, and a gcdump will name the retained roots.");
         }
         else if (workingSetGrew && gapRatio >= thresholds.GapRatio && retainedGap >= thresholds.RetainedGapBytes)
