@@ -466,7 +466,7 @@ static class ReturnToSenderSourceProbe
                         {
                             if (IsBodylessPartial(indexer))
                                 break;
-                            string metadataName = IndexerMetadataName(indexer);
+                            string metadataName = IndexerMetadataName(indexer, type);
                             if (HasGetter(indexer))
                             {
                                 string methodName = $"get_{metadataName}";
@@ -781,7 +781,18 @@ static class ReturnToSenderSourceProbe
     static string NormalizeBody(string text)
         => Regex.Replace(text, @"\s+", "");
 
-    static string IndexerMetadataName(IndexerDeclarationSyntax indexer)
+    static string IndexerMetadataName(IndexerDeclarationSyntax indexer, TypeDeclarationSyntax declaringType)
+        => IndexerMetadataName(indexer)
+            ?? declaringType.Members
+                .OfType<IndexerDeclarationSyntax>()
+                .Where(candidate => !ReferenceEquals(candidate, indexer)
+                    && IsBodylessPartial(candidate)
+                    && IndexerParametersMatch(candidate, indexer))
+                .Select(IndexerMetadataName)
+                .FirstOrDefault(name => name is not null)
+            ?? "Item";
+
+    static string? IndexerMetadataName(IndexerDeclarationSyntax indexer)
     {
         foreach (var attribute in indexer.AttributeLists.SelectMany(list => list.Attributes))
         {
@@ -800,7 +811,22 @@ static class ReturnToSenderSourceProbe
             }
         }
 
-        return "Item";
+        return null;
+    }
+
+    static bool IndexerParametersMatch(IndexerDeclarationSyntax left, IndexerDeclarationSyntax right)
+    {
+        var leftParameters = left.ParameterList.Parameters;
+        var rightParameters = right.ParameterList.Parameters;
+        if (leftParameters.Count != rightParameters.Count)
+            return false;
+        for (int i = 0; i < leftParameters.Count; i++)
+        {
+            if (!string.Equals(leftParameters[i].Type?.ToString(), rightParameters[i].Type?.ToString(), StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
     }
 
     static string OperatorMetadataName(OperatorDeclarationSyntax op)
