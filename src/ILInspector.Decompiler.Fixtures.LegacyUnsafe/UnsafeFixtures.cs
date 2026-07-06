@@ -40,6 +40,26 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public static class PointerArithmeticFixtures
+{
+    public static unsafe int PointerIncrement(int* p)
+    {
+        int sum = *p;
+        p++;
+        sum += *p;
+        --p;
+        return sum + *p;
+    }
+
+    public static unsafe long PointerArithmeticAndComparison(int* p, int* q)
+    {
+        int* next = p + 1;
+        int* prev = next - 1;
+        long distance = q - p;
+        return (prev == p && next > p) ? distance : -1;
+    }
+}
+
 /// <summary>
 /// Legacy-rules unsafe fixtures. Each method uses the member <c>unsafe</c>
 /// modifier, which under pre-memory-safety semantics makes the whole body an

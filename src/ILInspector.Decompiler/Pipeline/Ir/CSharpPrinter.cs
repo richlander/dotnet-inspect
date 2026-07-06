@@ -2392,6 +2392,12 @@ public sealed partial class CSharpPrinter
             return false;
         }
 
+        if (IsConstant(offset, elementSize))
+        {
+            index = new Constant(1, TypeRef.CoreLib("System", "Int32"));
+            return true;
+        }
+
         if (offset is Binary { Kind: BinaryKind.Multiply } multiply)
         {
             if (IsConstant(multiply.Left, elementSize))
@@ -2747,6 +2753,14 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CompoundStatement(string target, Binary binary, TypeRef? targetType = null)
     {
+        if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
+            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract
+            && TryScaledPointerIndex(binary.Right, pointerElement, out var pointerIndex))
+        {
+            if (pointerIndex is Constant { Value: 1 })
+                return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+            return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
+        }
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
             return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
         // The compound runs in the lvalue's type. Prefer the resolved store type

@@ -61,7 +61,7 @@ public class PointerArithmeticScalingTests
     }
 
     [Fact]
-    public void PointerAdd_CastsResultBackToPointerType()
+    public void PointerAdd_RendersCanonicalElementOffset()
     {
         var output = Print(ReturnFunction(
             IntPointer,
@@ -69,12 +69,12 @@ public class PointerArithmeticScalingTests
             new Parameter("p", IntPointer),
             new Parameter("i", Int32)));
 
-        Assert.Contains("return (int*)((byte*)p + ", output);
-        Assert.DoesNotContain("return p + ", output);
+        Assert.Contains("return p + i;", output);
+        Assert.DoesNotContain("byte*", output);
     }
 
     [Fact]
-    public void PointerDifference_DifferencesBytePointers()
+    public void PointerDifference_RendersCanonicalPointerDifference()
     {
         // `(long)((a - b) / 4)`: C# `int* - int*` already yields an element count,
         // so dividing by 4 again is wrong; differencing `byte*` yields the byte
@@ -92,7 +92,8 @@ public class PointerArithmeticScalingTests
             new Parameter("a", IntPointer),
             new Parameter("b", IntPointer)));
 
-        Assert.Contains("((byte*)a - (byte*)b) / 4", output);
+        Assert.Contains("return (long)(a - b);", output);
+        Assert.DoesNotContain("byte*", output);
         Assert.DoesNotContain("(a - b) / 4", output);
     }
 
@@ -149,7 +150,7 @@ public class PointerArithmeticScalingTests
             new Parameter("p", IntPointer),
             new Parameter("i", Int32)));
 
-        Assert.Contains("return checked((int*)((byte*)p + ", output);
+        Assert.Contains("return checked(p + i);", output);
     }
 
     [Fact]
