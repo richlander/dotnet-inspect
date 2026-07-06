@@ -261,6 +261,21 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void ConditionalReturnInFinally(bool flag)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            buffer[0] = 1;
+        }
+        finally
+        {
+            if (flag) // the Return does not post-dominate the finally: the flag-false path leaks
+                ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static void UseAfterReturn()
     {
         var buffer = ArrayPool<byte>.Shared.Rent(16);

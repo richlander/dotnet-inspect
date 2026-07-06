@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
+using ILInspector.ControlFlow;
 using ILInspector.Instructions;
 
 namespace ILInspector.Analysis;
@@ -222,7 +223,7 @@ public static class ResourceLifecycleCensus
                 $"ArrayPool Rent at IL_{acquire.RentOffset:X4} reaches a normal return without a Return on some path."));
         }
 
-        if (!ReleaseProtectedByFinally(instructions, graph.Regions, acquire, releases))
+        if (!ReleaseProtectedByFinally(graph, instructions, acquire, releases))
         {
             int? detail = releases.Count > 0 ? releases.Min() : null;
             facts.Add(new ResourceLifecycleFact(
@@ -318,15 +319,16 @@ public static class ResourceLifecycleCensus
         return false;
     }
 
-    // The acquire is exception-safe only when some Return runs inside a finally/fault handler
-    // that actually covers the acquired value: either the store sits inside the protected try, or
-    // it sits immediately before the try with only inert (non-throwing) ops in the gap. A Return
-    // in a finally whose try starts *after* a throwing op (a call, an element access, ...) does
-    // NOT cover an exception from that op - the finally is never entered - so the acquire is still
-    // an exception-path leak candidate. (Reviewers GPT-5.5 + Gemini 3.1 Pro, PR #2447.)
+    // The acquire is exception-safe only when some Return provably runs during unwinding: it must
+    // sit inside a covering finally/fault handler whose protected try covers the acquired value
+    // (store inside the try, or immediately before it with an inert gap) AND the Return must
+    // post-dominate the handler entry, so a conditional Return in the handler
+    // (`finally { if (c) Return(buf); }`) does NOT count - the `c`-false path leaves the handler
+    // without releasing. A throwing op between the rent and the try, or a non-dominating handler
+    // Return, both keep the exception-path candidate. (Reviewers GPT-5.5 + Gemini 3.1 Pro, PR #2447.)
     static bool ReleaseProtectedByFinally(
+        BlockGraph graph,
         ImmutableArray<DecodedInstruction> instructions,
-        ImmutableArray<ExceptionRegionModel> regions,
         ArrayPoolAcquire acquire,
         IReadOnlyList<int> releases)
     {
@@ -334,15 +336,26 @@ public static class ResourceLifecycleCensus
             return false;
 
         int storeNext = StoreNextOffset(instructions, acquire.StoreOffset);
+        PostDominators? postDominators = null;
         foreach (int release in releases)
         {
-            foreach (var region in regions)
+            foreach (var region in graph.Regions)
             {
                 if (region.Kind is not (HandlerKind.Finally or HandlerKind.Fault) || !region.ContainsHandler(release))
                     continue;
-                if (region.ContainsTry(acquire.StoreOffset))
-                    return true;
-                if (acquire.StoreOffset < region.TryStart && GapIsInert(instructions, storeNext, region.TryStart))
+
+                bool storeCovered = region.ContainsTry(acquire.StoreOffset)
+                    || (acquire.StoreOffset < region.TryStart && GapIsInert(instructions, storeNext, region.TryStart));
+                if (!storeCovered)
+                    continue;
+
+                int handlerBlock = graph.BlockIndexAt(region.HandlerStart);
+                int releaseBlock = graph.BlockIndexAt(release);
+                if (handlerBlock < 0 || releaseBlock < 0)
+                    continue;
+
+                postDominators ??= PostDominators.Of([.. graph.Blocks.Select(block => block.Edges)]);
+                if (postDominators.PostDominates(releaseBlock, handlerBlock))
                     return true;
             }
         }

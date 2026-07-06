@@ -166,6 +166,17 @@ public sealed class ResourceLifecycleCensusTests
             BucketsFor(nameof(ArrayPoolLeakFixtures.RentThenCallBeforeTryFinally)));
     }
 
+    [Fact]
+    public void ConditionalReturnInFinally_StaysExceptionCandidate()
+    {
+        // The Return is inside the finally but guarded by an unrelated flag, so it does not
+        // post-dominate the handler entry: the flag-false path leaks on both normal and exception
+        // unwind. The census must NOT clear either leak candidate (reviewer GPT-5.5, PR #2447).
+        Assert.Equal(
+            ["exception-path-leak-candidate", "normal-path-leak-candidate"],
+            BucketsFor(nameof(ArrayPoolLeakFixtures.ConditionalReturnInFinally)));
+    }
+
     static ImmutableArray<string> BucketsFor(string methodName)
         => [.. ResourceLifecycleCensus.CensusAssembly(typeof(ArrayPoolLeakFixtures).Assembly.Location)
             .Facts
