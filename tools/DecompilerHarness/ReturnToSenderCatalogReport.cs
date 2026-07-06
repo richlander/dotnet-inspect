@@ -1,6 +1,8 @@
 using System.Text;
 using ILInspector.Instructions;
 using ILInspector.Research;
+using Markout;
+using Markout.Formatting;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -107,6 +109,81 @@ internal static class ReturnToSenderCatalogReport
         AppendPassedFixtures(sb, view);
 
         return sb.ToString();
+    }
+
+    public static string RenderMarkout(ReturnToSenderCatalogReportView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        var output = new StringWriter();
+        MarkoutSerializer.Serialize(
+            BuildMarkoutView(view),
+            output,
+            new MarkdownFormatter(),
+            ReturnToSenderCatalogReportContext.Default,
+            new MarkoutWriterOptions());
+        return output.ToString();
+    }
+
+    static ReturnToSenderCatalogMarkoutView BuildMarkoutView(ReturnToSenderCatalogReportView view)
+        => new()
+        {
+            Summary =
+            [
+                new("Fixtures", view.Fixtures.Passed, view.Fixtures.Skipped, view.Fixtures.Failed),
+                new("Targets", view.Targets.Passed, view.Targets.Skipped, view.Targets.Failed),
+            ],
+            ResearchEvidence = view.Research is null
+                ? null
+                : [
+                    new("Subjects", view.Research.Diff.Subjects.Count),
+                    new("RTS rows", view.Research.Diff.Subjects.SelectMany(subject => subject.Evidence).Count(row => row.Mechanism == ResearchDiffMechanism.ReturnToSender)),
+                    new("IL rows", view.Research.Diff.Subjects.SelectMany(subject => subject.Evidence).Count(row => row.Mechanism == ResearchDiffMechanism.IlBody)),
+                    .. view.Research.ChangeBuckets.Select(bucket => new ReturnToSenderResearchEvidenceRow(bucket.Key, bucket.Count)),
+                ],
+            ActionableSubjects = view.Research?.Summary.ActionableSubjects.Count > 0
+                ? [.. view.Research.Summary.ActionableSubjects.Select(ActionableRow)]
+                : null,
+            SkippedTargetReasons = view.SkippedTargetReasons.Count == 0 ? null : [.. view.SkippedTargetReasons.Select(BucketRow)],
+            FailedTargetBuckets = view.FailedTargetBuckets.Count == 0 ? null : [.. view.FailedTargetBuckets.Select(BucketRow)],
+            FailedFixtures = view.FailedFixtures.Count == 0 ? null : [.. view.FailedFixtures.SelectMany(fixture => fixture.Rows.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail).Select(row => FailedRow(fixture.FixtureId, row)))],
+            PassedFixtures = view.PassedFixtures.Count == 0 ? null : [.. view.PassedFixtures.Select(fixture => new ReturnToSenderPassedFixtureRow(fixture.FixtureId))],
+        };
+
+    static ReturnToSenderActionableRow ActionableRow(ReturnToSenderActionableSubject subject)
+        => new(
+            subject.SubjectId,
+            subject.CompileBackStatus ?? subject.RtsStatus ?? "unknown",
+            subject.Detail ?? "-",
+            string.Join(", ", subject.ChangeCounts.Select(count => $"{count.ChangeId}: {count.Count}")),
+            [.. subject.IlEvidence.SelectMany(evidence =>
+            {
+                var lines = new List<string>();
+                if (evidence.Failure is { } failure)
+                    lines.Add($"{evidence.ChangeId}: {failure.UnifiedLine}");
+                lines.AddRange(evidence.Rows.Select(row => $"{evidence.ChangeId}: {row.UnifiedLine}"));
+                return lines;
+            })]);
+
+    static ReturnToSenderBucketRow BucketRow(ReturnToSenderCatalogReportBucket bucket)
+        => new(bucket.Key, bucket.Count);
+
+    static ReturnToSenderFailedFixtureRow FailedRow(string fixtureId, GeneratedFixtureReturnToSenderResult row)
+    {
+        string actual = row.ActualStatus?.ToString() ?? "Missing";
+        string closure = row.ClosureEvidence is null
+            ? ""
+            : $"types={row.ClosureEvidence.RequiredTypes} members={row.ClosureEvidence.RequiredMembers} roslyn-types={row.ClosureEvidence.RoslynRecoveredTypes} roslyn-member-surfaces={row.ClosureEvidence.RoslynRecoveredMemberSurfaces}";
+        return new ReturnToSenderFailedFixtureRow(
+            fixtureId,
+            row.DisplayMember,
+            actual,
+            row.Reason,
+            row.MemberAnchor?.StableSelector,
+            row.MemberAnchor?.CanonicalSignature,
+            closure,
+            row.Detail,
+            row.IlDiffDiagnostic is null ? [] : [.. IlDiffPrinter.ToUnifiedLines(row.IlDiffDiagnostic)]);
     }
 
     static IReadOnlyList<ReturnToSenderCatalogReportBucket> Buckets(IEnumerable<GeneratedFixtureReturnToSenderResult> rows)
@@ -216,4 +293,76 @@ internal static class ReturnToSenderCatalogReport
         foreach (var fixture in view.PassedFixtures)
             sb.AppendLine($"  {fixture.FixtureId}");
     }
+}
+
+[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+internal sealed class ReturnToSenderCatalogMarkoutView
+{
+    [MarkoutIgnore]
+    public string Title => "ReturnToSender Catalog";
+
+    [MarkoutSection(Name = "Summary")]
+    public List<ReturnToSenderSummaryRow>? Summary { get; init; }
+
+    [MarkoutSection(Name = "Research evidence", EmptyText = "None")]
+    public List<ReturnToSenderResearchEvidenceRow>? ResearchEvidence { get; init; }
+
+    [MarkoutSection(Name = "Actionable subjects", EmptyText = "None")]
+    public List<ReturnToSenderActionableRow>? ActionableSubjects { get; init; }
+
+    [MarkoutSection(Name = "Skipped target reasons", EmptyText = "None")]
+    public List<ReturnToSenderBucketRow>? SkippedTargetReasons { get; init; }
+
+    [MarkoutSection(Name = "Failed target buckets", EmptyText = "None")]
+    public List<ReturnToSenderBucketRow>? FailedTargetBuckets { get; init; }
+
+    [MarkoutSection(Name = "Failed fixtures", EmptyText = "None")]
+    public List<ReturnToSenderFailedFixtureRow>? FailedFixtures { get; init; }
+
+    [MarkoutSection(Name = "Passed fixtures", EmptyText = "None")]
+    public List<ReturnToSenderPassedFixtureRow>? PassedFixtures { get; init; }
+}
+
+[MarkoutSerializable]
+internal sealed record ReturnToSenderSummaryRow(string Scope, int Passed, int Skipped, int Failed);
+
+[MarkoutSerializable]
+internal sealed record ReturnToSenderResearchEvidenceRow(string Metric, int Count);
+
+[MarkoutSerializable]
+internal sealed record ReturnToSenderActionableRow(
+    string Subject,
+    string Status,
+    string Detail,
+    string Changes,
+    [property: MarkoutPropertyName("IL display")] List<string> IlDisplay);
+
+[MarkoutSerializable]
+internal sealed record ReturnToSenderBucketRow(string Bucket, int Count);
+
+[MarkoutSerializable]
+internal sealed record ReturnToSenderFailedFixtureRow(
+    string Fixture,
+    string Member,
+    string Status,
+    string Bucket,
+    [property: MarkoutPropertyName("Stable selector")] string? StableSelector,
+    [property: MarkoutPropertyName("Canonical signature")] string? CanonicalSignature,
+    string? Closure,
+    string? Detail,
+    [property: MarkoutPropertyName("IL diff")] List<string> IlDiff);
+
+[MarkoutSerializable]
+internal sealed record ReturnToSenderPassedFixtureRow(string Fixture);
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(ReturnToSenderCatalogMarkoutView))]
+[MarkoutContext(typeof(ReturnToSenderSummaryRow))]
+[MarkoutContext(typeof(ReturnToSenderResearchEvidenceRow))]
+[MarkoutContext(typeof(ReturnToSenderActionableRow))]
+[MarkoutContext(typeof(ReturnToSenderBucketRow))]
+[MarkoutContext(typeof(ReturnToSenderFailedFixtureRow))]
+[MarkoutContext(typeof(ReturnToSenderPassedFixtureRow))]
+internal sealed partial class ReturnToSenderCatalogReportContext : MarkoutSerializerContext
+{
 }

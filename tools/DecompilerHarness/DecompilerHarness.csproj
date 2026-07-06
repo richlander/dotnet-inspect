@@ -21,6 +21,7 @@
     <!-- ILReader: the byte-match-validated IL reader the fidelity and annotation checks read the witness IL with. -->
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <!-- Validity check: parse and bind the decompiled C# to measure validity. -->
+    <PackageReference Include="Markout" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 

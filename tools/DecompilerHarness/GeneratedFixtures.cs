@@ -2321,6 +2321,9 @@ internal static class GeneratedFixtureRunner
     public static string FormatReturnToSenderCatalogReport(GeneratedFixtureReturnToSenderRunResult run, int maxExamples)
         => ReturnToSenderCatalogReport.RenderPlain(ReturnToSenderCatalogReport.Build(run, maxExamples));
 
+    public static string FormatReturnToSenderCatalogMarkout(GeneratedFixtureReturnToSenderRunResult run, int maxExamples)
+        => ReturnToSenderCatalogReport.RenderMarkout(ReturnToSenderCatalogReport.Build(run, maxExamples));
+
     public static string FormatJson(GeneratedFixtureRunResult run)
     {
         var payload = new

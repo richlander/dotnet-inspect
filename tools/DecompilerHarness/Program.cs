@@ -54,6 +54,7 @@ static class Program
         bool returnToSender = false;
         bool returnToSenderAb = false;
         bool returnToSenderCatalog = false;
+        bool returnToSenderMarkout = false;
         bool returnToSenderSourceProbe = false;
         string? returnToSenderFixtureGroup = null;
         bool fidelityTimings = false;
@@ -139,6 +140,7 @@ static class Program
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;
+                case "--return-to-sender-markout": returnToSenderMarkout = true; break;
                 case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
                 case "--return-to-sender-fixtures": returnToSenderFixtureGroup = args[++i]; break;
                 case "--return-to-sender-catalog":
@@ -213,6 +215,9 @@ static class Program
             }
         }
 
+        if (returnToSenderMarkout && !returnToSenderCatalog)
+            return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
+
         if (generatedFixtures)
         {
             if (inputs.Count > 0)
@@ -226,7 +231,7 @@ static class Program
                 return Fail("--return-to-sender-fixtures supplies built assemblies; do not use it with --return-to-sender-catalog.");
             if (inputs.Count > 0)
                 return Fail("--return-to-sender-catalog generates its own temporary input assembly; do not pass assembly paths.");
-            return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, maxExamples);
+            return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, returnToSenderMarkout, maxExamples);
         }
 
         if (returnToSenderFixtureGroup is not null
@@ -405,11 +410,16 @@ static class Program
         return run.Passed ? 0 : 1;
     }
 
-    static int ReturnToSenderCatalog(string? selector, bool keepArtifacts, bool json, int maxExamples)
+    static int ReturnToSenderCatalog(string? selector, bool keepArtifacts, bool json, bool markout, int maxExamples)
     {
+        if (json && markout)
+            return Fail("--return-to-sender-markout cannot be combined with --json.");
+
         var fixtures = GeneratedFixtureCatalog.Select(selector);
         if (selector == "list")
         {
+            if (markout)
+                return Fail("--return-to-sender-markout does not apply to --return-to-sender-catalog list.");
             if (json)
                 Console.WriteLine(GeneratedFixtureRunner.FormatListJson(GeneratedFixtureCatalog.Catalog));
             else
@@ -429,7 +439,9 @@ static class Program
         }
         else
         {
-            Console.Write(GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples));
+            Console.Write(markout
+                ? GeneratedFixtureRunner.FormatReturnToSenderCatalogMarkout(run, maxExamples)
+                : GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples));
         }
         if (keepArtifacts && !json)
         {
@@ -1494,6 +1506,10 @@ static class Program
                                 and report pass/skip/fail frontier buckets.
                                 Use selector prefix or "list"; supports --json
                                 and --keep-generated-fixtures.
+          --return-to-sender-markout
+                                with --return-to-sender-catalog: render the
+                                catalog report as Markout Markdown instead of
+                                the legacy plain text report.
           --package <id[@version]>
                                 download/extract a NuGet package and add its
                                 selected managed assembly as input (use
