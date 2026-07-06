@@ -4409,9 +4409,9 @@ public struct PlainValue
     public int V { get; }
 }
 
-// #1804 / rung 7. Consumes the cross-assembly shape fixtures (defined in the separate
-// ILInspector.Analysis.CrossAsmShapeFixtures assembly, which the SRM-direct product does not
-// load) plus an in-assembly struct. Each method constructs a value as a method ARGUMENT in a
+// #1804 / rung 7. Consumes the cross-assembly shape fixtures (defined in an
+// external fixture assembly, which the SRM-direct product does not load) plus
+// an in-assembly struct. Each method constructs a value as a method ARGUMENT in a
 // loop, which forces a `newobj` (a value assigned to a local emits `call .ctor` instead), so
 // the allocation signal's shape classification is exercised.
 public static class CrossAsmShapeConsumer

@@ -137,14 +137,14 @@ public static class FixtureCatalog
 
     public static readonly FixtureDefinition AnalysisCrossAsmShape = Fixture(
         FixtureIds.AnalysisCrossAsmShape,
-        "ILInspector.Analysis.CrossAsmShapeFixtures",
-        "ILInspector.Analysis.CrossAsmShapeFixtures.dll",
+        "ILInspector.Analysis.Fixtures",
+        "ILInspector.Analysis.Fixtures.dll",
         "analysis", "cross-assembly", "shape");
 
     public static readonly FixtureDefinition AnalysisExceptionBase = Fixture(
         FixtureIds.AnalysisExceptionBase,
-        "ILInspector.Analysis.ExceptionBaseFixtures",
-        "ILInspector.Analysis.ExceptionBaseFixtures.dll",
+        "ILInspector.Analysis.Fixtures",
+        "ILInspector.Analysis.Fixtures.dll",
         "analysis", "exception");
 
     public static readonly FixtureDefinition AnalysisFacade = Fixture(
