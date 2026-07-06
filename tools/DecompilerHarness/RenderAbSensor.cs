@@ -284,6 +284,9 @@ internal static class RenderAbSensor
                 []);
         }
 
+        bool bindSemantics = context.Function.Fidelity == DecompilationFidelity.Full
+            && !context.TypeName.Contains('<', StringComparison.Ordinal)
+            && !context.MethodName.Contains('<', StringComparison.Ordinal);
         return ValidityCheck.EvaluateRenderedBody(
             context.Function,
             body,
@@ -294,7 +297,7 @@ internal static class RenderAbSensor
             references,
             parseOptions,
             compileOptions,
-            bindSemantics: true);
+            bindSemantics);
     }
 
     static SemanticContext? BuildSemanticContext(RenderedMethod sample)
