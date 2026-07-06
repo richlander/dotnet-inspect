@@ -252,6 +252,8 @@ public sealed partial class CSharpPrinter
         }
         if (call.Callee.Name == "Invoke" && receiver is Lambda lambda)
             return $"(({TypeText(lambda.DelegateType)}){Operand(lambda)}).Invoke({rest})";
+        if (PointerMemberReceiver(receiver, call.Callee.DeclaringType) is { } pointerReceiver)
+            return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
             // Non-virtual this-receiver call to a base-declared method is
