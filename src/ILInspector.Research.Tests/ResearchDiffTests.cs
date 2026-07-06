@@ -52,6 +52,21 @@ public class ResearchDiffTests
         Assert.StartsWith($"{ApiMemberIdentity.GetMemberSelectorName(methodName, isExtension)}~", subject.Id, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(".ctor", false)]
+    [InlineData("op_Addition", false)]
+    [InlineData("Twice", true)]
+    [InlineData("IFoo.Bar", false)]
+    [InlineData("M", false)]
+    public void ResearchMemberIdentity_SelectorForMetadataName_DelegatesToMetadataPolicy(string methodName, bool isExtension)
+    {
+#pragma warning disable CS0618
+        var selector = ResearchMemberIdentity.SelectorForMetadataName(methodName, isExtension);
+#pragma warning restore CS0618
+
+        Assert.Equal(ApiMemberIdentity.GetMemberSelectorName(methodName, isExtension), selector);
+    }
+
     [Fact]
     public void MetadataApiDiff_DefaultScope_IgnoresAttributeOnlyChanges()
     {

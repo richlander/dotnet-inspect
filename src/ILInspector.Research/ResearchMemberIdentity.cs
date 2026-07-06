@@ -119,6 +119,10 @@ public static class ResearchMemberIdentity
                 : $"!!{index}"))}>";
     }
 
+    [Obsolete("Use ApiMemberIdentity.GetMemberSelectorName instead.")]
+    public static string SelectorForMetadataName(string methodName, bool isExtensionMethod = false)
+        => ApiMemberIdentity.GetMemberSelectorName(methodName, isExtensionMethod);
+
     static string DeclaringPrimitiveName(string value)
         => value switch
         {
