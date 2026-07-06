@@ -190,6 +190,35 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task TypeFilterMissWithMemberFilter_DoesNotPrintDuplicateTypeFilterNotes()
+    {
+        var oldSurface = DiffSurface(
+            DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+            DiffType("Sample", "Changed", DiffMember("Changed", signature: "void Changed()")));
+        var newSurface = DiffSurface(
+            DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+            DiffType("Sample", "Changed", DiffMember("Changed", signature: "int Changed()")));
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Quiet"],
+                MemberFilter = ["Sample.Changed.Changed"]
+            });
+            DiffCommand.ApplyFilters(diff, new DiffOptions
+            {
+                TypeFilter = ["Quiet"],
+                MemberFilter = ["Sample.Changed.Changed"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(1, CountOccurrences(error, "type filter matched no changed types: Quiet"));
+        Assert.DoesNotContain("member filter matched no changed members", error);
+    }
+
+    [Fact]
     public async Task ApplyFilters_ClassificationFilteredMemberDiff_ReportsClassificationFilter()
     {
         var type = DiffType("Sample", "Widget", DiffMember("Added", signature: "void Added()"));
@@ -222,6 +251,18 @@ public class DiffCommandTests
 
         Assert.Contains("classification filter removed all changes", error);
         Assert.DoesNotContain("member filter matched no changed members", error);
+    }
+
+    private static int CountOccurrences(string value, string substring)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = value.IndexOf(substring, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += substring.Length;
+        }
+        return count;
     }
 
     [Fact]

@@ -512,7 +512,7 @@ public class DiffCommand
                 .Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, options.TypeFilter))
                 .ToList();
 
-            if (typeDiffs.Count == 0 && beforeTypeFilterCount > 0)
+            if (typeDiffs.Count == 0 && beforeTypeFilterCount > 0 && options.MemberFilter.Count == 0)
                 Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
         }
 
@@ -522,10 +522,6 @@ public class DiffCommand
         if (filtered.Count == 0 && typeDiffs.Count > 0 && classificationFilterActive)
         {
             Console.Error.WriteLine("Note: classification filter removed all changes after type/member filters.");
-        }
-        else if (filtered.Count == 0 && beforeTypeFilterCount > 0 && options.TypeFilter.Count > 0 && typeDiffs.Count > 0)
-        {
-            Console.Error.WriteLine("Note: classification filter removed all changes for the matched type filter.");
         }
 
         return filtered;

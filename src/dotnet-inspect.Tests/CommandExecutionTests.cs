@@ -3860,6 +3860,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_MemberOptionBeforeBareToken_SkipsMemberValueWhenFindingRouteTarget()
+    {
+        var (exit, output, error) = await RunAppAsync("--member", "Keep", "frobnicate");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.DoesNotContain("Package 'Keep' not found", error);
+        Assert.DoesNotContain("Unrecognized option '--member'", error);
+    }
+
+    [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(

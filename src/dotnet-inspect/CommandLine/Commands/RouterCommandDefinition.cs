@@ -136,6 +136,9 @@ public static class RouterCommandDefinition
                     return ["package", target, .. tail];
             }
 
+            if (ContainsOption(tokens, "--member") || ContainsOption(tokens, "-m"))
+                return ["member", target, .. tail];
+
             if (ContainsOption(tokens, "--library"))
                 return ["package", .. tokens];
 

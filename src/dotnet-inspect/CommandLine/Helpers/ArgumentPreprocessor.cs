@@ -146,7 +146,10 @@ public static class ArgumentPreprocessor
     };
     private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
     {
-        "--package", "--library", "--project", "--bin", "--tfm", "-t", "--type",
+        "--package", "--library", "--assembly", "--project", "--bin", "--directory",
+        "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
+        "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
+        "--caller-package", "--caller-project",
         "--package-prefix", "--depth", "-n", "--head", "--tail", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
