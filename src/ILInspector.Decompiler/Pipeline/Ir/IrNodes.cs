@@ -850,11 +850,18 @@ public sealed class Fixed : IrNode
 /// </summary>
 public sealed class UsingStatement : IrNode
 {
-    public UsingStatement(int localIndex, TypeRef resourceType, IrExpression resource, BlockContainer body, bool isAwait = false)
+    public UsingStatement(
+        int localIndex,
+        TypeRef resourceType,
+        IrExpression resource,
+        BlockContainer body,
+        bool isAwait = false,
+        ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         LocalIndex = localIndex;
         ResourceType = resourceType;
         IsAwait = isAwait;
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
         AddChild(resource);
         AddChild(body);
     }
@@ -862,6 +869,7 @@ public sealed class UsingStatement : IrNode
     public int LocalIndex { get; }
     public TypeRef ResourceType { get; }
     public bool IsAwait { get; }
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
     public IrExpression Resource => (IrExpression)Children[0];
     public BlockContainer Body => (BlockContainer)Children[1];
 
@@ -877,16 +885,23 @@ public sealed class UsingStatement : IrNode
 /// </summary>
 public sealed class ForeachStatement : IrNode
 {
-    public ForeachStatement(int localIndex, TypeRef localType, IrExpression collection, Block body)
+    public ForeachStatement(
+        int localIndex,
+        TypeRef localType,
+        IrExpression collection,
+        Block body,
+        ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         LocalIndex = localIndex;
         LocalType = localType;
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
         AddChild(collection);
         AddChild(body);
     }
 
     public int LocalIndex { get; }
     public TypeRef LocalType { get; }
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
     public IrExpression Collection => (IrExpression)Children[0];
     public Block Body => (Block)Children[1];
     public override IEnumerable<TypeRef> DirectTypes => [LocalType];
@@ -1891,17 +1906,25 @@ public sealed class DeconstructionTarget : IrNode
 /// </summary>
 public sealed class DeconstructionAssignment : IrNode
 {
-    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source, ImmutableArray<bool> isDeclared)
-        : this([.. localIndices.Select((index, i) => DeconstructionTarget.Local(index, localTypes[i], isDeclared[i]))], source)
+    public DeconstructionAssignment(
+        ImmutableArray<int> localIndices,
+        ImmutableArray<TypeRef> localTypes,
+        IrExpression source,
+        ImmutableArray<bool> isDeclared,
+        MethodRef? consumedDeconstructMethod = null)
+        : this([.. localIndices.Select((index, i) => DeconstructionTarget.Local(index, localTypes[i], isDeclared[i]))], source, consumedDeconstructMethod)
     {
     }
 
-    public DeconstructionAssignment(ImmutableArray<DeconstructionTarget> targets, IrExpression source)
+    public DeconstructionAssignment(ImmutableArray<DeconstructionTarget> targets, IrExpression source, MethodRef? consumedDeconstructMethod = null)
     {
+        ConsumedDeconstructMethod = consumedDeconstructMethod;
         AddChild(source);
         foreach (var target in targets)
             AddChild(target);
     }
+
+    public MethodRef? ConsumedDeconstructMethod { get; }
 
     public ImmutableArray<DeconstructionTarget> Targets
         => [.. Children.Skip(1).Cast<DeconstructionTarget>()];

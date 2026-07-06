@@ -286,6 +286,55 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_UsesPreservedDeconstructMemberEvidence()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Pair
+            {
+                public void Deconstruct(out int left, out int right)
+                {
+                    left = 1;
+                    right = 2;
+                }
+            }
+
+            public class Class1
+            {
+                public int Sum
+                {
+                    get
+                    {
+                        var pair = new Pair();
+                        var (left, right) = pair;
+                        return left + right;
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_Sum");
+
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "Pair"
+                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "closure-member" && fact.Detail.EndsWith(".Deconstruct", StringComparison.Ordinal))
+                && !type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "roslyn")
+                && type.Members.Any(member => member.Name == "Deconstruct"));
+            var evidence = ReturnToSenderClosureEvidenceBuilder.FromPlan(result.Plan);
+            Assert.Equal(0, evidence.RoslynRecoveredMemberSurfaces);
+            Assert.Contains("public void Deconstruct", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_EmitsTargetRootSiblingMemberSurface()
     {
         var assemblyPath = CompileFixture("""

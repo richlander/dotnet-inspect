@@ -32,6 +32,10 @@ public class ForeachStatementPassTests
         var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
         Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
         Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "GetEnumerator");
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "MoveNext");
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "get_Current");
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "Dispose");
         Assert.DoesNotContain(function.Descendants.OfType<UsingStatement>(), _ => true);
         Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), _ => true);
     }

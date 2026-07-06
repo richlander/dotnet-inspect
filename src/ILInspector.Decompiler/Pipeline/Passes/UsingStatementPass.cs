@@ -27,7 +27,7 @@ public sealed class UsingStatementPass : IIrPass
 {
     public string Name => "using-statement";
 
-    sealed record Match(StoreLocal StoreResource, TryFinally TryFinally);
+    sealed record Match(StoreLocal StoreResource, TryFinally TryFinally, MethodRef Dispose);
     sealed record AwaitMatch(
         StoreLocal StoreResource,
         StoreLocal StoreException,
@@ -36,7 +36,8 @@ public sealed class UsingStatementPass : IIrPass
         IfStatement DisposeIf,
         IfStatement RethrowIf,
         IfStatement ReturnIf,
-        Throw? FailThrow);
+        Throw? FailThrow,
+        MethodRef Dispose);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -68,7 +69,7 @@ public sealed class UsingStatementPass : IIrPass
                 var resource = (IrExpression)match.StoreResource.DetachChildren()[0];
                 var body = match.TryCatch.TryBody;
                 body.Detach();
-                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, isAwait: true);
+                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, isAwait: true, consumedMemberRefs: [match.Dispose]);
                 stepper.StepOver("raise await dispose scaffold to await using", match.TryCatch);
                 match.StoreResource.ReplaceWith(usingStatement);
                 match.StoreException.Detach();
@@ -97,7 +98,7 @@ public sealed class UsingStatementPass : IIrPass
                 var resource = (IrExpression)match.StoreResource.DetachChildren()[0];
                 var body = match.TryFinally.TryBody;
                 body.Detach();
-                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body);
+                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, consumedMemberRefs: [match.Dispose]);
                 stepper.StepOver("raise dispose try/finally to using", match.TryFinally);
                 match.TryFinally.ReplaceWith(usingStatement);
                 match.StoreResource.Detach();
@@ -156,7 +157,7 @@ public sealed class UsingStatementPass : IIrPass
         if (!IsReturnState(returnIf, storeState.Index))
             return null;
 
-        return new AwaitMatch(storeResource, storeException, storeState, tryCatch, disposeIf, rethrowIf, returnIf, failThrow);
+        return new AwaitMatch(storeResource, storeException, storeState, tryCatch, disposeIf, rethrowIf, returnIf, failThrow, dispose.Callee);
     }
 
     static AwaitMatch? TryMatchNestedAwaitUsing(IrFunction function, IReadOnlyList<IrNode> children, int i)
@@ -203,7 +204,7 @@ public sealed class UsingStatementPass : IIrPass
         if (!IsNestedReturnState(returnIf, storeState.Index))
             return null;
 
-        return new AwaitMatch(storeResource, storeException, storeState, tryCatch, disposeIf, rethrowIf, returnIf, FailThrow: null);
+        return new AwaitMatch(storeResource, storeException, storeState, tryCatch, disposeIf, rethrowIf, returnIf, FailThrow: null, dispose.Callee);
     }
 
     static bool IsAsyncDisposeOf(Call dispose, StoreLocal storeResource)
@@ -329,7 +330,7 @@ public sealed class UsingStatementPass : IIrPass
         if (tryFinally.FinallyBody.Blocks is not [{ Children: [var only] }])
             return null;
 
-        bool disposes = only switch
+        MethodRef? disposeMethod = only switch
         {
             // Reference type: finally { if (V_0) ((IDisposable)V_0).Dispose(); }
             IfStatement
@@ -337,7 +338,8 @@ public sealed class UsingStatementPass : IIrPass
                 Else: null,
                 Condition: LoadLocal guardLoad,
                 Then.Children: [ExpressionStatement { Expression: Call guardedDispose }],
-            } => guardLoad.Index == storeResource.Index && IsDisposeOf(function, guardedDispose, storeResource),
+            } when guardLoad.Index == storeResource.Index && IsDisposeOf(function, guardedDispose, storeResource)
+                => guardedDispose.Callee,
             // Value type: finally { V_0.Dispose(); } — no null guard. csc only omits
             // the guard for value-type / constrained dispose; a reference-type `using`
             // always emits the null-guarded form above. Raising an unguarded reference-
@@ -345,12 +347,13 @@ public sealed class UsingStatementPass : IIrPass
             // possible NullReferenceException into a silent no-op), so decline a known
             // reference-type resource here and leave it as the flat try/finally.
             ExpressionStatement { Expression: Call bareDispose }
-                => IsDisposeOf(function, bareDispose, storeResource)
-                    && function.TypeShapes.GetValueOrDefault(storeResource.Type) is not TypeShape.Reference,
-            _ => false,
+                when IsDisposeOf(function, bareDispose, storeResource)
+                    && function.TypeShapes.GetValueOrDefault(storeResource.Type) is not TypeShape.Reference
+                => bareDispose.Callee,
+            _ => null,
         };
 
-        return disposes ? new Match(storeResource, tryFinally) : null;
+        return disposeMethod is null ? null : new Match(storeResource, tryFinally, disposeMethod);
     }
 
     /// <summary>An <c>IDisposable.Dispose()</c> or pattern <c>Dispose()</c> call whose receiver is the resource local.</summary>
