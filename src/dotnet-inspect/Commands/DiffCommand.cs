@@ -607,7 +607,7 @@ public class DiffCommand
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
             var found = false;
-            string? diagnostic = null;
+            MemberTargetDiagnostic? diagnostic = null;
             var oldType = FindExactType(fromSurface, parsed.TypeName);
             var newType = FindExactType(toSurface, parsed.TypeName);
 
@@ -615,7 +615,8 @@ public class DiffCommand
             {
                 var oldResult = AddResolvedIdentities(oldType, parsed.Selector, identities);
                 found |= oldResult.Found;
-                diagnostic ??= oldResult.Diagnostic;
+                if (oldResult.Diagnostic is { } oldDiagnostic && IsFatalTargetDiagnostic(oldDiagnostic.Kind))
+                    diagnostic ??= oldDiagnostic;
                 if (oldResult.Found)
                     typeNames.Add(oldType.FullName);
             }
@@ -623,13 +624,14 @@ public class DiffCommand
             {
                 var newResult = AddResolvedIdentities(newType, parsed.Selector, identities);
                 found |= newResult.Found;
-                diagnostic ??= newResult.Diagnostic;
+                if (newResult.Diagnostic is { } newDiagnostic && IsFatalTargetDiagnostic(newDiagnostic.Kind))
+                    diagnostic ??= newDiagnostic;
                 if (newResult.Found)
                     typeNames.Add(newType.FullName);
             }
 
-            if (diagnostic is { Length: > 0 })
-                throw new InvalidOperationException(diagnostic);
+            if (diagnostic is not null)
+                throw new InvalidOperationException(diagnostic.Message);
             if (!found)
                 throw new InvalidOperationException($"Member target '{rawTarget}' did not resolve in either diff input.");
         }
@@ -637,16 +639,22 @@ public class DiffCommand
         return new ResolvedDiffMemberTargets(identities, typeNames);
     }
 
-    static (bool Found, string? Diagnostic) AddResolvedIdentities(ApiType type, MemberTargetSelector selector, HashSet<string> identities)
+    static (bool Found, MemberTargetDiagnostic? Diagnostic) AddResolvedIdentities(ApiType type, MemberTargetSelector selector, HashSet<string> identities)
     {
         var resolution = MemberTargetResolver.Resolve(type, selector);
         if (!resolution.Found)
-            return (false, resolution.Diagnostic?.Message);
+            return (false, resolution.Diagnostic);
 
         identities.Add(resolution.Target!.Anchor.StableSelector);
         identities.Add(resolution.Target.Anchor.CanonicalSignature);
         return (true, null);
     }
+
+    static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)
+        => kind is MemberTargetDiagnosticKind.AmbiguousMember
+            or MemberTargetDiagnosticKind.DigestAmbiguous
+            or MemberTargetDiagnosticKind.OverloadOutOfRange
+            or MemberTargetDiagnosticKind.ConflictingSelectors;
 
     sealed record ParsedDiffMemberTarget(string TypeName, MemberTargetSelector Selector);
 

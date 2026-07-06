@@ -183,6 +183,46 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildApiDiff_MemberFilter_AllowsAddedMemberMissingOnOldSide()
+    {
+        var oldSurface = DiffSurface(DiffMember("Existing", signature: "void Existing()"));
+        var newSurface = DiffSurface(
+            DiffMember("Existing", signature: "void Existing()"),
+            DiffMember("Added", signature: "void Added()"));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            TypeFilter = ["Widget"],
+            MemberFilter = ["Added"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.MemberAdded, change.Kind);
+        Assert.Contains("Added", change.Message);
+    }
+
+    [Fact]
+    public void BuildApiDiff_MemberFilter_AllowsRemovedMemberMissingOnNewSide()
+    {
+        var oldSurface = DiffSurface(
+            DiffMember("Existing", signature: "void Existing()"),
+            DiffMember("Removed", signature: "void Removed()"));
+        var newSurface = DiffSurface(DiffMember("Existing", signature: "void Existing()"));
+
+        var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+        {
+            TypeFilter = ["Widget"],
+            MemberFilter = ["Removed"]
+        });
+
+        var typeDiff = Assert.Single(diff.TypeDiffs);
+        var change = Assert.Single(typeDiff.Changes);
+        Assert.Equal(ChangeKind.MemberRemoved, change.Kind);
+        Assert.Contains("Removed", change.Message);
+    }
+
+    [Fact]
     public void BuildApiDiff_MemberFilter_PreservesResolverAmbiguityDiagnostic()
     {
         var oldSurface = DiffSurface(
