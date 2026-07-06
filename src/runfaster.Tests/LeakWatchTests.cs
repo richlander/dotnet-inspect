@@ -178,6 +178,84 @@ public class LeakWatchTests
     }
 
     [Fact]
+    public void Analyze_LargeHeapRetainedBelowDoubling_IsManagedRetention()
+    {
+        // GPT: a large existing heap can retain multiple GB without doubling. Growth of
+        // 10 GB → 15 GB (+5 GB) with the working set tracking it is managed retention,
+        // not Healthy — the ×2 factor must not gate out large absolute retention.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 10500 * MB, 10000 * MB, 9500 * MB),
+            Sample(2, 13000 * MB, 12500 * MB, 12000 * MB),
+            Sample(4, 15500 * MB, 15000 * MB, 14500 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.ManagedRetention, result.Verdict);
+    }
+
+    [Fact]
+    public void Analyze_PureNativeLeakOnFlatHeap_IsNativeOrCommittedGrowth()
+    {
+        // Gemini: the managed heap stays flat at 1 GB while the working set leaks from
+        // 1 GB to 10 GB. A peak-anchored floor search saw a zero gap; steady-state must
+        // see the 9 GB native gap.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 1024 * MB, 1000 * MB, 900 * MB),
+            Sample(2, 4096 * MB, 1000 * MB, 900 * MB),
+            Sample(4, 7168 * MB, 1000 * MB, 900 * MB),
+            Sample(6, 10240 * MB, 1000 * MB, 900 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.NativeOrCommittedGrowth, result.Verdict);
+    }
+
+    [Fact]
+    public void Analyze_SteadyLeakAfterEarlyChurnSpike_IsManagedRetention()
+    {
+        // Gemini: an early churn spike (100 MB → 10 GB → reclaimed to 100 MB) followed
+        // by a steady uncollected 5 GB leak at the end. A peak-anchored model finds the
+        // post-spike trough and declares reclaim; steady-state must see the end leak.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 400 * MB, 100 * MB, 80 * MB),
+            Sample(2, 10240 * MB, 10000 * MB, 9500 * MB, allocated: 8000L * MB, gen2Collections: 1),
+            Sample(4, 500 * MB, 100 * MB, 80 * MB, gen2Collections: 1),
+            Sample(6, 5200 * MB, 5000 * MB, 4800 * MB),
+            Sample(8, 5300 * MB, 5100 * MB, 4900 * MB),
+            Sample(10, 5250 * MB, 5050 * MB, 4850 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.ManagedRetention, result.Verdict);
+    }
+
+    [Fact]
+    public void Analyze_CommittedGapAfterChurnSpike_IsNativeOrCommittedGrowth()
+    {
+        // Gemini: heap and WS both spike to 10 GB (churn); the heap correctly drops to
+        // 1 GB but the working set stays at 5 GB — a 4 GB committed-memory gap. A
+        // peak/peak gapRatio is 1.0 and misses it; steady-state gapRatio is 5.0.
+        var samples = new List<LeakWatchSample>
+        {
+            Sample(0, 1024 * MB, 900 * MB, 800 * MB),
+            Sample(2, 10240 * MB, 10000 * MB, 9500 * MB, allocated: 8000L * MB, gen2Collections: 1),
+            Sample(4, 5120 * MB, 1000 * MB, 900 * MB, gen2Collections: 1),
+            Sample(6, 5120 * MB, 1000 * MB, 900 * MB),
+            Sample(8, 5120 * MB, 1000 * MB, 900 * MB),
+        };
+
+        var result = LeakWatchAnalyzer.Analyze(samples, LeakWatchThresholds.Default);
+
+        Assert.Equal(LeakWatchVerdict.NativeOrCommittedGrowth, result.Verdict);
+    }
+
+    [Fact]
     public void CountersCsv_ParsesGroupedTimestampsAndComputesLiveHeap()
     {
         var lines = new[]
