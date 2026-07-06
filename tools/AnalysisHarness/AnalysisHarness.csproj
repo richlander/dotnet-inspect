@@ -18,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Markout" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="corpus/paydirt-reference.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/paydirt-reference.json" />
   </ItemGroup>
 
