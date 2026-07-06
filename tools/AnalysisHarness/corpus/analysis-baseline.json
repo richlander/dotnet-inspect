@@ -9,6 +9,7 @@
       "Allocations": 89,
       "ExceptionConstructions": 5,
       "Shapes": {
+        "async-state-machine": 1,
         "box-value-type": 1,
         "capturing-delegate": 2
       }
@@ -73,6 +74,7 @@
         "enumerator-allocation": 77,
         "instance-method-group-delegate": 29,
         "linq-scan-in-loop": 53,
+        "materialize-in-loop": 3,
         "scan-method-in-loop-call": 45,
         "small-array": 97,
         "string-build-in-loop": 3
@@ -158,7 +160,7 @@
       "Shapes": {
         "box-value-type": 285,
         "capturing-delegate": 116,
-        "enumerator-allocation": 22,
+        "enumerator-allocation": 21,
         "instance-method-group-delegate": 97,
         "linq-scan-in-loop": 3,
         "scan-method-in-loop-call": 1,
