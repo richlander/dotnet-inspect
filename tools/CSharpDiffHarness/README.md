@@ -50,5 +50,6 @@ changed pairs, more rows, fewer exact pairs, or new failure buckets) and report
 other metric and bucket changes as non-failing drift. Baseline output uses
 Markout metric-change rows for scalar metrics (`Metric | Change | Target` in
 Markdown, with goal markers and inline status where a target applies) and
-multi-source rows for bucket changes. JSONL preserves typed baseline/current
-fields, direction/status, and segment values.
+goal-aware segment-change rows for failure buckets. Change IDs and operation
+kinds remain context bucket rows. JSONL preserves typed baseline/current fields,
+direction/status, and segment values.

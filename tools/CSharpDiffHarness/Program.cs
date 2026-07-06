@@ -588,24 +588,39 @@ static MetricChange<int> MetricGoal(string name, int baseline, int current, stri
 
 static List<MultiSourceRow> BaselineBucketRows(BaselineComparison comparison) =>
 [
-    BucketChangeRow("Failure buckets", comparison.Baseline.FailureBuckets ?? [], comparison.Current.FailureBuckets ?? []),
-    BucketChangeRow("Change IDs", comparison.Baseline.ChangeIdBuckets ?? [], comparison.Current.ChangeIdBuckets ?? []),
-    BucketChangeRow("Operation kinds", comparison.Baseline.OperationKindBuckets ?? [], comparison.Current.OperationKindBuckets ?? []),
+    BucketChangeRow("Failure buckets (-)", comparison.Baseline.FailureBuckets ?? [], comparison.Current.FailureBuckets ?? [], Goal.Lower),
+    BucketChangeRow("Change IDs", comparison.Baseline.ChangeIdBuckets ?? [], comparison.Current.ChangeIdBuckets ?? [], Goal.Context),
+    BucketChangeRow("Operation kinds", comparison.Baseline.OperationKindBuckets ?? [], comparison.Current.OperationKindBuckets ?? [], Goal.Context),
 ];
 
-static MultiSourceRow BucketChangeRow(string label, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
-    => new(label, SegmentSource("baseline", baseline), SegmentSource("current", current));
-
-static Source SegmentSource(string role, IReadOnlyList<CardBucket> buckets)
+static MultiSourceRow BucketChangeRow(string label, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current, Goal goal)
 {
-    var segments = buckets
-        .Where(bucket => bucket.Count != 0)
+    var (baselineSegments, currentSegments) = PairedSegments(baseline, current);
+    return new(label, new Source("Change", new Change<Segments>(baselineSegments, currentSegments), new MarkoutCellFormat { Goal = goal }));
+}
+
+static (Segments Baseline, Segments Current) PairedSegments(IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineCounts = baseline.ToDictionary(bucket => bucket.Name, bucket => bucket.Count, StringComparer.Ordinal);
+    var currentCounts = current.ToDictionary(bucket => bucket.Name, bucket => bucket.Count, StringComparer.Ordinal);
+    var labels = baselineCounts.Keys
+        .Union(currentCounts.Keys, StringComparer.Ordinal)
+        .Select(label => new
+        {
+            Label = label,
+            Count = Math.Max(baselineCounts.GetValueOrDefault(label), currentCounts.GetValueOrDefault(label))
+        })
+        .Where(row => row.Count != 0)
+        .OrderByDescending(row => row.Count)
+        .ThenBy(row => row.Label, StringComparer.Ordinal)
         .Take(10)
-        .Select(bucket => new Segment(bucket.Name, bucket.Count))
+        .Select(row => row.Label)
         .ToArray();
-    return segments.Length == 0
-        ? new Source(role, (IMarkoutCell?)null)
-        : new Source(role, new Segments(segments));
+
+    return (
+        new Segments([.. labels.Select(label => new Segment(label, baselineCounts.GetValueOrDefault(label)))]),
+        new Segments([.. labels.Select(label => new Segment(label, currentCounts.GetValueOrDefault(label)))])
+    );
 }
 
 static List<BaselineFindingView>? BaselineRows(BaselineComparison comparison)
