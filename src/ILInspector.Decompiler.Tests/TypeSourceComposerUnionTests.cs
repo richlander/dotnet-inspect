@@ -1719,31 +1719,39 @@ public class TypeSourceComposerUnionTests
         string? skipReason = null)
     {
         var project = TempDirectory.Create();
-        File.WriteAllText(Path.Combine(project.Path, "union-fixture.csproj"), """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup>
-                <TargetFramework>net11.0</TargetFramework>
-                <LangVersion>preview</LangVersion>
-                <Nullable>enable</Nullable>
-              </PropertyGroup>
-            </Project>
-            """);
-        File.WriteAllText(Path.Combine(project.Path, "Fixture.cs"), source);
-
-        var result = await RunDotnetBuild(project.Path);
-        if (result.ExitCode != 0
-            && unsupportedDiagnostic is not null
-            && result.Output.Contains(unsupportedDiagnostic, StringComparison.Ordinal))
+        try
         {
-            Assert.Skip(skipReason ?? $"Installed preview SDK does not support diagnostic {unsupportedDiagnostic} fixture.");
+            File.WriteAllText(Path.Combine(project.Path, "union-fixture.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <LangVersion>preview</LangVersion>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(project.Path, "Fixture.cs"), source);
+
+            var result = await RunDotnetBuild(project.Path);
+            if (result.ExitCode != 0
+                && unsupportedDiagnostic is not null
+                && result.Output.Contains(unsupportedDiagnostic, StringComparison.Ordinal))
+            {
+                Assert.Skip(skipReason ?? $"Installed preview SDK does not support diagnostic {unsupportedDiagnostic} fixture.");
+            }
+
+            Assert.True(result.ExitCode == 0,
+                "Union fixture must build with the preview SDK, got exit "
+                + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
+
+            string dll = Path.Combine(project.Path, "bin", "Release", "net11.0", "union-fixture.dll");
+            return new TempAssembly(dll, project);
         }
-
-        Assert.True(result.ExitCode == 0,
-            "Union fixture must build with the preview SDK, got exit "
-            + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
-
-        string dll = Path.Combine(project.Path, "bin", "Release", "net11.0", "union-fixture.dll");
-        return new TempAssembly(dll, project);
+        catch
+        {
+            project.Dispose();
+            throw;
+        }
     }
 
     static string RenderMember(string assemblyPath, string typeName, string methodName)
