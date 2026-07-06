@@ -199,6 +199,119 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerBackingPropertyAccess_RendersArrowAndRecompiles()
+    {
+        var record = TypeRef.Definition("Synthetic", "LadderRung6", "PropertyPoint", ValueTypeHint.ValueType);
+        var recordPointer = TypeRef.Pointer(record);
+        var backing = new FieldRef(record, "<X>k__BackingField", Int32)
+        {
+            BackingPropertyName = "X",
+        };
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerBackingProperty",
+            Int32,
+            [new Parameter("p", recordPointer)],
+            [],
+            new Return(new LoadField(backing, new LoadArgument(0, "p", recordPointer))))).Output!;
+
+        Assert.Contains("return p->X;", body);
+        Assert.DoesNotContain("p.X", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(PropertyPoint* p)",
+                body,
+                "public struct PropertyPoint { public int X { get; set; } }"),
+            body);
+    }
+
+    [Fact]
+    public void Rung6PointerPrimaryConstructorCaptureAccess_RendersArrowAndRecompiles()
+    {
+        var capture = TypeRef.Definition("Synthetic", "LadderRung6", "CapturePoint", ValueTypeHint.ValueType);
+        var capturePointer = TypeRef.Pointer(capture);
+        var field = new FieldRef(capture, "<X>P", Int32);
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerPrimaryConstructorCapture",
+            Int32,
+            [new Parameter("p", capturePointer)],
+            [],
+            new Return(new LoadField(field, new LoadArgument(0, "p", capturePointer))))).Output!;
+
+        Assert.Contains("return p->X;", body);
+        Assert.DoesNotContain("p.X", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(CapturePoint* p)",
+                body,
+                "public struct CapturePoint { public int X; }"),
+            body);
+    }
+
+    [Fact]
+    public void Rung6PointerPropertiesIndexersAndMethods_RenderPointerSyntaxAndRecompile()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var p = new LoadArgument(0, "p", pointPointer);
+        var property = new MethodRef(point, "get_P", Int32, [], HasThis: true);
+        var indexer = new MethodRef(point, "get_Item", Int32, [Int32], HasThis: true);
+        var method = new MethodRef(point, "M", Int32, [], HasThis: true);
+        var extension = new MethodRef(TypeRef.Definition("Synthetic", "", "Extensions"), "ExtPtr", Int32, [pointPointer], HasThis: false)
+        {
+            IsExtension = MetadataFactState.Yes,
+        };
+        var sum = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new Binary(
+                    BinaryKind.Add,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadProperty(property, p, []),
+                    new LoadProperty(indexer, (IrExpression)p.Clone(), [new Constant(1, Int32)])),
+                new Call(method, isVirtual: false, [(IrExpression)p.Clone()])),
+            new Call(extension, isVirtual: false, [(IrExpression)p.Clone()]));
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerMembers",
+            Int32,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(sum))).Output!;
+
+        Assert.Contains("p->P", body);
+        Assert.Contains("(*p)[1]", body);
+        Assert.Contains("p->M()", body);
+        Assert.Contains("Extensions.ExtPtr(p)", body);
+        Assert.DoesNotContain("p.P", body);
+        Assert.DoesNotContain("p[1]", body);
+        Assert.DoesNotContain("p.M()", body);
+        Assert.DoesNotContain("p.ExtPtr()", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(Point* p)",
+                body,
+                """
+                public unsafe struct Point
+                {
+                    public int X;
+                    public int P { get; set; }
+                    public int this[int i] => X + i;
+                    public int M() => X;
+                }
+                public static unsafe class Extensions
+                {
+                    public static int ExtPtr(Point* p) => p->X;
+                }
+                """),
+            body);
+    }
+
+    [Fact]
     public void Rung6ByRefFixture_PreservesRefKinds()
     {
         using var pe = new PEReader(File.OpenRead(ByRefFixturePath));

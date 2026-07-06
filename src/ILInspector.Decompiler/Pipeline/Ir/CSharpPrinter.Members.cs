@@ -6,7 +6,15 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed partial class CSharpPrinter
 {
     string FieldTarget(FieldRef field, IrExpression? instance)
-    {        // An auto-property backing field, <Prop>k__BackingField, has no spellable
+    {
+        if (PointerMemberReceiver(field.DeclaringType, instance) is { } pointerReceiver)
+        {
+            var pointerMember = field.BackingPropertyName
+                ?? CSharpNaming.PrimaryConstructorCaptureName(field.Name)
+                ?? field.Name;
+            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(pointerMember)}";
+        }
+        // An auto-property backing field, <Prop>k__BackingField, has no spellable
         // C# name; render it as the property it backs. `this.` qualifies the
         // instance form so a constructor assignment whose parameter shadows the
         // property still binds to it (and is legal even for a get-only property).
@@ -33,11 +41,6 @@ public sealed partial class CSharpPrinter
             };
         }
         string fieldName = CSharpNaming.EscapeIdentifier(field.Name);
-        if (instance?.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } pointee }
-            && pointee.Equals(field.DeclaringType))
-        {
-            return $"{Operand(instance)}->{fieldName}";
-        }
         return instance switch
         {
             null => $"{TypeText(field.DeclaringType)}.{fieldName}",
@@ -50,8 +53,21 @@ public sealed partial class CSharpPrinter
         };
     }
 
+    string? PointerMemberReceiver(TypeRef declaringType, IrExpression? instance)
+        => instance?.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } pointee }
+            && pointee.Equals(declaringType)
+            ? Operand(instance)
+            : null;
+
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {
+        if (PointerMemberReceiver(accessor.DeclaringType, instance) is { } pointerReceiver)
+        {
+            if (indexArguments.Count > 0)
+                return $"(*{pointerReceiver})[{Arguments(indexArguments)}]";
+            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(name)}";
+        }
+
         string receiver = instance switch
         {
             // A NON-virtual this-receiver access to a base-declared member is
@@ -164,6 +180,8 @@ public sealed partial class CSharpPrinter
             return $"{TypeText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
             return name;
+        if (PointerMemberReceiver(method.DeclaringType, target) is { } pointerReceiver)
+            return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
     }
 
@@ -202,7 +220,9 @@ public sealed partial class CSharpPrinter
             // between the two forms (taste rule case 3), and the runtime writes the
             // instance form; only sugar on confirmed [Extension] evidence, and drop
             // the receiver from the parameter pairing (it is parameter 0).
-            if (call.Callee.IsExtension == MetadataFactState.Yes && arguments.Count >= 1)
+            if (call.Callee.IsExtension == MetadataFactState.Yes
+                && arguments.Count >= 1
+                && arguments[0].ResultType is not { Kind: TypeRefKind.Pointer })
             {
                 IReadOnlyList<TypeRef> restTypes = [.. call.Callee.ParameterTypes.Skip(1)];
                 var restRefKinds = call.Callee.ParameterRefKinds.IsDefaultOrEmpty
@@ -243,6 +263,8 @@ public sealed partial class CSharpPrinter
                 ? $"base.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})"
                 : $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         }
+        if (PointerMemberReceiver(call.Callee.DeclaringType, receiver) is { } pointerReceiver)
+            return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
 
