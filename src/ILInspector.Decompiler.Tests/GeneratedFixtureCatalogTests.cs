@@ -1197,6 +1197,14 @@ public class GeneratedFixtureCatalogTests
         Assert.Single(view.Research.Summary.ActionableSubjects);
         Assert.Single(view.FailedTargetBuckets);
         Assert.Single(view.FailedFixtures);
+
+        string markout = GeneratedFixtureRunner.FormatReturnToSenderCatalogMarkout(run, maxExamples: 10);
+        Assert.Contains("# ReturnToSender Catalog", markout);
+        Assert.Contains("## Summary", markout);
+        Assert.Contains("## Research evidence", markout);
+        Assert.Contains("## Actionable subjects", markout);
+        Assert.Contains("Method1~abcdef1234", markout);
+        Assert.Contains("il.operation.added: 1", markout);
         Assert.Contains("      il-display:", report);
         Assert.Contains("        il.operation.removed: h0 - IL_0000 ldc.i4 1", report);
         Assert.Contains("        il.operation.added: h0 + IL_0000 ldc.i4 2", report);
