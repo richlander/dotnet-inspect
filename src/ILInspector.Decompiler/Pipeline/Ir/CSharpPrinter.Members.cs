@@ -139,6 +139,11 @@ public sealed partial class CSharpPrinter
         // bare, so it is left alone) — mirroring the cast receiver handling and
         // NeedsCastOperandParentheses (#2151).
         Constant when Operand(receiver) is [('-' or '+'), ..] literal => $"({literal})",
+        // These nodes render as operator-like surface forms, not primary
+        // member receivers. Operand leaves them bare in ordinary operand
+        // positions, but member access would bind to a child or fail to parse:
+        // `^1.M()`, `1..2.M()`, `++x.M()`, `r with { ... }.M()`.
+        IndexFromEnd or RangeExpression or IncrementDecrement or WithExpression => $"({Expression(receiver)})",
         _ => Operand(receiver),
     };
 
