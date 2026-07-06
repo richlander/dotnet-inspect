@@ -3229,6 +3229,12 @@ public class CfgSampleClass
         return 2;
     }
 
+    public static unsafe int PointerStoreUsesOriginalAddress(int* ptr, int* next)
+    {
+        *(ptr) = (ptr = next) == null ? 5 : 5;
+        return *next;
+    }
+
     public static unsafe int UnsafeReadArrayElementAddress(int[] values)
     {
         fixed (int* p = &values[0])

@@ -644,6 +644,16 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerStore_PreservesOriginalAddressAcrossArgumentStore()
+    {
+        var output = RaisedCfg(nameof(CfgSampleClass.PointerStoreUsesOriginalAddress));
+
+        Assert.Contains("ptr =", output);
+        Assert.Contains("*S_", output);
+        Assert.DoesNotContain("*ptr =", output);
+    }
+
+    [Fact]
     public void Rung6UnspellableVolatileAndPinnedShapes_DegradeHonestly()
     {
         var volatileLoad = VolatileIndirectRead(isVolatile: true);
@@ -717,6 +727,14 @@ public class LadderRung6GateTests
             r => r.Type == typeName && r.Method == methodName);
 
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    static string RaisedCfg(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        return CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method)).Output ?? "";
     }
 
     static List<(string Name, IrFunction Function, DecompilerResult Result, string Body)> LoadRaisedMembers(

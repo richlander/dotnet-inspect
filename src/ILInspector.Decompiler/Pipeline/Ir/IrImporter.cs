@@ -850,8 +850,12 @@ public static class IrImporter
                 {
                     int index = reader.ReadILByte();
                     var value = Pop(stack);
-                    if (!IsStableAcrossSideEffect(value) || HasPendingUnstableValue(stack))
-                        SpillUnstableBeforeSideEffect(body, stack, state);
+                    if (!IsStableAcrossSideEffect(value)
+                        || HasPendingUnstableValue(stack)
+                        || HasPendingArgumentRead(stack, index))
+                    {
+                        SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
+                    }
                     body.Add(MakeStoreArgument(method, index, value));
                     break;
                 }
@@ -859,8 +863,12 @@ public static class IrImporter
                 {
                     int index = reader.ReadILUInt16();
                     var value = Pop(stack);
-                    if (!IsStableAcrossSideEffect(value) || HasPendingUnstableValue(stack))
-                        SpillUnstableBeforeSideEffect(body, stack, state);
+                    if (!IsStableAcrossSideEffect(value)
+                        || HasPendingUnstableValue(stack)
+                        || HasPendingArgumentRead(stack, index))
+                    {
+                        SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
+                    }
                     body.Add(MakeStoreArgument(method, index, value));
                     break;
                 }
@@ -1639,6 +1647,57 @@ public static class IrImporter
         return false;
     }
 
+    static bool HasPendingLocalRead(Stack<IrExpression> stack, int index)
+    {
+        foreach (var value in stack)
+            if (ReadsLocal(value, index))
+                return true;
+        return false;
+    }
+
+    static bool HasPendingArgumentRead(Stack<IrExpression> stack, int index)
+    {
+        foreach (var value in stack)
+            if (ReadsArgument(value, index))
+                return true;
+        return false;
+    }
+
+    static bool ReadsLocal(IrNode node, int index)
+        => node is LoadLocal { Index: var readIndex } && readIndex == index
+            || node.Descendants.OfType<LoadLocal>().Any(load => load.Index == index);
+
+    static bool ReadsArgument(IrNode node, int index)
+        => node is LoadArgument { Index: var readIndex } && readIndex == index
+            || node.Descendants.OfType<LoadArgument>().Any(load => load.Index == index);
+
+    static void SpillPendingBeforeStore(Block body, Stack<IrExpression> stack, BuildState state, Func<IrExpression, bool> mustSpill)
+    {
+        if (stack.Count == 0)
+            return;
+
+        var values = stack.Reverse().ToArray(); // bottom-to-top
+        bool anySpill = false;
+        foreach (var value in values)
+            if (!IsStableAcrossSideEffect(value) || mustSpill(value)) { anySpill = true; break; }
+        if (!anySpill)
+            return;
+
+        stack.Clear();
+        foreach (var value in values)
+        {
+            if (IsStableAcrossSideEffect(value) && !mustSpill(value))
+            {
+                stack.Push(value);
+                continue;
+            }
+
+            int slot = state.NextDupSlot++;
+            body.Add(new StoreStackSlot(slot, value));
+            stack.Push(new LoadStackSlot(slot, value.ResultType));
+        }
+    }
+
     /// <summary>
     /// True when re-evaluating <paramref name="expression"/> after an intervening
     /// heap/static store yields the same value — i.e. it does not read mutable
@@ -1839,8 +1898,12 @@ public static class IrImporter
     /// </summary>
     static StoreLocal MakeStoreLocalSpilling(ImportedMethod method, int index, IrExpression value, Block body, Stack<IrExpression> stack, BuildState state)
     {
-        if (!IsStableAcrossSideEffect(value) || HasPendingUnstableValue(stack))
-            SpillUnstableBeforeSideEffect(body, stack, state);
+        if (!IsStableAcrossSideEffect(value)
+            || HasPendingUnstableValue(stack)
+            || HasPendingLocalRead(stack, index))
+        {
+            SpillPendingBeforeStore(body, stack, state, value => ReadsLocal(value, index));
+        }
         return MakeStoreLocal(method, index, value);
     }
 
