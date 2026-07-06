@@ -154,6 +154,18 @@ public sealed class ResourceLifecycleCensusTests
         Assert.Equal(0, result.AcquiresObserved);
     }
 
+    [Fact]
+    public void ThrowingCallBeforeProtectingTry_StaysExceptionCandidate()
+    {
+        // A call sits between the rent and the protecting try, so an exception there bypasses the
+        // finally: the Return-in-finally must NOT clear the exception-path candidate (the false
+        // negative both reviewers found on PR #2447). The finding path stays clean, so this is a
+        // census-only signal.
+        Assert.Equal(
+            ["exception-path-leak-candidate"],
+            BucketsFor(nameof(ArrayPoolLeakFixtures.RentThenCallBeforeTryFinally)));
+    }
+
     static ImmutableArray<string> BucketsFor(string methodName)
         => [.. ResourceLifecycleCensus.CensusAssembly(typeof(ArrayPoolLeakFixtures).Assembly.Location)
             .Facts

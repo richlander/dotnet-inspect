@@ -222,7 +222,7 @@ public static class ResourceLifecycleCensus
                 $"ArrayPool Rent at IL_{acquire.RentOffset:X4} reaches a normal return without a Return on some path."));
         }
 
-        if (!ReleaseProtectedByFinally(graph.Regions, acquire.RentOffset, releases))
+        if (!ReleaseProtectedByFinally(instructions, graph.Regions, acquire, releases))
         {
             int? detail = releases.Count > 0 ? releases.Min() : null;
             facts.Add(new ResourceLifecycleFact(
@@ -319,25 +319,64 @@ public static class ResourceLifecycleCensus
     }
 
     // The acquire is exception-safe only when some Return runs inside a finally/fault handler
-    // whose protected region covers the acquire (the Rent precedes the handler body). Otherwise
-    // an exception between Rent and a normal-flow Return escapes without releasing.
+    // that actually covers the acquired value: either the store sits inside the protected try, or
+    // it sits immediately before the try with only inert (non-throwing) ops in the gap. A Return
+    // in a finally whose try starts *after* a throwing op (a call, an element access, ...) does
+    // NOT cover an exception from that op - the finally is never entered - so the acquire is still
+    // an exception-path leak candidate. (Reviewers GPT-5.5 + Gemini 3.1 Pro, PR #2447.)
     static bool ReleaseProtectedByFinally(
+        ImmutableArray<DecodedInstruction> instructions,
         ImmutableArray<ExceptionRegionModel> regions,
-        int rentOffset,
+        ArrayPoolAcquire acquire,
         IReadOnlyList<int> releases)
     {
+        if (releases.Count == 0)
+            return false;
+
+        int storeNext = StoreNextOffset(instructions, acquire.StoreOffset);
         foreach (int release in releases)
         {
             foreach (var region in regions)
             {
-                if (region.Kind is HandlerKind.Finally or HandlerKind.Fault
-                    && region.ContainsHandler(release)
-                    && rentOffset < region.HandlerStart)
+                if (region.Kind is not (HandlerKind.Finally or HandlerKind.Fault) || !region.ContainsHandler(release))
+                    continue;
+                if (region.ContainsTry(acquire.StoreOffset))
+                    return true;
+                if (acquire.StoreOffset < region.TryStart && GapIsInert(instructions, storeNext, region.TryStart))
                     return true;
             }
         }
         return false;
     }
+
+    static int StoreNextOffset(ImmutableArray<DecodedInstruction> instructions, int storeOffset)
+    {
+        foreach (var instruction in instructions)
+            if (instruction.Offset == storeOffset)
+                return instruction.NextOffset;
+        return storeOffset + 1;
+    }
+
+    // Every instruction in [fromOffset, toOffset) is a straight-line, non-throwing op, so an
+    // exception cannot escape the gap before the protecting try is entered. Deliberately narrow:
+    // anything unrecognized (a call, an element access, a branch) makes the gap non-inert.
+    static bool GapIsInert(ImmutableArray<DecodedInstruction> instructions, int fromOffset, int toOffset)
+    {
+        foreach (var instruction in instructions)
+        {
+            if (instruction.Offset < fromOffset || instruction.Offset >= toOffset)
+                continue;
+            if (!IsInertGapOp(instruction.OpCode))
+                return false;
+        }
+        return true;
+    }
+
+    static bool IsInertGapOp(ILOpCode opcode)
+        => ArrayPoolRecognizers.IsSimpleArgumentPush(opcode)
+            || IsLocalOrArgumentStore(opcode)
+            || opcode is ILOpCode.Nop or ILOpCode.Dup or ILOpCode.Pop
+                or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r4 or ILOpCode.Ldc_r8;
 
     // The smallest target offset that is reachable strictly after some source offset: same block
     // and later in program order, or in any block reachable via >=1 successor edge (covers loops).

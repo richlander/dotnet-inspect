@@ -246,6 +246,21 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void RentThenCallBeforeTryFinally()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        Consume(1); // throwing call in the gap before the protecting try - an exception here skips the finally
+        try
+        {
+            buffer[0] = 1;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static void UseAfterReturn()
     {
         var buffer = ArrayPool<byte>.Shared.Rent(16);
