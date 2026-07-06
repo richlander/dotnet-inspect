@@ -82,6 +82,32 @@ public class TypeRefDecoderRecursionTests
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
     }
 
+    [Fact]
+    public void OverlongTypeSpecificationBlob_DoesNotStackOverflow()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            // A signature of 100000 nested SZARRAY (0x1d) prefixes then I4 (0x08). SRM's
+            // SignatureDecoder.DecodeType recurses on the native stack once per prefix, before
+            // any provider callback, so the depth counter cannot catch it — only refusing the
+            // over-long blob up front prevents the StackOverflow.
+            var signature = new BlobBuilder();
+            for (int i = 0; i < 100_000; i++)
+                signature.WriteByte(0x1d);
+            signature.WriteByte(0x08);
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            MetadataTokens.TypeSpecificationHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)
     {
         var metadata = new MetadataBuilder();

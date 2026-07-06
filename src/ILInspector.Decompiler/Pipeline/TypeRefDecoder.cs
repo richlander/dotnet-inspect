@@ -31,6 +31,15 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     static int s_recursionDepth;
     const int MaxRecursionDepth = 256;
 
+    // SRM's own SignatureDecoder.DecodeType recurses on the native stack for each nested
+    // structural element (pointer/array/byref/pinned/generic-inst) within a *single* signature
+    // blob, before any provider callback runs, so the depth counter above cannot catch it — a
+    // long enough blob StackOverflows inside SRM. Blob length bounds that native depth (each
+    // level costs >= 1 byte), so refuse over-long TypeSpecification blobs. Real single-type
+    // blobs are tiny (CoreLib's largest TypeSpec is 57 bytes), so this only trips on malformed
+    // input.
+    const int MaxSignatureBlobLength = 1024;
+
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
         => TypeRef.CoreLib("System", typeCode switch
         {
@@ -122,10 +131,13 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     {
         if (s_recursionDepth >= MaxRecursionDepth)
             return TypeRef.Unsupported("type-specification recursion depth exceeded");
+        var spec = reader.GetTypeSpecification(handle);
+        if (reader.GetBlobReader(spec.Signature).Length > MaxSignatureBlobLength)
+            return TypeRef.Unsupported("type-specification signature blob too large");
         s_recursionDepth++;
         try
         {
-            return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+            return spec.DecodeSignature(this, genericContext);
         }
         finally
         {
