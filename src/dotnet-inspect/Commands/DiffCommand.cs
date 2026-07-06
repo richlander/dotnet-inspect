@@ -6,6 +6,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using Markout;
 
@@ -100,13 +101,7 @@ public class DiffCommand
             {
                 if (SelectsAnalysisDiff(options))
                 {
-                    if (options.MemberFilter.Count > 0)
-                    {
-                        Console.Error.WriteLine("Error: --member is currently supported for API diff output; Analysis Diff member targeting is a follow-up.");
-                        return 1;
-                    }
-
-                    var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options);
+                    var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options, inputs.FromSurface, inputs.ToSurface);
                     var view = DiffOutputFormatter.BuildAnalysisDiffView(inputs.Name, analysis.Rows, analysis.Summary, inputs.FromVersion, inputs.ToVersion);
                     if (options.Tsv || options.Jsonl)
                     {
@@ -352,14 +347,27 @@ public class DiffCommand
     // is present in both versions (an in-place change vs an added/removed member).
     internal sealed record RankedAnalysisRow(AnalysisDiffRow Row, int Magnitude, int Direction, bool InBoth, bool InLoop = false);
 
-    internal static AnalysisDiffResult BuildAnalysisDiff(IReadOnlyList<string> fromPaths, IReadOnlyList<string> toPaths, DiffOptions options)
+    internal static AnalysisDiffResult BuildAnalysisDiff(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        DiffOptions options,
+        ApiSurface? fromSurface = null,
+        ApiSurface? toSurface = null)
     {
+        var memberTargetIdentities = options.MemberFilter.Count == 0
+            ? null
+            : ResolveMemberTargetIdentities(
+                fromSurface ?? MergeSurfaces(fromPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
+                toSurface ?? MergeSurfaces(toPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
+                options.MemberFilter,
+                options.TypeFilter).MemberIdentities;
         var research = ResearchDiff.Compare(
             ResearchDiffInput.FromAssemblies(fromPaths),
             ResearchDiffInput.FromAssemblies(toPaths),
             new ResearchDiffOptions(
                 ResearchDiffMechanism.BodySignals,
-                TypeFilters: options.TypeFilter));
+                TypeFilters: options.TypeFilter,
+                MemberTargetIdentities: memberTargetIdentities));
         var ranked = research.Subjects
             .SelectMany(subject => subject.Evidence.Select(evidence => (subject, evidence)))
             .Where(entry => entry.evidence.Category == ResearchDiffChangeCategory.BodySignal
@@ -658,7 +666,97 @@ public class DiffCommand
 
         identities.Add(resolution.Target!.Anchor.StableSelector);
         identities.Add(resolution.Target.Anchor.CanonicalSignature);
+        AddResearchBodyIdentity(resolution.Target, identities);
         return (true, null);
+    }
+
+    static void AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
+    {
+        var member = target.ApiMember.Member;
+        if (member.Kind is "property" or "field" or "event")
+            return;
+
+        var signature = member.SignatureModel;
+        var memberName = member.Kind == "constructor"
+            ? "#ctor"
+            : string.IsNullOrWhiteSpace(signature?.MemberName) ? member.Name : signature!.MemberName!;
+        var generic = signature is { TypeParameters.Count: > 0 }
+            ? $"<{string.Join(",", signature.TypeParameters.Select(parameter => parameter.Name))}>"
+            : "";
+        var parameters = signature is null
+            ? "()"
+            : $"({string.Join(",", signature.Parameters.Select(parameter => ResearchBodyTypeName(parameter.TypeWithModifier)))})";
+        var canonical = $"M:{target.Anchor.TypeFullName}.{memberName}{generic}{parameters}";
+        var selectorName = target.Anchor.StableSelector.Split('~')[0];
+        identities.Add($"{selectorName}~{MemberAnchor.ComputeFingerprint(canonical)}");
+    }
+
+    static string ResearchBodyTypeName(string typeName)
+    {
+        var value = typeName.Trim();
+        foreach (var prefix in (ReadOnlySpan<string>)["ref readonly ", "readonly ref ", "scoped ref ", "ref ", "out ", "in "])
+        {
+            if (value.StartsWith(prefix, StringComparison.Ordinal))
+                return $"{ResearchBodyTypeName(value[prefix.Length..])}&";
+        }
+
+        if (value.EndsWith("?", StringComparison.Ordinal))
+            value = value[..^1];
+
+        if (value.EndsWith("[]", StringComparison.Ordinal))
+            return $"{ResearchBodyTypeName(value[..^2])}[]";
+
+        var genericStart = value.IndexOf('<');
+        if (genericStart > 0 && value.EndsWith(">", StringComparison.Ordinal))
+        {
+            var baseName = value[..genericStart];
+            var arguments = SplitGenericArguments(value[(genericStart + 1)..^1])
+                .Select(ResearchBodyTypeName)
+                .ToList();
+            return $"{baseName}`{arguments.Count}<{string.Join(",", arguments)}>";
+        }
+
+        return value switch
+        {
+            "bool" => "System.Boolean",
+            "byte" => "System.Byte",
+            "sbyte" => "System.SByte",
+            "char" => "System.Char",
+            "decimal" => "System.Decimal",
+            "double" => "System.Double",
+            "float" => "System.Single",
+            "int" => "System.Int32",
+            "uint" => "System.UInt32",
+            "long" => "System.Int64",
+            "ulong" => "System.UInt64",
+            "object" => "System.Object",
+            "short" => "System.Int16",
+            "ushort" => "System.UInt16",
+            "string" => "System.String",
+            "void" => "System.Void",
+            _ => value
+        };
+    }
+
+    static IEnumerable<string> SplitGenericArguments(string arguments)
+    {
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            var ch = arguments[i];
+            if (ch == '<')
+                depth++;
+            else if (ch == '>')
+                depth--;
+            else if (ch == ',' && depth == 0)
+            {
+                yield return arguments[start..i].Trim();
+                start = i + 1;
+            }
+        }
+
+        yield return arguments[start..].Trim();
     }
 
     static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)

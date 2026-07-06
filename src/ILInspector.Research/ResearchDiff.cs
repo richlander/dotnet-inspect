@@ -75,7 +75,8 @@ public sealed record ResearchDiffOptions(
     ResearchDiffMechanism Mechanisms = ResearchDiffMechanism.AllAvailable,
     bool IncludeAllApi = false,
     ApiDiffScope ApiScope = ApiDiffScope.Signature,
-    IReadOnlySet<string>? TypeFilters = null);
+    IReadOnlySet<string>? TypeFilters = null,
+    IReadOnlySet<string>? MemberTargetIdentities = null);
 
 public sealed record ResearchDiffInput(
     IReadOnlyList<string> AssemblyPaths,
@@ -289,7 +290,7 @@ public static class ResearchDiff
             AddApiDiff(builder, oldInput, newInput, options.IncludeAllApi, options.ApiScope);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.BodySignals))
-            AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters);
+            AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.IlBody))
             AddIlBodyDiff(builder, oldInput, newInput);
@@ -326,16 +327,23 @@ public static class ResearchDiff
         }
     }
 
-    static void AddBodySignalDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
+    static void AddBodySignalDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        IReadOnlySet<string>? typeFilters,
+        IReadOnlySet<string>? memberTargetIdentities)
     {
         foreach (var (oldIndex, newIndex) in PairedBodyIndexes(oldInput, newInput))
         {
-            AddAnalysisSignalDiff(builder, oldIndex, newIndex, typeFilters);
+            AddAnalysisSignalDiff(builder, oldIndex, newIndex, typeFilters, memberTargetIdentities);
 
-            var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex);
+            var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex, memberTargetIdentities);
             foreach (var row in BodySignalDiff.CompareUnsafe(oldIndex, newIndex).Rows)
             {
                 var subject = methods.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member);
+                if (!MatchesMemberTargets(subject, memberTargetIdentities))
+                    continue;
                 var direction = row.Kind == BodySignalDiffKind.Added ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
                 var suffix = direction == ResearchDiffDirection.Added ? "added" : "removed";
                 builder.Add(subject, new ResearchDiffEvidence(
@@ -349,10 +357,15 @@ public static class ResearchDiff
             }
         }
 
-        static void AddAnalysisSignalDiff(ResultBuilder builder, LibraryBodyIndex oldIndex, LibraryBodyIndex newIndex, IReadOnlySet<string>? typeFilters)
+        static void AddAnalysisSignalDiff(
+            ResultBuilder builder,
+            LibraryBodyIndex oldIndex,
+            LibraryBodyIndex newIndex,
+            IReadOnlySet<string>? typeFilters,
+            IReadOnlySet<string>? memberTargetIdentities)
         {
-            var oldSnapshot = BuildAnalysisSnapshot(oldIndex, typeFilters);
-            var newSnapshot = BuildAnalysisSnapshot(newIndex, typeFilters);
+            var oldSnapshot = BuildAnalysisSnapshot(oldIndex, typeFilters, memberTargetIdentities);
+            var newSnapshot = BuildAnalysisSnapshot(newIndex, typeFilters, memberTargetIdentities);
             foreach (var key in oldSnapshot.Keys.Union(newSnapshot.Keys, StringComparer.Ordinal))
             {
                 oldSnapshot.TryGetValue(key, out var oldMethod);
@@ -365,7 +378,10 @@ public static class ResearchDiff
             }
         }
 
-        static Dictionary<string, ResearchAnalysisMethod> BuildAnalysisSnapshot(LibraryBodyIndex index, IReadOnlySet<string>? typeFilters)
+        static Dictionary<string, ResearchAnalysisMethod> BuildAnalysisSnapshot(
+            LibraryBodyIndex index,
+            IReadOnlySet<string>? typeFilters,
+            IReadOnlySet<string>? memberTargetIdentities)
         {
             var methods = new Dictionary<string, ResearchAnalysisMethod>(StringComparer.Ordinal);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
@@ -376,11 +392,14 @@ public static class ResearchDiff
                     continue;
                 if (!MatchesTypeFilters(method.DeclaringType.ToQualifiedDisplayString(), typeFilters))
                     continue;
+                var subject = SubjectFromMethod(method);
+                if (!MatchesMemberTargets(subject, memberTargetIdentities))
+                    continue;
                 signalsByToken.TryGetValue(method.MetadataToken, out var signals);
                 var key = BodySignalMethodKey(method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
-                    entry = new ResearchAnalysisMethod(SubjectFromMethod(method), signals ?? MethodSignals.None, []);
+                    entry = new ResearchAnalysisMethod(subject, signals ?? MethodSignals.None, []);
                     methods[key] = entry;
                 }
                 else
@@ -395,10 +414,13 @@ public static class ResearchDiff
                     continue;
                 if (!MatchesTypeFilters(opportunity.Method.DeclaringType.ToQualifiedDisplayString(), typeFilters))
                     continue;
+                var subject = SubjectFromMethod(opportunity.Method);
+                if (!MatchesMemberTargets(subject, memberTargetIdentities))
+                    continue;
                 var key = BodySignalMethodKey(opportunity.Method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
-                    entry = new ResearchAnalysisMethod(SubjectFromMethod(opportunity.Method), MethodSignals.None, []);
+                    entry = new ResearchAnalysisMethod(subject, MethodSignals.None, []);
                     methods[key] = entry;
                 }
                 entry.Opportunities.Add(opportunity);
@@ -752,10 +774,20 @@ public static class ResearchDiff
         }
     }
 
-    static Dictionary<string, ResearchSubjectKey> MethodSubjectsByBodySignalKey(LibraryBodyIndex oldIndex, LibraryBodyIndex newIndex)
+    static Dictionary<string, ResearchSubjectKey> MethodSubjectsByBodySignalKey(
+        LibraryBodyIndex oldIndex,
+        LibraryBodyIndex newIndex,
+        IReadOnlySet<string>? memberTargetIdentities = null)
         => oldIndex.Methods.Concat(newIndex.Methods)
-            .GroupBy(BodySignalMethodKey, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => SubjectFromMethod(group.Last()), StringComparer.Ordinal);
+            .Select(method => (Key: BodySignalMethodKey(method), Subject: SubjectFromMethod(method)))
+            .Where(entry => MatchesMemberTargets(entry.Subject, memberTargetIdentities))
+            .GroupBy(entry => entry.Key, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last().Subject, StringComparer.Ordinal);
+
+    static bool MatchesMemberTargets(ResearchSubjectKey subject, IReadOnlySet<string>? memberTargetIdentities)
+        => memberTargetIdentities is null
+           || memberTargetIdentities.Count == 0
+           || memberTargetIdentities.Contains(subject.Id);
 
     static ResearchSubjectKey ApiSubject(ApiSurface oldSurface, ApiSurface newSurface, string typeName, ApiChange change)
     {

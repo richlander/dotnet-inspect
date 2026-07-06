@@ -491,6 +491,25 @@ public class DiffCommandTests
         Assert.DoesNotContain(result.Rows, r => r.Member.Contains("Stable"));
     }
 
+    [Fact]
+    public void BuildAnalysisDiff_MemberFilter_UsesResolverBackedTarget()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var result = DiffCommand.BuildAnalysisDiff([v1], [v2], new DiffOptions
+        {
+            TypeFilter = ["DiffSample"],
+            MemberFilter = ["RegressesAllocInLoop"],
+            ChangedOnly = true
+        });
+
+        var row = Assert.Single(result.Rows);
+        Assert.Contains("RegressesAllocInLoop", row.Member);
+        Assert.Equal("allocations", row.Signal);
+        Assert.DoesNotContain(result.Rows, r => r.Member.Contains("ImprovesAlloc"));
+    }
+
     // #1736: a hotness-only allocation regression. The allocation count is unchanged
     // (1 -> 1) but the allocation moves into a loop (allocInLoop false -> true). The raw
     // count delta is zero, so this must still surface as an in-place allocations row with

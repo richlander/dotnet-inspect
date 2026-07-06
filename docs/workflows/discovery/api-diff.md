@@ -129,6 +129,12 @@ Use a type-qualified selector when there is no `-t` context:
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.0 -m JsonSerializer.Serialize<TValue>:1 -v:q
 ```
 
+Member filters also target body-signal diffs:
+
+```bash
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" -m MyType.HotPath --changed
+```
+
 ## 6. Name-only output
 
 > Goal: Get a quick list of which types changed, without details.
