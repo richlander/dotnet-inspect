@@ -80,8 +80,6 @@ internal static class RenderAbSensor
             var portablePath = CorpusSensor.PortablePath(assemblyPath);
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
-            var constraints = ShellConstraints.Build(source);
-            var productSignatures = ValidityCheck.ProductSignatureQueues(source.Pe);
             var stableSample = IrImporter.GetStableSampleCandidates(source, methodCap).ToList();
 
             Parallel.ForEach(stableSample, options, item =>
@@ -89,10 +87,6 @@ internal static class RenderAbSensor
                 var typeName = item.TypeName;
                 var methodName = item.MethodName;
                 var function = item.Build(source);
-                string? productSignatureParameters = ValidityCheck.DequeueProductParameterList(productSignatures, typeName, methodName);
-                string? productParameterList = function.Signature.Parameters.Any(p => p.HasDefault)
-                    ? productSignatureParameters
-                    : null;
                 
                 try
                 {
@@ -109,10 +103,11 @@ internal static class RenderAbSensor
                         renders.TryAdd(key, new RenderedMethod(
                             typeName,
                             methodName,
+                            signature,
+                            assemblyPath,
+                            portablePath,
                             rendered.Trim(),
-                            function,
-                            constraints,
-                            productParameterList));
+                            PrecomputedSemanticContext: null));
                     }
                 }
                 catch
@@ -144,6 +139,7 @@ internal static class RenderAbSensor
         var references = ValidityCheck.RuntimeReferences();
         var parseOptions = ValidityCheck.ParseOptions();
         var compileOptions = ValidityCheck.CompileOptions();
+        var semanticContexts = new Dictionary<string, SemanticContext?>(StringComparer.Ordinal);
 
         foreach (var kvp in current)
         {
@@ -158,8 +154,13 @@ internal static class RenderAbSensor
                 changed++;
                 var diffClass = Classify(before, sample.Body);
                 byClass[diffClass]++;
-                var beforeValidity = CheckSemantic(sample, before, references, parseOptions, compileOptions);
-                var afterValidity = CheckSemantic(sample, sample.Body, references, parseOptions, compileOptions);
+                if (!semanticContexts.TryGetValue(kvp.Key, out var context))
+                {
+                    context = sample.PrecomputedSemanticContext ?? BuildSemanticContext(sample);
+                    semanticContexts[kvp.Key] = context;
+                }
+                var beforeValidity = CheckSemantic(context, before, references, parseOptions, compileOptions);
+                var afterValidity = CheckSemantic(context, sample.Body, references, parseOptions, compileOptions);
                 var transition = SemanticTransitionOf(beforeValidity, afterValidity);
                 bySemantic[transition]++;
                 if (transition == SemanticTransition.ValidToInvalid)
@@ -269,22 +270,68 @@ internal static class RenderAbSensor
         };
 
     static ValidityCheck.RenderedBodyResult CheckSemantic(
-        RenderedMethod sample,
+        SemanticContext? context,
         string body,
         ImmutableArray<MetadataReference> references,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions)
-        => ValidityCheck.EvaluateRenderedBody(
-            sample.Function,
+    {
+        if (context is null)
+        {
+            return new ValidityCheck.RenderedBodyResult(
+                [new ValidityCheck.ValidityDiagnostic("RENDERABCTX", "could not rebuild current method shell for semantic render A/B")],
+                SemanticChecked: false,
+                []);
+        }
+
+        return ValidityCheck.EvaluateRenderedBody(
+            context.Function,
             body,
-            sample.TypeName,
-            sample.MethodName,
-            sample.Constraints,
-            sample.ProductParameterList,
+            context.TypeName,
+            context.MethodName,
+            context.Constraints,
+            context.ProductParameterList,
             references,
             parseOptions,
             compileOptions,
             bindSemantics: true);
+    }
+
+    static SemanticContext? BuildSemanticContext(RenderedMethod sample)
+    {
+        using var metadata = CorpusMetadata.Create([sample.AssemblyPath]);
+        using var source = MetadataSource.Open(sample.AssemblyPath, context: metadata);
+        _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
+        var constraints = ShellConstraints.Build(source);
+        var productSignatures = ValidityCheck.ProductSignatureQueues(source.Pe);
+
+        foreach (var item in IrImporter.GetStableSampleCandidates(source, int.MaxValue))
+        {
+            var function = item.Build(source);
+            string signature = CorpusMethodIdentity.SignatureText(function.Signature);
+            string key = $"{sample.PortablePath}!{item.TypeName}::{item.MethodName}{signature}";
+            string? productSignatureParameters = ValidityCheck.DequeueProductParameterList(productSignatures, item.TypeName, item.MethodName);
+            string? productParameterList = function.Signature.Parameters.Any(p => p.HasDefault)
+                ? productSignatureParameters
+                : null;
+
+            if (!StringComparer.Ordinal.Equals(key, sample.Key))
+                continue;
+
+            try
+            {
+                _ = CSharpPrinter.PrintRaised(function).Output;
+            }
+            catch
+            {
+                return null;
+            }
+
+            return new SemanticContext(item.TypeName, item.MethodName, function, constraints, productParameterList);
+        }
+
+        return null;
+    }
 
     static IEnumerable<ValidityCheck.ValidityDiagnostic> Diagnostics(ValidityCheck.RenderedBodyResult result)
         => result.IsMalformed ? result.MalformedDiagnostics : result.SemanticDiagnostics;
@@ -323,7 +370,18 @@ internal static class RenderAbSensor
     internal sealed record RenderedMethod(
         string TypeName,
         string MethodName,
+        string Signature,
+        string AssemblyPath,
+        string PortablePath,
         string Body,
+        SemanticContext? PrecomputedSemanticContext = null)
+    {
+        public string Key => $"{PortablePath}!{TypeName}::{MethodName}{Signature}";
+    }
+
+    internal sealed record SemanticContext(
+        string TypeName,
+        string MethodName,
         IrFunction Function,
         IReadOnlyDictionary<string, Dictionary<string, string>> Constraints,
         string? ProductParameterList);

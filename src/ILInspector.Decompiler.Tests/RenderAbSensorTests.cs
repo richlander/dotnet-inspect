@@ -22,10 +22,16 @@ public class RenderAbSensorTests
             [key] = new(
                 "T",
                 "M",
+                "()",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
                 "return 1++;",
-                function,
-                new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal),
-                ProductParameterList: null),
+                new RenderAbSensor.SemanticContext(
+                    "T",
+                    "M",
+                    function,
+                    new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal),
+                    ProductParameterList: null)),
         };
 
         string output = CaptureConsole(() => RenderAbSensor.Compare(baseline, current, maxExamples: 5), expectedExitCode: 2);
