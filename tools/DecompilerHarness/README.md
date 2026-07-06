@@ -158,6 +158,13 @@ spellable `System.Attribute` base before attribute usages can compile.
 Use `--return-to-sender-fixtures rts.candidates` with `--return-to-sender`,
 `--return-to-sender-ab`, or `--return-to-sender-source-probe` to add built
 fixture assemblies from `FixtureCatalog` as inputs without generating source.
+The source probe reuses RTS target discovery/import/render/compile-back plumbing
+and, for catalog fixtures, compares the decompiled target body against the
+checked-in fixture source slice. It reports coarse source-fidelity outcomes:
+`valid_match`, `valid_different`, `invalid`, `source_unavailable`, and
+`unsupported_target`; valid-but-different rows are intentionally classified
+coarsely first so later Roslyn-assisted analysis can grow stable taxonomy
+buckets.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape

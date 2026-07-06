@@ -9,6 +9,8 @@ public sealed record FixtureDefinition(
     IReadOnlyList<FixtureAsset> Assets)
 {
     public string AssemblyPath() => FixtureCatalog.AssemblyPath(Id);
+    public string ProjectDirectory() => FixtureCatalog.ProjectDirectory(Id);
+    public IReadOnlyList<string> SourcePaths() => FixtureCatalog.SourcePaths(Id);
     public string AssetPath(string name) => FixtureCatalog.AssetPath(Id, name);
 }
 
@@ -484,6 +486,26 @@ public static class FixtureCatalog
             path);
     }
 
+    public static string ProjectDirectory(string id)
+    {
+        var fixture = Get(id);
+        string root = RepositoryRoot();
+        string path = Path.Combine(root, "src", fixture.ProjectName);
+        if (Directory.Exists(path))
+            return path;
+
+        throw new DirectoryNotFoundException(
+            $"Expected fixture source project '{fixture.Id}' at {path}.");
+    }
+
+    public static IReadOnlyList<string> SourcePaths(string id)
+    {
+        string projectDirectory = ProjectDirectory(id);
+        return [.. Directory.EnumerateFiles(projectDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !HasPathSegment(path, "bin") && !HasPathSegment(path, "obj"))
+            .Order(StringComparer.Ordinal)];
+    }
+
     public static string AssetPath(string id, string assetName)
     {
         var fixture = Get(id);
@@ -523,6 +545,10 @@ public static class FixtureCatalog
 
     static FixtureBoundary[] Boundaries(params FixtureBoundary[] boundaries)
         => boundaries;
+
+    static bool HasPathSegment(string path, string segment)
+        => path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(part => string.Equals(part, segment, StringComparison.OrdinalIgnoreCase));
 
     static string CurrentConfiguration()
     {

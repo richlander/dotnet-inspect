@@ -66,6 +66,8 @@
              Link="ReturnToSenderEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderClosureEvidence.cs"
              Link="ReturnToSenderClosureEvidence.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderSourceProbe.cs"
+             Link="ReturnToSenderSourceProbe.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderCatalogReport.cs"
              Link="ReturnToSenderCatalogReport.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\GeneratedFixtures.cs"

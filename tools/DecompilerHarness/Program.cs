@@ -1521,10 +1521,11 @@ static class Program
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
           --return-to-sender-source-probe
-                                derive source-aware metadata fragments from the
-                                input assemblies, run ReturnToSender over those
-                                targets, and report missing-fragment/source
-                                buckets alongside compile-back status.
+                                run ReturnToSender over fixture/library targets and,
+                                for FixtureCatalog inputs, compare decompiled target
+                                bodies against checked-in fixture source slices;
+                                reports valid_match, valid_different, invalid,
+                                source_unavailable, and unsupported_target buckets.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for
