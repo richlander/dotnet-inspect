@@ -6,7 +6,15 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed partial class CSharpPrinter
 {
     string FieldTarget(FieldRef field, IrExpression? instance)
-    {        // An auto-property backing field, <Prop>k__BackingField, has no spellable
+    {
+        if (PointerMemberReceiver(instance) is { } pointerReceiver)
+        {
+            var pointerMember = field.BackingPropertyName
+                ?? CSharpNaming.PrimaryConstructorCaptureName(field.Name)
+                ?? field.Name;
+            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(pointerMember)}";
+        }
+        // An auto-property backing field, <Prop>k__BackingField, has no spellable
         // C# name; render it as the property it backs. `this.` qualifies the
         // instance form so a constructor assignment whose parameter shadows the
         // property still binds to it (and is legal even for a get-only property).
@@ -45,8 +53,41 @@ public sealed partial class CSharpPrinter
         };
     }
 
+    string? PointerMemberReceiver(IrExpression? instance)
+        => PointerReceiver(instance);
+
+    string? PointerMethodReceiver(IrExpression? instance)
+        => PointerReceiver(instance);
+
+    string? PointerReceiver(IrExpression? instance)
+    {
+        return instance?.ResultType is { Kind: TypeRefKind.Pointer }
+            ? PointerReceiverText(instance)
+            : null;
+    }
+
+    string PointerReceiverText(IrExpression instance)
+        => new Rendered(Expression(instance), CSharpPrecedence.Of(instance)).At(Precedence.Primary);
+
+    string? PointerRefExtensionReceiver(MethodRef method, IrExpression? instance)
+    {
+        if (instance?.ResultType is not { Kind: TypeRefKind.Pointer, ElementType: { } pointee })
+            return null;
+        return method.ParameterTypes is [{ Kind: TypeRefKind.ByRef, ElementType: { } byRefTarget }, ..]
+            && pointee.Equals(byRefTarget)
+            ? PointerReceiverText(instance)
+            : null;
+    }
+
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {
+        if (PointerMemberReceiver(instance) is { } pointerReceiver)
+        {
+            if (indexArguments.Count > 0)
+                return $"(*{pointerReceiver})[{Arguments(indexArguments)}]";
+            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(name)}";
+        }
+
         string receiver = instance switch
         {
             // A NON-virtual this-receiver access to a base-declared member is
@@ -159,6 +200,8 @@ public sealed partial class CSharpPrinter
             return $"{TypeText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
             return name;
+        if (PointerMethodReceiver(target) is { } pointerReceiver)
+            return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
     }
 
@@ -204,6 +247,10 @@ public sealed partial class CSharpPrinter
                     ? call.Callee.ParameterRefKinds
                     : [.. call.Callee.ParameterRefKinds.Skip(1)];
                 string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
+                if (PointerRefExtensionReceiver(call.Callee, arguments[0]) is { } extensionReceiver)
+                    return $"{extensionReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
+                if (arguments[0].ResultType is { Kind: TypeRefKind.Pointer })
+                    return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
                 return $"{ReceiverText(arguments[0])}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
             }
             // A static abstract/virtual interface member invoked through a type
@@ -238,6 +285,8 @@ public sealed partial class CSharpPrinter
                 ? $"base.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})"
                 : $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         }
+        if (PointerMethodReceiver(receiver) is { } pointerReceiver)
+            return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
 

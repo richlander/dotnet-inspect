@@ -49,6 +49,26 @@ Conflicts between class 1 and class 2 are rare by construction — most fixer su
 
 - LINQ query syntax (`from x in xs select f`) compiles to the *same* `Enumerable.Where/Select/...` calls as the fluent chain — query expressions are translated during binding, before any lowering, so the two forms are IL-identical. With no anchor to choose between them, the oracle decides: the runtime writes fluent method chains, so that is what we render. We do not re-sugar back to `from..select`. (This is why the `Query` row in the lowering ledger is `Declined` — a no-anchor mechanism distinct from `Unhandled`/owed, not a gap to fill.)
 
+### Pointer member syntax
+
+Pointer member access has a C# spelling choice for named members and a different
+one for indexer-like access:
+
+- Prefer `p->Member` for fields, properties, and instance methods on a pointer
+  receiver.
+- Prefer `(*p)[i]` for indexer access on the pointed-to value.
+- Keep extension-shaped calls with pointer receiver parameters in static form
+  (`Extensions.M(p)`) unless the receiver parameter is a by-ref `this ref T`
+  extension over the pointee; C# does not allow `this T*`.
+
+The style oracle decides the spelling where syntax permits more than one valid
+form. `dotnet/runtime`'s `.editorconfig` has no pointer-specific rule, so the
+dominant runtime source style is the oracle: runtime code commonly writes
+`pMT->IsValueType`, `pMT->ComponentSize`, and `pException->InternalPreserveStackTrace()`,
+while indexer-like pointer dereference appears as `(*array)[i]`. Those examples
+also match the semantic boundary: `p->Member` is the direct pointer-member
+syntax, while `p[i]` is pointer arithmetic, not an indexer call on the pointee.
+
 ## Names
 
 Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.

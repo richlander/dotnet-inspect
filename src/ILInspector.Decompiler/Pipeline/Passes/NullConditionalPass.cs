@@ -70,7 +70,7 @@ public sealed class NullConditionalPass : IIrPass
                     continue;
                 if (MemberReceiver(member) is not LoadStackSlot memberReceiver || memberReceiver.Slot != spill.Slot)
                     continue;
-                if (TypeFamilies.IsKnownNonNullableValueType(memberReceiver.Type, function.TypeShapes))
+                if (!CanUseNullConditional(memberReceiver.Type, function.TypeShapes))
                     continue;
 
                 member.Detach();
@@ -94,7 +94,7 @@ public sealed class NullConditionalPass : IIrPass
                 continue;
             if (MemberReceiver(member) is not { } receiver || !PlaceIdentity.SameVariable(conditional.Condition, receiver))
                 continue;
-            if (TypeFamilies.IsKnownNonNullableValueType(receiver.ResultType, function.TypeShapes))
+            if (!CanUseNullConditional(receiver.ResultType, function.TypeShapes))
                 continue;
 
             member.Detach();
@@ -104,6 +104,10 @@ public sealed class NullConditionalPass : IIrPass
         }
         return false;
     }
+
+    static bool CanUseNullConditional(TypeRef? receiverType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => receiverType is not { Kind: TypeRefKind.Pointer or TypeRefKind.FunctionPointer or TypeRefKind.ByRef }
+            && !TypeFamilies.IsKnownNonNullableValueType(receiverType, shapes);
 
     /// <summary>
     /// A <c>recv is not null ? member : null</c> ternary whose true arm is an
