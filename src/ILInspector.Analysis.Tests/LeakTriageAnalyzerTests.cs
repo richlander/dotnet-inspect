@@ -97,6 +97,50 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_CrossMethodBeforeReturn_IsExceptionPathCandidate()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            .. Call(TokenUnknown),
+            .. Call(TokenShared),
+            0x06,
+            .. Callvirt(TokenReturn),
+            0x2A,
+        ], []);
+
+        Assert.Empty(result.Findings);
+        AssertCandidate(result, nameof(Synthetic), "cross-method-suppressed");
+        AssertCandidate(result, nameof(Synthetic), "exception-path-leak-candidate");
+    }
+
+    [Fact]
+    public void DetailedAnalysis_FinallyProtectedCrossMethod_DoesNotAddExceptionPathCandidate()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),       // IL_0000 ArrayPool<byte>.Shared
+            0x1F, 0x10,                // IL_0005 ldc.i4.s 16
+            .. Callvirt(TokenRent),     // IL_0007 Rent
+            0x0A,                       // IL_000C stloc.0
+            0x06,                       // IL_000D ldloc.0
+            .. Call(TokenUnknown),      // IL_000E call Unknown.Use
+            0xDE, 0x0C,                 // IL_0013 leave.s IL_0021
+            .. Call(TokenShared),       // IL_0015 ArrayPool<byte>.Shared
+            0x06,                       // IL_001A ldloc.0
+            .. Callvirt(TokenReturn),   // IL_001B Return
+            0xDC,                       // IL_0020 endfinally
+            0x2A,                       // IL_0021 ret
+        ], [Region(ExceptionRegionKind.Finally, tryOffset: 13, tryLength: 8, handlerOffset: 21, handlerLength: 12)]);
+
+        Assert.Empty(result.Findings);
+        AssertCandidate(result, nameof(Synthetic), "cross-method-suppressed");
+        AssertNoCandidate(result, nameof(Synthetic), "exception-path-leak-candidate");
+    }
+
+    [Fact]
     public void IncompleteDataflow_FailsClosed()
     {
         byte[] externalBranch = [0x2B, 0x7F, 0x2A]; // br.s outside the method, then ret
@@ -277,6 +321,9 @@ public sealed class LeakTriageAnalyzerTests
         var candidate = Assert.Single(result.Candidates.Where(candidate => candidate.Method.Name == methodName && candidate.Shape == shape));
         Assert.Equal(shape, candidate.Shape);
     }
+
+    static void AssertNoCandidate(LeakTriageResult result, string methodName, string shape)
+        => Assert.DoesNotContain(result.Candidates, candidate => candidate.Method.Name == methodName && candidate.Shape == shape);
 
     static void AssertSingleShape(ImmutableArray<LeakTriageFinding> findings, string methodName, string shape)
     {
