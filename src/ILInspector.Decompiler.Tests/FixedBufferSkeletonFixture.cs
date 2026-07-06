@@ -5,6 +5,4 @@ public unsafe struct FixedBufferSkeletonFixture
     public fixed byte Buffer[16];
 
     public int Value() => 42;
-
-    public int SumFirstTwo() => Buffer[0] + Buffer[1];
 }

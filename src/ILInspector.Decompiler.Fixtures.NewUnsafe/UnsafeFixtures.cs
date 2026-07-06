@@ -3,6 +3,24 @@ namespace ILInspector.Decompiler.Fixtures.NewUnsafe;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+public struct FixedBufferResiduals
+{
+    public fixed int Data[4];
+
+    public int Sum()
+    {
+        int sum = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            unsafe
+            {
+                sum += Data[i];
+            }
+        }
+        return sum;
+    }
+}
+
 public static class StringPinningResiduals
 {
     public static int FixedStringFirstChar(string value)
