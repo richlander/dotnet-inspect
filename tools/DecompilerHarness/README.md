@@ -607,6 +607,35 @@ product path. The breadth gate is `TypeBindGateTests` in
 the whole running-runtime CoreLib and fails on any collision outside the
 allowlist.
 
+### Return Address equivalence census (`--return-address`)
+
+`--return-address` runs the Return Address (RA) equivalence census: the
+signature-identity sibling of Return-to-Sender. For every method-like member in
+the input assemblies it compares the two product member-identity producers,
+matched by metadata token:
+
+- **A** = `ApiMemberIdentity.GetMemberAnchor` (the ApiSurface path used by the
+  member index / resolver);
+- **B** = `ApiMemberIdentity.CreateMethodAnchor` (the SRM-direct path used by
+  `CSharpBodyDiff`).
+
+It reports the **agreement rate** (how many members get a byte-identical canonical
+signature from both producers) plus capped example divergences. It is a thin
+observer: it only compares product-produced canonical strings and embeds no
+type/name knowledge, so the divergence *axis* breakdown (keyword vs full-name,
+generic arity, byref, nullability) is a separate analysis (see issue #2440). As
+the member-identity consolidation lands, the agreement rate should climb toward
+100%; the sensor is the leading-signal guard for that work.
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- <assemblies> --return-address
+```
+
+Output is a Markout card (Markdown by default; `--tsv` and `--jsonl` select the
+tabular and JSONL renderings). `--max-examples N` caps the divergence rows. The
+sweep never crashes on unreadable inputs — a bad path is reported as an unopened
+assembly.
+
 ## Usage
 
 ```bash
