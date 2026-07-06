@@ -1736,7 +1736,6 @@ static class ReturnToSender
                         string memberName = names[1];
                         grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
                         grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(memberName), diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                        grew |= AddRoots(indexes, indexes.Fields, memberName, diagnostic, memberName, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
                     }
                 }
             }
