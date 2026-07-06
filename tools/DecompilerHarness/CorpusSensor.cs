@@ -1029,7 +1029,7 @@ internal static class CorpusSensor
 
     readonly record struct QualityRate(int Count, int Total) : IMarkoutCell, IGoalMagnitude
     {
-        double IGoalMagnitude.GoalMagnitude => Total <= 0 ? double.NaN : (double)Count / Total;
+        double IGoalMagnitude.GoalMagnitude => Total <= 0 ? double.NaN : RateBasisPoints(Count, Total) / 10_000.0;
 
         public void FormatInline(TextWriter writer, in MarkoutCellFormat format)
             => writer.Write(Total <= 0
