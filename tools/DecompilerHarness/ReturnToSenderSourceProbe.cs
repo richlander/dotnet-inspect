@@ -409,6 +409,9 @@ static class ReturnToSenderSourceProbe
                 if (!overloadsByType.TryGetValue(fullType, out var overloads))
                     overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
 
+                if (HasPrimaryConstructor(type))
+                    NextOverload(overloads, ".ctor");
+
                 foreach (var member in type.Members)
                 {
                     switch (member)
@@ -427,7 +430,7 @@ static class ReturnToSenderSourceProbe
                         }
                         case ConstructorDeclarationSyntax constructor:
                         {
-                            const string methodName = ".ctor";
+                            string methodName = constructor.Modifiers.Any(SyntaxKind.StaticKeyword) ? ".cctor" : ".ctor";
                             int overload = NextOverload(overloads, methodName);
                             if (BodyText(constructor) is { } body)
                                 yield return new SourceMember(fullType, methodName, overload, path, body);
@@ -437,6 +440,8 @@ static class ReturnToSenderSourceProbe
                             break;
                         case PropertyDeclarationSyntax property:
                         {
+                            if (IsBodylessPartial(property))
+                                break;
                             if (HasGetter(property))
                             {
                                 string methodName = $"get_{property.Identifier.ValueText}";
@@ -459,9 +464,12 @@ static class ReturnToSenderSourceProbe
                             break;
                         case IndexerDeclarationSyntax indexer:
                         {
+                            if (IsBodylessPartial(indexer))
+                                break;
+                            string metadataName = IndexerMetadataName(indexer);
                             if (HasGetter(indexer))
                             {
-                                const string methodName = "get_Item";
+                                string methodName = $"get_{metadataName}";
                                 int overload = NextOverload(overloads, methodName);
                                 if (GetterBodyText(indexer) is { } body)
                                     yield return new SourceMember(fullType, methodName, overload, path, body);
@@ -469,7 +477,7 @@ static class ReturnToSenderSourceProbe
 
                             if (HasSetter(indexer))
                             {
-                                const string methodName = "set_Item";
+                                string methodName = $"set_{metadataName}";
                                 int overload = NextOverload(overloads, methodName);
                                 if (SetterBodyText(indexer) is { } body)
                                     yield return new SourceMember(fullType, methodName, overload, path, body);
@@ -648,10 +656,28 @@ static class ReturnToSenderSourceProbe
         return null;
     }
 
+    static bool HasPrimaryConstructor(TypeDeclarationSyntax type)
+        => type switch
+        {
+            ClassDeclarationSyntax { ParameterList: not null } => true,
+            RecordDeclarationSyntax { ParameterList: not null } => true,
+            _ => false,
+        };
+
     static bool IsBodylessPartial(MethodDeclarationSyntax method)
         => method.Modifiers.Any(SyntaxKind.PartialKeyword)
             && method.Body is null
             && method.ExpressionBody is null;
+
+    static bool IsBodylessPartial(PropertyDeclarationSyntax property)
+        => property.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && property.ExpressionBody is null
+            && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
+
+    static bool IsBodylessPartial(IndexerDeclarationSyntax indexer)
+        => indexer.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && indexer.ExpressionBody is null
+            && indexer.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
 
     static string? BodyText(ConstructorDeclarationSyntax constructor)
     {
@@ -753,6 +779,28 @@ static class ReturnToSenderSourceProbe
 
     static string NormalizeBody(string text)
         => Regex.Replace(text, @"\s+", "");
+
+    static string IndexerMetadataName(IndexerDeclarationSyntax indexer)
+    {
+        foreach (var attribute in indexer.AttributeLists.SelectMany(list => list.Attributes))
+        {
+            string name = attribute.Name.ToString();
+            if (!name.EndsWith("IndexerName", StringComparison.Ordinal)
+                && !name.EndsWith("IndexerNameAttribute", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is LiteralExpressionSyntax literal
+                && literal.IsKind(SyntaxKind.StringLiteralExpression)
+                && literal.Token.ValueText is { Length: > 0 } value)
+            {
+                return value;
+            }
+        }
+
+        return "Item";
+    }
 
     static string OperatorMetadataName(OperatorDeclarationSyntax op)
         => op.OperatorToken.Kind() switch
