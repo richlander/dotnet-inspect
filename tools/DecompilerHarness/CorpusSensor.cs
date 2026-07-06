@@ -911,12 +911,40 @@ internal static class CorpusSensor
         if (current.FidelityCompileCap > 0)
         {
             rows.Add(ShareChangeRow(
-                "Fidelity diffs",
+                "Fidelity opcode diffs",
                 baseline.Metrics.Fidelity.OpcodeDiffMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.OpcodeDiffMethods,
                 current.Metrics.Fidelity.CheckedMethods,
                 Goal.Lower));
+            rows.Add(ShareChangeRow(
+                "Fidelity exact",
+                baseline.Metrics.Fidelity.ExactMethods,
+                baseline.Metrics.Fidelity.CheckedMethods,
+                current.Metrics.Fidelity.ExactMethods,
+                current.Metrics.Fidelity.CheckedMethods,
+                Goal.Higher));
+            rows.Add(ShareChangeRow(
+                "Fidelity recompile failures",
+                baseline.Metrics.Fidelity.RecompileFailMethods,
+                baseline.Metrics.Fidelity.CheckedMethods,
+                current.Metrics.Fidelity.RecompileFailMethods,
+                current.Metrics.Fidelity.CheckedMethods,
+                Goal.Lower));
+            rows.Add(ShareChangeRow(
+                "Fidelity context failures",
+                baseline.Metrics.Fidelity.ContextFailMethods,
+                baseline.Metrics.Fidelity.CheckedMethods,
+                current.Metrics.Fidelity.ContextFailMethods,
+                current.Metrics.Fidelity.CheckedMethods,
+                Goal.Lower));
+            rows.Add(ShareChangeRow(
+                "Fidelity check coverage",
+                baseline.Metrics.Fidelity.CheckedMethods,
+                baseline.Metrics.TotalMethods,
+                current.Metrics.Fidelity.CheckedMethods,
+                current.Metrics.TotalMethods,
+                Goal.Higher));
         }
 
         rows.Add(CountChangeRow("Pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, Goal.Lower));
@@ -926,10 +954,16 @@ internal static class CorpusSensor
     }
 
     static MultiSourceRow CountChangeRow(string metric, int baseline, int current, Goal goal)
-        => new(MetricLabel(metric, goal), new Source("Change", new Change<int>(baseline, current), new MarkoutCellFormat { Goal = goal }));
+        => new(
+            MetricLabel(metric, goal),
+            new Source("Change", new Change<int>(baseline, current), new MarkoutCellFormat { Goal = goal }),
+            new Source("Count delta", new QualityText(Delta(current - baseline))));
 
     static MultiSourceRow ShareChangeRow(string metric, int baseline, int baselineTotal, int current, int currentTotal, Goal goal)
-        => new(MetricLabel(metric, goal), new Source("Change", new Change<Share>(new Share(baseline, baselineTotal), new Share(current, currentTotal)), new MarkoutCellFormat { Goal = goal }));
+        => new(
+            MetricLabel(metric, goal),
+            new Source("Change", new Change<QualityRate>(new QualityRate(baseline, baselineTotal), new QualityRate(current, currentTotal)), new MarkoutCellFormat { Goal = goal }),
+            new Source("Count delta", new QualityText(Delta(current - baseline))));
 
     static string MetricLabel(string metric, Goal goal)
         => goal switch
@@ -973,18 +1007,6 @@ internal static class CorpusSensor
         Console.WriteLine("Risk guidance: add targeted improved examples and still-flat near misses; aggregate numbers are not sufficient alone.");
     }
 
-    static string CountPercent(int count, int basisPoints)
-        => $"{Number(count)} ({FormatBps(basisPoints)})";
-
-    static string Fraction(int numerator, int denominator)
-        => $"{Number(numerator)}/{Number(denominator)}";
-
-    static string FractionWithCoverage(int numerator, int denominator)
-        => $"{Fraction(numerator, denominator)} — {Number(denominator)} compiled methods";
-
-    static string FidelityWithCoverage(FidelitySensorMetrics metrics, int total)
-        => $"opcode-diff {Fraction(metrics.OpcodeDiffMethods, metrics.CheckedMethods)}, exact {Number(metrics.ExactMethods)}, recompile-failed {Number(metrics.RecompileFailMethods)}, context-failed {Number(metrics.ContextFailMethods)}; sampled {Coverage(metrics.CheckedMethods, total)}";
-
     static string Coverage(int checkedMethods, int totalMethods)
         => $"{Number(checkedMethods)} / {Number(totalMethods)} ({FormatBps(RateBasisPoints(checkedMethods, totalMethods))})";
 
@@ -1004,6 +1026,36 @@ internal static class CorpusSensor
 
     static string Delta(int value)
         => value > 0 ? $"+{Number(value)}" : Number(value);
+
+    readonly record struct QualityRate(int Count, int Total) : IMarkoutCell, IGoalMagnitude
+    {
+        double IGoalMagnitude.GoalMagnitude => Total <= 0 ? double.NaN : (double)Count / Total;
+
+        public void FormatInline(TextWriter writer, in MarkoutCellFormat format)
+            => writer.Write(Total <= 0
+                ? $"{Number(Count)} (—)"
+                : $"{Number(Count)} ({FormatBps(RateBasisPoints(Count, Total))})");
+
+        public void Decompose(ICollection<MarkoutField> fields, string? side, in MarkoutCellFormat format)
+        {
+            fields.Add(new MarkoutField(SideKey(side, "count"), Count.ToString(CultureInfo.InvariantCulture)));
+            fields.Add(new MarkoutField(SideKey(side, "total"), Total.ToString(CultureInfo.InvariantCulture)));
+            if (Total > 0)
+                fields.Add(new MarkoutField(SideKey(side, "basisPoints"), RateBasisPoints(Count, Total).ToString(CultureInfo.InvariantCulture)));
+        }
+
+        static string SideKey(string? side, string key)
+            => side is null ? key : side + "_" + key;
+    }
+
+    readonly record struct QualityText(string Text) : IMarkoutCell
+    {
+        public void FormatInline(TextWriter writer, in MarkoutCellFormat format)
+            => writer.Write(Text);
+
+        public void Decompose(ICollection<MarkoutField> fields, string? side, in MarkoutCellFormat format)
+            => fields.Add(new MarkoutField(side ?? "value", Text));
+    }
 
     static string DeltaPercentagePoints(int basisPoints)
         => basisPoints == 0 ? "0 pp" : $"{(basisPoints > 0 ? "+" : "")}{FormatPercentagePoints(basisPoints)}";
