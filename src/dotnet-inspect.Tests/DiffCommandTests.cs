@@ -124,11 +124,18 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ApplyFilters_EmptyMemberFilteredDiff_ReportsMemberFilterNotTypeFilter()
+    public async Task BuildApiDiff_EmptyMemberFilteredDiff_ReportsMemberFilterNotTypeFilter()
     {
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
-            DiffCommand.ApplyFilters(new ApiDiff(), new DiffOptions
+            var oldSurface = DiffSurface(
+                DiffMember("Keep", signature: "void Keep()"),
+                DiffMember("Changed", signature: "void Changed()"));
+            var newSurface = DiffSurface(
+                DiffMember("Keep", signature: "void Keep()"),
+                DiffMember("Changed", signature: "int Changed()"));
+
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
             {
                 TypeFilter = ["Widget"],
                 MemberFilter = ["Keep"]
@@ -137,6 +144,24 @@ public class DiffCommandTests
         });
 
         Assert.Contains("member filter matched no changed members", error);
+        Assert.DoesNotContain("type filter matched no changed types", error);
+    }
+
+    [Fact]
+    public async Task BuildApiDiff_ZeroChangeDiffWithMemberFilter_DoesNotBlameMemberFilter()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            var surface = DiffSurface(DiffMember("Keep", signature: "void Keep()"));
+            DiffCommand.BuildApiDiff(surface, surface, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Keep"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.DoesNotContain("member filter matched no changed members", error);
         Assert.DoesNotContain("type filter matched no changed types", error);
     }
 

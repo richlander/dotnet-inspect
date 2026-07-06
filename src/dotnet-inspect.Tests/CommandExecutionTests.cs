@@ -3827,6 +3827,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_HelpBeforeBareToken_StillExplainsPackageRouting()
+    {
+        var (exit, output, error) = await RunAppAsync("--help", "frobnicate");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Inspect a NuGet package", output);
+        Assert.DoesNotContain("Auto-route bare input", output);
+        Assert.Contains("interpreting bare token 'frobnicate' as a package or platform target", error);
+    }
+
+    [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(

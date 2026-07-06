@@ -114,6 +114,8 @@ public static class ArgumentPreprocessor
 
             // Route bare names through the router command (platform-preferred, NuGet fallback)
             RequestTelemetry.Breadcrumb("implicit-router", args[firstPositional]);
+            if (HasHelpBefore(args, firstPositional))
+                return ["router", args[firstPositional], .. args[..firstPositional], .. args[(firstPositional + 1)..]];
             return ["router", .. args];
         }
 
@@ -144,6 +146,9 @@ public static class ArgumentPreprocessor
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
+
+    private static bool HasHelpBefore(string[] args, int firstPositional)
+        => args[..firstPositional].Any(token => token is "--help" or "-h" or "-?");
 
     private static string[] RewriteValuedPlatformForSearchCommands(string[] args)
     {

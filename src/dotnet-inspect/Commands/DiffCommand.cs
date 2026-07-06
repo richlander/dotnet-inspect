@@ -523,10 +523,6 @@ public class DiffCommand
         {
             Console.Error.WriteLine("Note: classification filter removed all changes after type/member filters.");
         }
-        else if (filtered.Count == 0 && options.MemberFilter.Count > 0 && (typeDiffs.Count > 0 || beforeTypeFilterCount == 0))
-        {
-            Console.Error.WriteLine($"Note: member filter matched no changed members after other filters: {string.Join(", ", options.MemberFilter)}.");
-        }
         else if (filtered.Count == 0 && beforeTypeFilterCount > 0 && options.TypeFilter.Count > 0 && typeDiffs.Count > 0)
         {
             Console.Error.WriteLine("Note: classification filter removed all changes for the matched type filter.");
@@ -534,6 +530,11 @@ public class DiffCommand
 
         return filtered;
     }
+
+    private static IReadOnlyList<TypeDiff> ApplyTypeFilterOnly(IReadOnlyList<TypeDiff> typeDiffs, IReadOnlyCollection<string> typeFilters)
+        => typeFilters.Count == 0
+            ? typeDiffs
+            : typeDiffs.Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, typeFilters)).ToList();
 
     private static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
     {
@@ -588,9 +589,15 @@ public class DiffCommand
                     ApiScope: ApiDiffScope.Signature)).ApiDiff
             ?? new ApiDiff();
 
-        return options.MemberFilter.Count == 0
-            ? diff
-            : FilterApiDiffByMemberTargets(diff, fromSurface, toSurface, options);
+        if (options.MemberFilter.Count == 0)
+            return diff;
+
+        var candidateTypeDiffs = ApplyTypeFilterOnly(diff.TypeDiffs, options.TypeFilter);
+        var filtered = FilterApiDiffByMemberTargets(diff, fromSurface, toSurface, options);
+        if (filtered.TypeDiffs.Count == 0 && candidateTypeDiffs.Count > 0)
+            Console.Error.WriteLine($"Note: member filter matched no changed members after type filters: {string.Join(", ", options.MemberFilter)}.");
+
+        return filtered;
     }
 
     internal static ApiDiff FilterApiDiffByMemberTargets(ApiDiff diff, ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
