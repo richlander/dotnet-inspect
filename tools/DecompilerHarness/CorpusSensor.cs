@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using Markout;
+using Markout.Formatting;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -724,49 +726,7 @@ internal static class CorpusSensor
             PrintRiskyCoverageGuidance(current);
         PrintBaselineStaleness(baseline, current);
         Console.WriteLine();
-        Console.WriteLine("| Metric (desired direction) | Baseline | PR | Count delta |");
-        Console.WriteLine("| --- | ---: | ---: | ---: |");
-        PrintMetric(
-            "Fully raised (+)",
-            CountPercent(baseline.Metrics.FullyRaisedMethods, baseline.Metrics.FullyRaisedBasisPoints),
-            CountPercent(current.Metrics.FullyRaisedMethods, current.Metrics.FullyRaisedBasisPoints),
-            Delta(current.Metrics.FullyRaisedMethods - baseline.Metrics.FullyRaisedMethods));
-        PrintMetric(
-            "Conditional-branch residual (-)",
-            CountPercent(baseline.Metrics.ConditionalBranchMethods, baseline.Metrics.ConditionalBranchBasisPoints),
-            CountPercent(current.Metrics.ConditionalBranchMethods, current.Metrics.ConditionalBranchBasisPoints),
-            Delta(current.Metrics.ConditionalBranchMethods - baseline.Metrics.ConditionalBranchMethods));
-        PrintMetric(
-            "Forward-merge stops (-)",
-            CountPercent(baseline.Metrics.ForwardMergeStoppedContainers, baseline.Metrics.ForwardMergeBasisPoints),
-            CountPercent(current.Metrics.ForwardMergeStoppedContainers, current.Metrics.ForwardMergeBasisPoints),
-            Delta(current.Metrics.ForwardMergeStoppedContainers - baseline.Metrics.ForwardMergeStoppedContainers));
-        if (current.ValidityCompileCap > 0)
-        {
-            PrintMetric(
-                "Full malformed (-)",
-                Number(baseline.Metrics.FullMalformedMethods),
-                Number(current.Metrics.FullMalformedMethods),
-                Delta(current.Metrics.FullMalformedMethods - baseline.Metrics.FullMalformedMethods));
-            PrintMetric(
-                "Semantic defects (-)",
-                FractionWithCoverage(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods),
-                FractionWithCoverage(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods),
-                Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
-        }
-        if (current.FidelityCompileCap > 0)
-        {
-            PrintMetric(
-                "Fidelity diffs (-)",
-                FidelityWithCoverage(baseline.Metrics.Fidelity, baseline.Metrics.TotalMethods),
-                FidelityWithCoverage(current.Metrics.Fidelity, current.Metrics.TotalMethods),
-                Delta(current.Metrics.Fidelity.OpcodeDiffMethods - baseline.Metrics.Fidelity.OpcodeDiffMethods));
-        }
-        PrintMetric(
-            "Pass bugs (-)",
-            Number(baseline.Metrics.PassBugs),
-            Number(current.Metrics.PassBugs),
-            Delta(current.Metrics.PassBugs - baseline.Metrics.PassBugs));
+        PrintQualityMetricChanges(baseline, current);
         PrintPinnedGate(baseline, current);
         if (!risky)
             PrintAdvisoryRateMovements(baseline, current);
@@ -909,8 +869,75 @@ internal static class CorpusSensor
         return lines;
     }
 
-    static void PrintMetric(string metric, string baseline, string current, string delta)
-        => Console.WriteLine($"| {metric} | {baseline} | {current} | {delta} |");
+    static void PrintQualityMetricChanges(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    {
+        var rows = new List<MultiSourceRow>
+        {
+            ShareChangeRow(
+                "Fully raised",
+                baseline.Metrics.FullyRaisedMethods,
+                baseline.Metrics.TotalMethods,
+                current.Metrics.FullyRaisedMethods,
+                current.Metrics.TotalMethods,
+                Goal.Higher),
+            ShareChangeRow(
+                "Conditional-branch residual",
+                baseline.Metrics.ConditionalBranchMethods,
+                baseline.Metrics.TotalMethods,
+                current.Metrics.ConditionalBranchMethods,
+                current.Metrics.TotalMethods,
+                Goal.Lower),
+            ShareChangeRow(
+                "Forward-merge stops",
+                baseline.Metrics.ForwardMergeStoppedContainers,
+                baseline.Metrics.TotalMethods,
+                current.Metrics.ForwardMergeStoppedContainers,
+                current.Metrics.TotalMethods,
+                Goal.Lower),
+        };
+
+        if (current.ValidityCompileCap > 0)
+        {
+            rows.Add(CountChangeRow("Full malformed", baseline.Metrics.FullMalformedMethods, current.Metrics.FullMalformedMethods, Goal.Lower));
+            rows.Add(ShareChangeRow(
+                "Semantic defects",
+                baseline.Metrics.SemanticDefectMethods,
+                baseline.Metrics.SemanticCheckedMethods,
+                current.Metrics.SemanticDefectMethods,
+                current.Metrics.SemanticCheckedMethods,
+                Goal.Lower));
+        }
+
+        if (current.FidelityCompileCap > 0)
+        {
+            rows.Add(ShareChangeRow(
+                "Fidelity diffs",
+                baseline.Metrics.Fidelity.OpcodeDiffMethods,
+                baseline.Metrics.Fidelity.CheckedMethods,
+                current.Metrics.Fidelity.OpcodeDiffMethods,
+                current.Metrics.Fidelity.CheckedMethods,
+                Goal.Lower));
+        }
+
+        rows.Add(CountChangeRow("Pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, Goal.Lower));
+
+        var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
+        writer.WriteMultiSourceTable("Metric", rows);
+    }
+
+    static MultiSourceRow CountChangeRow(string metric, int baseline, int current, Goal goal)
+        => new(MetricLabel(metric, goal), new Source("Change", new Change<int>(baseline, current), new MarkoutCellFormat { Goal = goal }));
+
+    static MultiSourceRow ShareChangeRow(string metric, int baseline, int baselineTotal, int current, int currentTotal, Goal goal)
+        => new(MetricLabel(metric, goal), new Source("Change", new Change<Share>(new Share(baseline, baselineTotal), new Share(current, currentTotal)), new MarkoutCellFormat { Goal = goal }));
+
+    static string MetricLabel(string metric, Goal goal)
+        => goal switch
+        {
+            Goal.Higher => metric + " (+)",
+            Goal.Lower => metric + " (-)",
+            _ => metric,
+        };
 
     static string CoverageSummary(CorpusSensorSnapshot snapshot)
     {
