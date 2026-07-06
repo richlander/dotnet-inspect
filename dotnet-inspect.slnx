@@ -18,8 +18,7 @@
     <Project Path="src/ILInspector.Analysis.CallerGraphLookalikeCaller/ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" />
     <Project Path="src/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />
-    <Project Path="src/ILInspector.Analysis.CrossAsmShapeFixtures/ILInspector.Analysis.CrossAsmShapeFixtures.csproj" />
-    <Project Path="src/ILInspector.Analysis.ExceptionBaseFixtures/ILInspector.Analysis.ExceptionBaseFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.Fixtures/ILInspector.Analysis.Fixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.LookalikeFixtures/ILInspector.Analysis.LookalikeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.ProtobufFixtures/ILInspector.Analysis.ProtobufFixtures.csproj" />

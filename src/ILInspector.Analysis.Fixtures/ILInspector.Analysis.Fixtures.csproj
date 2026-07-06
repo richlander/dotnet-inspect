@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Consolidated compile-referenced analysis fixture assembly. Source
+    namespaces remain fixture-specific; this project only consolidates ordinary
+    external fixture types that do not need their own assembly-name, TFM, alias,
+    or spoofing build axis.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ILInspector.Analysis.CrossAsmShapeFixtures\*.cs" Link="CrossAsmShapeFixtures\%(Filename)%(Extension)" />
+    <Compile Include="..\ILInspector.Analysis.ExceptionBaseFixtures\*.cs" Link="ExceptionBaseFixtures\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>
