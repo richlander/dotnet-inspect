@@ -564,7 +564,7 @@ static IlDiffCardTableView BuildTableView(ImmutableArray<IlDiffPairCard> pairs, 
     return new IlDiffCardTableView
     {
         Summary = SectionedSummaryRows(pairs.Length, card),
-        BaselineMetrics = comparison is null ? null : BaselineMetricRows(comparison),
+        BaselineMetrics = comparison is null ? null : SectionedBaselineMetricRows(comparison),
         FailureBuckets = SectionedBucketRows("Failure buckets", card.FailureBuckets),
         TopHunkKinds = SectionedBucketRows("Top hunk kinds", card.TopHunkKinds),
         TopOpcodeFamilies = SectionedBucketRows("Top opcode families", card.TopOpcodeFamilies),
@@ -608,6 +608,16 @@ static List<MetricChange<int>> BaselineMetricRows(BaselineComparison comparison)
     MetricCeiling("Failures", comparison.Baseline.Summary.FailureCount, comparison.Current.Summary.FailureCount, "max failures"),
 ];
 
+static List<BaselineSectionMetricChangeRow> SectionedBaselineMetricRows(BaselineComparison comparison)
+    => [.. BaselineMetricRows(comparison).Select(metric => new BaselineSectionMetricChangeRow(
+        "Baseline metric changes",
+        metric.Name,
+        metric.Before,
+        metric.After,
+        metric.Target,
+        metric.TargetLabel,
+        MetricStatusText(metric)))];
+
 static MetricChange<int> MetricDrift(string name, int baseline, int current)
     => new(name, baseline, current, Status: baseline == current ? GateStatus.Neutral : GateStatus.Warning, StatusLabel: baseline == current ? "unchanged" : "drift");
 
@@ -628,6 +638,21 @@ static GateStatus StatusForFloor(int target, int current)
 
 static string StatusLabelForFloor(int target, int current)
     => current < target ? "regression" : current > target ? "improvement" : "unchanged";
+
+static string MetricStatusText(MetricChange<int> metric)
+{
+    if (!string.IsNullOrEmpty(metric.StatusLabel))
+        return metric.StatusLabel!;
+
+    return metric.Status switch
+    {
+        GateStatus.Good => "good",
+        GateStatus.Neutral => "neutral",
+        GateStatus.Warning => "warning",
+        GateStatus.Bad => "bad",
+        _ => "unknown",
+    };
+}
 
 static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, bool snapshotPaths = false)
 {
@@ -808,7 +833,7 @@ sealed class IlDiffCardTableView
     public List<IlDiffSectionMetricRow>? Summary { get; init; }
 
     [MarkoutSection(Name = "Baseline metric changes")]
-    public List<MetricChange<int>>? BaselineMetrics { get; init; }
+    public List<BaselineSectionMetricChangeRow>? BaselineMetrics { get; init; }
 
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<IlDiffSectionBucketRow>? FailureBuckets { get; init; }
@@ -834,6 +859,16 @@ sealed record IlDiffMetricRow(string Metric, string Count);
 
 [MarkoutSerializable]
 sealed record IlDiffSectionMetricRow(string Section, string Metric, string Count);
+
+[MarkoutSerializable]
+sealed record BaselineSectionMetricChangeRow(
+    string Section,
+    string Metric,
+    int Before,
+    int After,
+    int? Target,
+    string? TargetLabel,
+    string Status);
 
 [MarkoutSerializable]
 sealed record IlDiffBucketRow(string Bucket, string Count);
@@ -884,6 +919,7 @@ sealed record IlDiffExampleTableRow(
 [MarkoutContext(typeof(IlDiffCardTableView))]
 [MarkoutContext(typeof(IlDiffMetricRow))]
 [MarkoutContext(typeof(IlDiffSectionMetricRow))]
+[MarkoutContext(typeof(BaselineSectionMetricChangeRow))]
 [MarkoutContext(typeof(IlDiffBucketRow))]
 [MarkoutContext(typeof(IlDiffSectionBucketRow))]
 [MarkoutContext(typeof(IlDiffPairSummaryRow))]
