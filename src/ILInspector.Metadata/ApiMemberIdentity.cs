@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -9,6 +11,73 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ApiMemberIdentity
 {
+    sealed class AnchorSignatureTypeProvider : ISignatureTypeProvider<string, GenericContext?>
+    {
+        public static readonly AnchorSignatureTypeProvider Instance = new();
+
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode)
+            => typeCode switch
+            {
+                PrimitiveTypeCode.Boolean => "System.Boolean",
+                PrimitiveTypeCode.Byte => "System.Byte",
+                PrimitiveTypeCode.SByte => "System.SByte",
+                PrimitiveTypeCode.Char => "System.Char",
+                PrimitiveTypeCode.Int16 => "System.Int16",
+                PrimitiveTypeCode.UInt16 => "System.UInt16",
+                PrimitiveTypeCode.Int32 => "System.Int32",
+                PrimitiveTypeCode.UInt32 => "System.UInt32",
+                PrimitiveTypeCode.Int64 => "System.Int64",
+                PrimitiveTypeCode.UInt64 => "System.UInt64",
+                PrimitiveTypeCode.Single => "System.Single",
+                PrimitiveTypeCode.Double => "System.Double",
+                PrimitiveTypeCode.IntPtr => "System.IntPtr",
+                PrimitiveTypeCode.UIntPtr => "System.UIntPtr",
+                PrimitiveTypeCode.String => "System.String",
+                PrimitiveTypeCode.Object => "System.Object",
+                PrimitiveTypeCode.Void => "System.Void",
+                PrimitiveTypeCode.TypedReference => "System.TypedReference",
+                _ => typeCode.ToString(),
+            };
+
+        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+            => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)).Replace('+', '.');
+
+        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+            => TypeResolver.GetTypeNameFromReference(reader, handle).Replace('+', '.');
+
+        public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
+            => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+
+        public string GetSZArrayType(string elementType) => $"{elementType}[]";
+
+        public string GetArrayType(string elementType, ArrayShape shape)
+            => $"{elementType}[{(shape.Rank == 1 ? "*" : new string(',', shape.Rank - 1))}]";
+
+        public string GetByReferenceType(string elementType) => $"{elementType}&";
+
+        public string GetPointerType(string elementType) => $"{elementType}*";
+
+        public string GetPinnedType(string elementType) => $"pinned {elementType}";
+
+        public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
+            => $"{genericType}<{string.Join(",", typeArguments)}>";
+
+        public string GetGenericTypeParameter(GenericContext? context, int index)
+            => context is not null && index >= 0 && index < context.TypeParameters.Count
+                ? context.TypeParameters[index]
+                : $"!{index}";
+
+        public string GetGenericMethodParameter(GenericContext? context, int index)
+            => context is not null && index >= 0 && index < context.MethodParameters.Count
+                ? context.MethodParameters[index]
+                : $"!{index}";
+
+        public string GetFunctionPointerType(MethodSignature<string> signature)
+            => $"delegate*<{string.Join(",", signature.ParameterTypes.Append(signature.ReturnType))}>";
+
+        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
+    }
+
     public sealed record XmlDocMemberIdentity(
         string LookupKey,
         IReadOnlyList<string> NormalizedParameters,
@@ -24,6 +93,16 @@ public static class ApiMemberIdentity
         "extension-method" => $"extension:{member.Name}",
         _ => member.Name
     };
+
+    public static string GetMemberSelectorName(string metadataMethodName, bool isExtensionMethod = false)
+        => metadataMethodName switch
+        {
+            ".ctor" => ".ctor",
+            _ when isExtensionMethod => $"extension:{metadataMethodName}",
+            _ when metadataMethodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{metadataMethodName}",
+            _ when metadataMethodName.Contains('.', StringComparison.Ordinal) => $"explicit:{metadataMethodName}",
+            _ => metadataMethodName,
+        };
 
     public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
         => new(type, member, GetMemberAnchor(type, member));
@@ -71,6 +150,22 @@ public static class ApiMemberIdentity
     public static MemberAnchor GetMemberAnchor(ApiType type, ApiMember member)
         => CreateAnchor(type, member, GetCanonicalSignature(type, member));
 
+    public static MemberAnchor CreateMethodAnchor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition method,
+        bool isExtensionMethod = false)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        string methodName = reader.GetString(method.Name);
+        var signature = method.DecodeSignature(AnchorSignatureTypeProvider.Instance, GenericContext.ForMethod(reader, type, method));
+        string typeFullName = FormatDefinitionName(reader, typeHandle);
+        string memberName = MethodMemberName(reader, methodName, method);
+        string canonicalSignature = $"M:{typeFullName}.{memberName}({string.Join(",", signature.ParameterTypes)})";
+        string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
+        return CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature);
+    }
+
     public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)
     {
         var fingerprint = MemberAnchor.ComputeFingerprint(canonicalSignature);
@@ -81,6 +176,49 @@ public static class ApiMemberIdentity
             fingerprint,
             MetadataTypeNameFormatter.FormatFullName(type),
             member.Name);
+    }
+
+    static MemberAnchor CreateAnchor(
+        string typeFullName,
+        string selectorName,
+        string memberName,
+        string canonicalSignature)
+    {
+        var fingerprint = MemberAnchor.ComputeFingerprint(canonicalSignature);
+        return new MemberAnchor(
+            $"{selectorName}~{fingerprint}",
+            canonicalSignature,
+            fingerprint,
+            typeFullName,
+            memberName);
+    }
+
+    static string FormatDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var type = reader.GetTypeDefinition(handle);
+        var genericNames = type.GetGenericParameters()
+            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
+            .ToArray();
+        string name = reader.GetString(type.Name);
+        int tick = name.IndexOf('`');
+        string simple = tick < 0 ? name : name[..tick];
+        if (genericNames.Length > 0)
+            simple += $"<{string.Join(",", genericNames)}>";
+        var declaring = type.GetDeclaringType();
+        if (!declaring.IsNil)
+            return $"{FormatDefinitionName(reader, declaring)}.{simple}";
+        string ns = reader.GetString(type.Namespace);
+        return string.IsNullOrEmpty(ns) ? simple : $"{ns}.{simple}";
+    }
+
+    static string MethodMemberName(MetadataReader reader, string methodName, MethodDefinition method)
+    {
+        if (methodName == ".ctor")
+            return "#ctor";
+        var genericNames = method.GetGenericParameters()
+            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
+            .ToArray();
+        return genericNames.Length == 0 ? methodName : $"{methodName}<{string.Join(",", genericNames)}>";
     }
 
     public static string GetCanonicalSignature(ApiType type, ApiMember member)
