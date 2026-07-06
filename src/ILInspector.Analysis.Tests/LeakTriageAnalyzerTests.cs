@@ -163,6 +163,17 @@ public sealed class LeakTriageAnalyzerTests
             .. Call(TokenArrayCopy),
             0x2A,
         ], []);
+        var systemMemorySpanClear = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            0x16,
+            .. Call(TokenSystemMemoryAsSpan),
+            .. Call(TokenSystemMemorySpanClear),
+            0x2A,
+        ], []);
 
         Assert.Empty(keepAlive.Findings);
         AssertCandidate(keepAlive, nameof(Synthetic), "cross-method-suppressed");
@@ -171,6 +182,10 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(arrayCopy.Findings);
         AssertCandidate(arrayCopy, nameof(Synthetic), "cross-method-suppressed");
         AssertNoCandidate(arrayCopy, nameof(Synthetic), "exception-path-leak-candidate");
+
+        Assert.Empty(systemMemorySpanClear.Findings);
+        AssertCandidate(systemMemorySpanClear, nameof(Synthetic), "cross-method-suppressed");
+        AssertNoCandidate(systemMemorySpanClear, nameof(Synthetic), "exception-path-leak-candidate");
     }
 
     [Fact]
@@ -314,6 +329,8 @@ public sealed class LeakTriageAnalyzerTests
     const int TokenField = 0x0A000005;
     const int TokenKeepAlive = 0x0A000006;
     const int TokenArrayCopy = 0x0A000007;
+    const int TokenSystemMemoryAsSpan = 0x0A000008;
+    const int TokenSystemMemorySpanClear = 0x0A000009;
 
     static ImmutableArray<LeakTriageFinding> AnalyzeSynthetic(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
         => AnalyzeSyntheticDetailed(il, exceptionRegions).Findings;
@@ -338,6 +355,9 @@ public sealed class LeakTriageAnalyzerTests
             TypeRef.Definition("System.Buffers", "System.Buffers", "ArrayPool`1"),
             [TypeRef.CoreLib("System", "Byte")]);
         var byteArray = TypeRef.SzArray(TypeRef.CoreLib("System", "Byte"));
+        var systemMemorySpanOfByte = TypeRef.GenericInstance(
+            TypeRef.Definition("System.Memory", "System", "Span`1", trustedFrameworkAssembly: true),
+            [TypeRef.CoreLib("System", "Byte")]);
 
         return token switch
         {
@@ -352,6 +372,19 @@ public sealed class LeakTriageAnalyzerTests
                 [TypeRef.CoreLib("System", "Array"), TypeRef.CoreLib("System", "Array"), TypeRef.CoreLib("System", "Int32")],
                 TypeRef.CoreLib("System", "Void"),
                 MemberKind.Method),
+            TokenSystemMemoryAsSpan => new MemberRef(
+                TypeRef.Definition("System.Memory", "System", "MemoryExtensions", trustedFrameworkAssembly: true),
+                "AsSpan",
+                [byteArray, TypeRef.CoreLib("System", "Int32")],
+                systemMemorySpanOfByte,
+                MemberKind.Method),
+            TokenSystemMemorySpanClear => new MemberRef(
+                systemMemorySpanOfByte,
+                "Clear",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            { HasThis = true },
             _ => MemberRef.Unsupported($"unknown token 0x{token:X8}"),
         };
     }

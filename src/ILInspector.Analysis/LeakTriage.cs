@@ -698,7 +698,8 @@ public static class LeakTriageAnalyzer
         if (type.Kind != TypeRefKind.GenericInstance || type.ElementType is not { } definition)
             return false;
 
-        return FrameworkIdentity.IsCoreLibraryType(definition, "System", "Span`1");
+        return FrameworkIdentity.IsCoreLibraryType(definition, "System", "Span`1")
+            || FrameworkIdentity.IsKnownFrameworkType(definition, "System.Memory", "System", "Span`1");
     }
 
     static int ArgumentSlotCount(MethodIdentity method)
