@@ -57,5 +57,7 @@ Markdown, with goal markers in metric labels and goal-derived status inline in
 change cells; typed `before`/`after`/`target` fields plus goal-derived
 `direction`/`status` fields in JSONL) and keeps detailed finding rows for bucket
 drift and regression evidence. Baseline bucket output uses Markout multi-source
-rows to compare baseline/current failure buckets, hunk kinds, and opcode
-families in Markdown and as section-aware decomposed JSONL/TSV rows.
+rows with `Change<Segments>` to compare baseline/current failure buckets, hunk
+kinds, and opcode families in Markdown and as section-aware decomposed JSONL/TSV
+rows; failure buckets use Markout goal derivation over the aggregate bucket
+count.
