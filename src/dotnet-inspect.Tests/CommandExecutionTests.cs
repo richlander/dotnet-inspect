@@ -7053,6 +7053,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_GenericTypeName_DoesNotAdmitMemberDetailSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.List<T>",
+            "--platform", "System.Private.CoreLib",
+            "-S", "Signature", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Signature' not found.", error);
+    }
+
+    [Fact]
     public async Task Package_SelectAll_IncludesOptInSignals()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");

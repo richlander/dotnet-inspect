@@ -99,6 +99,19 @@ public static class MemberCommand
                     MemberGenericArity = options.MemberGenericArity ?? impliedSelector.GenericArity
                 };
             }
+            else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
+            {
+                var actualPipeline = ApiMemberSectionPipelines.Create(options);
+                var actualSelect = SelectResolver.ResolveSelectAsSections(
+                    options.Select,
+                    actualPipeline.SelectableSectionNames,
+                    actualPipeline.InfoSectionNames,
+                    actualPipeline.GetCategoryMap());
+                if (SelectOutput.WriteUnresolved(actualSelect))
+                    return 1;
+                if (actualSelect.Sections != null)
+                    options = options with { IncludeSections = actualSelect.Sections };
+            }
 
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
