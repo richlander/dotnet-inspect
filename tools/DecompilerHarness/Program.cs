@@ -52,6 +52,9 @@ static class Program
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
         bool returnToSender = false;
+        bool returnAddress = false;
+        bool censusTsv = false;
+        bool censusJsonl = false;
         bool returnToSenderAb = false;
         bool returnToSenderCatalog = false;
         bool returnToSenderMarkout = false;
@@ -139,6 +142,9 @@ static class Program
                 case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
+                case "--return-address": returnAddress = true; break;
+                case "--tsv": censusTsv = true; break;
+                case "--jsonl": censusJsonl = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;
                 case "--return-to-sender-markout": returnToSenderMarkout = true; break;
                 case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
@@ -297,6 +303,14 @@ static class Program
 
         if (returnToSender)
             return ReturnToSender.Run(assemblies, cap, maxExamples);
+
+        if (returnAddress)
+            return ReturnAddressCensus.Run(
+                assemblies,
+                maxExamples,
+                censusJsonl || json ? RaCensusFormat.Jsonl
+                    : censusTsv ? RaCensusFormat.Tsv
+                    : RaCensusFormat.Markdown);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
@@ -1302,7 +1316,16 @@ static class Program
         foreach (var input in inputs)
         {
             if (Directory.Exists(input))
-                result.AddRange(Directory.EnumerateFiles(input, "*.dll").Where(IsManaged).Order());
+            {
+                try
+                {
+                    result.AddRange(Directory.EnumerateFiles(input, "*.dll").Where(IsManaged).Order());
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Console.Error.WriteLine($"Warning: cannot read directory '{input}' ({ex.GetType().Name}), skipping.");
+                }
+            }
             else if (File.Exists(input))
                 result.Add(input);
             else
@@ -1518,6 +1541,12 @@ static class Program
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
                                 opcodes.
+          --return-address        equivalence census: compare the two product
+                                member-identity producers (GetMemberAnchor vs
+                                CreateMethodAnchor) per member and report the
+                                agreement rate plus example divergences. Thin
+                                observer; --tsv/--jsonl select the format,
+                                --max-examples caps divergence rows. See #2440.
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
           --return-to-sender-source-probe
