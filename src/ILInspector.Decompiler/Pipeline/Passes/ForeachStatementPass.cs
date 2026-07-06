@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -72,7 +74,7 @@ public sealed class ForeachStatementPass : IIrPass
             match.CurrentStore.Detach();
             var body = match.Loop.Body;
             body.Detach();
-            var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body);
+            var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body, match.ConsumedMemberRefs);
             context.Stepper.StepOver("raise enumerator loop to foreach", usingStatement);
             usingStatement.ReplaceWith(foreachStatement);
         }
@@ -88,7 +90,7 @@ public sealed class ForeachStatementPass : IIrPass
             match.CurrentStore.Detach();
             var body = loop.Body;
             body.Detach();
-            var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body);
+            var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body, match.ConsumedMemberRefs);
             context.Stepper.StepOver("raise pattern enumerator loop to foreach", loop);
             loop.ReplaceWith(foreachStatement);
             match.EnumeratorStore.Detach();
@@ -166,7 +168,11 @@ public sealed class ForeachStatementPass : IIrPass
         set.UnionWith(allowed);
     }
 
-    sealed record EnumeratorMatch(IrExpression Collection, WhileLoop Loop, StoreLocal CurrentStore);
+    sealed record EnumeratorMatch(
+        IrExpression Collection,
+        WhileLoop Loop,
+        StoreLocal CurrentStore,
+        ImmutableArray<MethodRef> ConsumedMemberRefs);
 
     static EnumeratorMatch? TryMatchEnumerator(IrFunction function, UsingStatement usingStatement)
     {
@@ -208,10 +214,19 @@ public sealed class ForeachStatementPass : IIrPass
         if (loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
             return null;
 
-        return new EnumeratorMatch(CollectionValue(getEnumerator.Arguments[0]), loop, currentStore);
+        return new EnumeratorMatch(
+            CollectionValue(getEnumerator.Arguments[0]),
+            loop,
+            currentStore,
+            [getEnumerator.Callee, ((Call)loop.Condition).Callee, current.Accessor, .. usingStatement.ConsumedMemberRefs]);
     }
 
-    sealed record PatternMatch(IrExpression Collection, StoreLocal EnumeratorStore, WhileLoop Loop, StoreLocal CurrentStore);
+    sealed record PatternMatch(
+        IrExpression Collection,
+        StoreLocal EnumeratorStore,
+        WhileLoop Loop,
+        StoreLocal CurrentStore,
+        ImmutableArray<MethodRef> ConsumedMemberRefs);
 
     static PatternMatch? TryMatchPattern(IrFunction function, WhileLoop loop)
     {
@@ -252,7 +267,12 @@ public sealed class ForeachStatementPass : IIrPass
         if (!ReferencedOnlyBy(function, enumeratorIndex, allowed))
             return null;
 
-        return new PatternMatch(CollectionValue(getEnumerator.Arguments[0]), enumeratorStore, loop, currentStore);
+        return new PatternMatch(
+            CollectionValue(getEnumerator.Arguments[0]),
+            enumeratorStore,
+            loop,
+            currentStore,
+            [getEnumerator.Callee, moveNext.Callee, current.Accessor]);
     }
 
     static IrExpression CollectionValue(IrExpression expression) => expression switch

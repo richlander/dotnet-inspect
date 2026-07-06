@@ -1505,6 +1505,8 @@ static class ReturnToSender
                     AddMethodFact(assignment.Setter);
                     break;
                 case DeconstructionAssignment deconstruction:
+                    if (deconstruction.ConsumedDeconstructMethod is { } deconstruct)
+                        AddMethodFact(deconstruct);
                     foreach (var target in deconstruction.Targets)
                     {
                         if (target.Accessor is { } accessor)
@@ -1512,6 +1514,14 @@ static class ReturnToSender
                         if (target.Field is { } field)
                             AddFieldFact(field);
                     }
+                    break;
+                case ForeachStatement foreachStatement:
+                    foreach (var method in foreachStatement.ConsumedMemberRefs)
+                        AddMethodFact(method);
+                    break;
+                case UsingStatement usingStatement:
+                    foreach (var method in usingStatement.ConsumedMemberRefs)
+                        AddMethodFact(method);
                     break;
                 case LoadField load:
                     AddFieldFact(load.Field);

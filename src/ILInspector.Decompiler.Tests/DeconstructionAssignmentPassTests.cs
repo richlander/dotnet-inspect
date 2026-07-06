@@ -94,6 +94,7 @@ public class DeconstructionAssignmentPassTests
         Assert.Equal(2, deconstruction.LocalIndices.Length);
         Assert.True(deconstruction.IsDeclaration);
         Assert.IsType<LoadArgument>(deconstruction.Source);
+        Assert.Equal("Deconstruct", deconstruction.ConsumedDeconstructMethod?.Name);
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Deconstruct");
     }
 

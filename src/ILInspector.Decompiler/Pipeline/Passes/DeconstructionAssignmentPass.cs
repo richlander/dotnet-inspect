@@ -128,7 +128,7 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         if (ClassifyTargets(function, targets) is not { } resolved)
             return false;
 
-        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared);
+        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared, call.Callee);
         context.Stepper.StepOver("raise Deconstruct-method call to deconstruction", statement);
         statement.ReplaceWith(deconstruction);
         return true;

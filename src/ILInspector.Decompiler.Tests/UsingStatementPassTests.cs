@@ -22,6 +22,7 @@ public class UsingStatementPassTests
         var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
         Assert.Equal("StringReader", usingStatement.ResourceType.ToDisplayString());
         Assert.IsType<NewObject>(usingStatement.Resource);
+        Assert.Contains(usingStatement.ConsumedMemberRefs, method => method.Name == "Dispose");
         Assert.Empty(function.Descendants.OfType<TryFinally>());
     }
 
