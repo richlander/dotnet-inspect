@@ -762,7 +762,7 @@ public static class ApiMemberIdentity
                 .Replace('<', '{')
                 .Replace('>', '}');
 
-    internal static bool IsConversionOperator(string memberName)
+    public static bool IsConversionOperator(string memberName)
         => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 
     static bool TryGetArraySuffix(string type, out string elementType, out string suffix)
