@@ -141,6 +141,35 @@ section — is the next lever**. A 2026-07-05 run over CoreLib, `Microsoft.CodeA
 assembly's three known-misuse methods surfaced exactly once each. Wire the section only once this
 card shows non-zero, high-precision rows on real assemblies.
 
+## Resource lifecycle census (#2439 Slice 1)
+
+`--resource-lifecycle` sweeps the **measurement-only** ArrayPool resource-lifecycle census
+(`ResourceLifecycleCensus`) over a corpus and reports the candidate/suppression bucket census,
+as a [Markout](https://github.com/richlander/markout) card:
+
+```bash
+dotnet "$DLL" --resource-lifecycle assemblies.txt --top 5     # Markdown card (default)
+dotnet "$DLL" --resource-lifecycle assemblies.txt --tsv       # section-tagged TSV
+dotnet "$DLL" --resource-lifecycle assemblies.txt --jsonl     # one JSON record per row
+```
+
+Unlike `--leak-triage`, this changes **no** user-facing finding: it consumes the same CFG +
+def-use substrate but, instead of accusing, partitions every recognized
+`ArrayPool<T>.Shared.Rent` acquire into typed buckets so their size and shape can be measured
+before any bucket graduates to a finding (Slice 4). The card has three sections — a **Summary**
+(assemblies / opened / failed / timed out / acquires observed / candidate / suppressed / total
+facts), a **By bucket** histogram, and **Examples** (bucket / assembly / method, `--top` bounding
+examples per bucket).
+
+Buckets: candidate buckets `normal-path-leak-candidate`, `exception-path-leak-candidate`,
+`use-after-return-candidate`, `double-return-candidate` (a clean acquire may satisfy several at
+once — candidate reachability is deliberately raw, so a correlated-branch multi-return shows up as
+both a normal-path leak and a double return); suppression buckets `ownership-transfer-suppressed`,
+`alias-or-field-suppressed`, `cross-method-suppressed`, `incomplete-cfg-or-rd-suppressed` (each
+terminal — a suppressed acquire never counts toward a leak). The normal-path vs exception-path
+split matters because exception-path candidates are only clearly actionable when the exception is
+commonly caught one layer higher; measuring them separately is the point of the slice.
+
 ## Allocation convergence parity
 
 The Rung 4 allocation-convergence build must prove that a candidate

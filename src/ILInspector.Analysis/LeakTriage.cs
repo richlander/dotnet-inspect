@@ -1,8 +1,5 @@
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
 
@@ -22,50 +19,9 @@ public static class LeakTriageAnalyzer
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
-        var assembly = reader.GetAssemblyDefinition();
-        var assemblyName = reader.GetString(assembly.Name);
-        var mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
-
-        foreach (var typeHandle in reader.TypeDefinitions)
-        {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            foreach (var methodHandle in typeDef.GetMethods())
-            {
-                var methodDef = reader.GetMethodDefinition(methodHandle);
-                if (methodDef.RelativeVirtualAddress == 0)
-                    continue;
-
-                try
-                {
-                    var scope = CreateScope(reader, typeDef, methodDef);
-                    var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
-                    var method = new MethodIdentity(
-                        assemblyName,
-                        mvid,
-                        TypeRefDecoder.Instance.GetTypeFromDefinition(reader, typeHandle, 0),
-                        reader.GetString(methodDef.Name),
-                        signature.ParameterTypes,
-                        signature.ReturnType,
-                        MetadataTokens.GetToken(methodHandle),
-                        (methodDef.Attributes & MethodAttributes.Static) != 0);
-                    var body = peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-                    findings.AddRange(AnalyzeMethod(
-                        method,
-                        body.GetILBytes() ?? [],
-                        body.ExceptionRegions,
-                        token => MemberResolver.ResolveMethod(reader, MetadataTokens.EntityHandle(token), scope)));
-                }
-                catch (Exception ex) when (IsRecoverable(ex))
-                {
-                    // Correctness triage is fail-closed: malformed or unsupported method
-                    // evidence yields no accusations for that method.
-                }
-            }
-        }
+        foreach (var body in AnalysisMethodBodies.Enumerate(path))
+            findings.AddRange(AnalyzeMethod(body.Method, body.Il, body.ExceptionRegions, body.ResolveMethod));
 
         return findings.ToImmutable();
     }
@@ -91,12 +47,12 @@ public static class LeakTriageAnalyzer
             if (!graph.IsComplete)
                 return [];
 
-            var reaching = ReachingDefinitions.Analyze(il, ArgumentSlotCount(method), exceptionRegions);
+            var reaching = ReachingDefinitions.Analyze(il, AnalysisMethodBodies.ArgumentSlotCount(method), exceptionRegions);
             if (!reaching.IsComplete)
                 return [];
 
-            var calls = BuildCallMap(instructions, resolveMethod);
-            var rents = FindRents(method, instructions, graph, reaching, calls).ToImmutableArray();
+            var calls = ArrayPoolRecognizers.BuildCallMap(instructions, resolveMethod);
+            var rents = ArrayPoolRecognizers.FindAcquires(instructions, graph, reaching, calls).ToImmutableArray();
             if (rents.Length == 0)
                 return [];
 
@@ -106,7 +62,7 @@ public static class LeakTriageAnalyzer
 
             return findings.ToImmutable();
         }
-        catch (Exception ex) when (IsRecoverable(ex))
+        catch (Exception ex) when (AnalysisMethodBodies.IsRecoverable(ex))
         {
             return [];
         }
@@ -118,7 +74,7 @@ public static class LeakTriageAnalyzer
         BlockGraph graph,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
-        RentedLocal rent,
+        ArrayPoolAcquire rent,
         ImmutableArray<LeakTriageFinding>.Builder findings)
     {
         var releases = ImmutableArray.CreateBuilder<int>();
@@ -262,67 +218,14 @@ public static class LeakTriageAnalyzer
         return fromBlock >= 0 && fromBlock == toBlock && fromOffset < toOffset;
     }
 
-    static IEnumerable<RentedLocal> FindRents(
-        MethodIdentity method,
-        ImmutableArray<DecodedInstruction> instructions,
-        BlockGraph graph,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls)
-    {
-        foreach (var instruction in instructions)
-        {
-            if (!calls.TryGetValue(instruction.Offset, out var callee) || !IsArrayPoolRent(callee))
-                continue;
-            if (!RentUsesSharedReceiver(instructions, graph, calls, instruction.Offset))
-                continue;
-            if (!TryFindNextNonNop(instructions, instruction.NextOffset, out var store)
-                || !TryReadStoreLocal(store, out int slot))
-                continue;
-
-            var definition = reaching.Definitions.FirstOrDefault(d =>
-                !d.IsArgument && d.Slot == slot && d.Offset == store.Offset);
-            if (definition is null)
-                continue;
-
-            yield return new RentedLocal(instruction.Offset, store.Offset, slot, definition);
-        }
-    }
-
-    static bool RentUsesSharedReceiver(
-        ImmutableArray<DecodedInstruction> instructions,
-        BlockGraph graph,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int rentOffset)
-    {
-        int blockIndex = graph.BlockIndexAt(rentOffset);
-        if (blockIndex < 0)
-            return false;
-        var block = graph.Blocks[blockIndex];
-        for (int i = instructions.Length - 1, inspected = 0; i >= 0; i--)
-        {
-            var instruction = instructions[i];
-            if (instruction.Offset < block.Start)
-                return false;
-            if (instruction.Offset >= rentOffset || instruction.OpCode == ILOpCode.Nop)
-                continue;
-            if (calls.TryGetValue(instruction.Offset, out var callee))
-                return IsArrayPoolSharedGetter(callee);
-            if (!IsSimpleArgumentPush(instruction.OpCode))
-                return false;
-            if (++inspected > 4)
-                return false;
-        }
-        return false;
-    }
-
     static UseKind ClassifyUse(
         ImmutableArray<DecodedInstruction> instructions,
         IReadOnlyDictionary<int, MemberRef> calls,
         int loadOffset,
         int slot)
     {
-        if (!TryFindInstruction(instructions, loadOffset, out int index, out var load)
-            || !IsLoadLocal(load, slot))
+        if (!ArrayPoolRecognizers.TryFindInstruction(instructions, loadOffset, out int index, out var load)
+            || !ArrayPoolRecognizers.IsLoadLocal(load, slot))
             return UseKind.Ambiguous;
 
         int extra = 0;
@@ -330,20 +233,20 @@ public static class LeakTriageAnalyzer
         {
             var instruction = instructions[i];
             var opcode = instruction.OpCode;
-            if (IsSimpleArgumentPush(opcode))
+            if (ArrayPoolRecognizers.IsSimpleArgumentPush(opcode))
             {
                 extra++;
                 continue;
             }
             if (opcode == ILOpCode.Ldlen)
                 return extra == 0 ? UseKind.LocalUse : UseKind.Ambiguous;
-            if (IsElementRead(opcode))
+            if (ArrayPoolRecognizers.IsElementRead(opcode))
                 return extra == 1 ? UseKind.LocalUse : UseKind.Ambiguous;
-            if (IsElementStore(opcode))
+            if (ArrayPoolRecognizers.IsElementStore(opcode))
                 return extra == 2 ? UseKind.LocalUse : UseKind.Ambiguous;
             if (calls.TryGetValue(instruction.Offset, out var callee))
             {
-                if (IsArrayPoolReturn(callee) && extra < callee.ParameterTypes.Length)
+                if (ArrayPoolRecognizers.IsArrayPoolReturn(callee) && extra < callee.ParameterTypes.Length)
                     return UseKind.Release;
                 return UseKind.Ambiguous;
             }
@@ -352,144 +255,6 @@ public static class LeakTriageAnalyzer
 
         return UseKind.Ambiguous;
     }
-
-    static IReadOnlyDictionary<int, MemberRef> BuildCallMap(
-        ImmutableArray<DecodedInstruction> instructions,
-        Func<int, MemberRef> resolveMethod)
-    {
-        var calls = new Dictionary<int, MemberRef>();
-        foreach (var instruction in instructions)
-        {
-            if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj))
-                continue;
-            calls[instruction.Offset] = resolveMethod(checked((int)instruction.OperandValue));
-        }
-        return calls;
-    }
-
-    static bool TryFindNextNonNop(ImmutableArray<DecodedInstruction> instructions, int offset, out DecodedInstruction instruction)
-    {
-        foreach (var candidate in instructions)
-        {
-            if (candidate.Offset < offset || candidate.OpCode == ILOpCode.Nop)
-                continue;
-            instruction = candidate;
-            return true;
-        }
-        instruction = default!;
-        return false;
-    }
-
-    static bool TryFindInstruction(ImmutableArray<DecodedInstruction> instructions, int offset, out int index, out DecodedInstruction instruction)
-    {
-        for (int i = 0; i < instructions.Length; i++)
-        {
-            if (instructions[i].Offset != offset)
-                continue;
-            index = i;
-            instruction = instructions[i];
-            return true;
-        }
-        index = -1;
-        instruction = default!;
-        return false;
-    }
-
-    static bool TryReadStoreLocal(DecodedInstruction instruction, out int slot)
-    {
-        slot = instruction.OpCode switch
-        {
-            ILOpCode.Stloc_0 => 0,
-            ILOpCode.Stloc_1 => 1,
-            ILOpCode.Stloc_2 => 2,
-            ILOpCode.Stloc_3 => 3,
-            ILOpCode.Stloc_s or ILOpCode.Stloc => checked((int)instruction.OperandValue),
-            _ => -1,
-        };
-        return slot >= 0;
-    }
-
-    static bool IsLoadLocal(DecodedInstruction instruction, int slot)
-        => instruction.OpCode switch
-        {
-            ILOpCode.Ldloc_0 => slot == 0,
-            ILOpCode.Ldloc_1 => slot == 1,
-            ILOpCode.Ldloc_2 => slot == 2,
-            ILOpCode.Ldloc_3 => slot == 3,
-            ILOpCode.Ldloc_s or ILOpCode.Ldloc => instruction.OperandValue == slot,
-            _ => false,
-        };
-
-    static bool IsSimpleArgumentPush(ILOpCode opcode)
-        => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
-            or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-            or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4
-            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-            or ILOpCode.Ldarg_s or ILOpCode.Ldarg
-            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloc
-            or ILOpCode.Ldnull;
-
-    static bool IsElementRead(ILOpCode opcode)
-        => opcode is ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
-            or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
-            or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref;
-
-    static bool IsElementStore(ILOpCode opcode)
-        => opcode is ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
-            or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
-            or ILOpCode.Stelem_ref;
-
-    static bool IsArrayPoolRent(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "Rent"
-           && member.HasThis
-           && member.ParameterTypes.Length == 1
-           && FrameworkIdentity.IsCoreLibraryType(member.ParameterTypes[0], "System", "Int32")
-           && member.ReturnType.Kind == TypeRefKind.SzArray
-           && IsArrayPoolType(member.DeclaringType);
-
-    static bool IsArrayPoolReturn(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "Return"
-           && member.HasThis
-           && member.ReturnType.Equals(TypeRef.CoreLib("System", "Void"))
-           && member.ParameterTypes.Length is 1 or 2
-           && member.ParameterTypes[0].Kind == TypeRefKind.SzArray
-           && IsArrayPoolType(member.DeclaringType);
-
-    static bool IsArrayPoolSharedGetter(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "get_Shared"
-           && !member.HasThis
-           && member.ParameterTypes.Length == 0
-           && IsArrayPoolType(member.DeclaringType)
-           && IsArrayPoolType(member.ReturnType);
-
-    static bool IsArrayPoolType(TypeRef type)
-        => FrameworkIdentity.IsKnownFrameworkType(type, "System.Buffers", "System.Buffers", "ArrayPool`1")
-           || FrameworkIdentity.IsCoreLibraryType(type, "System.Buffers", "ArrayPool`1");
-
-    static int ArgumentSlotCount(MethodIdentity method)
-        => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
-
-    static GenericScope CreateScope(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
-        => new(GenericParameterNames(reader, typeDef.GetGenericParameters()), GenericParameterNames(reader, methodDef.GetGenericParameters()));
-
-    static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
-    {
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
-    }
-
-    static bool IsRecoverable(Exception ex)
-        => ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException;
-
-    sealed record RentedLocal(int RentOffset, int StoreOffset, int Slot, LocalDefinition Definition);
 
     enum UseKind
     {

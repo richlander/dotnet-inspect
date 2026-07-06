@@ -47,6 +47,15 @@ const string Usage =
           for #1992 - the analyzer is precision-first, so an empty card means recall (not a
           user-facing section) is the next lever. --top bounds examples per assembly.
 
+      --resource-lifecycle <file> [--top N] [--tsv | --jsonl]
+          Sweep the measurement-only ArrayPool resource-lifecycle census over a corpus (one
+          assembly path per line in <file>) and report the candidate/suppression bucket census:
+          acquires observed, the bucket histogram (normal-path vs exception-path leak candidates,
+          use-after/double-return candidates, and ownership/alias/cross-method/incomplete
+          suppressions), and example methods per bucket, as a Markout card. This changes no
+          existing finding (#2439 Slice 1); it exists to size each bucket before any graduates to
+          a user-facing finding. Formats match --leak-triage; --top bounds examples per bucket.
+
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
 
@@ -74,6 +83,7 @@ string? annotationParityCategory = null;
 string? annotationParityExpected = null;
 string? annotationParityActual = null;
 string? leakTriageList = null;
+string? lifecycleList = null;
 bool tsv = false;
 bool jsonl = false;
 int top = 20;
@@ -117,6 +127,9 @@ for (int i = 0; i < args.Length; i++)
         case "--leak-triage":
             leakTriageList = NextPathValue(args, ref i);
             break;
+        case "--resource-lifecycle":
+            lifecycleList = NextPathValue(args, ref i);
+            break;
         case "--tsv":
             tsv = true;
             break;
@@ -148,11 +161,11 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
-// --tsv/--jsonl are leak-triage-specific format selectors; other modes use --json.
-// Reject them outside --leak-triage rather than silently accepting-and-ignoring them.
-if ((tsv || jsonl) && leakTriageList is null)
+// --tsv/--jsonl are tabular-format selectors for the census cards; other modes use --json.
+// Reject them elsewhere rather than silently accepting-and-ignoring them.
+if ((tsv || jsonl) && leakTriageList is null && lifecycleList is null)
 {
-    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage; other modes use --json.");
+    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage / --resource-lifecycle; other modes use --json.");
     return 2;
 }
 
@@ -173,6 +186,9 @@ if (annotationParityExpected is not null)
 
 if (leakTriageList is not null)
     return RunLeakTriage(leakTriageList, top, tsv, jsonl || json);
+
+if (lifecycleList is not null)
+    return RunResourceLifecycle(lifecycleList, top, tsv, jsonl || json);
 
 if (corpusList is not null)
     return RunCorpus(corpusList, diffBaseline, emitSnapshot, json);
@@ -261,6 +277,37 @@ static int RunLeakTriage(string corpusList, int top, bool tsv, bool jsonl)
 
     var report = LeakTriageSensor.Measure(paths, examplesPerAssembly: top);
     Console.Write(LeakTriageSensor.Format(report, top, format));
+    return 0;
+}
+
+static int RunResourceLifecycle(string corpusList, int top, bool tsv, bool jsonl)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    if (tsv && jsonl)
+    {
+        Console.Error.WriteLine("--tsv and --jsonl are mutually exclusive.");
+        return 2;
+    }
+
+    LifecycleFormat format = jsonl ? LifecycleFormat.Jsonl : tsv ? LifecycleFormat.Tsv : LifecycleFormat.Markdown;
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var report = ResourceLifecycleSensor.Measure(paths, examplesPerAssembly: top);
+    Console.Write(ResourceLifecycleSensor.Format(report, top, format));
     return 0;
 }
 
