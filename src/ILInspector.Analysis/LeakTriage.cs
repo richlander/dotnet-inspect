@@ -132,7 +132,7 @@ public static class LeakTriageAnalyzer
 
             var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
             foreach (var rent in rents)
-                AnalyzeRent(method, instructions, graph, reaching, calls, rent, findings, candidates);
+                AnalyzeRent(method, instructions, graph, reaching, calls, exceptionRegions, rent, findings, candidates);
 
             return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable());
         }
@@ -155,21 +155,26 @@ public static class LeakTriageAnalyzer
         BlockGraph graph,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         RentedLocal rent,
         ImmutableArray<LeakTriageFinding>.Builder findings,
         ImmutableArray<LeakTriageCandidate>.Builder candidates)
     {
         var releases = ImmutableArray.CreateBuilder<int>();
         var safeUses = ImmutableArray.CreateBuilder<int>();
-        bool ambiguous = false;
+        AmbiguousUse? firstAmbiguous = null;
 
         foreach (var use in reaching.UsesOf(rent.Definition))
         {
             if (use.Address)
             {
-                AddCandidate(candidates, method, "alias-or-field-suppressed", "Rented array address is observed.", rent.RentOffset, use.Offset);
-                ambiguous = true;
-                break;
+                if (firstAmbiguous is null)
+                {
+                    const string shape = "alias-or-field-suppressed";
+                    AddCandidate(candidates, method, shape, "Rented array address is observed.", rent.RentOffset, use.Offset);
+                    firstAmbiguous = new AmbiguousUse(use.Offset, shape);
+                }
+                continue;
             }
 
             var classification = ClassifyUse(instructions, calls, use.Offset, rent.Slot);
@@ -182,19 +187,34 @@ public static class LeakTriageAnalyzer
                     safeUses.Add(use.Offset);
                     break;
                 default:
-                    AddCandidate(candidates, method, classification.CandidateShape, classification.Evidence, rent.RentOffset, use.Offset);
-                    ambiguous = true;
+                    if (firstAmbiguous is null)
+                    {
+                        AddCandidate(candidates, method, classification.CandidateShape, classification.Evidence, rent.RentOffset, use.Offset);
+                        firstAmbiguous = new AmbiguousUse(use.Offset, classification.CandidateShape);
+                    }
                     break;
             }
-            if (ambiguous)
-                break;
         }
-
-        if (ambiguous)
-            return;
 
         var releaseOffsets = releases.ToImmutable();
         var safeUseOffsets = safeUses.ToImmutable();
+
+        if (firstAmbiguous is { } ambiguous)
+        {
+            if (ambiguous.Shape == "cross-method-suppressed"
+                && !ReleasedBeforeUseInSameBlock(graph, releaseOffsets, ambiguous.Offset)
+                && !HasCleanupReleaseForUse(exceptionRegions, releaseOffsets, ambiguous.Offset))
+            {
+                AddCandidate(
+                    candidates,
+                    method,
+                    "exception-path-leak-candidate",
+                    $"Rented array crosses a method boundary at IL_{ambiguous.Offset:X4} before a modeled cleanup; an exception can bypass Return.",
+                    rent.RentOffset,
+                    ambiguous.Offset);
+            }
+            return;
+        }
 
         // Multiple releases often encode correlated branch predicates (`if (c) return; if (!c) return`).
         // Without predicate facts, fail closed on leaks and only keep same-block misuse shapes below.
@@ -358,6 +378,30 @@ public static class LeakTriageAnalyzer
         int toBlock = graph.BlockIndexAt(toOffset);
         return fromBlock >= 0 && fromBlock == toBlock && fromOffset < toOffset;
     }
+
+    static bool ReleasedBeforeUseInSameBlock(BlockGraph graph, ImmutableArray<int> releases, int useOffset)
+        => releases.Any(release => ReachesInSameBlock(graph, release, useOffset));
+
+    static bool HasCleanupReleaseForUse(
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        ImmutableArray<int> releases,
+        int useOffset)
+    {
+        foreach (var region in exceptionRegions)
+        {
+            if (region.Kind is not (ExceptionRegionKind.Finally or ExceptionRegionKind.Fault))
+                continue;
+            if (!ContainsOffset(region.TryOffset, region.TryLength, useOffset))
+                continue;
+            if (releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool ContainsOffset(int start, int length, int offset)
+        => offset >= start && offset < start + length;
 
     static IEnumerable<RentedLocal> FindRents(
         MethodIdentity method,
@@ -626,6 +670,8 @@ public static class LeakTriageAnalyzer
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException;
 
     sealed record RentedLocal(int RentOffset, int StoreOffset, int Slot, LocalDefinition Definition);
+
+    sealed record AmbiguousUse(int Offset, string Shape);
 
     enum UseKind
     {

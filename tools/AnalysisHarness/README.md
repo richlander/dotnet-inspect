@@ -132,12 +132,15 @@ buckets are not product findings; they measure recall gates such as
 `normal-path-leak-candidate`, `exception-path-leak-candidate`,
 `use-after-return-candidate`, `ownership-transfer-suppressed`,
 `alias-or-field-suppressed`, `cross-method-suppressed`, and
-`incomplete-cfg-or-rd-suppressed`. One declarative Markout model renders the dense Markdown table
-and decomposes into section-tagged TSV/JSONL. It is a single-run census with no baseline, so it
-uses plain sectioned rows, not composite/delta cells; a `--diff-baseline` mode against a committed
-snapshot is the natural home for those (`Change`/`[MarkoutDelta]`). Each assembly is bounded by a
-per-assembly timeout, and any per-assembly input failure (a directory path, a truncated PE) becomes
-an `Opened=false` row rather than crashing the sweep.
+`incomplete-cfg-or-rd-suppressed`. Candidate rows can overlap: for example, a cross-method
+suppression can also carry an exception-path candidate when the normal path may still release or
+transfer ownership but an unprotected call boundary can throw first. One declarative Markout model
+renders the dense Markdown table and decomposes into section-tagged TSV/JSONL. It is a single-run
+census with no baseline, so it uses plain sectioned rows, not composite/delta cells; a
+`--diff-baseline` mode against a committed snapshot is the natural home for those
+(`Change`/`[MarkoutDelta]`). Each assembly is bounded by a per-assembly timeout, and any
+per-assembly input failure (a directory path, a truncated PE) becomes an `Opened=false` row rather
+than crashing the sweep.
 
 This is the evidence engine that must earn any user-facing `Leak Triage` section: the analyzer
 fails closed on incomplete CFG/RD, non-`Shared` pools, aliases, field stores, cross-method
