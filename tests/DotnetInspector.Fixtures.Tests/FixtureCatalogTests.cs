@@ -86,6 +86,7 @@ public class FixtureCatalogTests
         var fixture = FixtureCatalog.RunFasterAllocation;
 
         Assert.Contains("trace-coupled", fixture.Tags);
+        Assert.Contains(FixtureBoundary.SidecarAsset, fixture.Boundaries);
         var asset = Assert.Single(fixture.Assets);
         Assert.Equal("fixture.nettrace", asset.Name);
         Assert.EndsWith(Path.Combine("Fixtures", "RunFaster.AllocationFixture", "fixture.nettrace"), fixture.AssetPath(asset.Name));
@@ -105,6 +106,65 @@ public class FixtureCatalogTests
         AssertFixtureFileName(FixtureCatalog.AnalysisProtobuf, "Google.Protobuf.dll");
         AssertFixtureFileName(FixtureCatalog.AnalysisSpoofSystemLinq, "System.Linq.dll");
         AssertFixtureFileName(FixtureCatalog.AnalysisSpoofSystemRuntime, "System.Runtime.dll");
+
+        AssertBoundary(FixtureCatalog.AnalysisProtobuf, FixtureBoundary.AssemblyName);
+        AssertBoundary(FixtureCatalog.AnalysisSpoofSystemLinq, FixtureBoundary.AssemblyName);
+        AssertBoundary(FixtureCatalog.AnalysisSpoofSystemRuntime, FixtureBoundary.AssemblyName);
+    }
+
+    [Fact]
+    public void BoundaryMetadata_CoversIntentionalSeparateFixtureProjects()
+    {
+        var consolidatedSourceBucketProjects = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ILInspector.Analysis.Fixtures",
+            "ILInspector.Decompiler.Fixtures.Ladder",
+        };
+
+        var separateProjectFixtures = FixtureCatalog.All
+            .GroupBy(fixture => fixture.ProjectName, StringComparer.Ordinal)
+            .Where(group => !consolidatedSourceBucketProjects.Contains(group.Key))
+            .SelectMany(group => group);
+
+        Assert.All(separateProjectFixtures, fixture =>
+            Assert.NotEmpty(fixture.Boundaries));
+    }
+
+    [Theory]
+    [InlineData(FixtureIds.DiffV1, FixtureBoundary.VersionPair)]
+    [InlineData(FixtureIds.DiffV2, FixtureBoundary.VersionPair)]
+    [InlineData(FixtureIds.DiffAsmCaller, FixtureBoundary.AssemblyIdentity)]
+    [InlineData(FixtureIds.AnalysisCallerGraphCaller, FixtureBoundary.CrossAssemblyBoundary)]
+    [InlineData(FixtureIds.AnalysisCallerGraphCallerTwin, FixtureBoundary.CrossAssemblyBoundary)]
+    [InlineData(FixtureIds.AnalysisCallerGraphLookalikeCaller, FixtureBoundary.CrossAssemblyBoundary)]
+    [InlineData(FixtureIds.AnalysisCallerGraphTarget, FixtureBoundary.CrossAssemblyBoundary)]
+    [InlineData(FixtureIds.AnalysisCrossAsmCollision, FixtureBoundary.ExternAlias)]
+    [InlineData(FixtureIds.AnalysisFacade, FixtureBoundary.TargetFramework)]
+    [InlineData(FixtureIds.AnalysisLookalike, FixtureBoundary.AssemblyIdentity)]
+    [InlineData(FixtureIds.AnalysisRender, FixtureBoundary.FrameworkReference)]
+    [InlineData(FixtureIds.DecompilerCheckedArithmetic, FixtureBoundary.CompilerLowering)]
+    [InlineData(FixtureIds.DecompilerClassicAsync, FixtureBoundary.CompilerLowering)]
+    [InlineData(FixtureIds.DecompilerUnsafeLegacy, FixtureBoundary.ModuleAttribute)]
+    [InlineData(FixtureIds.DecompilerUnsafeNew, FixtureBoundary.ModuleAttribute)]
+    [InlineData(FixtureIds.DecompilerUnsafeChainA, FixtureBoundary.CrossAssemblyBoundary)]
+    [InlineData(FixtureIds.DecompilerUnsafeChainB, FixtureBoundary.CrossAssemblyBoundary)]
+    [InlineData(FixtureIds.DecompilerUnsafeChainC, FixtureBoundary.OutputKind)]
+    [InlineData(FixtureIds.RunFasterAllocation, FixtureBoundary.SidecarAsset)]
+    public void BoundaryMetadata_DocumentsSemanticAxes(string fixtureId, FixtureBoundary boundary)
+    {
+        AssertBoundary(FixtureCatalog.Get(fixtureId), boundary);
+    }
+
+    [Fact]
+    public void ConsolidatedFixtureBuckets_ShareAssemblyWithoutProjectBoundaryAxes()
+    {
+        Assert.Equal(FixtureCatalog.AnalysisCrossAsmShape.ProjectName, FixtureCatalog.AnalysisExceptionBase.ProjectName);
+        Assert.Equal(FixtureCatalog.AnalysisCrossAsmShape.AssemblyFileName, FixtureCatalog.AnalysisExceptionBase.AssemblyFileName);
+        Assert.Empty(FixtureCatalog.AnalysisCrossAsmShape.Boundaries);
+        Assert.Empty(FixtureCatalog.AnalysisExceptionBase.Boundaries);
+
+        Assert.All(FixtureCatalog.DecompilerLadderFixtures.Fixtures, fixture =>
+            Assert.Empty(fixture.Boundaries));
     }
 
     [Fact]
@@ -113,6 +173,8 @@ public class FixtureCatalogTests
         Assert.Contains("legacy-memory-safety", FixtureCatalog.DecompilerUnsafeLegacy.Tags);
         Assert.DoesNotContain("updated-memory-safety", FixtureCatalog.DecompilerUnsafeLegacy.Tags);
         Assert.Contains("updated-memory-safety", FixtureCatalog.DecompilerUnsafeNew.Tags);
+        AssertBoundary(FixtureCatalog.DecompilerUnsafeLegacy, FixtureBoundary.ModuleAttribute);
+        AssertBoundary(FixtureCatalog.DecompilerUnsafeNew, FixtureBoundary.ModuleAttribute);
         Assert.NotEqual(
             FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
@@ -128,6 +190,10 @@ public class FixtureCatalogTests
         Assert.Contains("updated-memory-safety", FixtureCatalog.DecompilerUnsafeChainB.Tags);
         Assert.Contains("legacy-memory-safety", FixtureCatalog.DecompilerUnsafeChainC.Tags);
         Assert.Contains("executable", FixtureCatalog.DecompilerUnsafeChainC.Tags);
+        AssertBoundary(FixtureCatalog.DecompilerUnsafeChainA, FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(FixtureCatalog.DecompilerUnsafeChainB, FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(FixtureCatalog.DecompilerUnsafeChainC, FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(FixtureCatalog.DecompilerUnsafeChainC, FixtureBoundary.OutputKind);
 
         AssertAssemblyReferences(
             FixtureCatalog.DecompilerUnsafeChainB,
@@ -144,6 +210,9 @@ public class FixtureCatalogTests
         Assert.Equal(expectedFileName, Path.GetFileName(path));
         Assert.Equal(fixture.ProjectName, new DirectoryInfo(path).Parent?.Parent?.Name);
     }
+
+    static void AssertBoundary(FixtureDefinition fixture, FixtureBoundary boundary)
+        => Assert.Contains(boundary, fixture.Boundaries);
 
     static void AssertAssemblyReferences(FixtureDefinition fixture, params string[] expectedReferences)
     {
