@@ -461,11 +461,10 @@ public class ReturnToSenderPrototypeTests
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             var type = Assert.Single(result.Plan.Types);
-            Assert.Contains(type.SourceFacts, fact =>
-                fact.Producer == "roslyn"
-                && fact.Id == "closure-member"
-                && fact.Detail.StartsWith("CS0103", StringComparison.Ordinal));
-            Assert.Contains(type.Members, member => member.Name == "GetValue" && member.Kind == CompileBackMemberKind.Method);
+            Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains(type.Members, member => member.Name == "GetValue"
+                && member.Kind == CompileBackMemberKind.Method
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue"));
             Assert.Contains("public int GetValue()", result.Source);
         }
         finally
