@@ -510,6 +510,21 @@ public class DiffCommandTests
         Assert.DoesNotContain(result.Rows, r => r.Member.Contains("ImprovesAlloc"));
     }
 
+    [Fact]
+    public void BuildAnalysisDiff_MemberFilter_RejectsNonMethodTargets()
+    {
+        var surface = DiffSurface(DiffProperty("Value"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildAnalysisDiff([], [], new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Value"]
+            }, surface, surface));
+
+        Assert.Contains("method-like target", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // #1736: a hotness-only allocation regression. The allocation count is unchanged
     // (1 -> 1) but the allocation moves into a loop (allocInLoop false -> true). The raw
     // count delta is zero, so this must still surface as an in-place allocations row with
@@ -598,6 +613,15 @@ public class DiffCommandTests
                 Parameters = ParseParameters(signature ?? $"void {name}()")
             },
             Attributes = attributes?.ToList() ?? [],
+        };
+
+    static ApiMember DiffProperty(string name)
+        => new()
+        {
+            Name = name,
+            Kind = "property",
+            Signature = $"int {name}",
+            SignatureModel = new ApiSignature { MemberName = name, ReturnType = "int" }
         };
 
     static List<ApiParameter> ParseParameters(string signature)

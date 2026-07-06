@@ -360,7 +360,8 @@ public class DiffCommand
                 fromSurface ?? MergeSurfaces(fromPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
                 toSurface ?? MergeSurfaces(toPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
                 options.MemberFilter,
-                options.TypeFilter).MemberIdentities;
+                options.TypeFilter,
+                requireBodyTargets: true).MemberIdentities;
         var research = ResearchDiff.Compare(
             ResearchDiffInput.FromAssemblies(fromPaths),
             ResearchDiffInput.FromAssemblies(toPaths),
@@ -607,7 +608,8 @@ public class DiffCommand
         ApiSurface fromSurface,
         ApiSurface toSurface,
         IReadOnlyCollection<string> memberTargets,
-        IReadOnlyCollection<string> typeFilters)
+        IReadOnlyCollection<string> typeFilters,
+        bool requireBodyTargets = false)
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
         HashSet<string> typeNames = new(StringComparer.OrdinalIgnoreCase);
@@ -615,6 +617,7 @@ public class DiffCommand
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
             var found = false;
+            var bodyFound = false;
             MemberTargetDiagnostic? diagnostic = null;
             MemberTargetDiagnostic? nonFatalDiagnostic = null;
             var oldType = FindExactType(fromSurface, parsed.TypeName);
@@ -624,6 +627,7 @@ public class DiffCommand
             {
                 var oldResult = AddResolvedIdentities(oldType, parsed.Selector, identities);
                 found |= oldResult.Found;
+                bodyFound |= oldResult.BodyFound;
                 if (oldResult.Diagnostic is { } oldDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(oldDiagnostic.Kind))
@@ -638,6 +642,7 @@ public class DiffCommand
             {
                 var newResult = AddResolvedIdentities(newType, parsed.Selector, identities);
                 found |= newResult.Found;
+                bodyFound |= newResult.BodyFound;
                 if (newResult.Diagnostic is { } newDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(newDiagnostic.Kind))
@@ -653,28 +658,30 @@ public class DiffCommand
                 throw new InvalidOperationException(diagnostic.Message);
             if (!found)
                 throw new InvalidOperationException(nonFatalDiagnostic?.Message ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
+            if (requireBodyTargets && !bodyFound)
+                throw new InvalidOperationException($"Analysis Diff --member requires a method-like target; '{rawTarget}' resolved to a member with no method body.");
         }
 
         return new ResolvedDiffMemberTargets(identities, typeNames);
     }
 
-    static (bool Found, MemberTargetDiagnostic? Diagnostic) AddResolvedIdentities(ApiType type, MemberTargetSelector selector, HashSet<string> identities)
+    static (bool Found, bool BodyFound, MemberTargetDiagnostic? Diagnostic) AddResolvedIdentities(ApiType type, MemberTargetSelector selector, HashSet<string> identities)
     {
         var resolution = MemberTargetResolver.Resolve(type, selector);
         if (!resolution.Found)
-            return (false, resolution.Diagnostic);
+            return (false, false, resolution.Diagnostic);
 
         identities.Add(resolution.Target!.Anchor.StableSelector);
         identities.Add(resolution.Target.Anchor.CanonicalSignature);
-        AddResearchBodyIdentity(resolution.Target, identities);
-        return (true, null);
+        var bodyFound = AddResearchBodyIdentity(resolution.Target, identities);
+        return (true, bodyFound, null);
     }
 
-    static void AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
+    static bool AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
     {
         var member = target.ApiMember.Member;
         if (member.Kind is "property" or "field" or "event")
-            return;
+            return false;
 
         var signature = member.SignatureModel;
         var memberName = member.Kind == "constructor"
@@ -686,9 +693,10 @@ public class DiffCommand
         var parameters = signature is null
             ? "()"
             : $"({string.Join(",", signature.Parameters.Select(parameter => ResearchBodyTypeName(parameter.TypeWithModifier)))})";
-        var canonical = $"M:{target.Anchor.TypeFullName}.{memberName}{generic}{parameters}";
+        var canonical = $"M:{target.Anchor.TypeFullName.Replace('+', '.')}.{memberName}{generic}{parameters}";
         var selectorName = target.Anchor.StableSelector.Split('~')[0];
         identities.Add($"{selectorName}~{MemberAnchor.ComputeFingerprint(canonical)}");
+        return true;
     }
 
     static string ResearchBodyTypeName(string typeName)
@@ -703,14 +711,22 @@ public class DiffCommand
         if (value.EndsWith("?", StringComparison.Ordinal))
             value = value[..^1];
 
-        if (value.EndsWith("[]", StringComparison.Ordinal))
-            return $"{ResearchBodyTypeName(value[..^2])}[]";
+        if (value.EndsWith("*", StringComparison.Ordinal))
+            return $"{ResearchBodyTypeName(value[..^1])}*";
+
+        var arrayStart = value.LastIndexOf('[');
+        if (arrayStart > 0 && value.EndsWith("]", StringComparison.Ordinal))
+            return $"{ResearchBodyTypeName(value[..arrayStart])}{value[arrayStart..]}";
+
+        var nestedSegments = SplitTopLevel(value, '.').ToList();
+        if (nestedSegments.Count > 1 && nestedSegments.Any(segment => segment.Contains('<', StringComparison.Ordinal)))
+            return string.Join(".", nestedSegments.Select(ResearchBodyTypeName));
 
         var genericStart = value.IndexOf('<');
         if (genericStart > 0 && value.EndsWith(">", StringComparison.Ordinal))
         {
             var baseName = value[..genericStart];
-            var arguments = SplitGenericArguments(value[(genericStart + 1)..^1])
+            var arguments = SplitTopLevel(value[(genericStart + 1)..^1], ',')
                 .Select(ResearchBodyTypeName)
                 .ToList();
             return $"{baseName}`{arguments.Count}<{string.Join(",", arguments)}>";
@@ -729,7 +745,10 @@ public class DiffCommand
             "uint" => "System.UInt32",
             "long" => "System.Int64",
             "ulong" => "System.UInt64",
+            "nint" => "System.IntPtr",
+            "nuint" => "System.UIntPtr",
             "object" => "System.Object",
+            "dynamic" => "System.Object",
             "short" => "System.Int16",
             "ushort" => "System.UInt16",
             "string" => "System.String",
@@ -738,25 +757,25 @@ public class DiffCommand
         };
     }
 
-    static IEnumerable<string> SplitGenericArguments(string arguments)
+    static IEnumerable<string> SplitTopLevel(string value, char separator)
     {
         var depth = 0;
         var start = 0;
-        for (var i = 0; i < arguments.Length; i++)
+        for (var i = 0; i < value.Length; i++)
         {
-            var ch = arguments[i];
+            var ch = value[i];
             if (ch == '<')
                 depth++;
             else if (ch == '>')
                 depth--;
-            else if (ch == ',' && depth == 0)
+            else if (ch == separator && depth == 0)
             {
-                yield return arguments[start..i].Trim();
+                yield return value[start..i].Trim();
                 start = i + 1;
             }
         }
 
-        yield return arguments[start..].Trim();
+        yield return value[start..].Trim();
     }
 
     static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)
