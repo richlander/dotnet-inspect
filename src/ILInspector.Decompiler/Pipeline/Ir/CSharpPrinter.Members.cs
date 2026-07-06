@@ -7,7 +7,7 @@ public sealed partial class CSharpPrinter
 {
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
-        if (PointerMemberReceiver(field.DeclaringType, instance) is { } pointerReceiver)
+        if (PointerMemberReceiver(instance) is { } pointerReceiver)
         {
             var pointerMember = field.BackingPropertyName
                 ?? CSharpNaming.PrimaryConstructorCaptureName(field.Name)
@@ -53,17 +53,15 @@ public sealed partial class CSharpPrinter
         };
     }
 
-    string? PointerMemberReceiver(TypeRef declaringType, IrExpression? instance)
-        => instance?.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } pointee }
-            && pointee.Equals(declaringType)
-            ? Operand(instance)
-            : null;
+    string? PointerMemberReceiver(IrExpression? instance)
+        => PointerReceiver(instance);
 
-    string? PointerMethodReceiver(MethodRef method, IrExpression? instance)
+    string? PointerMethodReceiver(IrExpression? instance)
+        => PointerReceiver(instance);
+
+    string? PointerReceiver(IrExpression? instance)
     {
-        if (instance?.ResultType is not { Kind: TypeRefKind.Pointer, ElementType: { } pointee })
-            return null;
-        return pointee.Equals(method.DeclaringType) || IsCoreObjectOrValueType(method.DeclaringType)
+        return instance?.ResultType is { Kind: TypeRefKind.Pointer }
             ? Operand(instance)
             : null;
     }
@@ -78,12 +76,9 @@ public sealed partial class CSharpPrinter
             : null;
     }
 
-    static bool IsCoreObjectOrValueType(TypeRef type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" or "ValueType" or "Enum" };
-
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {
-        if (PointerMemberReceiver(accessor.DeclaringType, instance) is { } pointerReceiver)
+        if (PointerMemberReceiver(instance) is { } pointerReceiver)
         {
             if (indexArguments.Count > 0)
                 return $"(*{pointerReceiver})[{Arguments(indexArguments)}]";
@@ -202,7 +197,7 @@ public sealed partial class CSharpPrinter
             return $"{TypeText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
             return name;
-        if (PointerMethodReceiver(method, target) is { } pointerReceiver)
+        if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
     }
@@ -287,7 +282,7 @@ public sealed partial class CSharpPrinter
                 ? $"base.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})"
                 : $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         }
-        if (PointerMethodReceiver(call.Callee, receiver) is { } pointerReceiver)
+        if (PointerMethodReceiver(receiver) is { } pointerReceiver)
             return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
