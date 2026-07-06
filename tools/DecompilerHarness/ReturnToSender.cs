@@ -1477,16 +1477,24 @@ static class ReturnToSender
         void AddMethodFact(MethodRef method)
         {
             AddMemberFact(method.DeclaringType, "method", method.Name);
-            AddMemberRequirement(method.DeclaringType, root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method));
+            AddMemberRequirement(
+                method.DeclaringType,
+                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method),
+                allowTargetRoot: method.Name is not ".ctor" and not ".cctor"
+                    && !method.Name.StartsWith("get_", StringComparison.Ordinal)
+                    && !method.Name.StartsWith("set_", StringComparison.Ordinal));
         }
 
         void AddFieldFact(FieldRef field)
         {
             AddMemberFact(field.DeclaringType, "field", field.Name);
-            AddMemberRequirement(field.DeclaringType, root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, field));
+            AddMemberRequirement(
+                field.DeclaringType,
+                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, field),
+                allowTargetRoot: false);
         }
 
-        void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create)
+        void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)
         {
             var definition = declaringType.Kind == TypeRefKind.GenericInstance
                 ? declaringType.ElementType ?? declaringType
@@ -1494,7 +1502,9 @@ static class ReturnToSender
             if (TryResolveHandle(definition) is not { } handle)
                 return;
             var root = TopLevelRootOf(reader, handle);
-            if (root == targetRoot || root != handle)
+            if (root == targetRoot && !allowTargetRoot)
+                return;
+            if (root != handle)
                 return;
             if (create(handle) is not { } requirement)
                 return;

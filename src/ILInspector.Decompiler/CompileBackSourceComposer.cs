@@ -328,34 +328,38 @@ public static class CompileBackSourceComposer
         if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
+        var targetMembers = new List<CompileBackMemberRequirement>
+        {
+            new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(targetIdentity.FullName, propertyName, overload, signatureText),
+                CompileBackMemberKind.PropertyGet,
+                getter.Attributes.HasFlag(MethodAttributes.Static),
+                ToCompileBackParameters(propertyDeclaration.Signature.Parameters),
+                returnType,
+                TypeParameters: [],
+                targetIsAutoProperty
+                    ? CompileBackStubBodyKind.AutoProperty
+                    : accessors.Setter.IsNil
+                        ? CompileBackStubBodyKind.TargetBody
+                        : CompileBackStubBodyKind.TargetGetterWithSetter,
+                targetIsAutoProperty ? null : targetBody,
+                targetIsAutoProperty
+                    ? [
+                        new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name)),
+                        new CompileBackFact("metadata", "auto-property", propertyName)
+                    ]
+                    : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
+                propertyDeclaration.Attributes,
+                MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes)
+        };
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
+
         var requirements = new List<CompileBackTypeRequirement>
         {
             new(
                 targetIdentity,
                 ShellKind(reader, targetTypeDef),
-                [
-                    new CompileBackMemberRequirement(
-                        new CompileBackMethodIdentity(targetIdentity.FullName, propertyName, overload, signatureText),
-                        CompileBackMemberKind.PropertyGet,
-                        getter.Attributes.HasFlag(MethodAttributes.Static),
-                        ToCompileBackParameters(propertyDeclaration.Signature.Parameters),
-                        returnType,
-                        TypeParameters: [],
-                        targetIsAutoProperty
-                            ? CompileBackStubBodyKind.AutoProperty
-                            : accessors.Setter.IsNil
-                                ? CompileBackStubBodyKind.TargetBody
-                                : CompileBackStubBodyKind.TargetGetterWithSetter,
-                        targetIsAutoProperty ? null : targetBody,
-                        targetIsAutoProperty
-                            ? [
-                                new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name)),
-                                new CompileBackFact("metadata", "auto-property", propertyName)
-                            ]
-                            : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
-                        propertyDeclaration.Attributes,
-                        MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes)
-                ],
+                targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
         };
@@ -403,6 +407,18 @@ public static class CompileBackSourceComposer
         return new CompileBackSourceResult(plan, WriteCompilationUnit(plan));
     }
 
+    static void AddRequiredMembers(
+        List<CompileBackMemberRequirement> members,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> requirementsByRoot,
+        TypeDefinitionHandle root)
+    {
+        if (!requirementsByRoot.TryGetValue(root, out var requiredMembers))
+            return;
+        foreach (var required in requiredMembers)
+            if (!members.Any(existing => existing.Kind == required.Kind && existing.Identity == required.Identity))
+                members.Add(required);
+    }
+
     public static CompileBackSourceResult ComposePropertySetter(
         string assemblyPath,
         MetadataReader reader,
@@ -439,32 +455,36 @@ public static class CompileBackSourceComposer
             targetFacts.AddRange(targetClosureFacts);
 
         var indexerParameterCount = propertySignature.ParameterTypes.Length;
+        var targetMembers = new List<CompileBackMemberRequirement>
+        {
+            new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(targetIdentity.FullName, propertyName, overload, signatureText),
+                CompileBackMemberKind.PropertySet,
+                setter.Attributes.HasFlag(MethodAttributes.Static),
+                ToCompileBackParameters(propertyDeclaration.Signature.Parameters).Take(indexerParameterCount).ToArray(),
+                returnType,
+                TypeParameters: [],
+                targetIsAutoProperty
+                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    : property.GetAccessors().Getter.IsNil
+                        ? CompileBackStubBodyKind.TargetBody
+                        : CompileBackStubBodyKind.TargetSetterWithGetter,
+                targetIsAutoProperty ? null : targetBody,
+                targetIsAutoProperty
+                    ? [
+                        new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name)),
+                        new CompileBackFact("metadata", "auto-property", propertyName)
+                    ]
+                    : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))])
+        };
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
+
         var requirements = new List<CompileBackTypeRequirement>
         {
             new(
                 targetIdentity,
                 ShellKind(reader, targetTypeDef),
-                [
-                    new CompileBackMemberRequirement(
-                        new CompileBackMethodIdentity(targetIdentity.FullName, propertyName, overload, signatureText),
-                        CompileBackMemberKind.PropertySet,
-                        setter.Attributes.HasFlag(MethodAttributes.Static),
-                        ToCompileBackParameters(propertyDeclaration.Signature.Parameters).Take(indexerParameterCount).ToArray(),
-                        returnType,
-                        TypeParameters: [],
-                        targetIsAutoProperty
-                            ? CompileBackStubBodyKind.AutoPropertyGetSet
-                            : property.GetAccessors().Getter.IsNil
-                                ? CompileBackStubBodyKind.TargetBody
-                                : CompileBackStubBodyKind.TargetSetterWithGetter,
-                        targetIsAutoProperty ? null : targetBody,
-                        targetIsAutoProperty
-                            ? [
-                                new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name)),
-                                new CompileBackFact("metadata", "auto-property", propertyName)
-                            ]
-                            : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))])
-                ],
+                targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
         };
