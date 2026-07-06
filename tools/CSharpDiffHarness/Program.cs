@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 using ILInspector.Decompiler;
 using Markout;
@@ -11,6 +12,7 @@ const string Usage =
     csharp-diff-harness --pair <old-assembly> <new-assembly> [--pair <old-assembly> <new-assembly>...] [--max-examples N]
     csharp-diff-harness --pairs <manifest.tsv> [--max-examples N]
     csharp-diff-harness ... [--format markdown|tsv|jsonl]
+    csharp-diff-harness ... [--emit-snapshot <file>] [--diff-baseline <file>]
 
       Emits a small C# Diff card over paired assemblies:
       - exact and changed pair counts;
@@ -33,6 +35,8 @@ if (args.Contains("--help") || args.Contains("-h"))
 var pairs = new List<AssemblyPair>();
 var positional = new List<string>();
 string? pairsManifest = null;
+string? emitSnapshotPath = null;
+string? diffBaselinePath = null;
 int maxExamples = 5;
 OutputFormat outputFormat = OutputFormat.Markdown;
 
@@ -73,6 +77,24 @@ for (int i = 0; i < args.Length; i++)
                 return 2;
             }
 
+            break;
+        case "--emit-snapshot":
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("--emit-snapshot requires a file path.");
+                return 2;
+            }
+
+            emitSnapshotPath = args[++i];
+            break;
+        case "--diff-baseline":
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("--diff-baseline requires a file path.");
+                return 2;
+            }
+
+            diffBaselinePath = args[++i];
             break;
         default:
             if (!args[i].StartsWith("-", StringComparison.Ordinal))
@@ -147,10 +169,27 @@ foreach (var pair in pairs)
 try
 {
     var cards = pairs.Select(BuildPairCard).ToImmutableArray();
-    Console.Write(FormatCard(cards, maxExamples, outputFormat));
-    return 0;
+    var snapshot = BuildSnapshot(cards, maxExamples);
+    BaselineComparison? comparison = null;
+
+    if (diffBaselinePath is not null)
+    {
+        if (!File.Exists(diffBaselinePath))
+        {
+            Console.Error.WriteLine($"Baseline snapshot not found: {diffBaselinePath}");
+            return 2;
+        }
+
+        comparison = CompareSnapshots(ReadSnapshot(diffBaselinePath), snapshot);
+    }
+
+    if (emitSnapshotPath is not null)
+        File.WriteAllText(emitSnapshotPath, JsonSerializer.Serialize(snapshot, SnapshotJson.Options) + Environment.NewLine);
+
+    Console.Write(FormatCard(cards, maxExamples, outputFormat, comparison));
+    return comparison?.HasRegressions == true ? 1 : 0;
 }
-catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or BadImageFormatException)
+catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException or UnauthorizedAccessException or BadImageFormatException or JsonException)
 {
     Console.Error.WriteLine(ex.Message);
     return 2;
@@ -267,13 +306,13 @@ static void Increment(Dictionary<string, int> counts, string key)
 static void IncrementBy(Dictionary<string, int> counts, string key, int amount)
     => counts[key] = counts.TryGetValue(key, out int count) ? count + amount : amount;
 
-static string FormatCard(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples, OutputFormat format)
+static string FormatCard(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples, OutputFormat format, BaselineComparison? comparison = null)
 {
     var output = new StringWriter();
     if (format == OutputFormat.Markdown)
     {
         MarkoutSerializer.Serialize(
-            BuildMarkdownView(pairs, maxExamples),
+            BuildMarkdownView(pairs, maxExamples, comparison),
             output,
             new MarkdownFormatter(),
             CSharpDiffCardViewContext.Default,
@@ -282,7 +321,7 @@ static string FormatCard(ImmutableArray<CSharpDiffPairCard> pairs, int maxExampl
     else
     {
         MarkoutSerializer.Serialize(
-            BuildTableView(pairs, maxExamples),
+            BuildTableView(pairs, maxExamples, comparison),
             output,
             new TableFormatter(showHeader: true),
             CSharpDiffCardViewContext.Default,
@@ -298,30 +337,156 @@ static string FormatCard(ImmutableArray<CSharpDiffPairCard> pairs, int maxExampl
         : rendered;
 }
 
-static CSharpDiffCardMarkdownView BuildMarkdownView(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples)
+static CSharpDiffSnapshot BuildSnapshot(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples)
+{
+    var card = Aggregate(pairs, maxExamples, snapshotPaths: true);
+    return new CSharpDiffSnapshot(
+        SchemaVersion: 1,
+        Summary: new CSharpDiffSnapshotSummary(
+            PairCount: pairs.Length,
+            ExactPairCount: card.ExactPairCount,
+            ChangedPairCount: card.ChangedPairCount,
+            ChangedMemberCount: card.ChangedMemberCount,
+            RowCount: card.RowCount,
+            FailureCount: card.FailureCount),
+        Pairs: pairs.Select(pair => new CSharpDiffSnapshotPair(
+            Old: SnapshotPath(pair.OldPath),
+            New: SnapshotPath(pair.NewPath),
+            IsExact: pair.Card.IsExact,
+            ChangedMemberCount: pair.Card.ChangedMemberCount,
+            RowCount: pair.Card.RowCount,
+            FailureCount: pair.Card.FailureCount)).ToArray(),
+        FailureBuckets: card.FailureBuckets.ToArray(),
+        ChangeIdBuckets: card.TopChangeIds.ToArray(),
+        OperationKindBuckets: card.TopOperationKinds.ToArray(),
+        Examples: card.Examples.ToArray());
+}
+
+static CSharpDiffSnapshot ReadSnapshot(string path)
+{
+    var snapshot = JsonSerializer.Deserialize<CSharpDiffSnapshot>(File.ReadAllText(path), SnapshotJson.Options)
+        ?? throw new InvalidOperationException($"Could not read C# diff snapshot: {path}");
+    if (snapshot.SchemaVersion != 1)
+        throw new InvalidOperationException($"Unsupported C# diff snapshot schema version {snapshot.SchemaVersion}.");
+    if (snapshot.Summary is null)
+        throw new InvalidOperationException($"C# diff snapshot is missing a summary: {path}");
+    return snapshot;
+}
+
+static BaselineComparison CompareSnapshots(CSharpDiffSnapshot baseline, CSharpDiffSnapshot current)
+{
+    var regressions = ImmutableArray.CreateBuilder<BaselineFinding>();
+    var drift = ImmutableArray.CreateBuilder<BaselineFinding>();
+
+    AddCountRegression(regressions, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount);
+    AddCountRegression(regressions, "Changed pairs", baseline.Summary.ChangedPairCount, current.Summary.ChangedPairCount);
+    AddCountRegression(regressions, "Rows", baseline.Summary.RowCount, current.Summary.RowCount);
+    AddCountDropRegression(regressions, "Exact pairs", baseline.Summary.ExactPairCount, current.Summary.ExactPairCount);
+    AddNewFailureBuckets(regressions, baseline.FailureBuckets ?? [], current.FailureBuckets ?? []);
+
+    AddDrift(drift, "Pairs", baseline.Summary.PairCount, current.Summary.PairCount);
+    AddDriftIfImproved(drift, "Exact pairs", baseline.Summary.ExactPairCount, current.Summary.ExactPairCount, improvementWhenCurrentIsLower: false);
+    AddDriftIfImproved(drift, "Changed pairs", baseline.Summary.ChangedPairCount, current.Summary.ChangedPairCount, improvementWhenCurrentIsLower: true);
+    AddDrift(drift, "Changed members", baseline.Summary.ChangedMemberCount, current.Summary.ChangedMemberCount);
+    AddDriftIfImproved(drift, "Rows", baseline.Summary.RowCount, current.Summary.RowCount, improvementWhenCurrentIsLower: true);
+    AddDriftIfImproved(drift, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount, improvementWhenCurrentIsLower: true);
+    AddExistingFailureBucketDrift(drift, baseline.FailureBuckets ?? [], current.FailureBuckets ?? []);
+    AddBucketDrift(drift, "Change ID", baseline.ChangeIdBuckets ?? [], current.ChangeIdBuckets ?? []);
+    AddBucketDrift(drift, "Operation kind", baseline.OperationKindBuckets ?? [], current.OperationKindBuckets ?? []);
+
+    return new BaselineComparison(baseline, current, regressions.ToImmutable(), drift.ToImmutable());
+}
+
+static void AddCountRegression(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
+{
+    if (current > baseline)
+        findings.Add(new BaselineFinding("Regression", metric, Count(baseline), Count(current), "count increased"));
+}
+
+static void AddCountDropRegression(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
+{
+    if (current < baseline)
+        findings.Add(new BaselineFinding("Regression", metric, Count(baseline), Count(current), "count dropped"));
+}
+
+static void AddNewFailureBuckets(ImmutableArray<BaselineFinding>.Builder findings, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineNames = baseline.Select(bucket => bucket.Name).ToHashSet(StringComparer.Ordinal);
+    foreach (var bucket in current.Where(bucket => bucket.Count > 0 && !baselineNames.Contains(bucket.Name)))
+        findings.Add(new BaselineFinding("Regression", $"Failure bucket `{bucket.Name}`", "0", Count(bucket.Count), "new failure bucket"));
+}
+
+static void AddExistingFailureBucketDrift(ImmutableArray<BaselineFinding>.Builder findings, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineNames = baseline.Select(bucket => bucket.Name).ToHashSet(StringComparer.Ordinal);
+    AddBucketDrift(
+        findings,
+        "Failure bucket",
+        baseline,
+        current.Where(bucket => baselineNames.Contains(bucket.Name)).ToArray());
+}
+
+static void AddDrift(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current)
+{
+    if (current != baseline)
+        findings.Add(new BaselineFinding("Drift", metric, Count(baseline), Count(current), "count changed"));
+}
+
+static void AddDriftIfImproved(ImmutableArray<BaselineFinding>.Builder findings, string metric, int baseline, int current, bool improvementWhenCurrentIsLower)
+{
+    bool improved = improvementWhenCurrentIsLower
+        ? current < baseline
+        : current > baseline;
+    if (improved)
+        findings.Add(new BaselineFinding(
+            "Drift",
+            metric,
+            Count(baseline),
+            Count(current),
+            improvementWhenCurrentIsLower ? "count dropped" : "count increased"));
+}
+
+static void AddBucketDrift(ImmutableArray<BaselineFinding>.Builder findings, string metric, IReadOnlyList<CardBucket> baseline, IReadOnlyList<CardBucket> current)
+{
+    var baselineCounts = baseline.ToDictionary(bucket => bucket.Name, bucket => bucket.Count, StringComparer.Ordinal);
+    var currentCounts = current.ToDictionary(bucket => bucket.Name, bucket => bucket.Count, StringComparer.Ordinal);
+    foreach (string name in baselineCounts.Keys.Union(currentCounts.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
+    {
+        int oldCount = baselineCounts.GetValueOrDefault(name);
+        int newCount = currentCounts.GetValueOrDefault(name);
+        if (oldCount != newCount)
+            findings.Add(new BaselineFinding("Drift", $"{metric} `{name}`", Count(oldCount), Count(newCount), "bucket count changed"));
+    }
+}
+
+static CSharpDiffCardMarkdownView BuildMarkdownView(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples, BaselineComparison? comparison)
 {
     var card = Aggregate(pairs, maxExamples);
     return new CSharpDiffCardMarkdownView
     {
         Summary = SummaryRows(pairs.Length, card),
+        BaselineCard = comparison is null ? null : BuildBaselineDataCard(comparison.Baseline, comparison.Current, comparison),
         FailureBuckets = MarkdownBucketRows(card.FailureBuckets) ?? [],
         TopChangeIds = MarkdownBucketRows(card.TopChangeIds) ?? [],
         TopOperationKinds = MarkdownBucketRows(card.TopOperationKinds) ?? [],
         PairSummaries = [.. pairs.Select(pair => PairSummaryRow(pair))],
+        BaselineComparison = comparison is null ? null : BaselineRows(comparison) ?? [],
         Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleMarkdownRow)],
     };
 }
 
-static CSharpDiffCardTableView BuildTableView(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples)
+static CSharpDiffCardTableView BuildTableView(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples, BaselineComparison? comparison)
 {
     var card = Aggregate(pairs, maxExamples);
     return new CSharpDiffCardTableView
     {
         Summary = SectionedSummaryRows(pairs.Length, card),
+        BaselineCard = comparison is null ? null : BuildBaselineDataCard(comparison.Baseline, comparison.Current, comparison),
         FailureBuckets = SectionedBucketRows("Failure buckets", card.FailureBuckets),
         TopChangeIds = SectionedBucketRows("Top change IDs", card.TopChangeIds),
         TopOperationKinds = SectionedBucketRows("Top operation kinds", card.TopOperationKinds),
         PairSummaries = [.. pairs.Select(pair => SectionedPairSummaryRow(pair))],
+        BaselineComparison = comparison is null ? null : SectionedBaselineRows(comparison),
         Examples = card.Examples.IsDefaultOrEmpty ? null : [.. card.Examples.Select(ExampleTableRow)],
     };
 }
@@ -330,12 +495,12 @@ static MarkoutWriterOptions WriterOptions(OutputFormat format)
     => format switch
     {
         OutputFormat.Markdown => new MarkoutWriterOptions(),
-        OutputFormat.Tsv => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv },
-        OutputFormat.Jsonl => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl },
+        OutputFormat.Tsv => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv, JsonTypedValues = true, OmitEmptyJsonFields = true },
+        OutputFormat.Jsonl => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl, JsonTypedValues = true, OmitEmptyJsonFields = true },
         _ => throw new InvalidOperationException($"Unsupported output format '{format}'."),
     };
 
-static CSharpDiffCard Aggregate(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples)
+static CSharpDiffCard Aggregate(ImmutableArray<CSharpDiffPairCard> pairs, int maxExamples, bool snapshotPaths = false)
 {
     var failures = new Dictionary<string, int>(StringComparer.Ordinal);
     var changeIds = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -367,7 +532,7 @@ static CSharpDiffCard Aggregate(ImmutableArray<CSharpDiffPairCard> pairs, int ma
             if (examples.Count >= maxExamples)
                 break;
             examples.Add(RenderExample(
-                $"{DisplayPath(pair.OldPath)} to {DisplayPath(pair.NewPath)} :: {example.Member}",
+                $"{PathLabel(pair.OldPath, snapshotPaths)} to {PathLabel(pair.NewPath, snapshotPaths)} :: {example.Member}",
                 example));
         }
     }
@@ -403,6 +568,36 @@ static List<CSharpDiffSectionMetricRow> SectionedSummaryRows(int pairCount, CSha
 
 static string Count(int count) => count.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
+static CSharpDiffBaselineDataCard BuildBaselineDataCard(CSharpDiffSnapshot baseline, CSharpDiffSnapshot current, BaselineComparison comparison)
+    => new()
+    {
+        ExactPairs = new(baseline.Summary.ExactPairCount, current.Summary.ExactPairCount),
+        ChangedPairs = new(baseline.Summary.ChangedPairCount, current.Summary.ChangedPairCount),
+        ChangedMembers = new(baseline.Summary.ChangedMemberCount, current.Summary.ChangedMemberCount),
+        Rows = new(baseline.Summary.RowCount, current.Summary.RowCount),
+        Failures = new(baseline.Summary.FailureCount, current.Summary.FailureCount),
+        FailureBuckets = new(ToSegments(baseline.FailureBuckets ?? []), ToSegments(current.FailureBuckets ?? [])),
+        ChangeIds = new(ToSegments(baseline.ChangeIdBuckets ?? []), ToSegments(current.ChangeIdBuckets ?? [])),
+        OperationKinds = new(ToSegments(baseline.OperationKindBuckets ?? []), ToSegments(current.OperationKindBuckets ?? [])),
+        Verdict = comparison.HasRegressions ? "REGRESSION" : comparison.Rows.IsDefaultOrEmpty ? "MATCH" : "DRIFT",
+    };
+
+static Segments ToSegments(IReadOnlyList<CardBucket> buckets)
+    => new([.. buckets
+        .Where(bucket => bucket.Count != 0)
+        .Take(10)
+        .Select(bucket => new Segment(bucket.Name, bucket.Count))]);
+
+static List<BaselineFindingView>? BaselineRows(BaselineComparison comparison)
+    => comparison.Rows.IsDefaultOrEmpty
+        ? null
+        : [.. comparison.Rows.Select(row => new BaselineFindingView(row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
+
+static List<BaselineSectionFindingView>? SectionedBaselineRows(BaselineComparison comparison)
+    => comparison.Rows.IsDefaultOrEmpty
+        ? null
+        : [.. comparison.Rows.Select(row => new BaselineSectionFindingView("Baseline comparison", row.Kind, row.Metric, row.Baseline, row.Current, row.Detail))];
+
 static CSharpDiffPairSummaryRow PairSummaryRow(CSharpDiffPairCard pair)
     => new(
         DisplayPath(pair.OldPath),
@@ -433,6 +628,12 @@ static string DisplayPath(string path)
         ? fullPath
         : relative;
 }
+
+static string SnapshotPath(string path)
+    => Path.GetRelativePath(Directory.GetCurrentDirectory(), Path.GetFullPath(path)).Replace('\\', '/');
+
+static string PathLabel(string path, bool snapshotPath)
+    => snapshotPath ? SnapshotPath(path) : DisplayPath(path);
 
 static List<CSharpDiffBucketRow>? MarkdownBucketRows(ImmutableArray<CardBucket> buckets)
     => buckets.IsDefaultOrEmpty
@@ -495,6 +696,51 @@ sealed record CSharpDiffExampleGroup(
 
 sealed record CSharpDiffExample(string Member, string UnifiedDiff);
 
+sealed record CSharpDiffSnapshot(
+    int SchemaVersion,
+    CSharpDiffSnapshotSummary Summary,
+    CSharpDiffSnapshotPair[] Pairs,
+    CardBucket[] FailureBuckets,
+    CardBucket[] ChangeIdBuckets,
+    CardBucket[] OperationKindBuckets,
+    CSharpDiffExample[] Examples);
+
+sealed record CSharpDiffSnapshotSummary(
+    int PairCount,
+    int ExactPairCount,
+    int ChangedPairCount,
+    int ChangedMemberCount,
+    int RowCount,
+    int FailureCount);
+
+sealed record CSharpDiffSnapshotPair(
+    string Old,
+    string New,
+    bool IsExact,
+    int ChangedMemberCount,
+    int RowCount,
+    int FailureCount);
+
+sealed record BaselineComparison(
+    CSharpDiffSnapshot Baseline,
+    CSharpDiffSnapshot Current,
+    ImmutableArray<BaselineFinding> Regressions,
+    ImmutableArray<BaselineFinding> Drift)
+{
+    public bool HasRegressions => !Regressions.IsDefaultOrEmpty;
+    public ImmutableArray<BaselineFinding> Rows => [.. Regressions, .. Drift];
+}
+
+sealed record BaselineFinding(string Kind, string Metric, string Baseline, string Current, string Detail);
+
+static class SnapshotJson
+{
+    public static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+    };
+}
+
 [MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
 sealed class CSharpDiffCardMarkdownView
 {
@@ -503,6 +749,9 @@ sealed class CSharpDiffCardMarkdownView
 
     [MarkoutSection(Name = "Summary")]
     public List<CSharpDiffMetricRow>? Summary { get; init; }
+
+    [MarkoutSection(Name = "Baseline card")]
+    public CSharpDiffBaselineDataCard? BaselineCard { get; init; }
 
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<CSharpDiffBucketRow>? FailureBuckets { get; init; }
@@ -515,6 +764,9 @@ sealed class CSharpDiffCardMarkdownView
 
     [MarkoutSection(Name = "Pair summaries")]
     public List<CSharpDiffPairSummaryRow>? PairSummaries { get; init; }
+
+    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineFindingView>? BaselineComparison { get; init; }
 
     [MarkoutSection(Name = "Examples")]
     public List<CSharpDiffExampleMarkdownView>? Examples { get; init; }
@@ -529,6 +781,9 @@ sealed class CSharpDiffCardTableView
     [MarkoutSection(Name = "Summary")]
     public List<CSharpDiffSectionMetricRow>? Summary { get; init; }
 
+    [MarkoutSection(Name = "Baseline card")]
+    public CSharpDiffBaselineDataCard? BaselineCard { get; init; }
+
     [MarkoutSection(Name = "Failure buckets", EmptyText = "None")]
     public List<CSharpDiffSectionBucketRow>? FailureBuckets { get; init; }
 
@@ -541,12 +796,43 @@ sealed class CSharpDiffCardTableView
     [MarkoutSection(Name = "Pair summaries")]
     public List<CSharpDiffSectionPairSummaryRow>? PairSummaries { get; init; }
 
+    [MarkoutSection(Name = "Baseline comparison", EmptyText = "No baseline regressions or drift.")]
+    public List<BaselineSectionFindingView>? BaselineComparison { get; init; }
+
     [MarkoutSection(Name = "Examples")]
     public List<CSharpDiffExampleTableRow>? Examples { get; init; }
 }
 
 [MarkoutSerializable]
 sealed record CSharpDiffMetricRow(string Metric, string Count);
+
+[MarkoutSerializable]
+sealed class CSharpDiffBaselineDataCard
+{
+    [MarkoutPropertyName("exact pairs")]
+    public Change<int> ExactPairs { get; init; }
+
+    [MarkoutPropertyName("changed pairs")]
+    public Change<int> ChangedPairs { get; init; }
+
+    [MarkoutPropertyName("changed members")]
+    public Change<int> ChangedMembers { get; init; }
+
+    public Change<int> Rows { get; init; }
+
+    public Change<int> Failures { get; init; }
+
+    [MarkoutPropertyName("failure buckets")]
+    public Change<Segments> FailureBuckets { get; init; }
+
+    [MarkoutPropertyName("change IDs")]
+    public Change<Segments> ChangeIds { get; init; }
+
+    [MarkoutPropertyName("operation kinds")]
+    public Change<Segments> OperationKinds { get; init; }
+
+    public string Verdict { get; init; } = "";
+}
 
 [MarkoutSerializable]
 sealed record CSharpDiffSectionMetricRow(string Section, string Metric, string Count);
@@ -576,6 +862,12 @@ sealed record CSharpDiffSectionPairSummaryRow(
     string Rows,
     string Failures);
 
+[MarkoutSerializable]
+sealed record BaselineFindingView(string Kind, string Metric, string Baseline, string Current, string Detail);
+
+[MarkoutSerializable]
+sealed record BaselineSectionFindingView(string Section, string Kind, string Metric, string Baseline, string Current, string Detail);
+
 [MarkoutSerializable(TitleProperty = nameof(Example), AutoFields = false)]
 sealed record CSharpDiffExampleMarkdownView(
     [property: MarkoutIgnore] string Example,
@@ -591,11 +883,14 @@ sealed record CSharpDiffExampleTableRow(
 [MarkoutContext(typeof(CSharpDiffCardMarkdownView))]
 [MarkoutContext(typeof(CSharpDiffCardTableView))]
 [MarkoutContext(typeof(CSharpDiffMetricRow))]
+[MarkoutContext(typeof(CSharpDiffBaselineDataCard))]
 [MarkoutContext(typeof(CSharpDiffSectionMetricRow))]
 [MarkoutContext(typeof(CSharpDiffBucketRow))]
 [MarkoutContext(typeof(CSharpDiffSectionBucketRow))]
 [MarkoutContext(typeof(CSharpDiffPairSummaryRow))]
 [MarkoutContext(typeof(CSharpDiffSectionPairSummaryRow))]
+[MarkoutContext(typeof(BaselineFindingView))]
+[MarkoutContext(typeof(BaselineSectionFindingView))]
 [MarkoutContext(typeof(CSharpDiffExampleMarkdownView))]
 [MarkoutContext(typeof(CSharpDiffExampleTableRow))]
 partial class CSharpDiffCardViewContext : MarkoutSerializerContext
