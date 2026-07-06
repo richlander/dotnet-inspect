@@ -76,6 +76,7 @@ jobs:
               src/ILInspector.ControlFlow/*) CSHARPDIFF=true ;;
               src/DiffFixtures.V1/*) CSHARPDIFF=true ;;
               src/DiffFixtures.V2/*) CSHARPDIFF=true ;;
+              tools/DiffHarnessCommon/*) CSHARPDIFF=true ;;
               Directory.Packages.props) CSHARPDIFF=true ;;
               *.props|*.targets|*.slnx) CSHARPDIFF=true ;;
               .github/workflows/ci.yml) CSHARPDIFF=true ;;
@@ -89,6 +90,7 @@ jobs:
               src/ILInspector.ControlFlow/*) ILDIFF=true ;;
               src/DiffFixtures.V1/*) ILDIFF=true ;;
               src/DiffFixtures.V2/*) ILDIFF=true ;;
+              tools/DiffHarnessCommon/*) ILDIFF=true ;;
               Directory.Packages.props) ILDIFF=true ;;
               *.props|*.targets|*.slnx) ILDIFF=true ;;
               .github/workflows/ci.yml) ILDIFF=true ;;

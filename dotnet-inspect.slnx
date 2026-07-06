@@ -60,6 +60,7 @@
     <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
+    <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />
     <Project Path="tools/IlDiffHarness/IlDiffHarness.csproj" />
   </Folder>
 </Solution>
