@@ -173,6 +173,11 @@ public static class ApiSurfaceExtractor
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
+                    // Conversion operators overload on return type. SignatureModel is
+                    // [JsonIgnore], so persist the return type on the serialized member
+                    // too, letting the canonical-signature fallback disambiguate them on a
+                    // round-tripped ApiSurface (where SignatureModel is gone).
+                    ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),

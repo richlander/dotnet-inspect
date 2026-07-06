@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -84,6 +85,35 @@ public class ApiMemberIdentityTests
         Assert.Equal(2, canonicals.Distinct(StringComparer.Ordinal).Count());
         Assert.Contains(canonicals, canonical => canonical.EndsWith("~System.Int32", StringComparison.Ordinal));
         Assert.Contains(canonicals, canonical => canonical.EndsWith("~System.Int64", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void FallbackCanonicalSignature_DisambiguatesConversionOperators_AfterJsonRoundTrip()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        // Round-trip through JSON. SignatureModel is [JsonIgnore], so the deserialized
+        // members have no SignatureModel and exercise the GetCanonicalSignature fallback.
+        var json = JsonSerializer.Serialize(surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+
+        var type = roundTripped.Types.Single(t => t.Name.EndsWith(nameof(ConversionOperatorFixture), StringComparison.Ordinal));
+        var conversions = type.Members
+            .Where(member => member.Kind == "operator" && member.Name == "op_Explicit")
+            .ToList();
+        Assert.Equal(2, conversions.Count);
+        Assert.All(conversions, member => Assert.Null(member.SignatureModel));
+
+        // The fallback must still disambiguate by return type on the round-tripped surface,
+        // using the persisted ApiMember.ReturnType.
+        var canonicals = conversions
+            .Select(member => ApiMemberIdentity.GetCanonicalSignature(type, member))
+            .ToList();
+        Assert.Equal(2, canonicals.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(canonicals, canonical => canonical.EndsWith("~int", StringComparison.Ordinal));
+        Assert.Contains(canonicals, canonical => canonical.EndsWith("~long", StringComparison.Ordinal));
     }
 
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
