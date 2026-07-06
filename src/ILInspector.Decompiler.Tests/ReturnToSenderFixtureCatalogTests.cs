@@ -102,6 +102,42 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public int M(int value)
+                {
+                    System.Console.WriteLine(value);
+                    return System.Math.Abs(value);
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+            Assert.Equal("valid_different.known_taste", result.Reason);
+            Assert.Contains("System.Console", result.Detail);
+            Assert.Contains("System.Math", result.Detail);
+            Assert.Equal("System.Console.WriteLine(value);returnSystem.Math.Abs(value);", Normalize(result.ExpectedBody));
+            Assert.Equal("Console.WriteLine(value);returnMath.Abs(value);", Normalize(result.ActualBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_IndexesPartialClassOverloadsAcrossSourceFiles()
     {
         var fixture = CompileSourceFixture(
