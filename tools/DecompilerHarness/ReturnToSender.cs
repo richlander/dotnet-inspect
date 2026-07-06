@@ -1450,7 +1450,10 @@ static class ReturnToSender
 
         void AddMemberFact(TypeRef declaringType, string kind, string name)
         {
-            if (TryResolveHandle(declaringType) is not { } handle)
+            var definition = declaringType.Kind == TypeRefKind.GenericInstance
+                ? declaringType.ElementType ?? declaringType
+                : declaringType;
+            if (TryResolveHandle(definition) is not { } handle)
                 return;
             var root = TopLevelRootOf(reader, handle);
             if (root == targetRoot || root != handle)
@@ -1458,7 +1461,7 @@ static class ReturnToSender
             AddClosureFact(
                 closureFacts,
                 root,
-                new CompileBackFact("metadata", "closure-member", $"{kind}: {TypeRefIdentityKey(declaringType.Namespace, declaringType.Name, separator: ".")}.{name}"));
+                new CompileBackFact("metadata", "closure-member", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
         }
 
         void AddMethodFact(MethodRef method)
