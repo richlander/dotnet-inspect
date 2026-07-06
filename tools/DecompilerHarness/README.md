@@ -633,8 +633,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- <assemblies> --return
 
 Output is a Markout card (Markdown by default; `--tsv` and `--jsonl` select the
 tabular and JSONL renderings). `--max-examples N` caps the divergence rows. The
-sweep never crashes on unreadable inputs — a bad path is reported as an unopened
-assembly.
+summary also reports `unmatched` — method-defs (accessors, compiler-generated,
+or API-filtered) that have no ApiSurface member, so they are counted for coverage
+but never miscompared. The sweep never crashes on unreadable file inputs — a bad
+path is reported as an unopened assembly.
 
 ## Usage
 

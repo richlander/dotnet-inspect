@@ -25,6 +25,7 @@ internal sealed record RaCensusAssembly(
     bool Opened,
     int Matched,
     int Agree,
+    int Unmatched,
     IReadOnlyList<RaCensusExample> Examples);
 
 internal sealed record RaCensusReport(IReadOnlyList<RaCensusAssembly> Assemblies);
@@ -53,7 +54,7 @@ internal static class ReturnAddressCensus
         {
             using var session = AssemblyInspectionSession.Open(path);
             if (!session.HasMetadata)
-                return new RaCensusAssembly(name, Opened: false, 0, 0, []);
+                return new RaCensusAssembly(name, Opened: false, 0, 0, 0, []);
             var surface = session.ApiSurface(includeAll: true);
 
             // token -> (ApiType, ApiMember) for method-like members.
@@ -71,7 +72,7 @@ internal static class ReturnAddressCensus
             using var pe = new PEReader(File.OpenRead(path));
             var reader = pe.GetMetadataReader();
 
-            int matched = 0, agree = 0;
+            int matched = 0, agree = 0, unmatched = 0;
             var examples = new List<RaCensusExample>();
             foreach (var typeHandle in reader.TypeDefinitions)
             {
@@ -80,7 +81,13 @@ internal static class ReturnAddressCensus
                 {
                     var token = MetadataTokens.GetToken(methodHandle);
                     if (!byToken.TryGetValue(token, out var pair))
+                    {
+                        // A method-def not represented in the API surface (accessors,
+                        // compiler-generated, or filtered) — counted for coverage, never
+                        // miscompared.
+                        unmatched++;
                         continue;
+                    }
 
                     string a, b;
                     try
@@ -101,13 +108,13 @@ internal static class ReturnAddressCensus
                 }
             }
 
-            return new RaCensusAssembly(name, Opened: true, matched, agree, examples);
+            return new RaCensusAssembly(name, Opened: true, matched, agree, unmatched, examples);
         }
         catch (Exception)
         {
             // A census over arbitrary user paths must never crash the sweep (a directory,
             // an unreadable file, or a truncated PE all surface here).
-            return new RaCensusAssembly(name, Opened: false, 0, 0, []);
+            return new RaCensusAssembly(name, Opened: false, 0, 0, 0, []);
         }
     }
 
@@ -143,6 +150,7 @@ internal static class ReturnAddressCensus
 
     static int TotalMatched(RaCensusReport report) => report.Assemblies.Sum(a => a.Matched);
     static int TotalAgree(RaCensusReport report) => report.Assemblies.Sum(a => a.Agree);
+    static int TotalUnmatched(RaCensusReport report) => report.Assemblies.Sum(a => a.Unmatched);
 
     static string Pct(int n, int total) => total == 0 ? "n/a" : $"{100.0 * n / total:0.00}%";
 
@@ -157,6 +165,7 @@ internal static class ReturnAddressCensus
             ("agree", agree.ToString()),
             ("agree rate", Pct(agree, matched)),
             ("diverge", (matched - agree).ToString()),
+            ("unmatched (not in surface)", TotalUnmatched(report).ToString()),
         };
     }
 
@@ -166,7 +175,7 @@ internal static class ReturnAddressCensus
             Summary = SummaryRows(report).Select(r => new RaCensusMetricRow(r.Metric, r.Value)).ToList(),
             PerAssembly = report.Assemblies
                 .Where(a => a.Opened)
-                .Select(a => new RaCensusAssemblyRow(a.Name, a.Matched, a.Agree, a.Matched - a.Agree, Pct(a.Agree, a.Matched)))
+                .Select(a => new RaCensusAssemblyRow(a.Name, a.Matched, a.Agree, a.Matched - a.Agree, a.Unmatched, Pct(a.Agree, a.Matched)))
                 .ToList(),
             Divergences = report.Assemblies
                 .SelectMany(a => a.Examples)
@@ -181,7 +190,7 @@ internal static class ReturnAddressCensus
             Summary = SummaryRows(report).Select(r => new RaCensusSectionMetricRow("Summary", r.Metric, r.Value)).ToList(),
             PerAssembly = report.Assemblies
                 .Where(a => a.Opened)
-                .Select(a => new RaCensusSectionAssemblyRow("Per assembly", a.Name, a.Matched, a.Agree, a.Matched - a.Agree, Pct(a.Agree, a.Matched)))
+                .Select(a => new RaCensusSectionAssemblyRow("Per assembly", a.Name, a.Matched, a.Agree, a.Matched - a.Agree, a.Unmatched, Pct(a.Agree, a.Matched)))
                 .ToList(),
             Divergences = report.Assemblies
                 .SelectMany(a => a.Examples)
@@ -230,10 +239,10 @@ internal sealed record RaCensusMetricRow(string Metric, string Value);
 internal sealed record RaCensusSectionMetricRow(string Section, string Metric, string Value);
 
 [MarkoutSerializable]
-internal sealed record RaCensusAssemblyRow(string Assembly, int Matched, int Agree, int Diverge, [property: MarkoutPropertyName("Agree rate")] string AgreeRate);
+internal sealed record RaCensusAssemblyRow(string Assembly, int Matched, int Agree, int Diverge, int Unmatched, [property: MarkoutPropertyName("Agree rate")] string AgreeRate);
 
 [MarkoutSerializable]
-internal sealed record RaCensusSectionAssemblyRow(string Section, string Assembly, int Matched, int Agree, int Diverge, [property: MarkoutPropertyName("Agree rate")] string AgreeRate);
+internal sealed record RaCensusSectionAssemblyRow(string Section, string Assembly, int Matched, int Agree, int Diverge, int Unmatched, [property: MarkoutPropertyName("Agree rate")] string AgreeRate);
 
 [MarkoutSerializable]
 internal sealed record RaCensusDivergenceRow(string Member, [property: MarkoutPropertyName("A (surface)")] string A, [property: MarkoutPropertyName("B (SRM-direct)")] string B);

@@ -1302,7 +1302,16 @@ static class Program
         foreach (var input in inputs)
         {
             if (Directory.Exists(input))
-                result.AddRange(Directory.EnumerateFiles(input, "*.dll").Where(IsManaged).Order());
+            {
+                try
+                {
+                    result.AddRange(Directory.EnumerateFiles(input, "*.dll").Where(IsManaged).Order());
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Console.Error.WriteLine($"Warning: cannot read directory '{input}' ({ex.GetType().Name}), skipping.");
+                }
+            }
             else if (File.Exists(input))
                 result.Add(input);
             else
