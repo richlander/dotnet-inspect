@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -52,6 +54,44 @@ public class StructuringDiagnosticsTests
         // enclosing join, but the taken arm branches to the local sibling block.
         // That is not the same structured if/else shape, so the pass keeps the
         // container flat instead of erasing a still-meaningful goto.
+        var function = BuildForwardBranchNotRegionExit();
+
+        var diag = RunWithDiagnostics(function);
+
+        Assert.Equal(0, diag.Structured);
+        Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Stops));
+    }
+
+    [Fact]
+    public void NestedCrossMethodPipeline_DoesNotWriteParentStructuringDiagnostics()
+    {
+        var siblingDiagnostics = RunStructuringOnly(BuildForwardBranchNotRegionExit());
+        Assert.Equal("forward-branch-not-region-exit", Assert.Single(siblingDiagnostics.Stops));
+
+        var parentDiagnostics = new StructuringDiagnostics();
+        var imported = BuildForwardBranchNotRegionExit();
+        var method = new MethodRef(
+            Holder,
+            "Imported",
+            Int32,
+            [],
+            HasThis: false);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            parentDiagnostics,
+            _ => imported);
+
+        Assert.True(context.TryImportAndRunMethodBody(
+            method,
+            ImmutableArray.Create<IIrPass>(new StructuringPass()),
+            out var body));
+        Assert.NotNull(body);
+        Assert.Equal(0, parentDiagnostics.Structured);
+        Assert.Empty(parentDiagnostics.Stops);
+    }
+
+    static IrFunction BuildForwardBranchNotRegionExit()
+    {
         var intType = TypeRef.CoreLib("System", "Int32");
         LoadArgument X() => new(0, "x", intType);
 
@@ -77,12 +117,7 @@ public class StructuringDiagnosticsTests
 
         var signature = new MethodSignature(intType,
             [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
-
-        var diag = RunWithDiagnostics(function);
-
-        Assert.Equal(0, diag.Structured);
-        Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Stops));
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
     }
 
     [Fact]

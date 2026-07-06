@@ -79,9 +79,16 @@ public sealed class PassContext
     }
 
     PassContext NestedPipelineContext()
-        => Stepper.IsEnabled
-            ? new PassContext(new Stepper(enabled: false), StructuringDiagnostics, ImportMethodBody, _activeCrossMethodPipelines)
-            : this;
+    {
+        if (!Stepper.IsEnabled && StructuringDiagnostics is null)
+            return this;
+
+        // Nested cross-method pipelines are implementation detail of the parent
+        // method's reconstruction. Keep stepper output and structuring-stop
+        // accounting scoped to the requested method; imported siblings are
+        // scanned as their own top-level methods by whole-assembly sweeps.
+        return new PassContext(new Stepper(enabled: false), structuringDiagnostics: null, ImportMethodBody, _activeCrossMethodPipelines);
+    }
 
     /// <summary>
     /// Marks a sibling method active across any raw inspection and nested pass run
