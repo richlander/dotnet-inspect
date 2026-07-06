@@ -195,6 +195,19 @@ public sealed class LeakTriageAnalyzerTests
             .. Call(TokenSpanCopyTo),
             0x2A,
         ], []);
+        var stagedSpanCopyTo = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            .. Call(TokenSpanImplicit),
+            0x0B,
+            0x12, 0x01,
+            0x07,
+            .. Call(TokenSpanCopyTo),
+            0x2A,
+        ], []);
 
         Assert.Empty(keepAlive.Findings);
         AssertCandidate(keepAlive, nameof(Synthetic), "cross-method-suppressed");
@@ -215,6 +228,10 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(spanCopyTo.Findings);
         AssertCandidate(spanCopyTo, nameof(Synthetic), "cross-method-suppressed");
         AssertNoCandidate(spanCopyTo, nameof(Synthetic), "exception-path-leak-candidate");
+
+        Assert.Empty(stagedSpanCopyTo.Findings);
+        AssertCandidate(stagedSpanCopyTo, nameof(Synthetic), "cross-method-suppressed");
+        AssertNoCandidate(stagedSpanCopyTo, nameof(Synthetic), "exception-path-leak-candidate");
     }
 
     [Fact]

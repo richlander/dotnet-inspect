@@ -714,19 +714,31 @@ public static class LeakTriageAnalyzer
         IReadOnlyDictionary<int, MemberRef> calls,
         int callIndex)
     {
-        for (int i = callIndex + 1; i < instructions.Length; i++)
+        for (int i = callIndex + 1, skipped = 0; i < instructions.Length; i++)
         {
             var instruction = instructions[i];
             if (instruction.OpCode == ILOpCode.Nop)
                 continue;
 
-            return calls.TryGetValue(instruction.Offset, out var next)
-                && next.Name == "CopyTo"
-                && IsSpanType(next.DeclaringType);
+            if (calls.TryGetValue(instruction.Offset, out var next))
+                return next.Name == "CopyTo" && IsSpanType(next.DeclaringType);
+
+            if (IsCopyToArgumentSetup(instruction.OpCode) && skipped++ < 6)
+                continue;
+
+            return false;
         }
 
         return false;
     }
+
+    static bool IsCopyToArgumentSetup(ILOpCode opcode)
+        => opcode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+            or ILOpCode.Stloc_s or ILOpCode.Stloc
+            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+            or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
+            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
+            or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga;
 
     static bool IsSpanType(TypeRef type)
     {
