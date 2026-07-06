@@ -282,7 +282,14 @@ public static class ApiMemberIdentity
                   ? member.Name
                   : signature.MemberName!);
         memberName = NormalizeCanonicalCommas(memberName);
-        canonicalSignature = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
+        var canonical = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
+        // Conversion operators overload on return type, so the parameter list alone
+        // is an ambiguous identity (every System.Decimal.op_Explicit(Decimal) collides).
+        // Append the return type using the DocId "~ReturnType" convention, matching
+        // TryGetXmlDocMemberIdentity, so each conversion gets a distinct anchor.
+        if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType))
+            canonical += $"~{NormalizeCanonicalCommas(signature.ReturnType!)}";
+        canonicalSignature = canonical;
         return true;
     }
 
