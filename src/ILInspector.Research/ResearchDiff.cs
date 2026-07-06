@@ -338,10 +338,12 @@ public static class ResearchDiff
         {
             AddAnalysisSignalDiff(builder, oldIndex, newIndex, typeFilters, memberTargetIdentities);
 
-            var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex, memberTargetIdentities);
+            var methods = MethodSubjectsByUnsafeSignalKey(oldIndex, newIndex);
             foreach (var row in BodySignalDiff.CompareUnsafe(oldIndex, newIndex).Rows)
             {
                 var subject = methods.GetValueOrDefault(row.Member) ?? UnknownMemberSubject(row.Member);
+                if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
+                    continue;
                 if (!MatchesMemberTargets(subject, memberTargetIdentities))
                     continue;
                 var direction = row.Kind == BodySignalDiffKind.Added ? ResearchDiffDirection.Added : ResearchDiffDirection.Removed;
@@ -789,6 +791,12 @@ public static class ResearchDiff
            || memberTargetIdentities.Count == 0
            || memberTargetIdentities.Contains(subject.Id);
 
+    static Dictionary<string, ResearchSubjectKey> MethodSubjectsByUnsafeSignalKey(LibraryBodyIndex oldIndex, LibraryBodyIndex newIndex)
+        => oldIndex.Methods.Concat(newIndex.Methods)
+            .Select(method => (Key: UnsafeSignalMethodKey(method), Subject: SubjectFromMethod(method)))
+            .GroupBy(entry => entry.Key, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last().Subject, StringComparer.Ordinal);
+
     static ResearchSubjectKey ApiSubject(ApiSurface oldSurface, ApiSurface newSurface, string typeName, ApiChange change)
     {
         if (!IsMemberChange(change.Kind))
@@ -923,6 +931,9 @@ public static class ResearchDiff
 
     static string BodySignalMethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
+
+    static string UnsafeSignalMethodKey(MethodIdentity method)
+        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static string MethodMatchKey(MethodIdentity method)
         => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
