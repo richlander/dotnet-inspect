@@ -3,6 +3,38 @@ namespace ILInspector.Decompiler.Fixtures.NewUnsafe;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+public static class StringPinningResiduals
+{
+    public static int FixedStringFirstChar(string value)
+    {
+        fixed (char* p = value)
+        {
+            unsafe
+            {
+                return p[0];
+            }
+        }
+    }
+}
+
+public static class StackallocInitializerResiduals
+{
+    public static int StackallocPointerInitializer()
+    {
+        int* values = stackalloc int[] { 1, 2, 3 };
+        unsafe
+        {
+            return values[0] + values[2];
+        }
+    }
+
+    public static int StackallocSpanInitializer()
+    {
+        Span<int> values = stackalloc[] { 1, 2, 3 };
+        return values[0] + values[2];
+    }
+}
+
 /// <summary>
 /// New-rules unsafe fixtures. This assembly is compiled with
 /// <c>/features:updated-memory-safety-rules</c>, so the compiler enforces the

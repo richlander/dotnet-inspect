@@ -10,6 +10,8 @@ using Microsoft.CodeAnalysis.CSharp;
 
 using LegacyUnsafe = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewUnsafe = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
+using NewStackallocInitializers = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
+using NewStringPinning = ILInspector.Decompiler.Fixtures.NewUnsafe.StringPinningResiduals;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -30,6 +32,10 @@ public class LadderRung6GateTests
     static readonly string LegacyUnsafeType = typeof(LegacyUnsafe).FullName!;
     static readonly string ByRefFixturePath = FixtureCatalog.DecompilerLadderRung4.AssemblyPath();
     static readonly string ByRefFixtureType = typeof(LadderRung4.CSharp7LocalSyntax).FullName!;
+    static readonly string FixedBufferFixturePath = typeof(FixedBufferSkeletonFixture).Assembly.Location;
+    static readonly string FixedBufferFixtureType = typeof(FixedBufferSkeletonFixture).FullName!;
+    static readonly string StringPinningType = typeof(NewStringPinning).FullName!;
+    static readonly string StackallocInitializerType = typeof(NewStackallocInitializers).FullName!;
 
     static readonly string[] ExpectedUnsafeMembers =
     [
@@ -163,6 +169,42 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerFieldAccess_RendersArrowAndRecompiles()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var fieldX = new FieldRef(point, "X", Int32);
+        var fieldY = new FieldRef(point, "Y", Int32);
+        var p = new LoadArgument(0, "p", pointPointer);
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerField",
+            Int32,
+            [new Parameter("p", pointPointer)],
+            [],
+            new StoreField(
+                fieldX,
+                p,
+                new Binary(
+                    BinaryKind.Add,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadField(fieldX, (IrExpression)p.Clone()),
+                    new LoadField(fieldY, (IrExpression)p.Clone()))),
+            new Return(new LoadField(fieldX, (IrExpression)p.Clone())))).Output!;
+
+        Assert.Contains("p->X += p->Y;", body);
+        Assert.Contains("return p->X;", body);
+        Assert.DoesNotContain("p.X", body);
+        Assert.DoesNotContain("p.Y", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(Point* p)",
+                body,
+                "public struct Point { public int X; public int Y; }"),
+            body);
+    }
+
+    [Fact]
     public void Rung6ByRefFixture_PreservesRefKinds()
     {
         using var pe = new PEReader(File.OpenRead(ByRefFixturePath));
@@ -217,6 +259,34 @@ public class LadderRung6GateTests
         Assert.DoesNotContain("pinned", raisedPinnedOutput);
     }
 
+    [Fact]
+    public void Rung6FixedBufferAndStringPinningResiduals_DegradeHonestly()
+    {
+        var fixedBuffer = LoadRaisedMembers(FixedBufferFixturePath, FixedBufferFixtureType)
+            .Single(m => m.Name == "SumFirstTwo");
+        Assert.Equal(DecompilationFidelity.Partial, fixedBuffer.Function.Fidelity);
+        Assert.Contains(FidelityRemarks.Collect(fixedBuffer.Function), r => r.Code == DiagnosticIds.UnrepresentableMetadataName);
+        Assert.Contains("FixedElementField", fixedBuffer.Body);
+
+        var stringPinning = LoadRaisedMembers(NewUnsafePath, StringPinningType)
+            .Single(m => m.Name == "FixedStringFirstChar");
+        Assert.Equal(DecompilationFidelity.Partial, stringPinning.Function.Fidelity);
+        Assert.Contains("pinned ref char", stringPinning.Body);
+    }
+
+    [Fact]
+    public void Rung6StackallocInitializerResiduals_DegradeHonestly()
+    {
+        var members = LoadRaisedMembers(NewUnsafePath, StackallocInitializerType);
+        foreach (var name in new[] { "StackallocPointerInitializer", "StackallocSpanInitializer" })
+        {
+            var member = members.Single(m => m.Name == name);
+            Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
+            Assert.Contains(FidelityRemarks.Collect(member.Function), r => r.Code == DiagnosticIds.UnsupportedConstruct);
+            Assert.Contains("cpblk", member.Body);
+        }
+    }
+
     static void AssertExactCompileBack(string assemblyPath, string typeName, string methodName)
     {
         var result = Assert.Single(
@@ -263,12 +333,20 @@ public class LadderRung6GateTests
         string methodHeader,
         string body,
         params MetadataReference[] extraReferences)
+        => RecompileNewRules(methodHeader, body, "", extraReferences);
+
+    static ImmutableArray<Diagnostic> RecompileNewRules(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        params MetadataReference[] extraReferences)
     {
         string source = $$"""
             using System;
             using ILInspector.Decompiler.Fixtures.NewUnsafe;
             using System.Runtime.CompilerServices;
             using System.Runtime.InteropServices;
+            {{extraDeclarations}}
             static class __Gate
             {
                 {{methodHeader}}

@@ -33,6 +33,11 @@ public sealed partial class CSharpPrinter
             };
         }
         string fieldName = CSharpNaming.EscapeIdentifier(field.Name);
+        if (instance?.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } pointee }
+            && pointee.Equals(field.DeclaringType))
+        {
+            return $"{Operand(instance)}->{fieldName}";
+        }
         return instance switch
         {
             null => $"{TypeText(field.DeclaringType)}.{fieldName}",
