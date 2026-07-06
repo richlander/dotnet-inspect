@@ -629,7 +629,8 @@ static string DisplayPath(string path)
         : relative;
 }
 
-static string SnapshotPath(string path) => DisplayPath(path).Replace('\\', '/');
+static string SnapshotPath(string path)
+    => Path.GetRelativePath(Directory.GetCurrentDirectory(), Path.GetFullPath(path)).Replace('\\', '/');
 
 static string PathLabel(string path, bool snapshotPath)
     => snapshotPath ? SnapshotPath(path) : DisplayPath(path);
