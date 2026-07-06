@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
@@ -594,6 +595,132 @@ public class DiffCommandTests
         Assert.Contains($"extension:Twice~{MemberAnchor.ComputeFingerprint(expectedCanonical)}", identities);
     }
 
+    [Fact]
+    public void ResearchBodyIdentity_TargetAliasMatchesMethodSubjectCanonicalFormatter()
+    {
+        AssertTargetAliasMatchesMethodSubject(
+            DiffType("Sample", "Widget", DiffMember("M", signature: "void M(int[] values)")),
+            DiffMember("M", signature: "void M(int[] values)"),
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                "M",
+                [TypeRef.SzArray(TypeRef.CoreLib("System", "Int32"))],
+                TypeRef.CoreLib("System", "Void"),
+                MetadataToken: 0x06000000,
+                IsStatic: true));
+
+        AssertTargetAliasMatchesMethodSubject(
+            DiffType("Sample", "Widget", DiffMember("M", signature: "void M(ref int value)")),
+            DiffMember("M", signature: "void M(ref int value)"),
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                "M",
+                [TypeRef.ByRef(TypeRef.CoreLib("System", "Int32"))],
+                TypeRef.CoreLib("System", "Void"),
+                MetadataToken: 0x06000000,
+                IsStatic: true));
+
+        AssertTargetAliasMatchesMethodSubject(
+            DiffType("Sample", "Widget", DiffMember("M", signature: "void M(int* value)")),
+            DiffMember("M", signature: "void M(int* value)"),
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                "M",
+                [TypeRef.Pointer(TypeRef.CoreLib("System", "Int32"))],
+                TypeRef.CoreLib("System", "Void"),
+                MetadataToken: 0x06000001,
+                IsStatic: true));
+
+        AssertTargetAliasMatchesMethodSubject(
+            DiffType("Sample", "Widget", DiffMember("M", signature: "T M<T>(T value)", genericArity: 1)),
+            DiffMember("M", signature: "T M<T>(T value)", genericArity: 1),
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                "M",
+                [TypeRef.MethodGenericParameter(0, "T")],
+                TypeRef.MethodGenericParameter(0, "T"),
+                MetadataToken: 0x06000002,
+                IsStatic: true,
+                GenericArity: 1,
+                GenericParameterNames: ["T"]));
+
+        var op = DiffMember("op_Addition", signature: "Sample.Widget op_Addition(Sample.Widget left, Sample.Widget right)");
+        op.Kind = "operator";
+        AssertTargetAliasMatchesMethodSubject(
+            DiffType("Sample", "Widget", op),
+            op,
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                "op_Addition",
+                [TypeRef.Definition("Asm", "Sample", "Widget"), TypeRef.Definition("Asm", "Sample", "Widget")],
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                MetadataToken: 0x06000003,
+                IsStatic: true));
+
+        var explicitImpl = DiffMember("IFoo.Bar", signature: "void IFoo.Bar()");
+        explicitImpl.Kind = "explicit-interface-implementation";
+        AssertTargetAliasMatchesMethodSubject(
+            DiffType("Sample", "Widget", explicitImpl),
+            explicitImpl,
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                "IFoo.Bar",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MetadataToken: 0x06000004,
+                IsStatic: false));
+
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor()",
+            SignatureModel = new ApiSignature { MemberName = "#ctor" }
+        };
+        AssertTargetAliasMatchesMethodSubject(
+            DiffType("Sample", "Widget", constructor),
+            constructor,
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Widget"),
+                ".ctor",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MetadataToken: 0x06000005,
+                IsStatic: false));
+
+        var extensionType = new ApiType { Namespace = "Sample", Name = "Extensions" };
+        var extension = DiffMember("Twice", signature: "int Twice(int value)");
+        extension.IsExtension = true;
+        extension.DeclaringType = "Sample.Extensions";
+        AssertTargetAliasMatchesMethodSubject(
+            extensionType,
+            extension,
+            new MethodIdentity(
+                "Asm",
+                Guid.Empty,
+                TypeRef.Definition("Asm", "Sample", "Extensions"),
+                "Twice",
+                [TypeRef.CoreLib("System", "Int32")],
+                TypeRef.CoreLib("System", "Int32"),
+                MetadataToken: 0x06000006,
+                IsStatic: true,
+                IsExtension: true));
+    }
+
     // #1736: a hotness-only allocation regression. The allocation count is unchanged
     // (1 -> 1) but the allocation moves into a loop (allocInLoop false -> true). The raw
     // count delta is zero, so this must still surface as an in-place allocations row with
@@ -649,6 +776,17 @@ public class DiffCommandTests
         var changedOnly = DiffCommand.BuildAnalysisDiff([v1], [v1], new DiffOptions { ChangedOnly = true });
         Assert.Empty(changedOnly.Rows);
         Assert.Equal("No in-place analysis signal changes detected.", changedOnly.Summary);
+    }
+
+    static void AssertTargetAliasMatchesMethodSubject(ApiType type, ApiMember member, MethodIdentity method)
+    {
+        HashSet<string> identities = new(StringComparer.Ordinal);
+
+        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(ResolvedTarget(type, member), identities));
+
+        var targetId = Assert.Single(identities);
+        var methodSubject = ResearchMemberIdentity.SubjectFromMethod(method);
+        Assert.Equal(methodSubject.Id, targetId);
     }
 
     static ApiSurface DiffSurface(params ApiMember[] members)
