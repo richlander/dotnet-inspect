@@ -404,6 +404,13 @@ public class ApiMember
     /// </summary>
     public int? DeclaringOverloadIndex { get; set; }
 
+    /// <summary>
+    /// Render-only selector index override for filtered member inventories whose visible order
+    /// is narrower than the declaring overload set.
+    /// </summary>
+    [JsonIgnore]
+    public int? SelectorOverloadIndex { get; set; }
+
     // Enum value (for enum fields only)
     public long? EnumValue { get; set; }
 

@@ -222,7 +222,18 @@ public static class MemberCommand
                 && effectiveOptions.MemberFilter.Count == 1)
             {
                 var memberName = effectiveOptions.MemberFilter.First();
-                var arityCandidates = GetCandidateMembers(apiType, effectiveOptions, memberName);
+                var arityCandidateTargets = GetTargetCandidates(apiType, effectiveOptions, memberName);
+                var unfilteredSelectorIndices = GetTargetCandidates(
+                        apiType,
+                        effectiveOptions with { MemberGenericArity = null },
+                        memberName)
+                    .ToDictionary(candidate => candidate.Member, candidate => candidate.SelectorIndex);
+                var arityCandidates = arityCandidateTargets.Select(candidate =>
+                {
+                    if (unfilteredSelectorIndices.TryGetValue(candidate.Member, out var selectorIndex))
+                        candidate.Member.SelectorOverloadIndex = selectorIndex;
+                    return candidate.Member;
+                }).ToList();
                 if (arityCandidates.Count == 0)
                 {
                     Console.Error.WriteLine($"Error: No members matched selector '{memberName}' with generic arity {effectiveOptions.MemberGenericArity.Value}.");
@@ -509,14 +520,17 @@ public static class MemberCommand
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
+        => GetTargetCandidates(apiType, options, memberName)
+            .Select(candidate => candidate.Member)
+            .ToList();
+
+    private static IReadOnlyList<MemberTargetCandidate> GetTargetCandidates(ApiType apiType, MemberOptions options, string memberName)
         => MemberTargetResolver.GetCandidates(
                 apiType,
                 options.MemberGenericArity is { } arity
                     ? new MemberTargetSelector(memberName, memberName, GenericArity: arity)
                     : new MemberTargetSelector(memberName, memberName),
-                options.KindFilter)
-            .Select(candidate => candidate.Member)
-            .ToList();
+                options.KindFilter);
 
     private static string GetMemberSectionName(string kind) => kind switch
     {

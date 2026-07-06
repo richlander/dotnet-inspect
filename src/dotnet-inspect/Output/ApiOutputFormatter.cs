@@ -924,8 +924,9 @@ public static class ApiOutputFormatter
             overloadIndices[selectorName] = index;
 
             var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
-            var selector = overloadCounts[selectorName] > 1
-                ? $"{selectorName}:{index}"
+            var selectorIndex = member.SelectorOverloadIndex ?? index;
+            var selector = overloadCounts[selectorName] > 1 || member.SelectorOverloadIndex.HasValue
+                ? $"{selectorName}:{selectorIndex}"
                 : selectorName;
 
             rows.Add(new MemberIndexRow(
