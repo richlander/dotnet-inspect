@@ -600,34 +600,19 @@ static string Count(int count) => count.ToString(System.Globalization.CultureInf
 
 static List<MetricChange<int>> BaselineMetricRows(BaselineComparison comparison) =>
 [
-    MetricDrift("Pairs", comparison.Baseline.Summary.PairCount, comparison.Current.Summary.PairCount),
-    MetricDrift("Compared bodies", comparison.Baseline.Summary.ComparedBodyCount, comparison.Current.Summary.ComparedBodyCount),
-    MetricFloor("Self-diff empty", comparison.Baseline.Summary.SelfDiffEmptyCount, comparison.Current.Summary.SelfDiffEmptyCount, "minimum self-diff empty"),
-    MetricDrift("Pair exact empty", comparison.Baseline.Summary.PairExactEmptyCount, comparison.Current.Summary.PairExactEmptyCount),
-    MetricDrift("Changed bodies", comparison.Baseline.Summary.ChangedBodyCount, comparison.Current.Summary.ChangedBodyCount),
-    MetricCeiling("Failures", comparison.Baseline.Summary.FailureCount, comparison.Current.Summary.FailureCount, "max failures"),
+    MetricContext("Pairs", comparison.Baseline.Summary.PairCount, comparison.Current.Summary.PairCount),
+    MetricContext("Compared bodies", comparison.Baseline.Summary.ComparedBodyCount, comparison.Current.Summary.ComparedBodyCount),
+    MetricGoal("Self-diff empty", comparison.Baseline.Summary.SelfDiffEmptyCount, comparison.Current.Summary.SelfDiffEmptyCount, "minimum self-diff empty", Goal.Higher),
+    MetricContext("Pair exact empty", comparison.Baseline.Summary.PairExactEmptyCount, comparison.Current.Summary.PairExactEmptyCount),
+    MetricContext("Changed bodies", comparison.Baseline.Summary.ChangedBodyCount, comparison.Current.Summary.ChangedBodyCount),
+    MetricGoal("Failures", comparison.Baseline.Summary.FailureCount, comparison.Current.Summary.FailureCount, "max failures", Goal.Lower),
 ];
 
-static MetricChange<int> MetricDrift(string name, int baseline, int current)
-    => new(name, baseline, current, Status: baseline == current ? GateStatus.Neutral : GateStatus.Warning, StatusLabel: baseline == current ? "unchanged" : "drift");
+static MetricChange<int> MetricContext(string name, int baseline, int current)
+    => new(name, baseline, current);
 
-static MetricChange<int> MetricCeiling(string name, int baseline, int current, string targetLabel)
-    => new(name, baseline, current, baseline, targetLabel, StatusForCeiling(baseline, current), StatusLabelForCeiling(baseline, current));
-
-static MetricChange<int> MetricFloor(string name, int baseline, int current, string targetLabel)
-    => new(name, baseline, current, baseline, targetLabel, StatusForFloor(baseline, current), StatusLabelForFloor(baseline, current));
-
-static GateStatus StatusForCeiling(int target, int current)
-    => current > target ? GateStatus.Bad : current < target ? GateStatus.Good : GateStatus.Neutral;
-
-static string StatusLabelForCeiling(int target, int current)
-    => current > target ? "regression" : current < target ? "improvement" : "unchanged";
-
-static GateStatus StatusForFloor(int target, int current)
-    => current < target ? GateStatus.Bad : current > target ? GateStatus.Good : GateStatus.Neutral;
-
-static string StatusLabelForFloor(int target, int current)
-    => current < target ? "regression" : current > target ? "improvement" : "unchanged";
+static MetricChange<int> MetricGoal(string name, int baseline, int current, string targetLabel, Goal goal)
+    => new(name, baseline, current, baseline, targetLabel) { Goal = goal };
 
 static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, bool snapshotPaths = false)
 {
