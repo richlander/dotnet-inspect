@@ -229,11 +229,11 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Helper"
                 && type.SourceFacts.Any(fact => fact.Id == "body-type" && fact.Producer == "metadata")
-                && type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "metadata" && fact.Detail.EndsWith(".Create", StringComparison.Ordinal))
-                && type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "metadata" && fact.Detail.EndsWith(".get_Value", StringComparison.Ordinal))
                 && !type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "roslyn")
-                && type.Members.Any(member => member.Name == "Value" && member.Kind == CompileBackMemberKind.PropertyGet)
-                && type.Members.Any(member => member.Name == "Create" && member.Kind == CompileBackMemberKind.Method && member.IsStatic));
+                && type.Members.Any(member => member.Name == "Value" && member.Kind == CompileBackMemberKind.PropertyGet
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-property" && fact.Detail == "get_Value"))
+                && type.Members.Any(member => member.Name == "Create" && member.Kind == CompileBackMemberKind.Method && member.IsStatic
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "Create")));
             var evidence = ReturnToSenderClosureEvidenceBuilder.FromPlan(result.Plan);
             Assert.Equal(0, evidence.RoslynRecoveredMemberSurfaces);
             Assert.Contains("public int Value", result.Source);
@@ -269,11 +269,11 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Helper"
                 && type.TypeParameters.Single().Name == "T"
-                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "closure-member" && fact.Detail.EndsWith("Helper`1.Create", StringComparison.Ordinal))
-                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "closure-member" && fact.Detail.EndsWith("Helper`1.get_Value", StringComparison.Ordinal))
                 && !type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "roslyn")
-                && type.Members.Any(member => member.Name == "Value")
-                && type.Members.Any(member => member.Name == "Create"));
+                && type.Members.Any(member => member.Name == "Value"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-property" && fact.Detail == "get_Value"))
+                && type.Members.Any(member => member.Name == "Create"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "Create")));
             var evidence = ReturnToSenderClosureEvidenceBuilder.FromPlan(result.Plan);
             Assert.Equal(0, evidence.RoslynRecoveredMemberSurfaces);
             Assert.Contains("public class Helper<T>", result.Source);
@@ -321,9 +321,9 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Pair"
-                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "closure-member" && fact.Detail.EndsWith(".Deconstruct", StringComparison.Ordinal))
                 && !type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "roslyn")
-                && type.Members.Any(member => member.Name == "Deconstruct"));
+                && type.Members.Any(member => member.Name == "Deconstruct"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "Deconstruct")));
             var evidence = ReturnToSenderClosureEvidenceBuilder.FromPlan(result.Plan);
             Assert.Equal(0, evidence.RoslynRecoveredMemberSurfaces);
             Assert.Contains("public void Deconstruct", result.Source);
@@ -432,15 +432,15 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "A"
                 && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "body-type")
-                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "closure-member" && fact.Detail.EndsWith(".Create", StringComparison.Ordinal))
                 && !type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "roslyn")
-                && type.Members.Any(member => member.Name == "Create"));
+                && type.Members.Any(member => member.Name == "Create"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "Create")));
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "B"
                 && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "body-type")
-                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "closure-member" && fact.Detail.EndsWith(".get_Value", StringComparison.Ordinal))
                 && !type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "roslyn")
-                && type.Members.Any(member => member.Name == "Value"));
+                && type.Members.Any(member => member.Name == "Value"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-property" && fact.Detail == "get_Value")));
             var evidence = ReturnToSenderClosureEvidenceBuilder.FromPlan(result.Plan);
             Assert.Equal(0, evidence.RoslynRecoveredMemberSurfaces);
             Assert.Contains("public static B Create()", result.Source);
@@ -760,7 +760,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsClosureConstFieldsWithInitializers()
+    public void CompileBackFirstPropertyGetter_DoesNotEmitUnreferencedClosureConstFields()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -783,7 +783,7 @@ public class ReturnToSenderPrototypeTests
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
-            Assert.Contains("public const int ConstValue = 42;", result.Source);
+            Assert.DoesNotContain("ConstValue", result.Source);
         }
         finally
         {
@@ -792,7 +792,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsNonFiniteClosureConstFields()
+    public void CompileBackFirstPropertyGetter_DoesNotEmitUnreferencedNonFiniteClosureConstFields()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -816,8 +816,8 @@ public class ReturnToSenderPrototypeTests
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
-            Assert.Contains("public const float FloatNaN = float.NaN;", result.Source);
-            Assert.Contains("public const double DoubleInfinity = double.PositiveInfinity;", result.Source);
+            Assert.DoesNotContain("FloatNaN", result.Source);
+            Assert.DoesNotContain("DoubleInfinity", result.Source);
         }
         finally
         {
