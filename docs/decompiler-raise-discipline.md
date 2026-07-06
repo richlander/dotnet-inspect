@@ -12,10 +12,14 @@ work inside it without re-buying the lessons.
 - **Render-text A/B is standing evidence for any raise/printer-affecting PR.**
   Emit a base dump at the explicit merge-base ref and diff the head against it
   (`DecompilerHarness --emit-render-ab` / `--render-ab`, with `--workers`).
-  Every changed method gets classified into an intended class; an unclassified
-  diff is a finding, not noise. The base is the one dangerous degree of
-  freedom — a stale base once turned 97 changed methods into 359 phantom ones
-  (#2170), twice. Never diff against a hand-managed dump.
+  Every changed method gets classified into an intended spelling class
+  (`structural`, `paren-equivalent`, or `unparsed`) and a semantic transition
+  (`valid->valid`, `invalid->valid`, `valid->invalid`, or `invalid->invalid`).
+  For expression-moving changes, the semantic lane is required evidence; a
+  `valid->invalid` method is gate-fatal even when the body still parses (for
+  example `1++`). An unclassified diff is a finding, not noise. The base is the
+  one dangerous degree of freedom — a stale base once turned 97 changed methods
+  into 359 phantom ones (#2170), twice. Never diff against a hand-managed dump.
 - **No claimed win before the A/B lands.** Census counters and structural
   metrics move before rendering truth is known; slice 4's blocking corruption
   (#2170 review round 1) was found by reviewers running the A/B the author had
