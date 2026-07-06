@@ -924,8 +924,9 @@ public static class ApiOutputFormatter
             overloadIndices[selectorName] = index;
 
             var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
-            var selector = overloadCounts[selectorName] > 1
-                ? $"{selectorName}:{index}"
+            var selectorIndex = member.SelectorOverloadIndex ?? index;
+            var selector = overloadCounts[selectorName] > 1 || member.SelectorOverloadIndex.HasValue
+                ? $"{selectorName}:{selectorIndex}"
                 : selectorName;
 
             rows.Add(new MemberIndexRow(
@@ -2206,44 +2207,7 @@ public static class ApiOutputFormatter
         => MetadataTypeNameFormatter.FormatFullName(type);
 
     internal static string GetMemberSignatureSortKey(ApiMember member)
-    {
-        var signature = member.Signature ?? "";
-        if (signature.Length == 0 || member.Name.Length == 0)
-            return signature;
-
-        var searchStart = 0;
-        while (searchStart < signature.Length)
-        {
-            var nameIndex = signature.IndexOf(member.Name, searchStart, StringComparison.Ordinal);
-            if (nameIndex < 0)
-                return signature;
-
-            var genericStart = nameIndex + member.Name.Length;
-            if (genericStart < signature.Length && signature[genericStart] == '<')
-            {
-                var depth = 0;
-                for (var i = genericStart; i < signature.Length; i++)
-                {
-                    if (signature[i] == '<')
-                        depth++;
-                    else if (signature[i] == '>')
-                    {
-                        depth--;
-                        if (depth == 0)
-                        {
-                            if (i + 1 < signature.Length && signature[i + 1] == '(')
-                                return signature.Remove(genericStart, i - genericStart + 1);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            searchStart = nameIndex + member.Name.Length;
-        }
-
-        return signature;
-    }
+        => ApiMemberIdentity.GetMemberSignatureSortKey(member);
 
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
         => member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}";

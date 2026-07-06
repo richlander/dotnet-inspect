@@ -179,6 +179,20 @@ public class SharedParsersTests
         Assert.Null(memberName);
     }
 
+    [Theory]
+    [InlineData("Sample.Widget.Map<T>:1", "Sample.Widget", "Map<T>:1")]
+    [InlineData("Sample.Widget.Map<T>~abcdef", "Sample.Widget", "Map<T>~abcdef")]
+    public void SplitTrailingMember_SplitsGenericMemberSelectorWithSelectorSuffix(
+        string input,
+        string expectedType,
+        string expectedMember)
+    {
+        var (typeName, memberName) = SharedParsers.SplitTrailingMember(input);
+
+        Assert.Equal(expectedType, typeName);
+        Assert.Equal(expectedMember, memberName);
+    }
+
     [Fact]
     public void SplitTrailingMember_NoDot_ReturnsOriginal()
     {
@@ -186,6 +200,18 @@ public class SharedParsersTests
 
         Assert.Equal("JsonSerializer", typeName);
         Assert.Null(memberName);
+    }
+
+    [Fact]
+    public void TrySplitQualifiedTypeMember_SplitsGenericMemberSelector()
+    {
+        var split = SharedParsers.TrySplitQualifiedTypeMember(
+            "String.GenericChoice<T>",
+            allowPlatformPrefixFallback: true);
+
+        Assert.NotNull(split);
+        Assert.Equal("GenericChoice<T>", split.Value.MemberName);
+        Assert.Equal("System.String", split.Value.Probe.Remainder);
     }
 
     // ── ParseTypeFilter ──────────────────────────────────────────────────
@@ -266,13 +292,14 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsDottedSyntax()
     {
         var members = new[] { "JsonSerializer.Deserialize", "GetValue" };
-        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, genericArity, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Equal("JsonSerializer", typeFilter);
         Assert.Equal("Deserialize", members[0]);
         Assert.Equal("GetValue", members[1]);
         Assert.Null(overloadIndex);
         Assert.Null(memberDigest);
+        Assert.Null(genericArity);
         Assert.Empty(kindFilter);
     }
 
@@ -280,12 +307,13 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsOverloadShorthand()
     {
         var members = new[] { "GetValue:2" };
-        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, genericArity, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Null(typeFilter);
         Assert.Equal("GetValue", members[0]);
         Assert.Equal(2, overloadIndex);
         Assert.Null(memberDigest);
+        Assert.Null(genericArity);
         Assert.Empty(kindFilter);
     }
 
@@ -293,12 +321,13 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsBoth()
     {
         var members = new[] { "JsonSerializer.Deserialize:1" };
-        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, genericArity, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Equal("JsonSerializer", typeFilter);
         Assert.Equal("Deserialize", members[0]);
         Assert.Equal(1, overloadIndex);
         Assert.Null(memberDigest);
+        Assert.Null(genericArity);
         Assert.Empty(kindFilter);
     }
 
@@ -306,25 +335,55 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsKindQualifiedSelector()
     {
         var members = new[] { "explicit:System.IConvertible.ToBoolean:1" };
-        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, genericArity, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Null(typeFilter);
         Assert.Equal("System.IConvertible.ToBoolean", members[0]);
         Assert.Equal(1, overloadIndex);
         Assert.Null(memberDigest);
+        Assert.Null(genericArity);
         Assert.Contains("explicit-interface-implementation", kindFilter);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_ExtractsDottedKindQualifiedSelector()
+    {
+        var members = new[] { "DateTime.operator:op_Addition:1" };
+        var (typeFilter, overloadIndex, memberDigest, genericArity, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Equal("DateTime", typeFilter);
+        Assert.Equal("op_Addition", members[0]);
+        Assert.Equal(1, overloadIndex);
+        Assert.Null(memberDigest);
+        Assert.Null(genericArity);
+        Assert.Contains("operator", kindFilter);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_ExtractsGenericMethodArity()
+    {
+        var members = new[] { "Map<T>:1" };
+        var (typeFilter, overloadIndex, memberDigest, genericArity, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Null(typeFilter);
+        Assert.Equal("Map", members[0]);
+        Assert.Equal(1, overloadIndex);
+        Assert.Null(memberDigest);
+        Assert.Equal(1, genericArity);
+        Assert.Empty(kindFilter);
     }
 
     [Fact]
     public void ProcessMemberArguments_ExtractsDigestSelector()
     {
         var members = new[] { "JsonSerializer.Deserialize~abc123" };
-        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, genericArity, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Equal("JsonSerializer", typeFilter);
         Assert.Equal("Deserialize", members[0]);
         Assert.Null(overloadIndex);
         Assert.Equal("abc123", memberDigest);
+        Assert.Null(genericArity);
         Assert.Empty(kindFilter);
     }
 

@@ -79,16 +79,13 @@ internal static class ApiTypeLookupService
         {
             var member = typeName[(dot + 1)..];
             var typeCandidate = typeName[..dot];
-            if (!member.Contains('<'))
-            {
-                var prefixLookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeCandidate);
-                if (prefixLookup.Match != null)
-                    return new ApiTypeLookupResult(
-                        typeName,
-                        prefixLookup,
-                        api.Types.First(t => t.FullName == prefixLookup.Match),
-                        member);
-            }
+            var prefixLookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeCandidate);
+            if (prefixLookup.Match != null)
+                return new ApiTypeLookupResult(
+                    typeName,
+                    prefixLookup,
+                    api.Types.First(t => t.FullName == prefixLookup.Match),
+                    member);
         }
 
         return new ApiTypeLookupResult(typeName, lookup, null);

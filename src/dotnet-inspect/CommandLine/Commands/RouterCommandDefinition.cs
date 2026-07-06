@@ -191,10 +191,7 @@ public static class RouterCommandDefinition
             if (memberFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = memberFind.TypeResolution.Match!;
-                var memberSelector = memberFind.OverloadIndex.HasValue
-                    ? $"{memberFind.MemberName}:{memberFind.OverloadIndex.Value}"
-                    : memberFind.MemberName;
-                return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), "-m", memberSelector, .. tail];
+                return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), "-m", memberFind.MemberSelector, .. tail];
             }
 
             var typeProbe = SourceResolver.TryResolveQualifiedTypeName(target, allowPlatformPrefixFallback);

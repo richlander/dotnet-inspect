@@ -88,7 +88,7 @@ public static class SharedParsers
             return (typeName, null);
 
         var rightPart = typeName[(lastDot + 1)..];
-        return rightPart.Contains('<')
+        return rightPart.Contains('<') && !HasGenericMemberSelectorSuffix(rightPart)
             ? (typeName, null)
             : (typeName[..lastDot], rightPart);
     }
@@ -104,7 +104,7 @@ public static class SharedParsers
 
             var typeCandidate = value[..i];
             var memberName = value[(i + 1)..];
-            if (string.IsNullOrWhiteSpace(memberName) || memberName.Contains('<'))
+            if (string.IsNullOrWhiteSpace(memberName))
                 continue;
 
             var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
@@ -124,6 +124,13 @@ public static class SharedParsers
         }
 
         return null;
+    }
+
+    private static bool HasGenericMemberSelectorSuffix(string value)
+    {
+        var selector = MemberTargetSelector.Parse(value);
+        return selector.GenericArity.HasValue
+            && (selector.OverloadIndex.HasValue || selector.DigestPrefix is { Length: > 0 });
     }
 
     /// <summary>
@@ -207,21 +214,17 @@ public static class SharedParsers
     /// </summary>
     /// <param name="members">The member arguments to process.</param>
     /// <returns>Extracted type filter and overload index if found.</returns>
-    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
+    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, int? GenericArity, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
     {
         string? dottedTypeFilter = null;
         int? overloadIndex = null;
         string? memberDigest = null;
+        int? genericArity = null;
         HashSet<string> kindFilter = [];
 
         for (int i = 0; i < members.Length; i++)
         {
-            var kindQualified = TryParseKindQualifiedMember(members[i], out var kind, out var memberName);
-            if (kindQualified)
-            {
-                kindFilter.Add(kind);
-                members[i] = memberName;
-            }
+            var kindQualified = TryParseKindQualifiedMember(members[i], out _, out _);
 
             // Check for dotted syntax (Type.Member)
             if (!kindQualified)
@@ -234,22 +237,19 @@ public static class SharedParsers
                 }
             }
 
-            // Check for digest shorthand (Name~abc123)
-            var (digestName, digest) = ParseDigestShorthand(members[i]);
-            members[i] = digestName;
-            if (digest != null)
-                memberDigest = digest;
-
-            // Check for overload shorthand (Name:N)
-            var (name, index) = ParseOverloadShorthand(members[i]);
-            members[i] = name;
-            if (index != null)
-            {
+            var selector = MemberTargetSelector.Parse(members[i]);
+            if (selector.Kind is { Length: > 0 })
+                kindFilter.Add(selector.Kind);
+            if (selector.DigestPrefix is { Length: > 0 })
+                memberDigest = selector.DigestPrefix;
+            if (selector.GenericArity is { } arity)
+                genericArity = arity;
+            if (selector.OverloadIndex is { } index)
                 overloadIndex = index;
-            }
+            members[i] = selector.Name;
         }
 
-        return (dottedTypeFilter, overloadIndex, memberDigest, kindFilter);
+        return (dottedTypeFilter, overloadIndex, memberDigest, genericArity, kindFilter);
     }
 
     public static (string Name, string? Digest) ParseDigestShorthand(string value)

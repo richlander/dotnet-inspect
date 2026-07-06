@@ -48,6 +48,18 @@ public class ApiTypeLookupServiceTests
     }
 
     [Fact]
+    public void LookupType_FullyQualifiedGenericMember_PeelsTrailingMember()
+    {
+        var api = CreateSurface();
+
+        var result = ApiTypeLookupService.LookupType(api, "System.Text.Json.JsonSerializer.Serialize<TValue>");
+
+        Assert.True(result.Found);
+        Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
+        Assert.Equal("Serialize<TValue>", result.ImpliedMember);
+    }
+
+    [Fact]
     public void LookupType_SimpleTypeMember_PeelsTrailingMember()
     {
         var api = CreateSurface();
