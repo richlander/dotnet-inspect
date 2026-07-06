@@ -124,12 +124,17 @@ static class ReturnToSenderSourceProbe
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets,
         IReadOnlyList<string> sourcePaths)
-        => EvaluateTargets(assemblyPath, targets, FixtureSourceIndex.Create(sourcePaths));
+        => EvaluateTargets(
+            assemblyPath,
+            targets,
+            FixtureSourceIndex.TryCreate(sourcePaths),
+            "source index could not be built from the supplied source paths");
 
     static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets,
-        FixtureSourceIndex? sourceIndex)
+        FixtureSourceIndex? sourceIndex,
+        string sourceUnavailableDetail = "assembly is not registered in FixtureCatalog")
     {
         if (targets.Count == 0)
             return [];
@@ -195,7 +200,7 @@ static class ReturnToSenderSourceProbe
                     ReturnToSenderSourceOutcome.SourceUnavailable,
                     result.Status,
                     "fixture-source-unavailable",
-                    "assembly is not registered in FixtureCatalog",
+                    sourceUnavailableDetail,
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody));
@@ -257,12 +262,16 @@ static class ReturnToSenderSourceProbe
             _members = members;
         }
 
-        public static FixtureSourceIndex Create(IReadOnlyList<string> sourcePaths)
+        public static FixtureSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
         {
             var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
             var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
             foreach (var sourcePath in sourcePaths)
-                AddSourceFile(members, overloads, sourcePath);
+            {
+                if (!TryAddSourceFile(members, overloads, sourcePath))
+                    return null;
+            }
+
             return new FixtureSourceIndex(members);
         }
 
@@ -284,7 +293,7 @@ static class ReturnToSenderSourceProbe
                 if (!TryGetSourcePaths(fixture, out var sourcePaths))
                     return null;
 
-                return Create(sourcePaths);
+                return TryCreate(sourcePaths);
             }
 
             return null;
@@ -321,15 +330,26 @@ static class ReturnToSenderSourceProbe
         public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
             => _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
 
-        static void AddSourceFile(
+        static bool TryAddSourceFile(
             Dictionary<string, SourceMember> members,
             Dictionary<string, Dictionary<string, int>> overloads,
             string sourcePath)
         {
-            var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(sourcePath), path: sourcePath);
+            string source;
+            try
+            {
+                source = File.ReadAllText(sourcePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                return false;
+            }
+
+            var tree = CSharpSyntaxTree.ParseText(source, path: sourcePath);
             var root = tree.GetCompilationUnitRoot();
             foreach (var member in SourceMembers(root, sourcePath, overloads))
                 members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+            return true;
         }
 
         static IEnumerable<SourceMember> SourceMembers(

@@ -130,6 +130,36 @@ public class ReturnToSenderFixtureCatalogTests
         }
     }
 
+    [Fact]
+    public void ReturnToSenderSourceProbe_MissingSourcePathIsSourceUnavailable()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public int M() => 1;
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
+                [Path.Combine(fixture.Directory, "missing.cs")]));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.CompileBackStatus);
+            Assert.Equal("fixture-source-unavailable", result.Reason);
+            Assert.Contains("source index could not be built", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {
