@@ -69,6 +69,15 @@ public class ApiCommand
         bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
+        if (options is MemberOptions memberOptions
+            && memberOptions.MemberFilter.Count == 0
+            && MightPeelDottedGenericMemberSelector(memberOptions.TypeName))
+        {
+            knownSections = knownSections
+                .Concat(ApiMemberDetailSectionDescriptors.CreatePipeline().SelectableSectionNames)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
 
         // Discovery mode: -D/--discover lists effective sections (resolves source) by
         // default; --schema opts out to the cheap, offline static schema listing.
@@ -180,6 +189,18 @@ public class ApiCommand
             OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    static bool MightPeelDottedGenericMemberSelector(string? typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return false;
+
+        var lastDot = FqnParser.LastTopLevelDot(typeName);
+        if (lastDot <= 0 || lastDot == typeName.Length - 1)
+            return false;
+
+        return MemberTargetSelector.Parse(typeName[(lastDot + 1)..]).GenericArity.HasValue;
     }
 
     private static bool ValidateApiPrintSelection(HashSet<string>? includeSections)

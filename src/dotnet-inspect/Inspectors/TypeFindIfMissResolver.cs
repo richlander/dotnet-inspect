@@ -203,7 +203,7 @@ internal static class TypeFindIfMissResolver
             || query.Contains('@') || query.Contains('/') || query.Contains('\\'))
             return false;
 
-        var lastDot = query.LastIndexOf('.');
+        var lastDot = FqnParser.LastTopLevelDot(query);
         if (lastDot <= 0 || lastDot == query.Length - 1)
             return false;
 

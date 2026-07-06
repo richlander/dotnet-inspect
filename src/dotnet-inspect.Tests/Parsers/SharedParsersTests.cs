@@ -179,6 +179,20 @@ public class SharedParsersTests
         Assert.Null(memberName);
     }
 
+    [Theory]
+    [InlineData("Sample.Widget.Map<T>:1", "Sample.Widget", "Map<T>:1")]
+    [InlineData("Sample.Widget.Map<T>~abcdef", "Sample.Widget", "Map<T>~abcdef")]
+    public void SplitTrailingMember_SplitsGenericMemberSelectorWithSelectorSuffix(
+        string input,
+        string expectedType,
+        string expectedMember)
+    {
+        var (typeName, memberName) = SharedParsers.SplitTrailingMember(input);
+
+        Assert.Equal(expectedType, typeName);
+        Assert.Equal(expectedMember, memberName);
+    }
+
     [Fact]
     public void SplitTrailingMember_NoDot_ReturnsOriginal()
     {
@@ -186,6 +200,18 @@ public class SharedParsersTests
 
         Assert.Equal("JsonSerializer", typeName);
         Assert.Null(memberName);
+    }
+
+    [Fact]
+    public void TrySplitQualifiedTypeMember_SplitsGenericMemberSelector()
+    {
+        var split = SharedParsers.TrySplitQualifiedTypeMember(
+            "String.GenericChoice<T>",
+            allowPlatformPrefixFallback: true);
+
+        Assert.NotNull(split);
+        Assert.Equal("GenericChoice<T>", split.Value.MemberName);
+        Assert.Equal("System.String", split.Value.Probe.Remainder);
     }
 
     // ── ParseTypeFilter ──────────────────────────────────────────────────

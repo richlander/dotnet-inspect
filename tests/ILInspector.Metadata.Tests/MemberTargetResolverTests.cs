@@ -119,6 +119,39 @@ public class MemberTargetResolverTests
     }
 
     [Fact]
+    public void Resolve_GenericArityPreservesDeclaringOverloadIndex()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "GenericChoice",
+            Members =
+            [
+                new ApiMember { Name = "Choose", Kind = "method", Signature = "string Choose(string value)" },
+                new ApiMember
+                {
+                    Name = "Choose",
+                    Kind = "method",
+                    Signature = "T Choose<T>(T value)",
+                    SignatureModel = new ApiSignature
+                    {
+                        MemberName = "Choose",
+                        TypeParameters = [new TypeParameter { Name = "T" }],
+                        Parameters = [new ApiParameter { Name = "value", Type = "T" }]
+                    }
+                }
+            ]
+        };
+
+        var result = MemberTargetResolver.Resolve(type, MemberTargetSelector.Parse("Choose<T>:1"));
+
+        Assert.True(result.Found);
+        Assert.Equal("T Choose<T>(T value)", result.Target!.ApiMember.Member.Signature);
+        Assert.Equal(1, result.Target.SelectorIndex);
+        Assert.Equal(2, result.Target.DeclaringOverloadIndex);
+    }
+
+    [Fact]
     public void Resolve_ExtensionMethodCarriesPhysicalBodyTarget()
     {
         var type = CreateSurface().Types[0];

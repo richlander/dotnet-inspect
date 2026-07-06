@@ -198,20 +198,21 @@ public static class MemberTargetResolver
         MemberTargetSelector selector,
         IReadOnlyCollection<string>? kindFilter = null)
     {
-        var members = type.Members
+        var declaringMembers = type.Members
             .Where(member => TypeMatcher.MatchesMemberName(member.Name, selector.Name));
 
         if (selector.Kind is { Length: > 0 })
-            members = members.Where(member => string.Equals(member.Kind, selector.Kind, StringComparison.OrdinalIgnoreCase));
-
-        if (selector.GenericArity is { } genericArity)
-            members = members.Where(member => (member.SignatureModel?.TypeParameters.Count ?? 0) == genericArity);
+            declaringMembers = declaringMembers.Where(member => string.Equals(member.Kind, selector.Kind, StringComparison.OrdinalIgnoreCase));
 
         if (kindFilter is { Count: > 0 })
-            members = members.Where(member => kindFilter.Contains(member.Kind));
+            declaringMembers = declaringMembers.Where(member => kindFilter.Contains(member.Kind));
 
-        var original = members.ToList();
-        var display = original
+        var declaring = declaringMembers.ToList();
+        var selected = declaring.AsEnumerable();
+        if (selector.GenericArity is { } genericArity)
+            selected = selected.Where(member => (member.SignatureModel?.TypeParameters.Count ?? 0) == genericArity);
+
+        var display = selected
             .OrderBy(member => member.Name, StringComparer.Ordinal)
             .ThenBy(ApiMemberIdentity.GetMemberSignatureSortKey, StringComparer.Ordinal)
             .ToList();
@@ -229,7 +230,7 @@ public static class MemberTargetResolver
                 member,
                 ApiMemberIdentity.GetMemberAnchor(type, member),
                 selectorIndex,
-                original.IndexOf(member) + 1));
+                declaring.IndexOf(member) + 1));
         }
 
         return candidates;

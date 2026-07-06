@@ -88,7 +88,7 @@ public static class SharedParsers
             return (typeName, null);
 
         var rightPart = typeName[(lastDot + 1)..];
-        return rightPart.Contains('<')
+        return rightPart.Contains('<') && !HasGenericMemberSelectorSuffix(rightPart)
             ? (typeName, null)
             : (typeName[..lastDot], rightPart);
     }
@@ -104,7 +104,7 @@ public static class SharedParsers
 
             var typeCandidate = value[..i];
             var memberName = value[(i + 1)..];
-            if (string.IsNullOrWhiteSpace(memberName) || memberName.Contains('<'))
+            if (string.IsNullOrWhiteSpace(memberName))
                 continue;
 
             var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
@@ -124,6 +124,13 @@ public static class SharedParsers
         }
 
         return null;
+    }
+
+    private static bool HasGenericMemberSelectorSuffix(string value)
+    {
+        var selector = MemberTargetSelector.Parse(value);
+        return selector.GenericArity.HasValue
+            && (selector.OverloadIndex.HasValue || selector.DigestPrefix is { Length: > 0 });
     }
 
     /// <summary>
