@@ -34,6 +34,7 @@ The card includes:
 - self-diff empty count;
 - pair exact-empty and changed-body counts;
 - failure count and failure buckets;
+- baseline metric changes when `--diff-baseline` is used;
 - top hunk kinds and opcode families;
 - per-pair summary rows;
 - capped examples rendered through `IlDiffPrinter`.
@@ -49,6 +50,7 @@ Use `--emit-snapshot <file>` to write stable JSON card data for a run. Use
 `--diff-baseline <file>` to compare the current run against a previous snapshot.
 Baseline comparisons return exit code `1` for regressions (more failures, new
 failure buckets, or fewer self-diff-empty bodies) and report changed-body,
-hunk-kind, and opcode-family drift as non-failing drift. Baseline output also
-includes a Markout composite-cell data card that renders baseline/current
-changes compactly in Markdown and decomposes them into typed fields in JSONL.
+hunk-kind, and opcode-family drift as non-failing drift. Baseline output uses
+Markout metric-change rows for scalar metrics (`Metric | Change | Target |
+Status` in Markdown, typed `before`/`after`/`target`/`status` fields in JSONL)
+and keeps detailed finding rows for bucket drift and regression evidence.
