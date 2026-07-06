@@ -875,6 +875,75 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_EmitsOuterRequirementForNestedMethodTarget()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int GetOuterValue() => 42;
+
+                public class Inner
+                {
+                    public int FromOuter() => new Class1().GetOuterValue();
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1.Inner", "FromOuter", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var root = Assert.Single(result.Plan.Types);
+            Assert.Contains(root.Members, member => member.Name == "GetOuterValue"
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetOuterValue"));
+            var inner = Assert.Single(root.NestedTypes);
+            Assert.Contains(inner.Members, member => member.Name == "FromOuter"
+                && member.SourceFacts.Any(fact => fact.Id == "target-method"));
+            Assert.Contains("public int GetOuterValue()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_EmitsNestedRequirementForTopLevelMethodTarget()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public class Inner
+                {
+                    public static int GetValue() => 42;
+                }
+
+                public int FromNested() => Inner.GetValue();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "FromNested", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var root = Assert.Single(result.Plan.Types);
+            Assert.Contains(root.NestedTypes, nested =>
+                nested.Name == "Inner"
+                && nested.Members.Any(member => member.Name == "GetValue"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue")));
+            Assert.Contains("public static int GetValue()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_DoesNotSurfaceOuterMembersForTypeOnlyNestedClosure()
     {
         var assemblyPath = CompileFixture("""

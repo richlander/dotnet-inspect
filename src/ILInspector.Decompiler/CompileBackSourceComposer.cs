@@ -420,8 +420,9 @@ public static class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
     {
         AddClosureTypeRequirement(root);
-        foreach (var handle in closureMemberRequirements.Keys
+        foreach (var handle in closureMemberRequirements.Keys.Concat(closureFacts.Keys)
             .Where(handle => handle != root && TopLevelRootOf(reader, handle) == root)
+            .Distinct()
             .OrderBy(handle => MetadataTokens.GetToken(handle)))
         {
             AddClosureTypeRequirement(handle);
@@ -626,6 +627,7 @@ public static class CompileBackSourceComposer
                 primaryConstructor,
                 targetFacts)
         };
+        AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
         {
