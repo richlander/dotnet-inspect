@@ -325,6 +325,15 @@ public static class IrPasses
         // target in a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
         // Nothing may reshape sink values after this.
+        // F2 (#2386): a final slots-only inlining run collapses the single-use
+        // spill slots that structuring/reconstruction minted after the earlier
+        // ExpressionInliningPass runs, so they render as their value expression
+        // at the consumer instead of materializing as `T S_n = expr;`. It must
+        // precede SlotMaterializationPass (once a slot is a typed local there is
+        // nothing to inline) and stay slots-only (a user local reaching a
+        // reconstructed `x++` would inline to an invalid `1++`; see the pass
+        // doc and #2379 piece 1 census).
+        new ExpressionInliningPass(slotsOnly: true),
         // A decided in-domain slot (one testified type, all stores at it or
         // renderably coercible) is a finished variable: materialize it as a
         // typed local BEFORE insertion, so its minted locals are coerced at

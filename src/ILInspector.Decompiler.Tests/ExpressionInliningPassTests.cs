@@ -567,4 +567,82 @@ public class ExpressionInliningPassTests
         Assert.True(HasStoreLocal(function, 0));
         Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
     }
+
+    // ---------------------------------------------------------------------
+    // slots-only (F2, #2386): the late pipeline run inlines single-use spill
+    // slots but must never touch user locals — by that point
+    // IncrementDecrementPass has folded `x = x + 1` into `x++`, whose hidden
+    // store makes a multiply-assigned local look single-use; inlining a
+    // constant into it would emit an invalid `1++`. These pin the gate: a
+    // stack slot inlines under slotsOnly, an identical user local does not
+    // (while the default full run still inlines it — proving the mode is the
+    // only difference).
+    // ---------------------------------------------------------------------
+
+    // slots-only positive: a single-store single-use synthetic stack slot with
+    // a pure value inlines into its consumer.
+    [Fact]
+    public void SlotsOnly_SingleUseStackSlot_Inlines()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [],
+            new StoreStackSlot(0, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.False(HasStoreStackSlot(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant();
+    }
+
+    // slots-only refuting negative: the identical shape on a user local is
+    // declined by slotsOnly (the local stays) yet still inlined by the default
+    // run — so a reconstructed `x++` can never be fed a constant late.
+    [Fact]
+    public void SlotsOnly_SingleUseUserLocal_StaysWhileDefaultInlines()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        IrFunction Make() => StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+
+        var gated = Make();
+        new ExpressionInliningPass(slotsOnly: true).Run(gated, PassContext.None);
+        Assert.True(HasStoreLocal(gated, 0));
+        Assert.Contains(gated.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+        gated.CheckInvariant();
+
+        var full = Make();
+        new ExpressionInliningPass().Run(full, PassContext.None);
+        Assert.False(HasStoreLocal(full, 0));
+    }
+
+    // increment-target guard (#2386 adversarial review): a stack slot whose only
+    // load is the operand of an increment is an lvalue — inlining it would emit
+    // an invalid `1++`. The gate declines it in both modes. This shape is
+    // unreachable from real IL (increment operands are local/argument places),
+    // but the guard keeps the pass correct by construction.
+    [Fact]
+    public void SlotFeedingIncrement_IsNotInlined()
+    {
+        IrFunction Make() => StraightLine(
+            [],
+            new StoreStackSlot(0, new Constant(1, Int32)),
+            new ExpressionStatement(new IncrementDecrement(
+                new LoadStackSlot(0, Int32), isIncrement: true, isPrefix: false)));
+
+        var gated = Make();
+        new ExpressionInliningPass(slotsOnly: true).Run(gated, PassContext.None);
+        Assert.True(HasStoreStackSlot(gated, 0));
+        Assert.Contains(gated.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        gated.CheckInvariant();
+
+        var full = Make();
+        new ExpressionInliningPass().Run(full, PassContext.None);
+        Assert.True(HasStoreStackSlot(full, 0));
+    }
 }
