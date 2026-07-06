@@ -3519,8 +3519,6 @@ public sealed partial class CSharpPrinter
         string simpleName = TypeNamePath(definition.Name);
         if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
             return;
-        if (!rendered.Contains(simpleName, StringComparison.Ordinal))
-            return;
 
         AddDecision(
             "type-name.framework-imported",

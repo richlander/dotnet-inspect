@@ -1,5 +1,3 @@
-using System.Runtime.CompilerServices;
-
 namespace ILInspector.Decompiler;
 
 /// <summary>
@@ -182,8 +180,6 @@ public sealed record DecompilerResult(
     DecompilationFidelity Fidelity,
     IReadOnlyList<DecompilerDiagnostic> Diagnostics)
 {
-    static readonly ConditionalWeakTable<DecompilerResult, MetadataBox> s_metadata = new();
-
     public bool Succeeded => Output is not null;
 
     /// <summary>
@@ -228,15 +224,7 @@ public sealed record DecompilerResult(
     /// holder keeps this evolving evidence off <see cref="DecompilerResult"/>'s
     /// historical record equality surface.
     /// </summary>
-    public DecompilerResultMetadata Metadata
-    {
-        get => s_metadata.TryGetValue(this, out var box) ? box.Value : DecompilerResultMetadata.Default;
-        init
-        {
-            s_metadata.Remove(this);
-            s_metadata.Add(this, new MetadataBox(value));
-        }
-    }
+    public DecompilerResultMetadata Metadata { get; init; } = DecompilerResultMetadata.Default;
 
     /// <summary>The product options in force for this result.</summary>
     public DecompilerOptions EffectiveOptions => Metadata.EffectiveOptions;
@@ -250,9 +238,29 @@ public sealed record DecompilerResult(
     public static DecompilerResult Failure(string diagnosticId, string message)
         => new(null, DecompilationFidelity.Failed, [new DecompilerDiagnostic(diagnosticId, message)]);
 
-    sealed class MetadataBox(DecompilerResultMetadata value)
+    public bool Equals(DecompilerResult? other)
+        => other is not null
+            && EqualityComparer<string?>.Default.Equals(Output, other.Output)
+            && Fidelity == other.Fidelity
+            && EqualityComparer<IReadOnlyList<DecompilerDiagnostic>>.Default.Equals(Diagnostics, other.Diagnostics)
+            && EqualityComparer<string?>.Default.Equals(ConstructorChain, other.ConstructorChain)
+            && EqualityComparer<IReadOnlyList<(string Field, string Value)>>.Default.Equals(FieldInitializers, other.FieldInitializers)
+            && RequiresAsyncBodyModifier == other.RequiresAsyncBodyModifier
+            && ContainsAwaitExpression == other.ContainsAwaitExpression
+            && EqualityComparer<DecompilerTrace?>.Default.Equals(Trace, other.Trace);
+
+    public override int GetHashCode()
     {
-        public DecompilerResultMetadata Value { get; } = value;
+        var hash = new HashCode();
+        hash.Add(Output);
+        hash.Add(Fidelity);
+        hash.Add(Diagnostics);
+        hash.Add(ConstructorChain);
+        hash.Add(FieldInitializers);
+        hash.Add(RequiresAsyncBodyModifier);
+        hash.Add(ContainsAwaitExpression);
+        hash.Add(Trace);
+        return hash.ToHashCode();
     }
 
     /// <summary>
