@@ -170,13 +170,11 @@ public static class LeakTriageSensor
             LeakTriageFormat.Tsv => new MarkoutWriterOptions
             {
                 TableMode = MarkoutTableMode.Tsv,
-                JsonTypedValues = true,
                 OmitEmptyJsonFields = true,
             },
             LeakTriageFormat.Jsonl => new MarkoutWriterOptions
             {
                 TableMode = MarkoutTableMode.Jsonl,
-                JsonTypedValues = true,
                 OmitEmptyJsonFields = true,
             },
             _ => throw new InvalidOperationException($"Unsupported table format '{format}'."),
