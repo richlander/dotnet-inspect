@@ -84,6 +84,8 @@
              Link="IdempotenceSensor.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\RenderAbSensor.cs"
              Link="RenderAbSensor.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\SlotResidualCensus.cs"
+             Link="SlotResidualCensus.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
              Link="AnnotationCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\VolatileFieldDetector.cs"

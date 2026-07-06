@@ -34,6 +34,7 @@ static class Program
         string? renderAb = null;
         string? emitRenderAb = null;
         bool idempotenceCheck = false;
+        bool slotResidualCensus = false;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -216,6 +217,7 @@ static class Program
                 case "--render-ab": renderAb = args[++i]; break;
                 case "--emit-render-ab": emitRenderAb = args[++i]; break;
                 case "--idempotence-check": idempotenceCheck = true; break;
+                case "--slot-residual-census": slotResidualCensus = true; break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -341,6 +343,9 @@ static class Program
 
         if (idempotenceCheck)
             return IdempotenceSensor.Run(assemblies, maxExamples, corpusMethodCap, workers, sequential);
+
+        if (slotResidualCensus)
+            return SlotResidualCensus.Run(assemblies, corpusMethodCap, maxExamples);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1537,6 +1542,10 @@ static class Program
                                 second run still rewrites (ordering gaps / instability);
                                 bucketed by the pass that fired. Zero is the target.
                                 A 2x-pipeline lane — for scheduled/deep runs.
+          --slot-residual-census  run to the late F2 expression-inlining boundary
+                                and report StoreStackSlot/LoadStackSlot burn-down
+                                plus post-F2 residual deferral classes. Uses
+                                --corpus-method-cap to bound the sweep.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
