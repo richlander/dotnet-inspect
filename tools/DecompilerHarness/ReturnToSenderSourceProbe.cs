@@ -268,11 +268,17 @@ static class ReturnToSenderSourceProbe
         {
             var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
             var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+            var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
             foreach (var sourcePath in sourcePaths)
             {
-                if (!TryAddSourceFile(members, overloads, sourcePath))
+                if (!TryReadSourceFile(sourcePath, out var root))
                     return null;
+                sourceFiles.Add((sourcePath, root));
             }
+
+            var partialIndexerNames = PartialIndexerMetadataNames(sourceFiles.Select(file => file.Root));
+            foreach (var sourceFile in sourceFiles)
+                AddSourceFile(members, overloads, sourceFile.Path, sourceFile.Root, partialIndexerNames);
 
             return new FixtureSourceIndex(members);
         }
@@ -332,10 +338,7 @@ static class ReturnToSenderSourceProbe
         public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
             => _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
 
-        static bool TryAddSourceFile(
-            Dictionary<string, SourceMember> members,
-            Dictionary<string, Dictionary<string, int>> overloads,
-            string sourcePath)
+        static bool TryReadSourceFile(string sourcePath, out CompilationUnitSyntax root)
         {
             string source;
             try
@@ -344,22 +347,33 @@ static class ReturnToSenderSourceProbe
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             {
+                root = null!;
                 return false;
             }
 
             var tree = CSharpSyntaxTree.ParseText(source, path: sourcePath);
-            var root = tree.GetCompilationUnitRoot();
-            foreach (var member in SourceMembers(root, sourcePath, overloads))
-                members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+            root = tree.GetCompilationUnitRoot();
             return true;
+        }
+
+        static void AddSourceFile(
+            Dictionary<string, SourceMember> members,
+            Dictionary<string, Dictionary<string, int>> overloads,
+            string sourcePath,
+            CompilationUnitSyntax root,
+            IReadOnlyDictionary<string, string> partialIndexerNames)
+        {
+            foreach (var member in SourceMembers(root, sourcePath, overloads, partialIndexerNames))
+                members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
         }
 
         static IEnumerable<SourceMember> SourceMembers(
             CompilationUnitSyntax root,
             string sourcePath,
-            Dictionary<string, Dictionary<string, int>> overloads)
+            Dictionary<string, Dictionary<string, int>> overloads,
+            IReadOnlyDictionary<string, string> partialIndexerNames)
         {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads))
+            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads, partialIndexerNames))
                 yield return member;
         }
 
@@ -368,7 +382,8 @@ static class ReturnToSenderSourceProbe
             string namespaceName,
             IReadOnlyList<string> containingTypes,
             string sourcePath,
-            Dictionary<string, Dictionary<string, int>> overloads)
+            Dictionary<string, Dictionary<string, int>> overloads,
+            IReadOnlyDictionary<string, string> partialIndexerNames)
         {
             foreach (var declaration in declarations)
             {
@@ -379,7 +394,7 @@ static class ReturnToSenderSourceProbe
                         string nextNamespace = namespaceName.Length == 0
                             ? ns.Name.ToString()
                             : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads))
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads, partialIndexerNames))
                             yield return member;
                         break;
                     }
@@ -391,9 +406,9 @@ static class ReturnToSenderSourceProbe
                             ? string.Join(".", typeStack)
                             : $"{namespaceName}.{string.Join(".", typeStack)}";
 
-                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads))
+                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, partialIndexerNames))
                             yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads))
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads, partialIndexerNames))
                             yield return member;
                         break;
                     }
@@ -404,10 +419,14 @@ static class ReturnToSenderSourceProbe
                 TypeDeclarationSyntax type,
                 string fullType,
                 string path,
-                Dictionary<string, Dictionary<string, int>> overloadsByType)
+                Dictionary<string, Dictionary<string, int>> overloadsByType,
+                IReadOnlyDictionary<string, string> partialIndexerNames)
             {
                 if (!overloadsByType.TryGetValue(fullType, out var overloads))
                     overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
+
+                if (HasPrimaryConstructor(type))
+                    NextOverload(overloads, ".ctor");
 
                 foreach (var member in type.Members)
                 {
@@ -427,7 +446,7 @@ static class ReturnToSenderSourceProbe
                         }
                         case ConstructorDeclarationSyntax constructor:
                         {
-                            const string methodName = ".ctor";
+                            string methodName = constructor.Modifiers.Any(SyntaxKind.StaticKeyword) ? ".cctor" : ".ctor";
                             int overload = NextOverload(overloads, methodName);
                             if (BodyText(constructor) is { } body)
                                 yield return new SourceMember(fullType, methodName, overload, path, body);
@@ -437,6 +456,8 @@ static class ReturnToSenderSourceProbe
                             break;
                         case PropertyDeclarationSyntax property:
                         {
+                            if (IsBodylessPartial(property))
+                                break;
                             if (HasGetter(property))
                             {
                                 string methodName = $"get_{property.Identifier.ValueText}";
@@ -459,9 +480,12 @@ static class ReturnToSenderSourceProbe
                             break;
                         case IndexerDeclarationSyntax indexer:
                         {
+                            if (IsBodylessPartial(indexer))
+                                break;
+                            string metadataName = IndexerMetadataName(indexer, type, fullType, partialIndexerNames);
                             if (HasGetter(indexer))
                             {
-                                const string methodName = "get_Item";
+                                string methodName = $"get_{metadataName}";
                                 int overload = NextOverload(overloads, methodName);
                                 if (GetterBodyText(indexer) is { } body)
                                     yield return new SourceMember(fullType, methodName, overload, path, body);
@@ -469,7 +493,7 @@ static class ReturnToSenderSourceProbe
 
                             if (HasSetter(indexer))
                             {
-                                const string methodName = "set_Item";
+                                string methodName = $"set_{metadataName}";
                                 int overload = NextOverload(overloads, methodName);
                                 if (SetterBodyText(indexer) is { } body)
                                     yield return new SourceMember(fullType, methodName, overload, path, body);
@@ -504,6 +528,52 @@ static class ReturnToSenderSourceProbe
                 int overload = overloads.GetValueOrDefault(methodName);
                 overloads[methodName] = overload + 1;
                 return overload;
+            }
+        }
+
+        static IReadOnlyDictionary<string, string> PartialIndexerMetadataNames(IEnumerable<CompilationUnitSyntax> roots)
+        {
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var root in roots)
+                AddPartialIndexerNames(root.Members, namespaceName: "", containingTypes: [], names);
+            return names;
+        }
+
+        static void AddPartialIndexerNames(
+            SyntaxList<MemberDeclarationSyntax> declarations,
+            string namespaceName,
+            IReadOnlyList<string> containingTypes,
+            Dictionary<string, string> names)
+        {
+            foreach (var declaration in declarations)
+            {
+                switch (declaration)
+                {
+                    case BaseNamespaceDeclarationSyntax ns:
+                    {
+                        string nextNamespace = namespaceName.Length == 0
+                            ? ns.Name.ToString()
+                            : $"{namespaceName}.{ns.Name}";
+                        AddPartialIndexerNames(ns.Members, nextNamespace, containingTypes, names);
+                        break;
+                    }
+                    case TypeDeclarationSyntax type:
+                    {
+                        string typeName = type.Identifier.ValueText;
+                        var typeStack = containingTypes.Concat([typeName]).ToArray();
+                        string fullType = namespaceName.Length == 0
+                            ? string.Join(".", typeStack)
+                            : $"{namespaceName}.{string.Join(".", typeStack)}";
+                        foreach (var indexer in type.Members.OfType<IndexerDeclarationSyntax>().Where(IsBodylessPartial))
+                        {
+                            if (IndexerMetadataName(indexer) is { } metadataName)
+                                names.TryAdd(PartialIndexerKey(fullType, indexer), metadataName);
+                        }
+
+                        AddPartialIndexerNames(type.Members, namespaceName, typeStack, names);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -648,10 +718,29 @@ static class ReturnToSenderSourceProbe
         return null;
     }
 
+    static bool HasPrimaryConstructor(TypeDeclarationSyntax type)
+        => type switch
+        {
+            ClassDeclarationSyntax { ParameterList: not null } => true,
+            StructDeclarationSyntax { ParameterList: not null } => true,
+            RecordDeclarationSyntax { ParameterList: not null } => true,
+            _ => false,
+        };
+
     static bool IsBodylessPartial(MethodDeclarationSyntax method)
         => method.Modifiers.Any(SyntaxKind.PartialKeyword)
             && method.Body is null
             && method.ExpressionBody is null;
+
+    static bool IsBodylessPartial(PropertyDeclarationSyntax property)
+        => property.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && property.ExpressionBody is null
+            && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
+
+    static bool IsBodylessPartial(IndexerDeclarationSyntax indexer)
+        => indexer.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && indexer.ExpressionBody is null
+            && indexer.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
 
     static string? BodyText(ConstructorDeclarationSyntax constructor)
     {
@@ -753,6 +842,64 @@ static class ReturnToSenderSourceProbe
 
     static string NormalizeBody(string text)
         => Regex.Replace(text, @"\s+", "");
+
+    static string IndexerMetadataName(
+        IndexerDeclarationSyntax indexer,
+        TypeDeclarationSyntax declaringType,
+        string fullType,
+        IReadOnlyDictionary<string, string> partialIndexerNames)
+        => IndexerMetadataName(indexer)
+            ?? (partialIndexerNames.TryGetValue(PartialIndexerKey(fullType, indexer), out var partialMetadataName)
+                ? partialMetadataName
+                : null)
+            ?? declaringType.Members
+                .OfType<IndexerDeclarationSyntax>()
+                .Where(candidate => !ReferenceEquals(candidate, indexer)
+                    && IsBodylessPartial(candidate)
+                    && IndexerParametersMatch(candidate, indexer))
+                .Select(IndexerMetadataName)
+                .FirstOrDefault(name => name is not null)
+            ?? "Item";
+
+    static string? IndexerMetadataName(IndexerDeclarationSyntax indexer)
+    {
+        foreach (var attribute in indexer.AttributeLists.SelectMany(list => list.Attributes))
+        {
+            string name = attribute.Name.ToString();
+            if (!name.EndsWith("IndexerName", StringComparison.Ordinal)
+                && !name.EndsWith("IndexerNameAttribute", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is LiteralExpressionSyntax literal
+                && literal.IsKind(SyntaxKind.StringLiteralExpression)
+                && literal.Token.ValueText is { Length: > 0 } value)
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    static string PartialIndexerKey(string fullType, IndexerDeclarationSyntax indexer)
+        => $"{fullType}({string.Join(",", indexer.ParameterList.Parameters.Select(parameter => parameter.Type?.ToString() ?? ""))})";
+
+    static bool IndexerParametersMatch(IndexerDeclarationSyntax left, IndexerDeclarationSyntax right)
+    {
+        var leftParameters = left.ParameterList.Parameters;
+        var rightParameters = right.ParameterList.Parameters;
+        if (leftParameters.Count != rightParameters.Count)
+            return false;
+        for (int i = 0; i < leftParameters.Count; i++)
+        {
+            if (!string.Equals(leftParameters[i].Type?.ToString(), rightParameters[i].Type?.ToString(), StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
+    }
 
     static string OperatorMetadataName(OperatorDeclarationSyntax op)
         => op.OperatorToken.Kind() switch
