@@ -62,9 +62,12 @@ public sealed partial class CSharpPrinter
     string? PointerReceiver(IrExpression? instance)
     {
         return instance?.ResultType is { Kind: TypeRefKind.Pointer }
-            ? new Rendered(Expression(instance), CSharpPrecedence.Of(instance)).At(Precedence.Unary)
+            ? PointerReceiverText(instance)
             : null;
     }
+
+    string PointerReceiverText(IrExpression instance)
+        => new Rendered(Expression(instance), CSharpPrecedence.Of(instance)).At(Precedence.Primary);
 
     string? PointerRefExtensionReceiver(MethodRef method, IrExpression? instance)
     {
@@ -72,7 +75,7 @@ public sealed partial class CSharpPrinter
             return null;
         return method.ParameterTypes is [{ Kind: TypeRefKind.ByRef, ElementType: { } byRefTarget }, ..]
             && pointee.Equals(byRefTarget)
-            ? Operand(instance)
+            ? PointerReceiverText(instance)
             : null;
     }
 

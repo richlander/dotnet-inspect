@@ -412,6 +412,57 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerCastReceiver_ParenthesizesBeforeMemberAccess()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var p = new LoadArgument(0, "p", bytePointer);
+        var cast = new Pipeline.Convert(pointPointer, isChecked: false, isUnsigned: false, p);
+        var field = new FieldRef(point, "X", Int32);
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerCastReceiver",
+            Int32,
+            [new Parameter("p", bytePointer)],
+            [],
+            new Return(new LoadField(field, cast)))).Output!;
+
+        Assert.Contains("((Point*)p)->X", body);
+        Assert.DoesNotContain("(Point*)p->X", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(byte* p)",
+                body,
+                "public struct Point { public int X; }"),
+            body);
+    }
+
+    [Fact]
+    public void Rung6PointerPrefixIncrementReceiver_ParenthesizesBeforeMemberAccess()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var p = new LoadArgument(0, "p", pointPointer);
+        var increment = new IncrementDecrement(p, isIncrement: true, isPrefix: true);
+        var method = new MethodRef(point, "M", Int32, [], HasThis: true);
+        var body = CSharpPrinter.Print(Function(
+            "ReadPointerIncrementReceiver",
+            Int32,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(new Call(method, isVirtual: false, [increment])))).Output!;
+
+        Assert.Contains("(++p)->M()", body);
+        Assert.DoesNotContain("++p->M()", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(Point* p)",
+                body,
+                "public struct Point { public int M() => 1; }"),
+            body);
+    }
+
+    [Fact]
     public void Rung6PointerInheritedObjectMethod_RendersArrowAndRecompiles()
     {
         var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
