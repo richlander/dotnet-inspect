@@ -120,9 +120,10 @@ public sealed partial class CSharpPrinter
         if (pointer.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } element }
             && TryScaledPointerIndex(offset, element, out var index))
         {
+            var demand = CSharpPrecedence.Of(binary);
             text = leftPointer
-                ? $"{Operand(pointer)} {BinaryOperator(binary)} {Expression(index)}"
-                : $"{Expression(index)} {BinaryOperator(binary)} {Operand(pointer)}";
+                ? $"{Operand(pointer)} {BinaryOperator(binary)} {BinaryOperand(index, demand, rightSide: true)}"
+                : $"{BinaryOperand(index, demand, rightSide: false)} {BinaryOperator(binary)} {Operand(pointer)}";
             return true;
         }
         // A pointer to a one-byte element (byte*, sbyte*, bool*) is not scaled by

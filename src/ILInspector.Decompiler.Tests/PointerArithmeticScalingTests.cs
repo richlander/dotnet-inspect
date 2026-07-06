@@ -110,6 +110,38 @@ public class PointerArithmeticScalingTests
     }
 
     [Fact]
+    public void PointerSubtract_AdditiveScaledIndex_ParenthesizesRightOperand()
+    {
+        var index = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(1, "a", Int32),
+            new LoadArgument(2, "b", Int32));
+        var offset = new Binary(
+            BinaryKind.Multiply,
+            isChecked: false,
+            isUnsigned: false,
+            new Convert(NInt, isChecked: false, isUnsigned: false, index),
+            new Constant(4, Int32));
+        var subtract = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", IntPointer),
+            offset);
+        var output = Print(ReturnFunction(
+            IntPointer,
+            subtract,
+            new Parameter("p", IntPointer),
+            new Parameter("a", Int32),
+            new Parameter("b", Int32)));
+
+        Assert.Contains("return p - (a + b);", output);
+        Assert.DoesNotContain("return p - a + b;", output);
+    }
+
+    [Fact]
     public void PointerAdd_NonMultipleConstant_KeepsBytePointerFallback()
     {
         var add = new Binary(
