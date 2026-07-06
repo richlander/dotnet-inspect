@@ -308,7 +308,10 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(typeFilterOption);
         extCommand.Options.Add(opts.Json);
         extCommand.Options.Add(compactOption);
+        opts.AddTableOptionsTo(extCommand);
         extCommand.Options.Add(packagePrefixOption);
+        extCommand.Options.Add(opts.Columns);
+        extCommand.Options.Add(opts.Fields);
         opts.AddCountOptionTo(extCommand);
         opts.AddOutputOptionsTo(extCommand);
         opts.AddNuGetOptionsTo(extCommand);
@@ -365,6 +368,12 @@ public static class SearchCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
+                OneLine = opts.ResolveOneLine(parseResult),
+                Tsv = opts.ResolveTsv(parseResult),
+                Jsonl = opts.ResolveJsonl(parseResult),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 PackagePrefix = packagePrefix,

@@ -95,6 +95,52 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildDetailedChangesView_RendersMemberLevelRowsForJsonl()
+    {
+        var oldType = DiffType("Sample", "Widget", DiffMember("Echo", signature: "string Echo(string value)"));
+        var newType = DiffType("Sample", "Widget", DiffMember("Echo", signature: "string Echo(string value, int repeat)"));
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            "Member 'Echo' signature changed",
+            "string Echo(string value)",
+            "string Echo(string value, int repeat)",
+            Subject: ApiChangeSubject.Member(oldType, oldType.Members.Single(), newType, newType.Members.Single()));
+
+        var view = DiffOutputFormatter.BuildDetailedChangesView(
+            "Sample",
+            [new TypeDiff("Sample.Widget", [change])],
+            "old.dll",
+            "new.dll");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("x", row.Change);
+        Assert.Equal("breaking", row.Classification);
+        Assert.Equal("Widget", row.Type);
+        Assert.StartsWith("Echo~", row.Member);
+        Assert.Equal("MemberSignatureChanged", row.Kind);
+        Assert.Equal("string Echo(string value)", row.Old);
+        Assert.Equal("string Echo(string value, int repeat)", row.New);
+    }
+
+    [Fact]
+    public async Task ApplyFilters_EmptyMemberFilteredDiff_ReportsMemberFilterNotTypeFilter()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            DiffCommand.ApplyFilters(new ApiDiff(), new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Keep"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("member filter matched no changed members", error);
+        Assert.DoesNotContain("type filter matched no changed types", error);
+    }
+
+    [Fact]
     public void BuildApiDiff_UsesResearchSignatureScopeByDefault()
     {
         var oldSurface = DiffSurface(DiffMember("Existing", ["A"]));

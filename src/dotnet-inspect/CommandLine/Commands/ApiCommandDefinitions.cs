@@ -190,7 +190,7 @@ public static class ApiCommandDefinitions
         var callerProjectOption = new Option<string[]>("--project")
         {
             Description = "Source: restored project.assets.json context when no other source is supplied; also scans restored dependencies for inbound callers. Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var callerPackageOption = new Option<string[]>("--caller-package")
         {

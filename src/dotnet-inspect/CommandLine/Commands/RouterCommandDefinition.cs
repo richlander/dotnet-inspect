@@ -50,6 +50,13 @@ public static class RouterCommandDefinition
                 return 1;
             }
 
+            if (ContainsHelpOption(tokens))
+            {
+                Console.Error.WriteLine($"Note: interpreting bare token '{tokens[0]}' as a package or platform target.");
+                Console.Error.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
+                Console.Error.WriteLine();
+            }
+
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
             var rewritten = await RouterTokenRewriter.RewriteAsync(tokens);
             RequestTelemetry.Breadcrumb(
@@ -110,6 +117,9 @@ public static class RouterCommandDefinition
             .Select(candidate => candidate.Command)
             .FirstOrDefault();
     }
+
+    private static bool ContainsHelpOption(IEnumerable<string> tokens)
+        => tokens.Any(token => token is "--help" or "-h" or "-?");
 
     private static class RouterTokenRewriter
     {

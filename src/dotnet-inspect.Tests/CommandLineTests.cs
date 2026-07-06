@@ -1,3 +1,4 @@
+using System.CommandLine;
 using DotnetInspector;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
@@ -1075,11 +1076,42 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void ExtensionsCommand_WithJsonlAfterPackage_DoesNotTreatFlagAsPackage()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["extensions", "ILogger", "--package", "Microsoft.Extensions.Logging.Abstractions", "--jsonl"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var packageOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "--package");
+        var jsonlOption = command.Options.OfType<Option<bool>>().Single(option => option.Name == "--jsonl");
+        var packages = result.GetValue(packageOption) ?? [];
+
+        Assert.Equal(["Microsoft.Extensions.Logging.Abstractions"], packages);
+        Assert.True(result.GetValue(jsonlOption));
+    }
+
+    [Fact]
     public void ExtensionsCommand_WithNoArgs_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions"]);
 
         Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_ProjectOptionConsumesSingleValueSoTrailingSelectorStaysPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["member", "ILogger", "--project", "app.csproj", "Log:1"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var argsArgument = command.Arguments.OfType<Argument<string[]>>().Single(argument => argument.Name == "args");
+        var projectOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "--project");
+
+        Assert.Equal(["ILogger", "Log:1"], result.GetValue(argsArgument) ?? []);
+        Assert.Equal(["app.csproj"], result.GetValue(projectOption) ?? []);
     }
 
     [Fact]

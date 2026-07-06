@@ -3804,6 +3804,29 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Extensions_JsonlAfterPackage_RendersJsonlAndDoesNotWarnAboutPackageFlag()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "--jsonl", "--rows", "-n", "2", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("{", output.TrimStart());
+        Assert.DoesNotContain("# Extension Methods", output);
+    }
+
+    [Fact]
+    public async Task Router_BareHelp_ExplainsPackageRouting()
+    {
+        var (exit, output, error) = await RunAppAsync("frobnicate", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Inspect a NuGet package", output);
+        Assert.Contains("interpreting bare token 'frobnicate' as a package or platform target", error);
+        Assert.Contains("dotnet-inspect --help", error);
+    }
+
+    [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(

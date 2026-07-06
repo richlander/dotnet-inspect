@@ -16,7 +16,7 @@ public static class DiffSections
     public static DocumentSchema CreateSchema()
     {
         return new DocumentSchema()
-            .Add(Changes.Name, "column", "Change", "Type", "Detail")
+            .Add(Changes.Name, "column", "Change", "Classification", "Type", "Member", "Kind", "Detail", "Old", "New")
             .Add(AnalysisDiff.Name, "section", "Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence");
     }
 
