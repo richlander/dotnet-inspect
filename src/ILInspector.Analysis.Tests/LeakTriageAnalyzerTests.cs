@@ -174,6 +174,27 @@ public sealed class LeakTriageAnalyzerTests
             .. Call(TokenSystemMemorySpanClear),
             0x2A,
         ], []);
+        var arrayClear = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            0x16,
+            0x1F, 0x10,
+            .. Call(TokenArrayClear),
+            0x2A,
+        ], []);
+        var spanCopyTo = AnalyzeSyntheticDetailed([
+            .. Call(TokenShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenRent),
+            0x0A,
+            0x06,
+            .. Call(TokenSpanImplicit),
+            .. Call(TokenSpanCopyTo),
+            0x2A,
+        ], []);
 
         Assert.Empty(keepAlive.Findings);
         AssertCandidate(keepAlive, nameof(Synthetic), "cross-method-suppressed");
@@ -186,6 +207,14 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(systemMemorySpanClear.Findings);
         AssertCandidate(systemMemorySpanClear, nameof(Synthetic), "cross-method-suppressed");
         AssertNoCandidate(systemMemorySpanClear, nameof(Synthetic), "exception-path-leak-candidate");
+
+        Assert.Empty(arrayClear.Findings);
+        AssertCandidate(arrayClear, nameof(Synthetic), "cross-method-suppressed");
+        AssertNoCandidate(arrayClear, nameof(Synthetic), "exception-path-leak-candidate");
+
+        Assert.Empty(spanCopyTo.Findings);
+        AssertCandidate(spanCopyTo, nameof(Synthetic), "cross-method-suppressed");
+        AssertNoCandidate(spanCopyTo, nameof(Synthetic), "exception-path-leak-candidate");
     }
 
     [Fact]
@@ -331,6 +360,9 @@ public sealed class LeakTriageAnalyzerTests
     const int TokenArrayCopy = 0x0A000007;
     const int TokenSystemMemoryAsSpan = 0x0A000008;
     const int TokenSystemMemorySpanClear = 0x0A000009;
+    const int TokenArrayClear = 0x0A00000A;
+    const int TokenSpanCopyTo = 0x0A00000B;
+    const int TokenSpanImplicit = 0x0A00000C;
 
     static ImmutableArray<LeakTriageFinding> AnalyzeSynthetic(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
         => AnalyzeSyntheticDetailed(il, exceptionRegions).Findings;
@@ -357,6 +389,9 @@ public sealed class LeakTriageAnalyzerTests
         var byteArray = TypeRef.SzArray(TypeRef.CoreLib("System", "Byte"));
         var systemMemorySpanOfByte = TypeRef.GenericInstance(
             TypeRef.Definition("System.Memory", "System", "Span`1", trustedFrameworkAssembly: true),
+            [TypeRef.CoreLib("System", "Byte")]);
+        var coreLibSpanOfByte = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Span`1"),
             [TypeRef.CoreLib("System", "Byte")]);
 
         return token switch
@@ -385,6 +420,25 @@ public sealed class LeakTriageAnalyzerTests
                 TypeRef.CoreLib("System", "Void"),
                 MemberKind.Method)
             { HasThis = true },
+            TokenArrayClear => new MemberRef(
+                TypeRef.CoreLib("System", "Array"),
+                "Clear",
+                [TypeRef.CoreLib("System", "Array"), TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "Int32")],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            TokenSpanCopyTo => new MemberRef(
+                coreLibSpanOfByte,
+                "CopyTo",
+                [coreLibSpanOfByte],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            { HasThis = true },
+            TokenSpanImplicit => new MemberRef(
+                coreLibSpanOfByte,
+                "op_Implicit",
+                [byteArray],
+                coreLibSpanOfByte,
+                MemberKind.Method),
             _ => MemberRef.Unsupported($"unknown token 0x{token:X8}"),
         };
     }

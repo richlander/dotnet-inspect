@@ -540,7 +540,7 @@ public static class LeakTriageAnalyzer
                     return UseClassification.Release;
                 return UseClassification.CrossMethod(
                     $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
-                    IsNonThrowingSetupBoundary(callee));
+                    IsNonThrowingSetupBoundary(instructions, calls, i, callee));
             }
             return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
         }
@@ -672,7 +672,11 @@ public static class LeakTriageAnalyzer
         => FrameworkIdentity.IsKnownFrameworkType(type, "System.Buffers", "System.Buffers", "ArrayPool`1")
            || FrameworkIdentity.IsCoreLibraryType(type, "System.Buffers", "ArrayPool`1");
 
-    static bool IsNonThrowingSetupBoundary(MemberRef member)
+    static bool IsNonThrowingSetupBoundary(
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        int callIndex,
+        MemberRef member)
     {
         if (member.Kind == MemberKind.Unsupported)
             return false;
@@ -683,6 +687,9 @@ public static class LeakTriageAnalyzer
         if (member.Name == "Copy" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "Array"))
             return true;
 
+        if (member.Name == "Clear" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "Array"))
+            return true;
+
         if (member.Name == "AsSpan"
             && (FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "MemoryExtensions")
                 || FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Memory", "System", "MemoryExtensions")))
@@ -690,7 +697,35 @@ public static class LeakTriageAnalyzer
             return true;
         }
 
+        if (member.Name == "op_Implicit"
+            && member.ParameterTypes.Length == 1
+            && member.ParameterTypes[0].Kind == TypeRefKind.SzArray
+            && IsSpanType(member.ReturnType)
+            && NextCallIsSpanCopyTo(instructions, calls, callIndex))
+        {
+            return true;
+        }
+
         return member.Name == "Clear" && IsSpanType(member.DeclaringType);
+    }
+
+    static bool NextCallIsSpanCopyTo(
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        int callIndex)
+    {
+        for (int i = callIndex + 1; i < instructions.Length; i++)
+        {
+            var instruction = instructions[i];
+            if (instruction.OpCode == ILOpCode.Nop)
+                continue;
+
+            return calls.TryGetValue(instruction.Offset, out var next)
+                && next.Name == "CopyTo"
+                && IsSpanType(next.DeclaringType);
+        }
+
+        return false;
     }
 
     static bool IsSpanType(TypeRef type)
