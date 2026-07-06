@@ -180,16 +180,16 @@ public class ReturnToSenderPrototypeTests
                     Assert.Contains(first.Plan.Types, type => type.Name == "Helper");
                     Assert.Contains(first.Plan.TypeRequirements, requirement =>
                         requirement.Type.DisplayName == "Helper"
-                        && requirement.SourceFacts.Any(fact => fact.Id == "closure-root"
-                            && fact.Producer == "roslyn"
-                            && fact.Detail.StartsWith("CS0246", StringComparison.Ordinal)));
+                        && requirement.SourceFacts.Any(fact => fact.Id == "body-type"
+                            && fact.Producer == "metadata"
+                            && fact.Detail == "Helper"));
                     var evidence = ReturnToSenderClosureEvidenceBuilder.FromPlan(first.Plan);
                     Assert.Equal(2, evidence.RequiredTypes);
-                    Assert.Equal(1, evidence.RoslynRecoveredTypes);
+                    Assert.Equal(0, evidence.RoslynRecoveredTypes);
                     Assert.Contains(evidence.Requirements, requirement =>
                         requirement.Type == "Helper"
-                        && requirement.RoslynRecovered
-                        && requirement.Facts.Any(fact => fact.StartsWith("roslyn/closure-root: CS0246", StringComparison.Ordinal)));
+                        && !requirement.RoslynRecovered
+                        && requirement.Facts.Contains("metadata/body-type: Helper"));
                 },
                 second =>
                 {
@@ -228,7 +228,7 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Helper"
-                && type.SourceFacts.Any(fact => fact.Id == "closure-root" && fact.Producer == "roslyn")
+                && type.SourceFacts.Any(fact => fact.Id == "body-type" && fact.Producer == "metadata")
                 && type.Members.Any(member => member.Name == "Value" && member.Kind == CompileBackMemberKind.PropertyGet)
                 && type.Members.Any(member => member.Name == "Create" && member.Kind == CompileBackMemberKind.Method && member.IsStatic));
             Assert.Contains("public int Value", result.Source);
@@ -260,7 +260,7 @@ public class ReturnToSenderPrototypeTests
             var type = Assert.Single(result.Plan.Types);
             Assert.Contains(type.SourceFacts, fact =>
                 fact.Producer == "roslyn"
-                && fact.Id == "closure-root"
+                && fact.Id == "closure-member"
                 && fact.Detail.StartsWith("CS0103", StringComparison.Ordinal));
             Assert.Contains(type.Members, member => member.Name == "GetValue" && member.Kind == CompileBackMemberKind.Method);
             Assert.Contains("public int GetValue()", result.Source);
@@ -300,7 +300,7 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains(result.Plan.Types, type =>
                 type.Namespace == "Other.Deep"
                 && type.Name == "Helper"
-                && type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root"));
+                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "body-type"));
             Assert.Contains("namespace Other.Deep", result.Source);
             Assert.Contains("public class Helper", result.Source);
         }
@@ -337,11 +337,11 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "A"
-                && type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root")
+                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "body-type")
                 && type.Members.Any(member => member.Name == "Create"));
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "B"
-                && type.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-root")
+                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "body-type")
                 && type.Members.Any(member => member.Name == "Value"));
             Assert.Contains("public static B Create()", result.Source);
             Assert.Contains("public int Value", result.Source);

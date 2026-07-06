@@ -647,11 +647,13 @@ static class ReturnToSender
             allowUnsafe: true);
         var references = CompilationReferences(assemblyPath).ToArray();
         var indexes = ClosureIndexes(reader);
+        var targetRoot = TopLevelRootOf(reader, typeHandle);
         var closureRoots = new HashSet<TypeDefinitionHandle>
         {
-            TopLevelRootOf(reader, typeHandle),
+            targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
+        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -800,11 +802,13 @@ static class ReturnToSender
             allowUnsafe: true);
         var references = CompilationReferences(assemblyPath).ToArray();
         var indexes = ClosureIndexes(reader);
+        var targetRoot = TopLevelRootOf(reader, typeHandle);
         var closureRoots = new HashSet<TypeDefinitionHandle>
         {
-            TopLevelRootOf(reader, typeHandle),
+            targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
+        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -952,11 +956,13 @@ static class ReturnToSender
             allowUnsafe: true);
         var references = CompilationReferences(assemblyPath).ToArray();
         var indexes = ClosureIndexes(reader);
+        var targetRoot = TopLevelRootOf(reader, typeHandle);
         var closureRoots = new HashSet<TypeDefinitionHandle>
         {
-            TopLevelRootOf(reader, typeHandle),
+            targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
+        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -1377,6 +1383,102 @@ static class ReturnToSender
         Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
         Dictionary<TypeDefinitionHandle, string> RootNamespaces);
 
+    static void SeedTypedClosureRoots(
+        MetadataReader reader,
+        IrFunction function,
+        TypeDefinitionHandle targetRoot,
+        HashSet<TypeDefinitionHandle> closureRoots,
+        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+    {
+        string assemblyName = reader.GetString(reader.GetAssemblyDefinition().Name);
+        var definitions = TypeDefinitionsByTypeRefIdentity(reader);
+        foreach (var node in function.Descendants.Prepend(function))
+        {
+            foreach (var type in node.DirectTypes)
+                AddTypedClosureRoot(type);
+            if (node is IrExpression expression)
+                AddTypedClosureRoot(expression.ResultType);
+        }
+
+        void AddTypedClosureRoot(TypeRef? type)
+        {
+            switch (type?.Kind)
+            {
+                case TypeRefKind.Definition:
+                    if (type.Assembly != assemblyName)
+                        return;
+                    string key = TypeRefIdentityKey(type.Namespace, type.Name);
+                    if (!definitions.TryGetValue(key, out var handle))
+                        return;
+                    var root = TopLevelRootOf(reader, handle);
+                    if (root == targetRoot)
+                        return;
+                    if (!IsSupportedClosureRoot(reader, reader.GetTypeDefinition(root)))
+                        return;
+                    closureRoots.Add(root);
+                    AddClosureFact(
+                        closureFacts,
+                        root,
+                        new CompileBackFact("metadata", "body-type", TypeRefIdentityKey(type.Namespace, type.Name, separator: ".")));
+                    break;
+                case TypeRefKind.GenericInstance:
+                    AddTypedClosureRoot(type.ElementType);
+                    foreach (var argument in type.TypeArguments)
+                        AddTypedClosureRoot(argument);
+                    break;
+                case TypeRefKind.SzArray or TypeRefKind.Array
+                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
+                    AddTypedClosureRoot(type.ElementType);
+                    break;
+                case TypeRefKind.FunctionPointer:
+                    AddTypedClosureRoot(type.ElementType);
+                    foreach (var argument in type.TypeArguments)
+                        AddTypedClosureRoot(argument);
+                    break;
+            }
+        }
+    }
+
+    static Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByTypeRefIdentity(MetadataReader reader)
+    {
+        var definitions = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (!IsSupportedClosureRoot(reader, typeDef))
+                continue;
+            var (ns, name) = TypeRefIdentity(reader, handle);
+            definitions.TryAdd(TypeRefIdentityKey(ns, name), handle);
+        }
+
+        return definitions;
+    }
+
+    static (string Namespace, string Name) TypeRefIdentity(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var typeDef = reader.GetTypeDefinition(handle);
+        string name = reader.GetString(typeDef.Name);
+        if (!typeDef.IsNested)
+            return (reader.GetString(typeDef.Namespace), name);
+
+        var declaring = TypeRefIdentity(reader, typeDef.GetDeclaringType());
+        return (declaring.Namespace, $"{declaring.Name}+{name}");
+    }
+
+    static string TypeRefIdentityKey(string ns, string name, string separator = "|")
+        => ns.Length == 0 ? name : $"{ns}{separator}{name}";
+
+    static void AddClosureFact(
+        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        TypeDefinitionHandle root,
+        CompileBackFact fact)
+    {
+        if (!closureFacts.TryGetValue(root, out var facts))
+            closureFacts[root] = facts = [];
+        if (!facts.Contains(fact))
+            facts.Add(fact);
+    }
+
     static ClosureIndex ClosureIndexes(MetadataReader reader)
     {
         var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
@@ -1564,12 +1666,13 @@ static class ReturnToSender
         bool changed = false;
         foreach (var root in roots)
         {
-            changed |= closureRoots.Add(root);
+            bool addedRoot = closureRoots.Add(root);
+            changed |= addedRoot;
 
             if (!closureFacts.TryGetValue(root, out var facts))
                 closureFacts[root] = facts = [];
             var rootFact = new CompileBackFact("roslyn", "closure-root", $"{diagnostic.Id}: {detail}");
-            if (!facts.Contains(rootFact))
+            if (addedRoot && !facts.Contains(rootFact))
             {
                 facts.Add(rootFact);
                 changed = true;
