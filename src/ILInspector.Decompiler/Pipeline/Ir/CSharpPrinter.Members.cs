@@ -59,6 +59,28 @@ public sealed partial class CSharpPrinter
             ? Operand(instance)
             : null;
 
+    string? PointerMethodReceiver(MethodRef method, IrExpression? instance)
+    {
+        if (instance?.ResultType is not { Kind: TypeRefKind.Pointer, ElementType: { } pointee })
+            return null;
+        return pointee.Equals(method.DeclaringType) || IsCoreObjectOrValueType(method.DeclaringType)
+            ? Operand(instance)
+            : null;
+    }
+
+    string? PointerRefExtensionReceiver(MethodRef method, IrExpression? instance)
+    {
+        if (instance?.ResultType is not { Kind: TypeRefKind.Pointer, ElementType: { } pointee })
+            return null;
+        return method.ParameterTypes is [{ Kind: TypeRefKind.ByRef, ElementType: { } byRefTarget }, ..]
+            && pointee.Equals(byRefTarget)
+            ? Operand(instance)
+            : null;
+    }
+
+    static bool IsCoreObjectOrValueType(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" or "ValueType" };
+
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {
         if (PointerMemberReceiver(accessor.DeclaringType, instance) is { } pointerReceiver)
@@ -180,7 +202,7 @@ public sealed partial class CSharpPrinter
             return $"{TypeText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
             return name;
-        if (PointerMemberReceiver(method.DeclaringType, target) is { } pointerReceiver)
+        if (PointerMethodReceiver(method, target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
     }
@@ -220,15 +242,17 @@ public sealed partial class CSharpPrinter
             // between the two forms (taste rule case 3), and the runtime writes the
             // instance form; only sugar on confirmed [Extension] evidence, and drop
             // the receiver from the parameter pairing (it is parameter 0).
-            if (call.Callee.IsExtension == MetadataFactState.Yes
-                && arguments.Count >= 1
-                && arguments[0].ResultType is not { Kind: TypeRefKind.Pointer })
+            if (call.Callee.IsExtension == MetadataFactState.Yes && arguments.Count >= 1)
             {
                 IReadOnlyList<TypeRef> restTypes = [.. call.Callee.ParameterTypes.Skip(1)];
                 var restRefKinds = call.Callee.ParameterRefKinds.IsDefaultOrEmpty
                     ? call.Callee.ParameterRefKinds
                     : [.. call.Callee.ParameterRefKinds.Skip(1)];
                 string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
+                if (PointerRefExtensionReceiver(call.Callee, arguments[0]) is { } extensionReceiver)
+                    return $"{extensionReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
+                if (arguments[0].ResultType is { Kind: TypeRefKind.Pointer })
+                    return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
                 return $"{ReceiverText(arguments[0])}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
             }
             // A static abstract/virtual interface member invoked through a type
@@ -263,7 +287,7 @@ public sealed partial class CSharpPrinter
                 ? $"base.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})"
                 : $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         }
-        if (PointerMemberReceiver(call.Callee.DeclaringType, receiver) is { } pointerReceiver)
+        if (PointerMethodReceiver(call.Callee, receiver) is { } pointerReceiver)
             return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
     }

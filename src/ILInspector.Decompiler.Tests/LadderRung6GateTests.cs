@@ -312,6 +312,88 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6PointerInheritedObjectMethod_RendersArrowAndRecompiles()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var toString = new MethodRef(TypeRef.CoreLib("System", "Object"), "ToString", String, [], HasThis: true);
+        var body = CSharpPrinter.Print(Function(
+            "PointerToString",
+            String,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(new Call(toString, isVirtual: true, [new LoadArgument(0, "p", pointPointer)])))).Output!;
+
+        Assert.Contains("return p->ToString();", body);
+        Assert.DoesNotContain("p.ToString()", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe string M(Point* p)",
+                body,
+                "public struct Point { public int X; }"),
+            body);
+    }
+
+    [Fact]
+    public void Rung6PointerRefExtensionMethod_RendersArrowAndRecompiles()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var extension = new MethodRef(TypeRef.Definition("Synthetic", "", "Extensions"), "ExtRef", Int32, [TypeRef.ByRef(point)], HasThis: false)
+        {
+            IsExtension = MetadataFactState.Yes,
+        };
+        var body = CSharpPrinter.Print(Function(
+            "PointerRefExtension",
+            Int32,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(new Call(extension, isVirtual: false, [new LoadArgument(0, "p", pointPointer)])))).Output!;
+
+        Assert.Contains("return p->ExtRef();", body);
+        Assert.DoesNotContain("Extensions.ExtRef(ref p)", body);
+        Assert.DoesNotContain("p.ExtRef()", body);
+        AssertNoErrors(
+            RecompileNewRules(
+                "static unsafe int M(Point* p)",
+                body,
+                """
+                public struct Point { public int X; }
+                public static class Extensions
+                {
+                    public static int ExtRef(this ref Point p) => p.X;
+                }
+                """),
+            body);
+    }
+
+    [Fact]
+    public void Rung6PointerReceiver_DoesNotRaiseNullConditional()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var name = new FieldRef(point, "Name", String);
+        var p = new LoadArgument(0, "p", pointPointer);
+        var conditional = new Conditional(
+            p,
+            new LoadField(name, (IrExpression)p.Clone()),
+            new Constant(null, String))
+        {
+            MergedType = String,
+        };
+        var function = Function(
+            "PointerNullConditionalDeclines",
+            String,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(conditional));
+
+        new NullConditionalPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NullConditional>());
+    }
+
+    [Fact]
     public void Rung6ByRefFixture_PreservesRefKinds()
     {
         using var pe = new PEReader(File.OpenRead(ByRefFixturePath));
@@ -474,6 +556,7 @@ public class LadderRung6GateTests
     }
 
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef IntPointer = TypeRef.Pointer(Int32);
     static readonly TypeRef PinnedRefInt = TypeRef.Pinned(TypeRef.ByRef(Int32));
