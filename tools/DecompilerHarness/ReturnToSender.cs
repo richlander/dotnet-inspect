@@ -1500,7 +1500,7 @@ static class ReturnToSender
                 return;
             if (!closureMemberRequirements.TryGetValue(root, out var requirements))
                 closureMemberRequirements[root] = requirements = [];
-            if (!requirements.Contains(requirement))
+            if (!requirements.Any(existing => existing.Kind == requirement.Kind && existing.Identity == requirement.Identity))
                 requirements.Add(requirement);
         }
 

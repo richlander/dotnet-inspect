@@ -246,6 +246,38 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_DeduplicatesRepeatedPreciseClosureMembers()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public int Value => 42;
+                public static Helper Create() => new Helper();
+            }
+
+            public class Class1
+            {
+                public int FromHelper => Helper.Create().Value + Helper.Create().Value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+                .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var helper = Assert.Single(result.Plan.Types, type => type.Name == "Helper");
+            Assert.Equal(1, helper.Members.Count(member => member.Name == "Value" && member.Kind == CompileBackMemberKind.PropertyGet));
+            Assert.Equal(1, helper.Members.Count(member => member.Name == "Create" && member.Kind == CompileBackMemberKind.Method));
+            Assert.DoesNotContain("already contains a definition", result.Detail ?? "");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_EmitsClosureConstructorRequirement()
     {
         var assemblyPath = CompileFixture("""
