@@ -8,9 +8,11 @@ using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using LegacyStringPinning = ILInspector.Decompiler.Fixtures.LegacyUnsafe.StringPinningResiduals;
 using LegacyStackallocInitializers = ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals;
 using LegacyUnsafe = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewStackallocInitializers = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
+using NewStringPinning = ILInspector.Decompiler.Fixtures.NewUnsafe.StringPinningResiduals;
 using NewUnsafe = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
 
 namespace ILInspector.Decompiler.Tests;
@@ -32,6 +34,10 @@ public class LadderRung6GateTests
     static readonly string LegacyUnsafeType = typeof(LegacyUnsafe).FullName!;
     static readonly string ByRefFixturePath = FixtureCatalog.DecompilerLadderRung4.AssemblyPath();
     static readonly string ByRefFixtureType = typeof(LadderRung4.CSharp7LocalSyntax).FullName!;
+    static readonly string FixedBufferFixturePath = typeof(FixedBufferSkeletonFixture).Assembly.Location;
+    static readonly string FixedBufferFixtureType = typeof(FixedBufferSkeletonFixture).FullName!;
+    static readonly string StringPinningType = typeof(NewStringPinning).FullName!;
+    static readonly string LegacyStringPinningType = typeof(LegacyStringPinning).FullName!;
     static readonly string StackallocInitializerType = typeof(NewStackallocInitializers).FullName!;
     static readonly string LegacyStackallocInitializerType = typeof(LegacyStackallocInitializers).FullName!;
 
@@ -219,6 +225,27 @@ public class LadderRung6GateTests
         var raisedPinnedOutput = CSharpPrinter.Print(raisedPinned).Output;
         Assert.Contains("fixed (int* V_0 = ", raisedPinnedOutput);
         Assert.DoesNotContain("pinned", raisedPinnedOutput);
+    }
+
+    [Fact]
+    public void Rung6FixedBufferAndStringPinningResiduals_DegradeHonestly()
+    {
+        var fixedBuffer = LoadRaisedMembers(FixedBufferFixturePath, FixedBufferFixtureType)
+            .Single(m => m.Name == "SumFirstTwo");
+        Assert.Equal(DecompilationFidelity.Partial, fixedBuffer.Function.Fidelity);
+        Assert.Contains(FidelityRemarks.Collect(fixedBuffer.Function), r => r.Code == DiagnosticIds.UnrepresentableMetadataName);
+        Assert.Contains("FixedElementField", fixedBuffer.Body);
+
+        AssertStringPinningResidual(NewUnsafePath, StringPinningType);
+        AssertStringPinningResidual(LegacyUnsafePath, LegacyStringPinningType);
+    }
+
+    static void AssertStringPinningResidual(string assemblyPath, string typeName)
+    {
+        var member = LoadRaisedMembers(assemblyPath, typeName)
+            .Single(m => m.Name == "FixedStringFirstChar");
+        Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
+        Assert.Contains("pinned ref char", member.Body);
     }
 
     [Fact]

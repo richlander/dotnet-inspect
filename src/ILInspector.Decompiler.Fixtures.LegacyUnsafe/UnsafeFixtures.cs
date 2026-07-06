@@ -3,6 +3,15 @@ namespace ILInspector.Decompiler.Fixtures.LegacyUnsafe;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+public static class StringPinningResiduals
+{
+    public static unsafe int FixedStringFirstChar(string value)
+    {
+        fixed (char* p = value)
+            return p[0];
+    }
+}
+
 public static class StackallocInitializerResiduals
 {
     public static unsafe int StackallocPointerInitializer()
