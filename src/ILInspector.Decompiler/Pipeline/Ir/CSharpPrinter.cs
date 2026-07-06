@@ -226,11 +226,17 @@ public sealed partial class CSharpPrinter
             PreferFrameworkTypeImports = true,
         };
 
-    void AddDecision(string ruleId, string category, string subject, string detail)
+    void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
     {
-        string key = $"{ruleId}\0{category}\0{subject}\0{detail}";
+        string key = $"{ruleId}\0{category}\0{subject}\0{detail}\0{oldValue}\0{newValue}";
         if (_decisionKeys.Add(key))
-            _decisions.Add(new DecompilerDecision(ruleId, category, subject, detail));
+        {
+            _decisions.Add(new DecompilerDecision(ruleId, category, subject, detail)
+            {
+                OldValue = oldValue,
+                NewValue = newValue,
+            });
+        }
     }
 
     /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
@@ -3499,23 +3505,58 @@ public sealed partial class CSharpPrinter
 
     void RecordFrameworkTypeImportDecision(TypeRef type, string rendered)
     {
+        foreach (var nested in DescendantTypes(type))
+            RecordFrameworkTypeImportDecisionCore(nested, rendered);
+    }
+
+    void RecordFrameworkTypeImportDecisionCore(TypeRef type, string rendered)
+    {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
         if (definition is not { Kind: TypeRefKind.Definition, Namespace.Length: > 0 })
             return;
         if (!IsFrameworkNamespace(definition.Namespace))
             return;
-        string fullName = $"{definition.Namespace}.{CSharpNaming.TypeNameSegment(definition.Name)}";
+        string fullName = FrameworkMetadataName(definition);
+        string simpleName = CSharpNaming.TypeNameSegment(definition.Name);
         if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
             return;
-        if (!rendered.Contains(CSharpNaming.TypeNameSegment(definition.Name), StringComparison.Ordinal))
+        if (!rendered.Contains(simpleName, StringComparison.Ordinal))
             return;
 
         AddDecision(
             "type-name.framework-imported",
             "taste",
             fullName,
-            $"Rendered framework type '{fullName}' as imported/simple name '{rendered}'.");
+            $"Rendered framework type '{fullName}' as imported/simple name '{simpleName}'.",
+            oldValue: FrameworkSourceName(definition),
+            newValue: simpleName);
     }
+
+    static IEnumerable<TypeRef> DescendantTypes(TypeRef type)
+    {
+        yield return type;
+        if (type.ElementType is { } element)
+        {
+            foreach (var descendant in DescendantTypes(element))
+                yield return descendant;
+        }
+        foreach (var argument in type.TypeArguments)
+        {
+            foreach (var descendant in DescendantTypes(argument))
+                yield return descendant;
+        }
+    }
+
+    static string FrameworkMetadataName(TypeRef type)
+        => type.Namespace.Length == 0 ? CSharpNaming.TypeNameSegment(type.Name) : $"{type.Namespace}.{type.Name}";
+
+    static string FrameworkSourceName(TypeRef type)
+        => type.Namespace.Length == 0
+            ? TypeNamePath(type.Name)
+            : $"{type.Namespace}.{TypeNamePath(type.Name)}";
+
+    static string TypeNamePath(string metadataName)
+        => string.Join(".", metadataName.Split('+').Select(CSharpNaming.TypeNameSegment));
 
     static bool IsFrameworkNamespace(string ns)
         => ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal);

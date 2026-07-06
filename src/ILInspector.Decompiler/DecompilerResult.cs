@@ -63,7 +63,11 @@ public sealed record DecompilerDecision(
     string RuleId,
     string Category,
     string Subject,
-    string Detail);
+    string Detail)
+{
+    public string? OldValue { get; init; }
+    public string? NewValue { get; init; }
+}
 
 /// <summary>Stable diagnostic identifiers. Never renumber or reuse.</summary>
 public static class DiagnosticIds

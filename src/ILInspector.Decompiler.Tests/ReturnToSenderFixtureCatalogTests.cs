@@ -171,6 +171,56 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteMatchesGenericFrameworkTypes()
+    {
+        var decision = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Collections.Generic.List`1",
+            "test decision")
+        {
+            OldValue = "System.Collections.Generic.List",
+            NewValue = "List",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Collections.Generic.List<int> values = null;",
+            "List<int> values = null;",
+            [decision],
+            out _));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KnownTasteUsesMostSpecificNestedFrameworkType()
+    {
+        var environment = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Environment",
+            "environment decision")
+        {
+            OldValue = "System.Environment",
+            NewValue = "Environment",
+        };
+        var specialFolder = new DecompilerDecision(
+            "type-name.framework-imported",
+            "taste",
+            "System.Environment+SpecialFolder",
+            "special folder decision")
+        {
+            OldValue = "System.Environment.SpecialFolder",
+            NewValue = "SpecialFolder",
+        };
+
+        Assert.True(TryKnownTasteDifferenceForTest(
+            "System.Environment.SpecialFolder folder = System.Environment.SpecialFolder.ApplicationData;",
+            "SpecialFolder folder = SpecialFolder.ApplicationData;",
+            [environment, specialFolder],
+            out var detail));
+        Assert.Contains("special folder", detail);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_IndexesPartialClassOverloadsAcrossSourceFiles()
     {
         var fixture = CompileSourceFixture(
