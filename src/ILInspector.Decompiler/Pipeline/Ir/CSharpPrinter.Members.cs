@@ -6,37 +6,41 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed partial class CSharpPrinter
 {
     string FieldTarget(FieldRef field, IrExpression? instance)
-    {        // An auto-property backing field, <Prop>k__BackingField, has no spellable
+    {
+        string fieldName = CSharpNaming.EscapeIdentifier(field.Name);
+        string memberName = field.BackingPropertyName is { } property
+            ? CSharpNaming.EscapeIdentifier(property)
+            : CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture
+                ? CSharpNaming.EscapeIdentifier(capture)
+                : fieldName;
+        if (PointerMemberReceiver(instance, field.DeclaringType) is { } pointerReceiver)
+            return $"{pointerReceiver}->{memberName}";
+
+        // An auto-property backing field, <Prop>k__BackingField, has no spellable
         // C# name; render it as the property it backs. `this.` qualifies the
         // instance form so a constructor assignment whose parameter shadows the
         // property still binds to it (and is legal even for a get-only property).
-        if (field.BackingPropertyName is { } property)
+        if (field.BackingPropertyName is { } backedProperty)
             return instance switch
             {
-                null => $"{TypeText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
-                LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.EscapeIdentifier(property)}",
-                _ => $"{ReceiverText(instance)}.{CSharpNaming.EscapeIdentifier(property)}",
+                null => $"{TypeText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(backedProperty)}",
+                LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.EscapeIdentifier(backedProperty)}",
+                _ => $"{ReceiverText(instance)}.{CSharpNaming.EscapeIdentifier(backedProperty)}",
             };
         // A C# 12 primary-constructor capture field, <param>P, has no spellable C#
         // name; its source spelling is the primary-constructor parameter, which is
         // in scope across the whole type. Render it as an ordinary field named for
         // the parameter, with the same shadow qualification (the constructor's own
         // parameter shadows it, so `this.` reaches the field).
-        if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture)
+        if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } captureName)
         {
-            string captured = CSharpNaming.EscapeIdentifier(capture);
+            string captured = CSharpNaming.EscapeIdentifier(captureName);
             return instance switch
             {
                 null => $"{TypeText(field.DeclaringType)}.{captured}",
-                LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(capture) ? $"this.{captured}" : captured,
+                LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(captureName) ? $"this.{captured}" : captured,
                 _ => $"{ReceiverText(instance)}.{captured}",
             };
-        }
-        string fieldName = CSharpNaming.EscapeIdentifier(field.Name);
-        if (instance?.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } pointee }
-            && pointee.Equals(field.DeclaringType))
-        {
-            return $"{Operand(instance)}->{fieldName}";
         }
         return instance switch
         {
@@ -52,6 +56,14 @@ public sealed partial class CSharpPrinter
 
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {
+        string escapedName = CSharpNaming.EscapeIdentifier(name);
+        if (PointerMemberReceiver(instance, accessor.DeclaringType) is { } pointerReceiver)
+        {
+            return indexArguments.Count == 0
+                ? $"{pointerReceiver}->{escapedName}"
+                : $"(*{pointerReceiver})[{Arguments(indexArguments)}]";
+        }
+
         string receiver = instance switch
         {
             // A NON-virtual this-receiver access to a base-declared member is
@@ -70,10 +82,15 @@ public sealed partial class CSharpPrinter
         // whatever its metadata name (String's is Chars, not Item).
         if (instance is not null && indexArguments.Count > 0)
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
-        string escapedName = CSharpNaming.EscapeIdentifier(name);
         string dotted = receiver.Length == 0 ? escapedName : $"{receiver}.{escapedName}";
         return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
     }
+
+    string? PointerMemberReceiver(IrExpression? instance, TypeRef declaringType)
+        => instance?.ResultType is { Kind: TypeRefKind.Pointer, ElementType: { } pointee }
+            && pointee.Equals(declaringType)
+            ? Operand(instance)
+            : null;
 
     bool QualifyThisMember(string memberName, TypeRef? valueType)
         => IsShadowedByLocal(memberName) || MemberNameCollidesWithTypeName(memberName, valueType);

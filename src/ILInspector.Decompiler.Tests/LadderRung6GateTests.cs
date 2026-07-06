@@ -175,6 +175,9 @@ public class LadderRung6GateTests
         var pointPointer = TypeRef.Pointer(point);
         var fieldX = new FieldRef(point, "X", Int32);
         var fieldY = new FieldRef(point, "Y", Int32);
+        var backingField = new FieldRef(point, "<Value>k__BackingField", Int32) { BackingPropertyName = "Value" };
+        var captureField = new FieldRef(point, "<seed>P", Int32);
+        var getter = new MethodRef(point, "get_Total", Int32, [], HasThis: true);
         var p = new LoadArgument(0, "p", pointPointer);
         var body = CSharpPrinter.Print(Function(
             "ReadPointerField",
@@ -190,17 +193,26 @@ public class LadderRung6GateTests
                     isUnsigned: false,
                     new LoadField(fieldX, (IrExpression)p.Clone()),
                     new LoadField(fieldY, (IrExpression)p.Clone()))),
+            new ExpressionStatement(new LoadField(backingField, (IrExpression)p.Clone())),
+            new ExpressionStatement(new LoadField(captureField, (IrExpression)p.Clone())),
+            new ExpressionStatement(new LoadProperty(getter, (IrExpression)p.Clone(), [])),
             new Return(new LoadField(fieldX, (IrExpression)p.Clone())))).Output!;
 
         Assert.Contains("p->X += p->Y;", body);
+        Assert.Contains("_ = p->Value;", body);
+        Assert.Contains("_ = p->seed;", body);
+        Assert.Contains("_ = p->Total;", body);
         Assert.Contains("return p->X;", body);
         Assert.DoesNotContain("p.X", body);
         Assert.DoesNotContain("p.Y", body);
+        Assert.DoesNotContain("p.Value", body);
+        Assert.DoesNotContain("p.seed", body);
+        Assert.DoesNotContain("p.Total", body);
         AssertNoErrors(
             RecompileNewRules(
                 "static unsafe int M(Point* p)",
                 body,
-                "public struct Point { public int X; public int Y; }"),
+                "public struct Point { public int X; public int Y; public int Value { get; } public int seed; public int Total { get; } }"),
             body);
     }
 
