@@ -653,7 +653,8 @@ static class ReturnToSender
             targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts);
+        var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
+        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -673,7 +674,8 @@ static class ReturnToSender
                 overload,
                 CorpusMethodIdentity.SignatureText(function.Signature),
                 closureRoots,
-                closureFacts);
+                closureFacts,
+                closureMemberRequirements);
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -757,7 +759,8 @@ static class ReturnToSender
                 overload,
                 CorpusMethodIdentity.SignatureText(function.Signature),
                 closureRoots,
-                closureFacts);
+                closureFacts,
+                closureMemberRequirements);
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -808,7 +811,8 @@ static class ReturnToSender
             targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts);
+        var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
+        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -827,7 +831,8 @@ static class ReturnToSender
                 overload,
                 CorpusMethodIdentity.SignatureText(function.Signature),
                 closureRoots,
-                closureFacts);
+                closureFacts,
+                closureMemberRequirements);
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -910,7 +915,8 @@ static class ReturnToSender
                 overload,
                 CorpusMethodIdentity.SignatureText(function.Signature),
                 closureRoots,
-                closureFacts);
+                closureFacts,
+                closureMemberRequirements);
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -962,7 +968,8 @@ static class ReturnToSender
             targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts);
+        var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
+        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -982,7 +989,8 @@ static class ReturnToSender
                 overload,
                 CorpusMethodIdentity.SignatureText(function.Signature),
                 closureRoots,
-                closureFacts);
+                closureFacts,
+                closureMemberRequirements);
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1066,7 +1074,8 @@ static class ReturnToSender
                 overload,
                 CorpusMethodIdentity.SignatureText(function.Signature),
                 closureRoots,
-                closureFacts);
+                closureFacts,
+                closureMemberRequirements);
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -1388,7 +1397,8 @@ static class ReturnToSender
         IrFunction function,
         TypeDefinitionHandle targetRoot,
         HashSet<TypeDefinitionHandle> closureRoots,
-        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
     {
         string assemblyName = reader.GetString(reader.GetAssemblyDefinition().Name);
         var definitions = TypeDefinitionsByTypeRefIdentity(reader);
@@ -1461,14 +1471,38 @@ static class ReturnToSender
             AddClosureFact(
                 closureFacts,
                 root,
-                new CompileBackFact("metadata", "closure-member", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
+                new CompileBackFact("metadata", "typed-member-ref", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
         }
 
         void AddMethodFact(MethodRef method)
-            => AddMemberFact(method.DeclaringType, "method", method.Name);
+        {
+            AddMemberFact(method.DeclaringType, "method", method.Name);
+            AddMemberRequirement(method.DeclaringType, root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method));
+        }
 
         void AddFieldFact(FieldRef field)
-            => AddMemberFact(field.DeclaringType, "field", field.Name);
+        {
+            AddMemberFact(field.DeclaringType, "field", field.Name);
+            AddMemberRequirement(field.DeclaringType, root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, field));
+        }
+
+        void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create)
+        {
+            var definition = declaringType.Kind == TypeRefKind.GenericInstance
+                ? declaringType.ElementType ?? declaringType
+                : declaringType;
+            if (TryResolveHandle(definition) is not { } handle)
+                return;
+            var root = TopLevelRootOf(reader, handle);
+            if (root == targetRoot || root != handle)
+                return;
+            if (create(handle) is not { } requirement)
+                return;
+            if (!closureMemberRequirements.TryGetValue(root, out var requirements))
+                closureMemberRequirements[root] = requirements = [];
+            if (!requirements.Any(existing => existing.Kind == requirement.Kind && existing.Identity == requirement.Identity))
+                requirements.Add(requirement);
+        }
 
         void AddTypedClosureMemberFacts(IrNode node)
         {

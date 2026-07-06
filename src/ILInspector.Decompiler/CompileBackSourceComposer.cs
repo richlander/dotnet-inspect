@@ -279,6 +279,18 @@ public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, 
 
 public static class CompileBackSourceComposer
 {
+    public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodRef method)
+        => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, method);
+
+    public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        FieldRef field)
+        => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, field);
+
     public static CompileBackSourceResult ComposePropertyGetter(
         string assemblyPath,
         MetadataReader reader,
@@ -292,7 +304,8 @@ public static class CompileBackSourceComposer
         int overload,
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -360,7 +373,9 @@ public static class CompileBackSourceComposer
             requirements.Add(new CompileBackTypeRequirement(
                 dependencyIdentity,
                 ShellKind(reader, dependencyDef),
-                RequiredMembers: [],
+                RequiredMembers: closureMemberRequirements.TryGetValue(dependency, out var requiredMembers)
+                    ? requiredMembers.ToArray()
+                    : [],
                 PrimaryConstructor: null,
                 SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
                     ? facts.ToArray()
@@ -401,7 +416,8 @@ public static class CompileBackSourceComposer
         int overload,
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -466,7 +482,9 @@ public static class CompileBackSourceComposer
             requirements.Add(new CompileBackTypeRequirement(
                 dependencyIdentity,
                 ShellKind(reader, dependencyDef),
-                RequiredMembers: [],
+                RequiredMembers: closureMemberRequirements.TryGetValue(dependency, out var requiredMembers)
+                    ? requiredMembers.ToArray()
+                    : [],
                 PrimaryConstructor: null,
                 SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
                     ? facts.ToArray()
@@ -506,7 +524,8 @@ public static class CompileBackSourceComposer
         int overload,
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
@@ -582,7 +601,9 @@ public static class CompileBackSourceComposer
             requirements.Add(new CompileBackTypeRequirement(
                 dependencyIdentity,
                 ShellKind(reader, dependencyDef),
-                RequiredMembers: [],
+                RequiredMembers: closureMemberRequirements.TryGetValue(dependency, out var requiredMembers)
+                    ? requiredMembers.ToArray()
+                    : [],
                 PrimaryConstructor: null,
                 SourceFacts: closureFacts.TryGetValue(dependency, out var facts)
                     ? facts.ToArray()
@@ -1871,6 +1892,58 @@ public static class CompileBackSourceComposer
 
     sealed class TypeProducer
     {
+        public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            MethodRef methodRef)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            if (TryFindPropertyForAccessor(reader, typeDef, methodRef) is { } propertyHandle)
+                return PropertyRequirement(reader, typeDef, typeIdentity, propertyHandle, methodRef.Name);
+            if (TryFindMethod(reader, typeDef, methodRef) is { } methodHandle)
+                return MethodRequirement(reader, typeDef, typeIdentity, methodHandle);
+            return null;
+        }
+
+        public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            FieldRef fieldRef)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
+                return null;
+            var field = reader.GetFieldDefinition(fieldHandle);
+            string fieldType;
+            try
+            {
+                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+
+            if (IsUnsupportedSurfaceSignature(fieldType))
+                return null;
+
+            string fieldName = reader.GetString(field.Name);
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(fieldName), 0, $"field {fieldType}"),
+                CompileBackMemberKind.Field,
+                field.Attributes.HasFlag(FieldAttributes.Static),
+                [],
+                CompileBackTypeSignature.Display(fieldType),
+                [],
+                TryFormatConstantField(reader, field, out var constant)
+                    ? CompileBackStubBodyKind.TargetBody
+                    : CompileBackStubBodyKind.None,
+                constant,
+                [new CompileBackFact("metadata", "typed-closure-field", fieldName)]);
+        }
+
         public static IReadOnlyList<CompileBackTypeDeclaration> Produce(
             MetadataReader reader,
             IReadOnlyList<CompileBackTypeRequirement> requirements,
@@ -1910,6 +1983,208 @@ public static class CompileBackSourceComposer
             }
 
             return shells;
+        }
+
+        static PropertyDefinitionHandle? TryFindPropertyForAccessor(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            MethodRef methodRef)
+        {
+            if (!methodRef.Name.StartsWith("get_", StringComparison.Ordinal)
+                && !methodRef.Name.StartsWith("set_", StringComparison.Ordinal))
+                return null;
+
+            foreach (var propertyHandle in typeDef.GetProperties())
+            {
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                var accessors = property.GetAccessors();
+                var accessorHandle = methodRef.Name.StartsWith("get_", StringComparison.Ordinal)
+                    ? accessors.Getter
+                    : accessors.Setter;
+                if (accessorHandle.IsNil)
+                    continue;
+                var accessor = reader.GetMethodDefinition(accessorHandle);
+                if (!MethodMatches(reader, typeDef, accessor, methodRef))
+                    continue;
+                return propertyHandle;
+            }
+
+            return null;
+        }
+
+        static MethodDefinitionHandle? TryFindMethod(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            MethodRef methodRef)
+        {
+            var matches = new List<MethodDefinitionHandle>();
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (!MethodMatches(reader, typeDef, method, methodRef))
+                    continue;
+                matches.Add(methodHandle);
+            }
+
+            return matches.Count == 1 ? matches[0] : null;
+        }
+
+        static bool MethodMatches(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            MethodDefinition method,
+            MethodRef methodRef)
+        {
+            if (reader.GetString(method.Name) != methodRef.Name)
+                return false;
+            if (method.GetGenericParameters().Count != methodRef.TypeArguments.Length)
+                return false;
+            try
+            {
+                var signature = method.DecodeSignature(TypeRefDecoder.Instance, IrImporter.CallerScope(reader, typeDef, method));
+                return signature.ParameterTypes.Length == methodRef.ParameterTypes.Length
+                    && signature.ParameterTypes.SequenceEqual(methodRef.ParameterTypes);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        static CompileBackMemberRequirement? PropertyRequirement(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            CompileBackTypeIdentity typeIdentity,
+            PropertyDefinitionHandle propertyHandle,
+            string accessorName)
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
+            string propertyName = reader.GetString(property.Name);
+            if (propertyName.Contains('<', StringComparison.Ordinal)
+                || propertyName.Contains('.', StringComparison.Ordinal))
+                return null;
+
+            MetadataPropertyDeclaration propertyDeclaration;
+            try
+            {
+                propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, typeDef, property);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+
+            if (propertyDeclaration.Signature.ReturnType is not { } propertyReturnType
+                || IsUnsupportedSurfaceSignature(propertyReturnType))
+                return null;
+
+            var accessor = accessorName.StartsWith("get_", StringComparison.Ordinal) ? accessors.Getter : accessors.Setter;
+            var accessorMethod = accessor.IsNil ? default : reader.GetMethodDefinition(accessor);
+            bool isStatic = !accessor.IsNil && accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
+            var returnType = CompileBackTypeSignature.Display(propertyReturnType);
+            bool isAutoProperty = !accessors.Getter.IsNil
+                && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
+            bool hasSetter = !accessors.Setter.IsNil;
+            bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
+            var noBodyProperty = (typeDef.Attributes & TypeAttributes.Interface) != 0 || isAbstractAccessor;
+            var stubBody = noBodyProperty
+                ? hasSetter
+                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    : CompileBackStubBodyKind.None
+                : hasSetter && isAutoProperty
+                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    : isAutoProperty
+                        ? CompileBackStubBodyKind.AutoProperty
+                        : hasSetter
+                            ? CompileBackStubBodyKind.ThrowGetSet
+                            : CompileBackStubBodyKind.Throw;
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
+                CompileBackMemberKind.PropertyGet,
+                isStatic,
+                ToCompileBackParameters(propertyDeclaration.Signature.Parameters),
+                returnType,
+                [],
+                stubBody,
+                null,
+                [new CompileBackFact("metadata", "typed-closure-property", accessorName)],
+                propertyDeclaration.Attributes,
+                propertyDeclaration.Signature.ReturnAttributes,
+                IsAbstract: isAbstractAccessor,
+                IsVirtual: !accessor.IsNil && propertyDeclaration.IsVirtual);
+        }
+
+        static CompileBackMemberRequirement? MethodRequirement(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            CompileBackTypeIdentity typeIdentity,
+            MethodDefinitionHandle methodHandle)
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            string name = reader.GetString(method.Name);
+            bool isConstructor = name == ".ctor";
+            if (name == ".cctor"
+                || name.Contains('<', StringComparison.Ordinal)
+                || (!isConstructor && name.Contains('.', StringComparison.Ordinal)))
+                return null;
+
+            if (!isConstructor && method.Attributes.HasFlag(MethodAttributes.SpecialName))
+                return null;
+
+            MethodSignature<string> signature;
+            try
+            {
+                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+
+            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+            var parameters = ToCompileBackParameters(methodDeclaration.Signature.Parameters);
+            if (methodDeclaration.Signature.ReturnType is not { } methodReturnType
+                || IsUnsupportedSurfaceSignature(methodReturnType)
+                || parameters.Any(parameter => IsUnsupportedSurfaceSignature(parameter.Type.DisplayName)))
+            {
+                return null;
+            }
+
+            string identifierName = Identifier(name);
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(typeIdentity.FullName, identifierName, DeclaringOverloadIndex(reader, typeDef, methodHandle, name), MethodSignatureText(identifierName, signature)),
+                isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                method.Attributes.HasFlag(MethodAttributes.Static),
+                parameters,
+                isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),
+                ToCompileBackTypeParameters(methodDeclaration.Signature.TypeParameters),
+                (typeDef.Attributes & TypeAttributes.Interface) != 0 || IsAbstractMethod(method)
+                    ? CompileBackStubBodyKind.None
+                    : CompileBackStubBodyKind.Throw,
+                null,
+                [new CompileBackFact("metadata", isConstructor ? "typed-closure-constructor" : "typed-closure-method", name)],
+                isConstructor ? null : methodDeclaration.Attributes,
+                isConstructor ? null : methodDeclaration.Signature.ReturnAttributes,
+                IsAbstract: !isConstructor && IsAbstractMethod(method),
+                IsVirtual: !isConstructor && IsVirtualMethod(method),
+                IsOverride: false,
+                IsSealed: false);
+        }
+
+        static int DeclaringOverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string name)
+        {
+            int index = 0;
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) != name)
+                    continue;
+                if (methodHandle == target)
+                    return index;
+                index++;
+            }
+
+            return index;
         }
 
         static CompileBackTypeDeclaration TypeDeclaration(
