@@ -1921,7 +1921,7 @@ public static class CompileBackSourceComposer
         {
             var typeDef = reader.GetTypeDefinition(handle);
             var members = RequiredMemberDeclarations(requirement);
-            bool includeMemberSurface = requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            bool includeMemberSurface = requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
             if (includeMemberSurface)
                 AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
 
@@ -2001,7 +2001,7 @@ public static class CompileBackSourceComposer
                     SourceFacts: [new CompileBackFact("metadata", "nested-closure-type", identity.FullName)]);
                 var members = RequiredMemberDeclarations(requirement);
                 bool includeNestedMemberSurface = includeMemberSurface
-                    || requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+                    || requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
                 if (includeNestedMemberSurface)
                     AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics, allowUnsafeSurface: true);
                 nestedTypes.Add(new CompileBackTypeDeclaration(
@@ -2073,7 +2073,7 @@ public static class CompileBackSourceComposer
 
             allowUnsafeSurface = allowUnsafeSurface
                 || requirement.RequiredMembers.Count != 0
-                || requirement.SourceFacts.Any(fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+                || requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
             var typeContext = GenericContext.ForType(reader, typeDef);
             foreach (var fieldHandle in typeDef.GetFields())

@@ -1398,6 +1398,7 @@ static class ReturnToSender
                 AddTypedClosureRoot(type);
             if (node is IrExpression expression)
                 AddTypedClosureRoot(expression.ResultType);
+            AddTypedClosureMemberFacts(node);
         }
 
         void AddTypedClosureRoot(TypeRef? type)
@@ -1405,15 +1406,9 @@ static class ReturnToSender
             switch (type?.Kind)
             {
                 case TypeRefKind.Definition:
-                    if (type.Assembly != assemblyName)
+                    if (TryResolveRoot(type) is not { } root)
                         return;
-                    string key = TypeRefIdentityKey(type.Namespace, type.Name);
-                    if (!definitions.TryGetValue(key, out var handle))
-                        return;
-                    var root = TopLevelRootOf(reader, handle);
                     if (root == targetRoot)
-                        return;
-                    if (!IsSupportedClosureRoot(reader, reader.GetTypeDefinition(root)))
                         return;
                     closureRoots.Add(root);
                     AddClosureFact(
@@ -1434,6 +1429,101 @@ static class ReturnToSender
                     AddTypedClosureRoot(type.ElementType);
                     foreach (var argument in type.TypeArguments)
                         AddTypedClosureRoot(argument);
+                    break;
+            }
+        }
+
+        TypeDefinitionHandle? TryResolveRoot(TypeRef? type)
+            => TryResolveHandle(type) is { } handle
+                ? TopLevelRootOf(reader, handle)
+                : null;
+
+        TypeDefinitionHandle? TryResolveHandle(TypeRef? type)
+        {
+            if (type is not { Kind: TypeRefKind.Definition } || type.Assembly != assemblyName)
+                return null;
+            string key = TypeRefIdentityKey(type.Namespace, type.Name);
+            if (!definitions.TryGetValue(key, out var handle))
+                return null;
+            return IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)) ? handle : null;
+        }
+
+        void AddMemberFact(TypeRef declaringType, string kind, string name)
+        {
+            var definition = declaringType.Kind == TypeRefKind.GenericInstance
+                ? declaringType.ElementType ?? declaringType
+                : declaringType;
+            if (TryResolveHandle(definition) is not { } handle)
+                return;
+            var root = TopLevelRootOf(reader, handle);
+            if (root == targetRoot || root != handle)
+                return;
+            AddClosureFact(
+                closureFacts,
+                root,
+                new CompileBackFact("metadata", "closure-member", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
+        }
+
+        void AddMethodFact(MethodRef method)
+            => AddMemberFact(method.DeclaringType, "method", method.Name);
+
+        void AddFieldFact(FieldRef field)
+            => AddMemberFact(field.DeclaringType, "field", field.Name);
+
+        void AddTypedClosureMemberFacts(IrNode node)
+        {
+            switch (node)
+            {
+                case Call call:
+                    AddMethodFact(call.Callee);
+                    break;
+                case NewObject creation:
+                    AddMethodFact(creation.Constructor);
+                    break;
+                case LoadProperty load:
+                    AddMethodFact(load.Accessor);
+                    break;
+                case StoreProperty store:
+                    AddMethodFact(store.Accessor);
+                    break;
+                case EventSubscription subscription:
+                    AddMethodFact(subscription.Accessor);
+                    break;
+                case LoadFunctionPointer load:
+                    AddMethodFact(load.Method);
+                    break;
+                case AddressOfMethod address:
+                    AddMethodFact(address.Method);
+                    break;
+                case DelegateCreation creation:
+                    AddMethodFact(creation.Method);
+                    break;
+                case RecursivePropertyDeclarationPattern pattern:
+                    AddMethodFact(pattern.Accessor);
+                    break;
+                case NullCoalescingPropertyAssignment assignment:
+                    AddMethodFact(assignment.Setter);
+                    break;
+                case DeconstructionAssignment deconstruction:
+                    foreach (var target in deconstruction.Targets)
+                    {
+                        if (target.Accessor is { } accessor)
+                            AddMethodFact(accessor);
+                        if (target.Field is { } field)
+                            AddFieldFact(field);
+                    }
+                    break;
+                case LoadField load:
+                    AddFieldFact(load.Field);
+                    break;
+                case StoreField store:
+                    AddFieldFact(store.Field);
+                    break;
+                case LoadFieldAddress address:
+                    AddFieldFact(address.Field);
+                    break;
+                case NullCoalescingFieldAssignment assignment:
+                    AddFieldFact(assignment.Field);
                     break;
             }
         }
