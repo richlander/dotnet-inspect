@@ -52,6 +52,25 @@ public class ResearchDiffTests
         Assert.StartsWith($"{ApiMemberIdentity.GetMemberSelectorName(methodName, isExtension)}~", subject.Id, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ResearchMemberIdentity_SubjectFromMethod_DisambiguatesConversionOperatorsByReturnType()
+    {
+        // Two op_Explicit conversions that differ only by return type must get distinct body
+        // identities, matching the API-side anchor so C# and IL evidence group (regression #2433).
+        var widget = TypeRef.Definition("Asm", "Sample", "Widget");
+        var toInt = new MethodIdentity(
+            "Asm", Guid.Empty, widget, "op_Explicit", [widget],
+            TypeRef.CoreLib("System", "Int32"), MetadataToken: 0x06000001, IsStatic: true);
+        var toLong = toInt with { ReturnType = TypeRef.CoreLib("System", "Int64"), MetadataToken = 0x06000002 };
+
+        var idInt = ResearchMemberIdentity.SubjectFromMethod(toInt).Id;
+        var idLong = ResearchMemberIdentity.SubjectFromMethod(toLong).Id;
+
+        Assert.StartsWith("operator:op_Explicit~", idInt, StringComparison.Ordinal);
+        Assert.StartsWith("operator:op_Explicit~", idLong, StringComparison.Ordinal);
+        Assert.NotEqual(idInt, idLong);
+    }
+
     [Theory]
     [InlineData(".ctor", false)]
     [InlineData("op_Addition", false)]

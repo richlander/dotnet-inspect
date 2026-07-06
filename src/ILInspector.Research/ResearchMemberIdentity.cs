@@ -11,9 +11,10 @@ public static class ResearchMemberIdentity
         string TypeName,
         string MemberName,
         string GenericList,
-        string ParameterList)
+        string ParameterList,
+        string ReturnSuffix)
     {
-        public string CanonicalSignature => $"M:{TypeName}.{MemberName}{GenericList}{ParameterList}";
+        public string CanonicalSignature => $"M:{TypeName}.{MemberName}{GenericList}{ParameterList}{ReturnSuffix}";
         public string Fingerprint => MemberAnchor.ComputeFingerprint(CanonicalSignature);
         public string StableSelector => $"{SelectorName}~{Fingerprint}";
     }
@@ -54,7 +55,13 @@ public static class ResearchMemberIdentity
             method.DeclaringType.ToQualifiedDisplayString(),
             method.Name == ".ctor" ? "#ctor" : method.Name,
             MethodGenericList(method),
-            $"({string.Join(",", method.ParameterTypes.Select(BodyTypeName))})");
+            $"({string.Join(",", method.ParameterTypes.Select(BodyTypeName))})",
+            // Conversion operators overload on return type; append the same disambiguation
+            // suffix as the API-side anchor (ApiMemberIdentity) so body identity and API
+            // identity agree for conversion operators (issue #2440 / regression from #2433).
+            ApiMemberIdentity.IsConversionOperator(method.Name)
+                ? $"~{BodyTypeName(method.ReturnType)}"
+                : "");
 
     static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
     {
@@ -81,7 +88,12 @@ public static class ResearchMemberIdentity
             BodyDeclaringTypeName(declaringType),
             memberName,
             generic,
-            parameters);
+            parameters,
+            // Mirror the conversion-operator return-type disambiguation used by the API
+            // anchor and the method-body path, so all identity producers agree.
+            ApiMemberIdentity.IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature?.ReturnType)
+                ? $"~{BodyParameterTypeName(signature!.ReturnType!)}"
+                : "");
     }
 
     static BodyMemberIdentity CreateBodyIdentity(
@@ -89,8 +101,9 @@ public static class ResearchMemberIdentity
         string typeName,
         string memberName,
         string genericList,
-        string parameterList)
-        => new(selectorName, typeName, memberName, genericList, parameterList);
+        string parameterList,
+        string returnSuffix)
+        => new(selectorName, typeName, memberName, genericList, parameterList, returnSuffix);
 
     public static string BodyDeclaringTypeName(string typeName)
         => DeclaringPrimitiveName(StripGenericArguments(typeName.Replace('+', '.')));
