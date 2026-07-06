@@ -5,8 +5,13 @@ using ILInspector.Analysis;
 
 namespace ILInspector.AnalysisHarness;
 
-/// <summary>One example row: its shape and the method it fired on.</summary>
-public sealed record LeakTriageExample(string Shape, string Method);
+/// <summary>One example row: its shape, method, and optional drilldown evidence.</summary>
+public sealed record LeakTriageExample(
+    string Shape,
+    string Method,
+    string Evidence = "",
+    string RentOffset = "",
+    string ILOffset = "");
 
 /// <summary>Per-assembly leak-triage result: whether it opened, its finding count, and the shapes hit with a few example methods.</summary>
 public sealed record LeakTriageAssembly(
@@ -101,7 +106,12 @@ public static class LeakTriageSensor
             {
                 candidateShapes[candidate.Shape] = candidateShapes.GetValueOrDefault(candidate.Shape) + 1;
                 if (candidateExamples.Count < examplesPerAssembly)
-                    candidateExamples.Add(new LeakTriageExample(candidate.Shape, $"{candidate.Method.DeclaringType.Name}::{candidate.Method.Name}"));
+                    candidateExamples.Add(new LeakTriageExample(
+                        candidate.Shape,
+                        $"{candidate.Method.DeclaringType.Name}::{candidate.Method.Name}",
+                        candidate.Evidence,
+                        FormatOffset(candidate.RentOffset),
+                        FormatOffset(candidate.ILOffset)));
             }
 
             return new LeakTriageAssembly(
@@ -145,9 +155,7 @@ public static class LeakTriageSensor
                 output,
                 new TableFormatter(showHeader: true),
                 LeakTriageViewContext.Default,
-                format == LeakTriageFormat.Tsv
-                    ? new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv }
-                    : new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl });
+                TableWriterOptions(format));
         }
 
         string rendered = output.ToString();
@@ -155,6 +163,24 @@ public static class LeakTriageSensor
             ? string.Join(Environment.NewLine, rendered.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries)) + Environment.NewLine
             : rendered;
     }
+
+    static MarkoutWriterOptions TableWriterOptions(LeakTriageFormat format)
+        => format switch
+        {
+            LeakTriageFormat.Tsv => new MarkoutWriterOptions
+            {
+                TableMode = MarkoutTableMode.Tsv,
+                JsonTypedValues = true,
+                OmitEmptyJsonFields = true,
+            },
+            LeakTriageFormat.Jsonl => new MarkoutWriterOptions
+            {
+                TableMode = MarkoutTableMode.Jsonl,
+                JsonTypedValues = true,
+                OmitEmptyJsonFields = true,
+            },
+            _ => throw new InvalidOperationException($"Unsupported table format '{format}'."),
+        };
 
     static IReadOnlyList<(string Metric, string Value)> SummaryRows(LeakTriageReport report)
         => new (string, string)[]
@@ -191,6 +217,18 @@ public static class LeakTriageSensor
             .OrderByDescending(a => a.Candidates)
             .SelectMany(a => (a.CandidateExamples ?? []).Take(maxExamples).Select(e => (a.Name, e.Shape, e.Method)))];
 
+    static IReadOnlyList<(string Assembly, string Shape, string Method, string Evidence, string RentOffset, string ILOffset)> CandidateDetailRows(
+        LeakTriageReport report,
+        int maxExamples)
+        => [.. report.Assemblies
+            .Where(a => a.Candidates > 0)
+            .OrderByDescending(a => a.Candidates)
+            .SelectMany(a => (a.CandidateExamples ?? []).Take(maxExamples)
+                .Select(e => (a.Name, e.Shape, e.Method, e.Evidence, e.RentOffset, e.ILOffset)))];
+
+    static string FormatOffset(int? offset)
+        => offset is { } value ? $"IL_{value:X4}" : "";
+
     static LeakTriageCardMarkdownView BuildMarkdownView(LeakTriageReport report, int maxExamples)
         => new()
         {
@@ -208,7 +246,15 @@ public static class LeakTriageSensor
             ByShape = [.. ShapeRows(report).Select(r => new LeakTriageSectionShapeRow("By shape", r.Shape, r.Count))],
             Findings = [.. FindingRows(report, maxExamples).Select(r => new LeakTriageSectionFindingRow("Findings", r.Assembly, r.Shape, r.Method))],
             CandidateBuckets = [.. CandidateShapeRows(report).Select(r => new LeakTriageSectionShapeRow("Candidate buckets", r.Shape, r.Count))],
-            Candidates = [.. CandidateRows(report, maxExamples).Select(r => new LeakTriageSectionFindingRow("Candidates", r.Assembly, r.Shape, r.Method))],
+            Candidates = [.. CandidateDetailRows(report, maxExamples)
+                .Select(r => new LeakTriageSectionCandidateRow(
+                    "Candidates",
+                    r.Assembly,
+                    r.Shape,
+                    r.Method,
+                    r.Evidence,
+                    r.RentOffset,
+                    r.ILOffset))],
         };
 }
 
@@ -253,7 +299,7 @@ sealed class LeakTriageCardTableView
     public List<LeakTriageSectionShapeRow>? CandidateBuckets { get; init; }
 
     [MarkoutSection(Name = "Candidates")]
-    public List<LeakTriageSectionFindingRow>? Candidates { get; init; }
+    public List<LeakTriageSectionCandidateRow>? Candidates { get; init; }
 }
 
 [MarkoutSerializable]
@@ -274,6 +320,16 @@ sealed record LeakTriageFindingRow(string Assembly, string Shape, string Method)
 [MarkoutSerializable]
 sealed record LeakTriageSectionFindingRow(string Section, string Assembly, string Shape, string Method);
 
+[MarkoutSerializable]
+sealed record LeakTriageSectionCandidateRow(
+    string Section,
+    string Assembly,
+    string Shape,
+    string Method,
+    string Evidence,
+    string RentOffset,
+    string ILOffset);
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(LeakTriageCardMarkdownView))]
 [MarkoutContext(typeof(LeakTriageCardTableView))]
@@ -283,6 +339,7 @@ sealed record LeakTriageSectionFindingRow(string Section, string Assembly, strin
 [MarkoutContext(typeof(LeakTriageSectionShapeRow))]
 [MarkoutContext(typeof(LeakTriageFindingRow))]
 [MarkoutContext(typeof(LeakTriageSectionFindingRow))]
+[MarkoutContext(typeof(LeakTriageSectionCandidateRow))]
 partial class LeakTriageViewContext : MarkoutSerializerContext
 {
 }
