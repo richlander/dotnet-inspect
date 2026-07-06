@@ -51,7 +51,8 @@ Use `--emit-snapshot <file>` to write stable JSON card data for a run. Use
 Baseline comparisons return exit code `1` for regressions (more failures, new
 failure buckets, or fewer self-diff-empty bodies) and report changed-body,
 hunk-kind, and opcode-family drift as non-failing drift. Baseline output uses
-Markout metric-change rows for scalar metrics (`Metric | Change | Target |
-Status` in Markdown, typed `before`/`after`/`target` fields plus goal-derived
-`direction`/`status` fields in JSONL) and keeps detailed finding rows for
-bucket drift and regression evidence.
+Markout metric-change rows for scalar metrics (`Metric | Change | Target` in
+Markdown, with goal markers in metric labels and goal-derived status inline in
+change cells; typed `before`/`after`/`target` fields plus goal-derived
+`direction`/`status` fields in JSONL) and keeps detailed finding rows for bucket
+drift and regression evidence.
