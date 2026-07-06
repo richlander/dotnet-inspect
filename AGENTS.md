@@ -279,7 +279,7 @@ reason:
 
 - `test` runs on PRs only; push-to-main is not re-tested (the PR validates the
   merge commit; Deep Inspect and publish provide opt-in/full safety nets).
-- `pack`/`pack-rid` run only on PRs that change build/packaging config.
+- `pack` runs only on PRs that change build/packaging config.
 - Release packages are built at publish time in `release.yml`, so CI never
   produces release artifacts.
 

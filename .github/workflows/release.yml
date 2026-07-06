@@ -36,7 +36,7 @@ jobs:
   # Build the RID-specific Native AOT packages. These run only at publish time
   # so per-PR/per-merge CI never has to build or upload release artifacts.
   # Windows/macOS build on their native runners; the Linux RIDs build here too
-  # (they used to be produced by CI's pack/pack-rid jobs).
+  # (they used to be partially smoke-tested by CI's pack jobs).
   deep-inspect-test:
     needs: resolve
     runs-on: ubuntu-26.04
