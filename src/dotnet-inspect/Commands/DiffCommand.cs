@@ -677,7 +677,7 @@ public class DiffCommand
         return (true, bodyFound, null);
     }
 
-    static bool AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
+    internal static bool AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
     {
         var member = target.ApiMember.Member;
         if (member.Kind is "property" or "field" or "event")
@@ -693,8 +693,14 @@ public class DiffCommand
         var parameters = signature is null
             ? "()"
             : $"({string.Join(",", signature.Parameters.Select(parameter => ResearchBodyTypeName(parameter.TypeWithModifier)))})";
-        var canonical = $"M:{ResearchBodyDeclaringTypeName(target.Anchor.TypeFullName)}.{memberName}{generic}{parameters}";
+        var declaringType = target.Body?.DeclaringType
+            ?? (member.IsExtension && !string.IsNullOrWhiteSpace(member.DeclaringType)
+                ? member.DeclaringType!
+                : target.Anchor.TypeFullName);
+        var canonical = $"M:{ResearchBodyDeclaringTypeName(declaringType)}.{memberName}{generic}{parameters}";
         var selectorName = target.Anchor.StableSelector.Split('~')[0];
+        if (member.IsExtension && !selectorName.StartsWith("extension:", StringComparison.Ordinal))
+            selectorName = $"extension:{selectorName}";
         identities.Add($"{selectorName}~{MemberAnchor.ComputeFingerprint(canonical)}");
         return true;
     }
@@ -705,6 +711,8 @@ public class DiffCommand
     internal static string ResearchBodyTypeName(string typeName)
     {
         var value = typeName.Trim();
+        if (value.StartsWith("params ", StringComparison.Ordinal))
+            value = value["params ".Length..].TrimStart();
         foreach (var prefix in (ReadOnlySpan<string>)["ref readonly ", "readonly ref ", "scoped ref ", "ref ", "out ", "in "])
         {
             if (value.StartsWith(prefix, StringComparison.Ordinal))
