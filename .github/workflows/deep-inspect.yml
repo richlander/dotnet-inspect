@@ -214,7 +214,6 @@ jobs:
       DOTNETUP_CHANNEL: 11.0-daily
       DOTNET_ROOT: ${{ github.workspace }}/.dotnet-nightly
       DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/.dotnetup
-      NIGHTLY_NUGET_CONFIG: ${{ runner.temp }}/NuGet.Config
     steps:
       - uses: actions/checkout@v6
 
@@ -254,7 +253,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > "$NIGHTLY_NUGET_CONFIG" <<'EOF'
+          nightly_nuget_config="$RUNNER_TEMP/NuGet.Config"
+          echo "NIGHTLY_NUGET_CONFIG=$nightly_nuget_config" >> "$GITHUB_ENV"
+
+          cat > "$nightly_nuget_config" <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
             <packageSources>
