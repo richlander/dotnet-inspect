@@ -170,6 +170,43 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PrimaryConstructorShellDoesNotDuplicateConstructorRequirements()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1(int left, int right)
+            {
+                public Class1 Clone()
+                {
+                    return new Class1(left, right);
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "Clone",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.DoesNotContain("CS0111", result.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS8862", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_PreservesExtensionMethodShellParameters()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(

@@ -404,13 +404,18 @@ public static class CompileBackSourceComposer
     static void AddRequiredMembers(
         List<CompileBackMemberRequirement> members,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> requirementsByRoot,
-        TypeDefinitionHandle root)
+        TypeDefinitionHandle root,
+        CompileBackPrimaryConstructor? primaryConstructor = null)
     {
         if (!requirementsByRoot.TryGetValue(root, out var requiredMembers))
             return;
         foreach (var required in requiredMembers)
+        {
+            if (primaryConstructor is not null && required.Kind == CompileBackMemberKind.Constructor)
+                continue;
             if (!members.Any(existing => SameMemberDeclaration(existing, required)))
                 members.Add(required);
+        }
     }
 
     static bool SameMemberDeclaration(CompileBackMemberRequirement left, CompileBackMemberRequirement right)
@@ -630,7 +635,7 @@ public static class CompileBackSourceComposer
         {
             targetMembers.Add(typedEqualsSibling);
         }
-        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
 
         var requirements = new List<CompileBackTypeRequirement>
         {
