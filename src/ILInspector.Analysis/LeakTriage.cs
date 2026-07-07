@@ -57,6 +57,8 @@ public static class LeakTriageAnalyzer
                 try
                 {
                     var scope = CreateScope(reader, typeDef, methodDef);
+                    if (!ILInspector.Metadata.SignatureBlobGuard.IsSafeToDecode(reader, methodDef.Signature, ILInspector.Metadata.SignatureBlobGuard.Kind.Method))
+                        continue;
                     var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
                     var method = new MethodIdentity(
                         assemblyName,

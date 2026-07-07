@@ -2416,18 +2416,30 @@ public sealed class LibraryBodyIndex
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
         {
             var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
-            var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
+            ImmutableArray<TypeRef> parameterTypes;
+            TypeRef returnType;
+            if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
+            {
+                var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
+                parameterTypes = signature.ParameterTypes;
+                returnType = signature.ReturnType;
+            }
+            else
+            {
+                parameterTypes = [];
+                returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
+            }
             return new MethodIdentity(
                 _assemblyName,
                 _mvid,
                 declaringType,
                 _reader.GetString(methodDef.Name),
-                signature.ParameterTypes,
-                signature.ReturnType,
+                parameterTypes,
+                returnType,
                 MetadataTokens.GetToken(methodHandle),
                 (methodDef.Attributes & MethodAttributes.Static) != 0,
                 IsExtensionMethod(typeHandle, methodDef),
-                ComputeCallerUnsafeMode(typeHandle, methodDef, signature.ParameterTypes, signature.ReturnType),
+                ComputeCallerUnsafeMode(typeHandle, methodDef, parameterTypes, returnType),
                 methodDef.GetGenericParameters().Count,
                 GenericParameterNames(methodDef));
         }
@@ -2592,6 +2604,8 @@ public sealed class LibraryBodyIndex
 
             bool found = false;
             var signature = _reader.GetStandaloneSignature(body.LocalSignature);
+            if (!SignatureBlobGuard.IsSafeToDecode(_reader, signature.Signature, SignatureBlobGuard.Kind.LocalVariables))
+                return false;
             var locals = signature.DecodeLocalSignature(TypeRefDecoder.Instance, scope);
             for (int i = 0; i < locals.Length; i++)
             {
@@ -3095,6 +3109,8 @@ public sealed class LibraryBodyIndex
             try
             {
                 var signature = _reader.GetStandaloneSignature(body.LocalSignature);
+                if (!SignatureBlobGuard.IsSafeToDecode(_reader, signature.Signature, SignatureBlobGuard.Kind.LocalVariables))
+                    return [];
                 return signature.DecodeLocalSignature(TypeRefDecoder.Instance, scope);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
@@ -3172,8 +3188,10 @@ public sealed class LibraryBodyIndex
                 var handle = MetadataTokens.EntityHandle(token);
                 if (handle.Kind != HandleKind.StandaloneSignature)
                     return null;
-                var signature = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle)
-                    .DecodeMethodSignature(TypeRefDecoder.Instance, scope);
+                var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
+                if (!SignatureBlobGuard.IsSafeToDecode(_reader, standalone.Signature, SignatureBlobGuard.Kind.Method))
+                    return null;
+                var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
                 return signature.ReturnType.ToDisplayString();
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
