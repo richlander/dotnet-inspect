@@ -108,8 +108,24 @@ public sealed partial class CSharpPrinter
             .SelectMany(b => b.Children)
             .Select(LambdaStatement)
             .Where(s => s is not null);
+        if (LambdaReturnType(lambda) is { } returnType
+            && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
+        {
+            statements = statements.Append("return default;");
+        }
         return $"{parameters} => {{ {string.Join(" ", statements)} }}";
     }
+
+    static TypeRef? LambdaReturnType(Lambda lambda)
+        => lambda.DelegateType switch
+        {
+            { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System", Name: var name }, TypeArguments: { Length: > 0 } args }
+                when name.StartsWith("Func`", StringComparison.Ordinal) => args[^1],
+            { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System", Name: var name } }
+                when name.StartsWith("Action`", StringComparison.Ordinal) => TypeRef.CoreLib("System", "Void"),
+            { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Action" } => TypeRef.CoreLib("System", "Void"),
+            _ => null,
+        };
 
     static bool NeedsNestedLambdaScope(Lambda lambda)
         => !lambda.Locals.IsEmpty
@@ -124,7 +140,7 @@ public sealed partial class CSharpPrinter
             var function = new IrFunction(
                 "<lambda>",
                 _function.DeclaringType,
-                new MethodSignature(TypeRef.CoreLib("System", "Void"), lambda.Parameters, HasThis: false, GenericParameterCount: 0),
+                new MethodSignature(LambdaReturnType(lambda) ?? TypeRef.CoreLib("System", "Void"), lambda.Parameters, HasThis: false, GenericParameterCount: 0),
                 lambda.Locals,
                 body)
             {

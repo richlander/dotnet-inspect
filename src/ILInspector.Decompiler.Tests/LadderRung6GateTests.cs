@@ -830,6 +830,7 @@ public class LadderRung6GateTests
             Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
             Assert.Contains(FidelityRemarks.Collect(member.Function), r => r.Code == DiagnosticIds.UnsupportedConstruct);
             Assert.Contains("cpblk", member.Body);
+            Assert.Contains("return default;", member.Body);
         }
     }
 

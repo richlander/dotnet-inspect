@@ -199,6 +199,7 @@ public class LadderIteratorGateTests
             Assert.NotEqual(DecompilationFidelity.Full, member.Function.Fidelity);
             Assert.Contains("iterator", member.Body);
             Assert.Contains("not reconstructed", member.Body);
+            Assert.Contains("return default;", member.Body);
         }
     }
 
