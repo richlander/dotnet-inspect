@@ -104,7 +104,8 @@ public static class SignatureBlobGuard
                     break;
 
                 case Op.ArrayShape:
-                    SkipArrayShape(ref blob);
+                    if (SkipArrayShape(ref blob))
+                        return true;
                     break;
             }
         }
@@ -235,15 +236,24 @@ public static class SignatureBlobGuard
         }
     }
 
-    static void SkipArrayShape(ref BlobReader blob)
+    /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if either
+    /// count exceeds the remaining blob: SRM's array decoder pre-allocates a builder from these
+    /// counts before reading elements, so an unbounded count (a compressed integer can encode ~536M)
+    /// would OOM SRM even though the blob is only a few bytes.</summary>
+    static bool SkipArrayShape(ref BlobReader blob)
     {
         blob.ReadCompressedInteger();           // rank
         int numSizes = blob.ReadCompressedInteger();
+        if (numSizes < 0 || numSizes > blob.RemainingBytes)
+            return true;
         for (int i = 0; i < numSizes; i++)
             blob.ReadCompressedInteger();        // size
         int numLoBounds = blob.ReadCompressedInteger();
+        if (numLoBounds < 0 || numLoBounds > blob.RemainingBytes)
+            return true;
         for (int i = 0; i < numLoBounds; i++)
             blob.ReadCompressedSignedInteger();  // lower bound
+        return false;
     }
 
     // ECMA-335 II.23.1.16 element types, by raw byte value (the SignatureTypeCode enum does not

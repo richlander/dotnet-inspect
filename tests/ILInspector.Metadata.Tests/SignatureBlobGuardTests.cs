@@ -167,6 +167,15 @@ public class SignatureBlobGuardTests
         Assert.False(SignatureBlobGuard.IsSafeToDecode(reader, reader.GetStandaloneSignature(handle).Signature, SignatureBlobGuard.Kind.Method));
     }
 
+    [Fact]
+    public void HugeArrayShapeCount_IsUnsafe()
+    {
+        // ELEMENT_TYPE_ARRAY I4, rank 1, sizesCount ~536M: SRM pre-allocates a builder from the
+        // shape counts before reading elements, so an unbounded count OOMs even from a 7-byte blob.
+        byte[] blob = [0x14 /* ARRAY */, I4, 0x01 /* rank */, 0xdf, 0xff, 0xff, 0xff /* sizesCount */];
+        Assert.False(GuardTypeSpec(blob));
+    }
+
     static bool GuardTypeSpec(byte[] typeBlob)
     {
         var (reader, handle) = BuildTypeSpec(typeBlob);
