@@ -170,6 +170,22 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PreservesExtensionMethodShellParameters()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung2.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung2.Program",
+                    "Main",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS1061", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
     {
         var fixture = CompileSourceFixture(

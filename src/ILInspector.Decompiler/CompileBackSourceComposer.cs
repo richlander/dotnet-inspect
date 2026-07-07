@@ -130,7 +130,9 @@ public sealed record CompileBackTypeDeclaration(
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<CompileBackTypeDeclaration> NestedTypes,
     IReadOnlyList<string>? Attributes = null,
-    bool IsAbstract = false)
+    bool IsAbstract = false,
+    bool IsSealed = false,
+    bool IsStatic = false)
 {
     public string Namespace => Identity.Namespace;
     public string Name => Identity.DisplayName;
@@ -161,7 +163,8 @@ public sealed record CompileBackMemberDeclaration(
     bool IsVirtual = false,
     bool IsOverride = false,
     bool IsSealed = false,
-    bool IsAsync = false)
+    bool IsAsync = false,
+    bool IsExtension = false)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -275,7 +278,8 @@ public sealed record CompileBackMemberRequirement(
     bool IsVirtual = false,
     bool IsOverride = false,
     bool IsSealed = false,
-    bool IsAsync = false);
+    bool IsAsync = false,
+    bool IsExtension = false);
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
@@ -962,6 +966,8 @@ public static class CompileBackSourceComposer
             BaseType = type.BaseType?.DisplayName,
             Attributes = type.Attributes?.ToList() ?? [],
             IsAbstract = type.IsAbstract,
+            IsSealed = type.IsSealed,
+            IsStatic = type.IsStatic,
         };
 
     static ApiMember ToApiMember(CompileBackTypeDeclaration type, CompileBackMemberDeclaration member)
@@ -1001,6 +1007,7 @@ public static class CompileBackSourceComposer
             Accessibility = AccessibilityText(member.Accessibility),
             Attributes = member.Attributes?.ToList() ?? [],
             IsUnsafe = RequiresUnsafe(member),
+            IsExtension = member.IsExtension,
         };
         if (member.Kind == CompileBackMemberKind.Method)
         {
@@ -2327,8 +2334,16 @@ public static class CompileBackSourceComposer
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
-                IsSealed: false);
+                IsSealed: false,
+                IsExtension: IsExtensionMethod(reader, typeDef, method));
         }
+
+        static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+            => typeDef.Attributes.HasFlag(TypeAttributes.Abstract)
+               && typeDef.Attributes.HasFlag(TypeAttributes.Sealed)
+               && method.Attributes.HasFlag(MethodAttributes.Static)
+               && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())
+               && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 
         static int DeclaringOverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string name)
         {
@@ -2375,7 +2390,9 @@ public static class CompileBackSourceComposer
                     includeMemberSurface,
                     diagnostics),
                 TypeAttributeList(reader, typeDef),
-                IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0);
+                IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0,
+                IsSealed: (typeDef.Attributes & TypeAttributes.Sealed) != 0,
+                IsStatic: IsStaticType(typeDef));
         }
 
         static List<CompileBackMemberDeclaration> RequiredMemberDeclarations(CompileBackTypeRequirement requirement)
@@ -2400,7 +2417,8 @@ public static class CompileBackSourceComposer
                     member.IsVirtual,
                     member.IsOverride,
                     member.IsSealed,
-                    member.IsAsync));
+                    member.IsAsync,
+                    member.IsExtension));
             }
 
             return members;
@@ -2450,11 +2468,18 @@ public static class CompileBackSourceComposer
                     requirement.SourceFacts,
                     NestedTypes(reader, nestedDef, requirementsByMetadataName, includeNestedMemberSurface, diagnostics),
                     TypeAttributeList(reader, nestedDef),
-                    IsAbstract: (nestedDef.Attributes & TypeAttributes.Abstract) != 0 && (nestedDef.Attributes & TypeAttributes.Interface) == 0));
+                    IsAbstract: (nestedDef.Attributes & TypeAttributes.Abstract) != 0 && (nestedDef.Attributes & TypeAttributes.Interface) == 0,
+                    IsSealed: (nestedDef.Attributes & TypeAttributes.Sealed) != 0,
+                    IsStatic: IsStaticType(nestedDef)));
             }
 
             return nestedTypes;
         }
+
+        static bool IsStaticType(TypeDefinition typeDef)
+            => (typeDef.Attributes & TypeAttributes.Abstract) != 0
+               && (typeDef.Attributes & TypeAttributes.Sealed) != 0
+               && (typeDef.Attributes & TypeAttributes.Interface) == 0;
 
         static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
             => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
