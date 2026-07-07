@@ -21,6 +21,35 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 {
     public static readonly TypeRefDecoder Instance = new();
 
+    // Attacker-controlled metadata can encode a self-referential resolution scope,
+    // TypeSpecification, or nested-type chain, which recurses into an *uncatchable*
+    // StackOverflow (the try/catch filters around these calls cannot catch it). Guard the
+    // recursive descents with a per-thread depth limit — the decoder is a shared singleton
+    // used under Parallel, so the counter must be thread-local — and fail closed to
+    // Unsupported. Real metadata nests shallowly, so the limit only trips on malformed input.
+    [ThreadStatic]
+    static int s_recursionDepth;
+    const int MaxRecursionDepth = 256;
+
+    // SRM's own SignatureDecoder.DecodeType recurses on the native stack for each nested
+    // structural element (pointer/array/byref/pinned/generic-inst) within a *single* signature
+    // blob, before any provider callback runs, so the depth counter above cannot catch it — a
+    // long enough blob StackOverflows inside SRM. Blob length bounds that native depth (each
+    // level costs >= 1 byte), so refuse over-long TypeSpecification blobs. Real single-type
+    // blobs are tiny (CoreLib's largest TypeSpec is 57 bytes), so this only trips on malformed
+    // input.
+    const int MaxSignatureBlobLength = 1024;
+
+    // A self-referential TypeSpecification (reached via a modreq custom modifier) re-enters
+    // GetTypeFromSpecification, and each re-entry stacks another blob's worth of SRM native
+    // DecodeType frames on top of the live ones. The per-blob cap alone would let a cycle
+    // multiply into MaxSignatureBlobLength * MaxRecursionDepth native frames — still an
+    // uncatchable StackOverflow — so also bound the CUMULATIVE decoded blob bytes across the
+    // live re-entry chain, which is what actually bounds the native stack depth.
+    [ThreadStatic]
+    static int s_cumulativeSignatureBytes;
+    const int MaxCumulativeSignatureBytes = 4096;
+
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
         => TypeRef.CoreLib("System", typeCode switch
         {
@@ -52,13 +81,25 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         string ns = reader.GetString(typeDef.Namespace);
         if (typeDef.IsNested)
         {
-            var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
-            return TypeRef.Definition(
-                declaring.Assembly,
-                declaring.Namespace,
-                $"{declaring.Name}+{name}",
-                HintFrom(rawTypeKind),
-                InlineArrayFact(reader, typeDef));
+            if (s_recursionDepth >= MaxRecursionDepth)
+                return TypeRef.Unsupported("type-definition nesting depth exceeded");
+            s_recursionDepth++;
+            try
+            {
+                var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
+                if (declaring.Kind == TypeRefKind.Unsupported)
+                    return declaring;
+                return TypeRef.Definition(
+                    declaring.Assembly,
+                    declaring.Namespace,
+                    $"{declaring.Name}+{name}",
+                    HintFrom(rawTypeKind),
+                    InlineArrayFact(reader, typeDef));
+            }
+            finally
+            {
+                s_recursionDepth--;
+            }
         }
         string assembly = reader.IsAssembly
             ? Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
@@ -77,15 +118,47 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 var assembly = reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope);
                 return TypeRef.Definition(Canonical(reader.GetString(assembly.Name)), ns, name, HintFrom(rawTypeKind));
             case HandleKind.TypeReference:
-                var declaring = GetTypeFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope, 0);
-                return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", HintFrom(rawTypeKind));
+                if (s_recursionDepth >= MaxRecursionDepth)
+                    return TypeRef.Unsupported("type-reference resolution-scope recursion depth exceeded");
+                s_recursionDepth++;
+                try
+                {
+                    var declaring = GetTypeFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope, 0);
+                    if (declaring.Kind == TypeRefKind.Unsupported)
+                        return declaring;
+                    return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", HintFrom(rawTypeKind));
+                }
+                finally
+                {
+                    s_recursionDepth--;
+                }
             default:
                 return TypeRef.Definition("", ns, name, HintFrom(rawTypeKind));
         }
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    {
+        if (s_recursionDepth >= MaxRecursionDepth)
+            return TypeRef.Unsupported("type-specification recursion depth exceeded");
+        var spec = reader.GetTypeSpecification(handle);
+        int blobLength = reader.GetBlobReader(spec.Signature).Length;
+        if (blobLength > MaxSignatureBlobLength)
+            return TypeRef.Unsupported("type-specification signature blob too large");
+        if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+            return TypeRef.Unsupported("type-specification cumulative signature blob too large");
+        s_cumulativeSignatureBytes += blobLength;
+        s_recursionDepth++;
+        try
+        {
+            return spec.DecodeSignature(this, genericContext);
+        }
+        finally
+        {
+            s_recursionDepth--;
+            s_cumulativeSignatureBytes -= blobLength;
+        }
+    }
 
     public TypeRef GetSZArrayType(TypeRef elementType) => TypeRef.SzArray(elementType);
 
