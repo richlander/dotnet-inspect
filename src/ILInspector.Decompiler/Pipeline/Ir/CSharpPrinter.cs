@@ -1132,13 +1132,6 @@ public sealed partial class CSharpPrinter
         return DescendantsOutsideNestedFunctions(node).Any(n => IsLocalReference(n, index));
     }
 
-    static bool ReferencesLocalIncludingNestedFunctions(IrNode node, int index)
-    {
-        if (IsLocalReference(node, index))
-            return true;
-        return node.Descendants.Any(n => IsLocalReference(n, index));
-    }
-
     static bool ReferencesStackSlot(IrNode node, int slot)
     {
         if (IsStackSlotReference(node, slot))
@@ -1629,14 +1622,14 @@ public sealed partial class CSharpPrinter
                 case StoreLocal store when _declaringStores.Contains(store):
                     for (int j = candidate; j < statements.Count; j++)
                     {
-                        if (ReferencesLocalIncludingNestedFunctions(statements[j], store.Index))
+                        if (ReferencesLocal(statements[j], store.Index))
                             return true;
                     }
                     break;
                 case InitObject { Address: LoadLocalAddress local } init when _declaringStores.Contains(init):
                     for (int j = candidate; j < statements.Count; j++)
                     {
-                        if (ReferencesLocalIncludingNestedFunctions(statements[j], local.Index))
+                        if (ReferencesLocal(statements[j], local.Index))
                             return true;
                     }
                     break;
