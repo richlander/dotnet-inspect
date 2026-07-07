@@ -297,18 +297,18 @@ static class ReturnToSenderSourceProbe
     sealed class FixtureSourceIndex
     {
         readonly Dictionary<string, SourceMember> _members;
-        readonly Dictionary<string, string> _recordSourcePaths;
+        readonly Dictionary<string, RecordSourceInfo> _recordSources;
 
-        FixtureSourceIndex(Dictionary<string, SourceMember> members, Dictionary<string, string> recordSourcePaths)
+        FixtureSourceIndex(Dictionary<string, SourceMember> members, Dictionary<string, RecordSourceInfo> recordSources)
         {
             _members = members;
-            _recordSourcePaths = recordSourcePaths;
+            _recordSources = recordSources;
         }
 
         public static FixtureSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
         {
             var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
-            var recordSourcePaths = new Dictionary<string, string>(StringComparer.Ordinal);
+            var recordSources = new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal);
             var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
             var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
             foreach (var sourcePath in sourcePaths)
@@ -320,9 +320,9 @@ static class ReturnToSenderSourceProbe
 
             var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
             foreach (var sourceFile in sourceFiles)
-                AddSourceFile(members, recordSourcePaths, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+                AddSourceFile(members, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
 
-            return new FixtureSourceIndex(members, recordSourcePaths);
+            return new FixtureSourceIndex(members, recordSources);
         }
 
         public static FixtureSourceIndex? TryCreate(string assemblyPath)
@@ -382,9 +382,10 @@ static class ReturnToSenderSourceProbe
 
         public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
         {
-            if (IsRecordSynthesizedMember(target.Method)
-                && _recordSourcePaths.TryGetValue(target.Type, out sourcePath!))
+            if (_recordSources.TryGetValue(target.Type, out var source)
+                && source.SynthesizedMembers.Contains(target.Method))
             {
+                sourcePath = source.SourcePath;
                 return true;
             }
 
@@ -412,24 +413,24 @@ static class ReturnToSenderSourceProbe
 
         static void AddSourceFile(
             Dictionary<string, SourceMember> members,
-            Dictionary<string, string> recordSourcePaths,
+            Dictionary<string, RecordSourceInfo> recordSources,
             Dictionary<string, Dictionary<string, int>> overloads,
             string sourcePath,
             CompilationUnitSyntax root,
             CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root, sourcePath, recordSourcePaths, overloads, sourceIdentity))
+            foreach (var member in SourceMembers(root, sourcePath, recordSources, overloads, sourceIdentity))
                 members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
         }
 
         static IEnumerable<SourceMember> SourceMembers(
             CompilationUnitSyntax root,
             string sourcePath,
-            Dictionary<string, string> recordSourcePaths,
+            Dictionary<string, RecordSourceInfo> recordSources,
             Dictionary<string, Dictionary<string, int>> overloads,
             CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, recordSourcePaths, overloads, sourceIdentity))
+            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, recordSources, overloads, sourceIdentity))
                 yield return member;
         }
 
@@ -438,7 +439,7 @@ static class ReturnToSenderSourceProbe
             string namespaceName,
             IReadOnlyList<string> containingTypes,
             string sourcePath,
-            Dictionary<string, string> recordSourcePaths,
+            Dictionary<string, RecordSourceInfo> recordSources,
             Dictionary<string, Dictionary<string, int>> overloads,
             CSharpSourceIdentityContext sourceIdentity)
         {
@@ -451,7 +452,7 @@ static class ReturnToSenderSourceProbe
                         string nextNamespace = namespaceName.Length == 0
                             ? ns.Name.ToString()
                             : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, recordSourcePaths, overloads, sourceIdentity))
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, recordSources, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
@@ -462,12 +463,12 @@ static class ReturnToSenderSourceProbe
                         string fullType = namespaceName.Length == 0
                             ? string.Join(".", typeStack)
                             : $"{namespaceName}.{string.Join(".", typeStack)}";
-                        if (type is RecordDeclarationSyntax)
-                            recordSourcePaths.TryAdd(fullType, sourcePath);
+                        if (type is RecordDeclarationSyntax record)
+                            recordSources.TryAdd(fullType, new RecordSourceInfo(sourcePath, RecordSynthesizedMembers(record)));
 
                         foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, sourceIdentity))
                             yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, recordSourcePaths, overloads, sourceIdentity))
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, recordSources, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
@@ -501,9 +502,27 @@ static class ReturnToSenderSourceProbe
 
     }
 
-    static bool IsRecordSynthesizedMember(string method)
-        => method is "ToString" or "GetHashCode" or "Equals" or "op_Equality" or "op_Inequality" or "Deconstruct"
-            || method.StartsWith("get_", StringComparison.Ordinal);
+    sealed record RecordSourceInfo(string SourcePath, IReadOnlySet<string> SynthesizedMembers);
+
+    static IReadOnlySet<string> RecordSynthesizedMembers(RecordDeclarationSyntax record)
+    {
+        var members = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ToString",
+            "GetHashCode",
+            "Equals",
+            "op_Equality",
+            "op_Inequality",
+        };
+        if (record.ParameterList is { Parameters.Count: > 0 } parameters)
+        {
+            members.Add("Deconstruct");
+            foreach (var parameter in parameters.Parameters)
+                members.Add($"get_{parameter.Identifier.ValueText}");
+        }
+
+        return members;
+    }
 
     static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
     {
@@ -545,8 +564,6 @@ static class ReturnToSenderSourceProbe
 
                 var method = reader.GetMethodDefinition(methodHandle);
                 var methodName = reader.GetString(method.Name);
-                var overload = methodOverloads.GetValueOrDefault(methodName);
-                methodOverloads[methodName] = overload + 1;
 
                 if (method.RelativeVirtualAddress == 0
                     || (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
@@ -560,6 +577,8 @@ static class ReturnToSenderSourceProbe
                     continue;
                 }
 
+                var overload = methodOverloads.GetValueOrDefault(methodName);
+                methodOverloads[methodName] = overload + 1;
                 var fragments = new List<string>();
                 fragments.AddRange(typeFragments);
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, method.GetCustomAttributes(), qualifyNames: true)

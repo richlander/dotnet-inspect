@@ -1082,6 +1082,46 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PreservesExplicitRecordPropertyBodies()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public record Class1
+            {
+                public int P
+                {
+                    get
+                    {
+                        return 1;
+                    }
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "get_P",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+            Assert.Equal("valid_match", result.Reason);
+            Assert.Equal("return1;", Normalize(result.ExpectedBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CSharpSourceIdentityContext_ResolvesOperatorIdentity()
     {
         var root = CSharpSyntaxTree.ParseText("""
