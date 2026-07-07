@@ -59,12 +59,17 @@ dotnetup dotnet build dotnet-inspect.slnx -c Release
 dotnetup dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 ```
 
-If you intentionally want this repo's shell to prefer the dotnetup-managed SDK,
-opt in through dotnetup's supported environment script:
+For a temporary shell/process override, evaluate dotnetup's supported
+environment script before running repo commands:
 
 ```bash
 eval "$(dotnetup print-env-script --shell bash)"
+dotnet build dotnet-inspect.slnx -c Release
 ```
+
+That affects only the current shell process and its children. It changes future
+shells only if you add the line to a startup file such as `.bashrc`, `.profile`,
+or `.zshrc`.
 
 Verify the selected SDK:
 
