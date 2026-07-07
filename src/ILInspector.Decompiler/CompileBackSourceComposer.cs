@@ -253,6 +253,7 @@ public sealed record CompileBackFact(string Producer, string Id, string Detail);
 
 public sealed record CompileBackPrimaryConstructor(
     string Parameters,
+    IReadOnlyList<CompileBackParameter> ParameterList,
     IReadOnlyList<CompileBackMemberRequirement> FieldInitializers);
 
 public sealed record CompileBackTypeRequirement(
@@ -411,12 +412,22 @@ public static class CompileBackSourceComposer
             return;
         foreach (var required in requiredMembers)
         {
-            if (primaryConstructor is not null && required.Kind == CompileBackMemberKind.Constructor)
+            if (primaryConstructor is not null
+                && required.Kind == CompileBackMemberKind.Constructor
+                && SameParameters(required.Parameters, primaryConstructor.ParameterList))
+            {
                 continue;
+            }
             if (!members.Any(existing => SameMemberDeclaration(existing, required)))
                 members.Add(required);
         }
     }
+
+    static bool SameParameters(IReadOnlyList<CompileBackParameter> left, IReadOnlyList<CompileBackParameter> right)
+        => left.Count == right.Count
+            && left.Zip(right).All(pair =>
+                string.Equals(pair.First.Type.DisplayName, pair.Second.Type.DisplayName, StringComparison.Ordinal)
+                && string.Equals(pair.First.Modifier, pair.Second.Modifier, StringComparison.Ordinal));
 
     static bool SameMemberDeclaration(CompileBackMemberRequirement left, CompileBackMemberRequirement right)
         => left.Kind == right.Kind
@@ -919,7 +930,7 @@ public static class CompileBackSourceComposer
                     sb.AppendLine($"{pad}}}");
                     break;
                 }
-                sb.AppendLine($"{pad}{declaration} {{ throw null; }}");
+                sb.AppendLine($"{pad}{declaration}{PrimaryConstructorInitializer(type)} {{ throw null; }}");
                 break;
             case CompileBackMemberKind.Method:
                 if (type.Kind == CompileBackTypeKind.Interface || member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
@@ -1627,9 +1638,11 @@ public static class CompileBackSourceComposer
         if (!RenderedBodyMatchesPrimaryConstructorInitializers(renderedBody, initializerTexts))
             return null;
 
-        string parameters = string.Join(", ", MethodParameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)))
-            .Select(RenderParameter));
-        return new CompileBackPrimaryConstructor(parameters, fieldInitializers);
+        var parameters = MethodParameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)));
+        return new CompileBackPrimaryConstructor(
+            string.Join(", ", parameters.Select(RenderParameter)),
+            parameters,
+            fieldInitializers);
     }
 
     static CompileBackPrimaryConstructor? PrimaryConstructorFromCapturedFields(
@@ -1681,7 +1694,44 @@ public static class CompileBackSourceComposer
             ? null
             : new CompileBackPrimaryConstructor(
                 string.Join(", ", parameters.Select(RenderParameter)),
+                parameters,
                 FieldInitializers: []);
+    }
+
+    static string PrimaryConstructorInitializer(CompileBackTypeDeclaration type)
+    {
+        if (type.PrimaryConstructorParameters is not { Length: > 0 } parameters)
+            return "";
+
+        int count = SplitTopLevelParameters(parameters).Count();
+        return count == 0
+            ? ""
+            : $" : this({string.Join(", ", Enumerable.Repeat("default", count))})";
+    }
+
+    static IEnumerable<string> SplitTopLevelParameters(string parameters)
+    {
+        int start = 0;
+        int depth = 0;
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            char c = parameters[i];
+            depth += c switch
+            {
+                '<' or '(' or '[' => 1,
+                '>' or ')' or ']' => depth > 0 ? -1 : 0,
+                _ => 0,
+            };
+            if (c != ',' || depth != 0)
+                continue;
+
+            yield return parameters[start..i].Trim();
+            start = i + 1;
+        }
+
+        string last = parameters[start..].Trim();
+        if (last.Length > 0)
+            yield return last;
     }
 
     static bool TryPrimaryConstructorParameterName(string fieldName, out string parameterName)
