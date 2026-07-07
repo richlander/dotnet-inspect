@@ -303,6 +303,84 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_UnsafeRunKeepsCapturedOuterLocalLambdaInScope()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var action = TypeRef.CoreLib("System", "Action");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new ExpressionStatement(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new StoreLocal(1, action, new Lambda(action, [], [], [], usesUpdatedMemorySafetyRules: true, skipLocalsInit: false, lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid, action],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+
+        Assert.Contains("Guid V_0 = default;", unsafeBody);
+        Assert.Contains("V_0.GetHashCode()", unsafeBody);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunIgnoresNestedLambdaLocalIndexCollisions()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var action = TypeRef.CoreLib("System", "Action");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        lambdaBlock.Add(new ExpressionStatement(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new StoreLocal(1, action, new Lambda(action, [], [guid], [], usesUpdatedMemorySafetyRules: true, skipLocalsInit: false, lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid, action],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+
+        Assert.DoesNotContain("=>", unsafeBody);
+    }
+
+    [Fact]
     public void NewRulesModule_StackAllocSpanDefault_EmitsNoUnsafeBlock()
     {
         // Without [SkipLocalsInit] the same stackalloc -> Span is safe under the
