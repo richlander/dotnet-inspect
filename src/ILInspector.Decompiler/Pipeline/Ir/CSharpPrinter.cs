@@ -280,6 +280,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
 
+    /// <summary>Synthesized stack slots a <see cref="Fixed"/> statement owns and declares in its header.</summary>
+    readonly HashSet<int> _fixedStackSlots = [];
+
     /// <summary>Resource local slots a <see cref="UsingStatement"/> owns: declared by the using header, not up front.</summary>
     readonly HashSet<int> _usingLocals = [];
 
@@ -331,7 +334,12 @@ public sealed partial class CSharpPrinter
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
         foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
-            _fixedLocals.Add(fixedNode.LocalIndex);
+        {
+            if (fixedNode.LocalIsStackSlot)
+                _fixedStackSlots.Add(fixedNode.LocalIndex);
+            else
+                _fixedLocals.Add(fixedNode.LocalIndex);
+        }
         foreach (var usingNode in DescendantsOutsideNestedFunctions(function).OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
         foreach (var foreachNode in DescendantsOutsideNestedFunctions(function).OfType<ForeachStatement>())
@@ -536,8 +544,10 @@ public sealed partial class CSharpPrinter
                         : $"{scoped}{TypeText(type)} {LocalName(index)};";
             }
         }
-        foreach (var ((_, ordinal), (name, type)) in _stackSlotDeclarations)
+        foreach (var ((slot, _), (name, type)) in _stackSlotDeclarations)
         {
+            if (_fixedStackSlots.Contains(slot))
+                continue;
             if (_declaringStores.OfType<StoreStackSlot>().Any(s => StackSlotName(s) == name))
                 continue;
             // A ref-typed slot, like a ref-typed local, can't be declared bare
@@ -899,6 +909,11 @@ public sealed partial class CSharpPrinter
             ? name
             : $"S_{store.Slot}";
     }
+
+    string FixedLocalName(Fixed fixedStatement)
+        => fixedStatement.LocalIsStackSlot
+            ? $"S_{fixedStatement.LocalIndex}"
+            : LocalName(fixedStatement.LocalIndex);
 
     IReadOnlySet<string> CurrentScopeNames()
     {
@@ -1524,7 +1539,7 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad)
                 .Append("fixed (").Append(TypeText(fixedStatement.ElementType)).Append("* ")
-                .Append(LocalName(fixedStatement.LocalIndex)).Append(" = ")
+                .Append(FixedLocalName(fixedStatement)).Append(" = ")
                 .Append(fixedStatement.SourceIsAddress
                     ? "&" + Deref(fixedStatement.PinSource)
                     : Expression(fixedStatement.PinSource))
@@ -1730,6 +1745,7 @@ public sealed partial class CSharpPrinter
         IfStatement s => HasUnsafeOperation(s.Condition),
         Switch s => HasUnsafeOperation(s.Value),
         Lock l => HasUnsafeOperation(l.LockObject),
+        Fixed { LocalIsStackSlot: true } => true,
         Fixed fx => HasUnsafeOperation(fx.PinSource),
         UsingStatement u => HasUnsafeOperation(u.Resource),
         TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
@@ -1751,7 +1767,10 @@ public sealed partial class CSharpPrinter
     /// signature), or a <c>stackalloc</c> converted to a <c>Span</c> with no
     /// initializer in a <c>[SkipLocalsInit]</c> body. Dereferencing a managed
     /// reference (<c>ByRef</c>) is safe and excluded. Creating pointers, the
-    /// <c>fixed</c> statement, and <c>sizeof</c> are safe under the new rules.
+    /// String-pin fixed statements raised through a synthesized stack-slot
+    /// pointer need an unsafe context for their header. Creating pointers,
+    /// ordinary <c>fixed</c> statements, and <c>sizeof</c> are safe under the new
+    /// rules.
     /// </summary>
     bool IsUnsafeOperation(IrNode node) => node switch
     {

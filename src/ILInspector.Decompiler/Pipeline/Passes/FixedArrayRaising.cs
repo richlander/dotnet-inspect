@@ -33,6 +33,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// is unpinned by a single later <c>pin = null</c> store, and every read of the
 /// pinned slot lives inside the diamond (its length guard and element address).
 /// Anything else leaves the method flat.</para>
+///
+/// <para>String pinning lowers differently: the guard writes the derived pointer
+/// to a stack slot, and the non-null arm first stores
+/// <c>value.GetPinnableReference()</c> into a <c>pinned char&amp;</c> local. The
+/// same language spelling is <c>fixed (char* p = value)</c>, so this pass also
+/// recognizes that narrower string guard and makes the stack slot the fixed
+/// pointer variable.</para>
 /// </summary>
 internal static class FixedArrayRaising
 {
@@ -45,6 +52,74 @@ internal static class FixedArrayRaising
 
         foreach (var slot in pinnedArraySlots)
             TryRaise(function, slot, context);
+
+        RaiseStringPins(function, context);
+    }
+
+    static void RaiseStringPins(IrFunction function, PassContext context)
+    {
+        if (function.Body.Blocks.Count == 0)
+            return;
+
+        var entry = function.Body.Blocks[0];
+        foreach (var guard in entry.Children.OfType<IfStatement>().Where(g => g.HasElse).ToList())
+        {
+            TryRaiseStringPin(function, entry, guard, context);
+        }
+    }
+
+    static void TryRaiseStringPin(IrFunction function, Block entry, IfStatement guard, PassContext context)
+    {
+        if (guard.Then.Children is not [StoreStackSlot thenStore]
+            || guard.Else is not { Children: [StoreLocal pinStore, StoreStackSlot elseStore] }
+            || thenStore.Slot != elseStore.Slot
+            || !IsNullPointer(thenStore.Value)
+            || function.Locals[pinStore.Index] is not { Kind: TypeRefKind.Pinned, ElementType: { Kind: TypeRefKind.ByRef } byRef }
+            || PinSource(pinStore.Value) is not { } source
+            || !IsString(source.ResultType)
+            || !ConditionNullChecksSource(guard.Condition, source)
+            || StripConverts(elseStore.Value) is not LoadLocal pinLoad
+            || pinLoad.Index != pinStore.Index)
+        {
+            return;
+        }
+
+        int pointerSlot = thenStore.Slot;
+        var bodyStmts = entry.Children
+            .Where(c => c.ChildIndex > guard.ChildIndex)
+            .TakeWhile(c => StatementReferencesStackSlot(c, pointerSlot))
+            .ToList();
+        if (bodyStmts.Count == 0)
+            return;
+
+        foreach (var node in function.Descendants)
+        {
+            if (node is StoreLocal store && store.Index == pinStore.Index && store != pinStore)
+                return;
+            if (node is LoadLocal load && load.Index == pinStore.Index && load != pinLoad)
+                return;
+            if (node is StoreStackSlot stackStore && stackStore.Slot == pointerSlot && stackStore != thenStore && stackStore != elseStore)
+                return;
+            if (ReferencesStackSlot(node, pointerSlot)
+                && node != thenStore && node != elseStore
+                && !bodyStmts.Any(stmt => ReferenceOwnership.IsInside(node, stmt)))
+            {
+                return;
+            }
+        }
+
+        foreach (var stmt in bodyStmts)
+            stmt.Detach();
+
+        var body = new BlockContainer();
+        var bodyBlock = new Block(entry.StartOffset);
+        foreach (var stmt in bodyStmts)
+            bodyBlock.Add(stmt);
+        body.Add(bodyBlock);
+
+        var fixedStatement = new Fixed(byRef.ElementType!, pointerSlot, (IrExpression)source.Clone(), body, sourceIsAddress: false, localIsStackSlot: true);
+        context.Stepper.StepOver("raise pinned string to fixed statement", guard);
+        guard.ReplaceWith(fixedStatement);
     }
 
     static void TryRaise(IrFunction function, int pin, PassContext context)
@@ -155,6 +230,31 @@ internal static class FixedArrayRaising
 
     static bool IsNullStore(StoreLocal store)
         => StripConverts(store.Value) is Constant { Value: null or 0 or 0L };
+
+    static IrExpression? PinSource(IrExpression value)
+        => value is Call { Callee.Name: "GetPinnableReference", Callee.HasThis: true, Arguments: [var source] }
+            ? source
+            : null;
+
+    static bool IsString(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "String" };
+
+    static bool ConditionNullChecksSource(IrExpression condition, IrExpression source)
+        => condition is LogicalNot { Operand: LoadArgument nullChecked }
+            && source is LoadArgument pinSource
+            && nullChecked.Index == pinSource.Index
+            && nullChecked.Name == pinSource.Name;
+
+    static bool ReferencesStackSlot(IrNode node, int slot) => node switch
+    {
+        LoadStackSlot load => load.Slot == slot,
+        StoreStackSlot store => store.Slot == slot,
+        _ => false,
+    };
+
+    static bool StatementReferencesStackSlot(IrNode node, int slot)
+        => ReferencesStackSlot(node, slot)
+            || node.Descendants.Any(descendant => ReferencesStackSlot(descendant, slot));
 
     static bool ReferencesPointerSlot(IrNode node, int pointerSlot) => node switch
     {

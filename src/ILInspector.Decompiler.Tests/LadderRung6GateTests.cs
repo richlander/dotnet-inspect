@@ -683,7 +683,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
-    public void Rung6FixedBufferAndStringPinningResiduals_DegradeHonestly()
+    public void Rung6FixedBufferResiduals_DegradeHonestlyAndStringPinningRecovers()
     {
         AssertFixedBufferResidual(NewUnsafePath, FixedBufferType);
         AssertFixedBufferResidual(LegacyUnsafePath, LegacyFixedBufferType);
@@ -705,8 +705,17 @@ public class LadderRung6GateTests
     {
         var member = LoadRaisedMembers(assemblyPath, typeName)
             .Single(m => m.Name == "FixedStringFirstChar");
-        Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
-        Assert.Contains("pinned ref char", member.Body);
+        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        Assert.Contains("fixed (char* ", member.Body);
+        Assert.Contains(" = value)", member.Body);
+        Assert.DoesNotContain("pinned", member.Body);
+        AssertNoErrors(
+            RecompileNewRules(
+                assemblyPath == NewUnsafePath
+                    ? "static int M(string value)"
+                    : "static unsafe int M(string value)",
+                member.Body),
+            member.Body);
     }
 
     [Fact]
