@@ -108,6 +108,38 @@ public class TypeRefDecoderRecursionTests
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
     }
 
+    [Fact]
+    public void SelfReferentialModreqUnderBlobCap_DoesNotStackOverflow()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            // Each blob is under the per-blob cap (1003 bytes) but cycles: 1000 SZARRAY (0x1d)
+            // prefixes, then a required custom modifier (CMOD_REQD, 0x1f) whose coded token
+            // (0x06) points back at this TypeSpec row, then I4 (0x08). Decoding it re-enters
+            // GetTypeFromSpecification, stacking another ~1000 SRM native frames per re-entry —
+            // so the per-blob cap alone would still StackOverflow. The cumulative-bytes cap must
+            // stop the chain.
+            var signature = new BlobBuilder();
+            for (int i = 0; i < 1000; i++)
+                signature.WriteByte(0x1d);
+            signature.WriteByte(0x1f);
+            signature.WriteByte(0x06);
+            signature.WriteByte(0x08);
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            MetadataTokens.TypeSpecificationHandle(1),
+            0);
+
+        // Reaching this assertion at all proves the cumulative cap stopped the cycle before it
+        // overflowed the native stack.
+        Assert.NotNull(result);
+    }
+
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)
     {
         var metadata = new MetadataBuilder();

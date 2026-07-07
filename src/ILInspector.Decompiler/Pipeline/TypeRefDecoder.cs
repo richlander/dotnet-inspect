@@ -40,6 +40,16 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     // input.
     const int MaxSignatureBlobLength = 1024;
 
+    // A self-referential TypeSpecification (reached via a modreq custom modifier) re-enters
+    // GetTypeFromSpecification, and each re-entry stacks another blob's worth of SRM native
+    // DecodeType frames on top of the live ones. The per-blob cap alone would let a cycle
+    // multiply into MaxSignatureBlobLength * MaxRecursionDepth native frames — still an
+    // uncatchable StackOverflow — so also bound the CUMULATIVE decoded blob bytes across the
+    // live re-entry chain, which is what actually bounds the native stack depth.
+    [ThreadStatic]
+    static int s_cumulativeSignatureBytes;
+    const int MaxCumulativeSignatureBytes = 4096;
+
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
         => TypeRef.CoreLib("System", typeCode switch
         {
@@ -132,8 +142,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (s_recursionDepth >= MaxRecursionDepth)
             return TypeRef.Unsupported("type-specification recursion depth exceeded");
         var spec = reader.GetTypeSpecification(handle);
-        if (reader.GetBlobReader(spec.Signature).Length > MaxSignatureBlobLength)
+        int blobLength = reader.GetBlobReader(spec.Signature).Length;
+        if (blobLength > MaxSignatureBlobLength)
             return TypeRef.Unsupported("type-specification signature blob too large");
+        if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+            return TypeRef.Unsupported("type-specification cumulative signature blob too large");
+        s_cumulativeSignatureBytes += blobLength;
         s_recursionDepth++;
         try
         {
@@ -142,6 +156,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         finally
         {
             s_recursionDepth--;
+            s_cumulativeSignatureBytes -= blobLength;
         }
     }
 
