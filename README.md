@@ -15,6 +15,75 @@ Run without installing:
 dnx dotnet-inspect -y -- <command>
 ```
 
+## Repository development SDK
+
+Published tool users can install or run `dotnet-inspect` with the commands
+above. Contributors building this repository should use a .NET 11 daily SDK.
+The decompiler tracks compiler-produced C# shapes, and some correctness work
+needs daily compiler/runtime packs before the next public preview ships.
+
+First check how `dotnet` is installed and which SDK it selects:
+
+```bash
+command -v dotnet
+dotnet --version
+```
+
+If that already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
+`dotnet` commands:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+```
+
+If `dotnet` comes from a centrally managed location such as `/usr/bin`,
+`/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`, do not replace
+it or prepend another `dotnet` to PATH unless that is intentional for your
+machine. Use dotnetup in command-isolation mode, or ask your system
+administrator which setup is appropriate.
+
+Install and track the daily SDK with dotnetup:
+
+```bash
+curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
+bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
+dotnetup sdk install 11.0-daily --interactive false
+```
+
+Then run repo commands through dotnetup when you want the nightly SDK without
+making it your shell default:
+
+```bash
+dotnetup dotnet build dotnet-inspect.slnx -c Release
+dotnetup dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+```
+
+For a temporary shell/process override, evaluate dotnetup's supported
+environment script before running repo commands:
+
+```bash
+eval "$(dotnetup print-env-script --shell bash)"
+dotnet build dotnet-inspect.slnx -c Release
+```
+
+That affects only the current shell process and its children. It changes future
+shells only if you add the line to a startup file such as `.bashrc`, `.profile`,
+or `.zshrc`.
+
+Verify the `dotnet` selected for commands run from this repository:
+
+```bash
+command -v dotnet
+dotnet --version
+dotnetup list
+```
+
+The Deep Inspect `nightly` lane uses the same acquisition model in an isolated
+workspace install. It restores with a temporary NuGet config that includes both
+the .NET 11 daily feed and nuget.org: most projects target the nightly
+`net11.0` SDK, while a few fixture projects still target stable `net10.0` packs.
+
 ## What it inspects
 
 | Source | Examples | Notes |

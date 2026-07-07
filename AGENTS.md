@@ -65,6 +65,60 @@ Console.WriteLine($"Found {items.Count} items");
 
 ## Building and Testing
 
+Repository development tracks .NET 11 daily SDKs so decompiler work can follow
+compiler-produced shapes before monthly previews. Published tool users are not
+affected by this repo-development requirement.
+
+Before installing an SDK or changing PATH, inspect the current `dotnet`:
+
+```bash
+command -v dotnet
+dotnet --version
+```
+
+If `dotnet` already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
+`dotnet` commands for this repo. Do not wrap those commands in `dotnetup dotnet`
+unless you need to force an isolated dotnetup install.
+
+If `dotnet` is centrally installed (for example under `/usr/bin`,
+`/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`), stop and ask
+for guidance before installing an additional user-level SDK or changing shell
+configuration. Do not remove, shadow, or replace a centrally managed install
+unless the user explicitly approves it.
+
+Use `dotnetup` for non-invasive local SDK acquisition:
+
+```bash
+curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
+bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
+dotnetup sdk install 11.0-daily --interactive false
+```
+
+When the default `dotnet` for commands run from this repository is not the
+dotnetup-managed .NET 11 daily SDK, and the user has approved a user-level
+dotnetup install, run repo commands through dotnetup so the nightly SDK is
+selected only for that command:
+
+```bash
+dotnetup dotnet build dotnet-inspect.slnx -c Release
+dotnetup dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+```
+
+For a temporary shell/process override, evaluate dotnetup's supported
+environment script before running repo commands:
+
+```bash
+eval "$(dotnetup print-env-script --shell bash)"
+dotnet build dotnet-inspect.slnx -c Release
+```
+
+That affects only the current shell process and its children. Do not write this
+line to startup files such as `.bashrc`, `.profile`, or `.zshrc` unless the user
+explicitly asks for a persistent shell change.
+
+Verify the selected `dotnet --version` reports the dotnetup-managed daily SDK
+before building.
+
 Build the normal product/test/fixture graph:
 
 ```bash
