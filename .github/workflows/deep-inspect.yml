@@ -248,6 +248,48 @@ jobs:
           restore-keys: |
             nuget-nightly-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Write nightly NuGet config
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          nightly_nuget_config="$RUNNER_TEMP/NuGet.Config"
+          echo "NIGHTLY_NUGET_CONFIG=$nightly_nuget_config" >> "$GITHUB_ENV"
+
+          cat > "$nightly_nuget_config" <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="dotnet11" value="https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+            <packageSourceMapping>
+              <!--
+                These pack IDs must map to both sources. NuGet source mapping is
+                package-ID based, not version-aware: net11 daily runtime/AOT/linker
+                packs come from the dotnet11 feed, while net10 packs used by some
+                fixture projects still come from nuget.org.
+              -->
+              <packageSource key="dotnet11">
+                <package pattern="Microsoft.AspNetCore.App.*" />
+                <package pattern="Microsoft.DotNet.ILCompiler" />
+                <package pattern="Microsoft.NET.ILLink.Tasks" />
+                <package pattern="Microsoft.NETCore.App.*" />
+                <package pattern="runtime.*.Microsoft.DotNet.ILCompiler" />
+              </packageSource>
+              <packageSource key="nuget.org">
+                <package pattern="*" />
+                <package pattern="Microsoft.AspNetCore.App.*" />
+                <package pattern="Microsoft.DotNet.ILCompiler" />
+                <package pattern="Microsoft.NET.ILLink.Tasks" />
+                <package pattern="Microsoft.NETCore.App.*" />
+                <package pattern="runtime.*.Microsoft.DotNet.ILCompiler" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          EOF
+
       - name: Probe unsafe expression compiler support
         continue-on-error: true
         shell: bash
@@ -267,8 +309,11 @@ jobs:
 
           dotnet run "$check"
 
+      - name: Restore with nightly package feeds
+        run: dotnet restore dotnet-inspect.slnx --configfile "$NIGHTLY_NUGET_CONFIG"
+
       - name: Build with nightly SDK
-        run: dotnet build dotnet-inspect.slnx -c Release
+        run: dotnet build dotnet-inspect.slnx -c Release --no-restore
 
       - name: Run unsafe decompiler tests with nightly SDK
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -filter "/*/*/UnsafeEmitterTests/*"
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
