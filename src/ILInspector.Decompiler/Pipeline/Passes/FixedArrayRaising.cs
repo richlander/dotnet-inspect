@@ -131,14 +131,17 @@ internal static class FixedArrayRaising
             bodyBlock.Add(stmt);
         body.Add(bodyBlock);
 
+        var pointerType = TypeRef.Pointer(byRef.ElementType!);
+        int fixedLocal = function.AddLocal(pointerType);
+        ReplacePinnedPointerLoads(body, pointerSlot, pointerType, fixedLocal);
+
         var fixedStatement = new Fixed(
             byRef.ElementType!,
-            pointerSlot,
+            fixedLocal,
             (IrExpression)source.Clone(),
             body,
             sourceIsAddress: false,
-            localIsStackSlot: true,
-            localStackSlotType: thenStore.Value.ResultType);
+            requiresUnsafeContext: true);
         context.Stepper.StepOver("raise pinned string to fixed statement", guard);
         guard.ReplaceWith(fixedStatement);
     }
@@ -297,7 +300,7 @@ internal static class FixedArrayRaising
             changed = false;
             foreach (var store in function.Descendants.OfType<StoreLocal>())
             {
-                if (!IsAfterEntryStatement(store, entry, guardIndex) || store.Type.Kind != TypeRefKind.Pointer)
+                if (!IsAfterEntryStatement(store, entry, guardIndex) || !IsPointerCarrier(store.Type))
                     continue;
                 if (ValueReferencesPinnedPointer(store.Value, pointerSlot, aliases)
                     && aliases.Add(store.Index))
@@ -316,6 +319,10 @@ internal static class FixedArrayRaising
                 return current.ChildIndex > guardIndex;
         return false;
     }
+
+    static bool IsPointerCarrier(TypeRef type)
+        => type.Kind == TypeRefKind.Pointer
+            || type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "IntPtr" or "UIntPtr" };
 
     static bool ValueReferencesPinnedPointer(IrNode value, int pointerSlot, IReadOnlySet<int> aliases)
         => ReferencesPinnedPointer(value, pointerSlot, aliases)
@@ -343,6 +350,19 @@ internal static class FixedArrayRaising
             if (StatementReferencesPinnedPointer(child, pointerSlot, aliases))
                 last = child.ChildIndex;
         return last;
+    }
+
+    static void ReplacePinnedPointerLoads(IrNode node, int pointerSlot, TypeRef pointerType, int fixedLocal)
+    {
+        for (int i = 0; i < node.Children.Count; i++)
+        {
+            if (node.Children[i] is LoadStackSlot load && load.Slot == pointerSlot)
+            {
+                node.SetChild(i, new LoadLocal(fixedLocal, pointerType));
+                continue;
+            }
+            ReplacePinnedPointerLoads(node.Children[i], pointerSlot, pointerType, fixedLocal);
+        }
     }
 
     static bool ReferencesPointerSlot(IrNode node, int pointerSlot) => node switch

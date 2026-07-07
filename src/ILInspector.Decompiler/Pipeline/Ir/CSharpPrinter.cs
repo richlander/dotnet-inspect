@@ -1749,7 +1749,7 @@ public sealed partial class CSharpPrinter
         IfStatement s => HasUnsafeOperation(s.Condition),
         Switch s => HasUnsafeOperation(s.Value),
         Lock l => HasUnsafeOperation(l.LockObject),
-        Fixed { LocalIsStackSlot: true } => true,
+        Fixed { RequiresUnsafeContext: true } => true,
         Fixed fx => HasUnsafeOperation(fx.PinSource),
         UsingStatement u => HasUnsafeOperation(u.Resource),
         TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),

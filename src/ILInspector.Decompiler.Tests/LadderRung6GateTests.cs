@@ -724,10 +724,11 @@ public class LadderRung6GateTests
         var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: true, includeUnpin: false)).Output ?? "";
 
         Assert.Contains("unsafe", body);
-        Assert.Contains("fixed (char* S_0 = value)", body);
-        Assert.Contains("return *((char*)S_0);", body);
+        Assert.Contains("fixed (char* V_", body);
+        Assert.Contains(" = value)", body);
+        Assert.Contains("return *", body);
         Assert.True(
-            body.IndexOf("return *((char*)S_0);", StringComparison.Ordinal) < body.LastIndexOf('}'),
+            body.IndexOf("return *", StringComparison.Ordinal) < body.LastIndexOf('}'),
             "pointer dereference must stay inside the fixed region:\n" + body);
         Assert.False(body.StartsWith("char* V_1;", StringComparison.Ordinal), body);
         AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
@@ -738,7 +739,8 @@ public class LadderRung6GateTests
     {
         var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: false, includeUnpin: true)).Output ?? "";
 
-        Assert.Contains("fixed (char* S_0 = value)", body);
+        Assert.Contains("fixed (char* V_", body);
+        Assert.Contains(" = value)", body);
         Assert.DoesNotContain("V_0 =", body);
         Assert.DoesNotContain("pinned", body);
         AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
@@ -749,7 +751,8 @@ public class LadderRung6GateTests
     {
         var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: true, includeUnpin: false, derivedAlias: true)).Output ?? "";
 
-        Assert.Contains("fixed (char* S_0 = value)", body);
+        Assert.Contains("fixed (char* V_", body);
+        Assert.Contains(" = value)", body);
         Assert.Contains("return *", body);
         Assert.True(
             body.IndexOf("return *", StringComparison.Ordinal) < body.LastIndexOf('}'),
@@ -762,8 +765,8 @@ public class LadderRung6GateTests
     {
         var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: false, includeUnpin: false, collideStackSlotName: true)).Output ?? "";
 
-        Assert.Contains("fixed (char* S_0_1 = value)", body);
-        Assert.Contains("(char*)S_0_1", body);
+        Assert.Contains("fixed (char* V_", body);
+        Assert.Contains(" = value)", body);
         Assert.DoesNotContain("fixed (char* S_0 = value)", body);
         Assert.DoesNotContain("nuint S_0_1;", body);
         AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
@@ -775,7 +778,8 @@ public class LadderRung6GateTests
         var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: false, includeUnpin: false, sourceLocal: true)).Output ?? "";
 
         Assert.Contains("string V_1 = value;", body);
-        Assert.Contains("fixed (char* S_0 = V_1)", body);
+        Assert.Contains("fixed (char* V_", body);
+        Assert.Contains(" = V_1)", body);
         Assert.DoesNotContain("pinned", body);
         AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
     }
@@ -785,12 +789,7 @@ public class LadderRung6GateTests
     {
         var body = CSharpPrinter.PrintRaised(SyntheticNestedStringPins()).Output ?? "";
 
-        Assert.Contains("fixed (char* S_0 = value)", body);
-        Assert.Contains("fixed (char* S_1 = value)", body);
-        Assert.True(
-            body.IndexOf("fixed (char* S_0 = value)", StringComparison.Ordinal)
-                < body.IndexOf("fixed (char* S_1 = value)", StringComparison.Ordinal),
-            body);
+        Assert.Equal(2, body.Split("fixed (char* V_", StringSplitOptions.None).Length - 1);
         Assert.Contains("return", body);
         AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
     }
