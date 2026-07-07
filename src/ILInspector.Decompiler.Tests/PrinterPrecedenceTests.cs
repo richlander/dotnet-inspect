@@ -238,6 +238,50 @@ public class PrinterPrecedenceTests
         Assert.DoesNotContain("return a - b - c;", output);
     }
 
+    [Fact]
+    public void CoalesceLeft_NestedCoalesce_StaysParenthesized()
+    {
+        var nested = new Coalesce(
+            new LoadArgument(0, "a", s_string),
+            new LoadArgument(1, "b", s_string));
+        var outer = new Coalesce(
+            nested,
+            new LoadArgument(2, "c", s_string));
+
+        var output = PrintReturn(
+            outer,
+            s_string,
+            [new Parameter("a", s_string), new Parameter("b", s_string), new Parameter("c", s_string)]);
+
+        Assert.Contains("return (a ?? b) ?? c;", output);
+        Assert.DoesNotContain("return a ?? b ?? c;", output);
+    }
+
+    [Fact]
+    public void CoalesceLeft_Conditional_StaysParenthesized()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new LoadArgument(1, "a", s_string),
+            new LoadArgument(2, "b", s_string));
+        var coalesce = new Coalesce(
+            conditional,
+            new LoadArgument(3, "c", s_string));
+
+        var output = PrintReturn(
+            coalesce,
+            s_string,
+            [
+                new Parameter("flag", s_bool),
+                new Parameter("a", s_string),
+                new Parameter("b", s_string),
+                new Parameter("c", s_string),
+            ]);
+
+        Assert.Contains("return (flag ? a : b) ?? c;", output);
+        Assert.DoesNotContain("return flag ? a : b ?? c;", output);
+    }
+
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
     {
         var block = new Block();
