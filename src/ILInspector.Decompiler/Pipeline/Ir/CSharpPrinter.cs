@@ -1033,7 +1033,7 @@ public sealed partial class CSharpPrinter
                         _scopedLocals.Add(store.Index);
                     continue;
                 }
-                if (!UnsafeDeclarationBeforeInSameBlock(store))
+                if (!DeclarationIsInsideUnsafeRun(store))
                 {
                     continue;
                 }
@@ -1049,7 +1049,7 @@ public sealed partial class CSharpPrinter
             {
                 if (init.Address is not LoadLocalAddress local)
                     continue;
-                if (!UnsafeDeclarationBeforeInSameBlock(init))
+                if (!DeclarationIsInsideUnsafeRun(init))
                 {
                     continue;
                 }
@@ -1091,14 +1091,17 @@ public sealed partial class CSharpPrinter
         return true;
     }
 
-    bool UnsafeDeclarationBeforeInSameBlock(IrNode statement)
+    bool DeclarationIsInsideUnsafeRun(IrNode statement)
     {
         if (statement.Parent is not Block block || statement.ChildIndex <= 0)
             return false;
         for (int i = 0; i < statement.ChildIndex; i++)
         {
-            if (NeedsUnsafeContext(block.Children[i]))
+            if (NeedsUnsafeContext(block.Children[i])
+                && UnsafeRunEnd(block.Children, i) > statement.ChildIndex)
+            {
                 return true;
+            }
         }
         return false;
     }
