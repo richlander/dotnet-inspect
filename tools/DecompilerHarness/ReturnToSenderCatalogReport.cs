@@ -173,7 +173,7 @@ internal static class ReturnToSenderCatalogReport
         string actual = row.ActualStatus?.ToString() ?? "Missing";
         string closure = row.ClosureEvidence is null
             ? ""
-            : $"types={row.ClosureEvidence.RequiredTypes} members={row.ClosureEvidence.RequiredMembers} roslyn-types={row.ClosureEvidence.RoslynRecoveredTypes} roslyn-member-surfaces={row.ClosureEvidence.RoslynRecoveredMemberSurfaces}";
+            : ClosureText(row.ClosureEvidence);
         return new ReturnToSenderFailedFixtureRow(
             fixtureId,
             row.DisplayMember,
@@ -192,6 +192,14 @@ internal static class ReturnToSenderCatalogReport
             .OrderByDescending(group => group.Count())
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new ReturnToSenderCatalogReportBucket(group.Key, group.Count()))];
+
+    static string ClosureText(ReturnToSenderClosureEvidence evidence)
+    {
+        var text = $"types={evidence.RequiredTypes} members={evidence.RequiredMembers} roslyn-types={evidence.RoslynRecoveredTypes} roslyn-member-surfaces={evidence.RoslynRecoveredMemberSurfaces}";
+        if (evidence.RoslynFallbacks.Count == 0)
+            return text;
+        return $"{text} roslyn-fallbacks={string.Join(",", evidence.RoslynFallbacks.Select(fallback => $"{fallback.Diagnostic}/{fallback.Recovery}:{fallback.Count}"))}";
+    }
 
     static void AppendResearchEvidence(StringBuilder sb, ReturnToSenderCatalogResearchSection? research)
     {
@@ -270,8 +278,7 @@ internal static class ReturnToSenderCatalogReport
         if (row.ClosureEvidence is not null)
         {
             sb.AppendLine(
-                $"      closure: types={row.ClosureEvidence.RequiredTypes} members={row.ClosureEvidence.RequiredMembers} " +
-                $"roslyn-types={row.ClosureEvidence.RoslynRecoveredTypes} roslyn-member-surfaces={row.ClosureEvidence.RoslynRecoveredMemberSurfaces}");
+                $"      closure: {ClosureText(row.ClosureEvidence)}");
         }
         if (!string.IsNullOrWhiteSpace(row.Detail))
             sb.AppendLine($"      detail: {row.Detail}");

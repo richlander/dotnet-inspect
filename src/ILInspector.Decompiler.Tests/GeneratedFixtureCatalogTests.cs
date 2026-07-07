@@ -1162,6 +1162,10 @@ public class GeneratedFixtureCatalogTests
                         RequiredMembers: 1,
                         RoslynRecoveredTypes: 1,
                         RoslynRecoveredMemberSurfaces: 1,
+                        RoslynFallbacks:
+                        [
+                            new ReturnToSenderRoslynFallback("CS0103", "closure-root", 1),
+                        ],
                         Requirements:
                         [
                             new ReturnToSenderClosureRequirement(
@@ -1183,6 +1187,7 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("h0 + IL_0000 ldc.i4 2", report);
         Assert.Contains("member: Method1~abcdef1234  canonical=M:TestType.Method1()", report);
         Assert.Contains("closure: types=2 members=1 roslyn-types=1 roslyn-member-surfaces=1", report);
+        Assert.Contains("roslyn-fallbacks=CS0103/closure-root:1", report);
         Assert.Contains("Research evidence:", report);
         Assert.Contains("rts.status.fail: 1", report);
         Assert.Contains("il.operation.added: 1", report);
