@@ -856,8 +856,21 @@ public sealed partial class CSharpPrinter
                     && CanAssignTo(conditional.WhenTrue, target)
                     && CanAssignTo(conditional.WhenFalse, target))
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
+        if (value is Coalesce coalesce)
+            return CanRenderCoalesceForTarget(coalesce, target)
+                || (coalesce.ResultType is { } coalesceType && CanAssignType(coalesceType, target));
         return value.ResultType is { } source && CanAssignType(source, target);
     }
+
+    bool CanRenderCoalesceForTarget(Coalesce coalesce, TypeRef target)
+        => IsProvenReference(target)
+            && (EffectiveType(coalesce.Left)?.Equals(target) == true || EffectiveType(coalesce.Right)?.Equals(target) == true)
+            && IsReferenceCoalesceArm(coalesce.Left)
+            && IsReferenceCoalesceArm(coalesce.Right);
+
+    bool IsReferenceCoalesceArm(IrExpression arm)
+        => arm is Constant { Value: null }
+            || (EffectiveType(arm) is { } type && IsProvenReference(type));
 
     /// <summary>
     /// A type known to be a reference WITHOUT resolution — a stack-O family

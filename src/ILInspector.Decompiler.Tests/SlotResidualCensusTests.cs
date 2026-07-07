@@ -62,6 +62,49 @@ public class SlotResidualCensusTests
         Assert.Equal(0, telemetry.MultiCandidateUnifiedSlots);
     }
 
+    [Fact]
+    public void StackSlotUnifierTelemetry_UnifiesReferenceCoalesceAtBaseTarget()
+    {
+        var baseReader = TypeRef.Definition("Synthetic", "Samples", "JsonReader", ValueTypeHint.ReferenceType);
+        var traceReader = TypeRef.Definition("Synthetic", "Samples", "TraceJsonReader", ValueTypeHint.ReferenceType);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadLocal(0, traceReader),
+            new LoadArgument(0, "reader", baseReader))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [baseReader], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, baseReader)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [
+                new Parameter("reader", baseReader),
+            ], HasThis: false, GenericParameterCount: 0),
+            [traceReader],
+            body)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [baseReader] = TypeShape.Reference,
+                [traceReader] = TypeShape.Reference,
+            },
+        };
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("JsonReader S_0 = V_0 ?? reader;", output);
+        Assert.Contains("Use(S_0);", output);
+    }
+
     static string CaptureConsole(Func<int> action)
     {
         lock (ConsoleGate)
