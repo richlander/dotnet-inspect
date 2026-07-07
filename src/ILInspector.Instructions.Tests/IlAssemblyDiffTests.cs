@@ -56,4 +56,17 @@ public class IlAssemblyDiffTests
         Assert.Equal(0, pair.Diff.ChangedBodyCount);
         Assert.Equal(0, pair.Diff.FailureCount);
     }
+
+    [Fact]
+    public void CompareStreams_DoesNotDisposeCallerOwnedStreams()
+    {
+        var assemblyPath = typeof(IlAssemblyDiffTests).Assembly.Location;
+        using var oldStream = File.OpenRead(assemblyPath);
+        using var newStream = File.OpenRead(assemblyPath);
+
+        _ = IlAssemblyDiff.CompareStreams(oldStream, "old.dll", newStream, "new.dll", maxExamples: 0);
+
+        Assert.True(oldStream.CanRead);
+        Assert.True(newStream.CanRead);
+    }
 }

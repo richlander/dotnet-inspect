@@ -55,8 +55,8 @@ public static class IlAssemblyDiff
         ArgumentNullException.ThrowIfNull(newStream);
         ArgumentException.ThrowIfNullOrWhiteSpace(newName);
 
-        using var oldPe = new PEReader(oldStream);
-        using var newPe = new PEReader(newStream);
+        using var oldPe = new PEReader(oldStream, PEStreamOptions.LeaveOpen);
+        using var newPe = new PEReader(newStream, PEStreamOptions.LeaveOpen);
         var result = Compare(oldPe, oldPe.GetMetadataReader(), newPe, newPe.GetMetadataReader(), maxExamples);
         return new IlAssemblyDiffPairResult(oldName, newName, result);
     }
