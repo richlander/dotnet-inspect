@@ -1032,6 +1032,31 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void CSharpSourceIdentityContext_PreservesExplicitRecordMemberBodies()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public record Class1(int Value)
+            {
+                public override string ToString()
+                {
+                    return Value.ToString();
+                }
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<RecordDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var members = context.TypeMembers(type, "SourceProbe.Class1").Where(member => member.MetadataName == "ToString").ToArray();
+
+        var member = Assert.Single(members);
+        Assert.Equal("return Value.ToString();", member.Body);
+        Assert.DoesNotContain("record-synthesized", member.Evidence);
+    }
+
+    [Fact]
     public void CSharpSourceIdentityContext_ResolvesOperatorIdentity()
     {
         var root = CSharpSyntaxTree.ParseText("""
