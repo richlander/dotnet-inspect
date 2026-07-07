@@ -441,12 +441,14 @@ static class ReturnToSenderSourceProbe
                             break;
                         case MethodDeclarationSyntax method:
                         {
-                            if (IsBodylessPartial(method))
-                                break;
-                            string methodName = method.Identifier.ValueText;
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(method) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
+                            foreach (var methodMember in sourceIdentity.MethodMembers(method))
+                            {
+                                string methodName = methodMember.MetadataName;
+                                int overload = NextOverload(overloads, methodName);
+                                if (methodMember.Body is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
                             break;
                         }
                         case ConstructorDeclarationSyntax constructor:
@@ -648,15 +650,6 @@ static class ReturnToSenderSourceProbe
             _ => outcome.ToString(),
         };
 
-    static string? BodyText(MethodDeclarationSyntax method)
-    {
-        if (method.Body is { } body)
-            return StatementsText(body);
-        if (method.ExpressionBody is { } expressionBody)
-            return ExpressionBodyText(method.ReturnType, expressionBody.Expression);
-        return null;
-    }
-
     static bool HasPrimaryConstructor(TypeDeclarationSyntax type)
         => type switch
         {
@@ -665,11 +658,6 @@ static class ReturnToSenderSourceProbe
             RecordDeclarationSyntax { ParameterList: not null } => true,
             _ => false,
         };
-
-    static bool IsBodylessPartial(MethodDeclarationSyntax method)
-        => method.Modifiers.Any(SyntaxKind.PartialKeyword)
-            && method.Body is null
-            && method.ExpressionBody is null;
 
     static string? BodyText(ConstructorDeclarationSyntax constructor)
     {

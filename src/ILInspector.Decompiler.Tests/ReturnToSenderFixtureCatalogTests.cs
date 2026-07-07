@@ -826,6 +826,40 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Contains("partial-implementation", member.Evidence);
     }
 
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesMethodIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public interface IValue
+            {
+                int M();
+            }
+
+            public partial class Class1 : IValue
+            {
+                partial void M();
+                int IValue.M() => 0;
+                public partial int M(int value) => value;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var methods = root.DescendantNodes().OfType<MethodDeclarationSyntax>().ToArray();
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        Assert.Empty(context.MethodMembers(methods.Single(method =>
+            method.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && method.Body is null
+            && method.ExpressionBody is null)));
+        Assert.Empty(context.MethodMembers(methods.Single(method => method.ExplicitInterfaceSpecifier is not null)));
+        var member = Assert.Single(context.MethodMembers(methods.Single(method => method.Modifiers.Any(SyntaxKind.PublicKeyword))));
+
+        Assert.Equal("M", member.MetadataName);
+        Assert.Equal("return value;", member.Body);
+        Assert.Contains("partial-implementation", member.Evidence);
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

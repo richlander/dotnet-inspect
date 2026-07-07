@@ -26,6 +26,20 @@ internal sealed class CSharpSourceIdentityContext
         return new CSharpSourceIdentityContext(partialIndexerNames);
     }
 
+    public IReadOnlyList<CSharpSourceMemberIdentity> MethodMembers(MethodDeclarationSyntax method)
+    {
+        if (method.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(method))
+            return [];
+
+        return
+        [
+            new CSharpSourceMemberIdentity(
+                method.Identifier.ValueText,
+                BodyText(method),
+                MethodEvidence(method).ToArray()),
+        ];
+    }
+
     public IReadOnlyList<CSharpSourceMemberIdentity> PropertyMembers(PropertyDeclarationSyntax property)
     {
         if (IsBodylessPartial(property))
@@ -59,6 +73,12 @@ internal sealed class CSharpSourceIdentityContext
         => _partialIndexerNames.TryGetValue(PartialIndexerKey(fullType, indexer), out var metadataName)
             ? metadataName
             : null;
+
+    static IEnumerable<string> MethodEvidence(MethodDeclarationSyntax method)
+    {
+        if (method.Modifiers.Any(SyntaxKind.PartialKeyword))
+            yield return "partial-implementation";
+    }
 
     static IEnumerable<string> IndexerEvidence(IndexerDeclarationSyntax indexer, string metadataName)
     {
@@ -141,6 +161,20 @@ internal sealed class CSharpSourceIdentityContext
             && property.ExpressionBody is null
             && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
 
+    static bool IsBodylessPartial(MethodDeclarationSyntax method)
+        => method.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && method.Body is null
+            && method.ExpressionBody is null;
+
+    static string? BodyText(MethodDeclarationSyntax method)
+    {
+        if (method.Body is { } body)
+            return StatementsText(body);
+        if (method.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(method.ReturnType, expressionBody.Expression);
+        return null;
+    }
+
     static bool HasGetter(PropertyDeclarationSyntax property)
         => property.ExpressionBody is not null
             || property.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
@@ -211,4 +245,10 @@ internal sealed class CSharpSourceIdentityContext
 
     static string StatementsText(BlockSyntax body)
         => string.Join(Environment.NewLine, body.Statements.Select(statement => statement.ToString()));
+
+    static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
+        => returnType is PredefinedTypeSyntax predefined
+            && predefined.Keyword.IsKind(SyntaxKind.VoidKeyword)
+            ? $"{expression};"
+            : $"return {expression};";
 }
