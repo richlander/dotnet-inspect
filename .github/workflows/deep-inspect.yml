@@ -263,6 +263,12 @@ jobs:
               <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
             </packageSources>
             <packageSourceMapping>
+              <!--
+                These pack IDs must map to both sources. NuGet source mapping is
+                package-ID based, not version-aware: net11 daily runtime/AOT/linker
+                packs come from the dotnet11 feed, while net10 packs used by some
+                fixture projects still come from nuget.org.
+              -->
               <packageSource key="dotnet11">
                 <package pattern="Microsoft.AspNetCore.App.*" />
                 <package pattern="Microsoft.DotNet.ILCompiler" />
