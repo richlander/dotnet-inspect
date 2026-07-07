@@ -1,3 +1,4 @@
+using System.CommandLine;
 using DotnetInspector;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
@@ -467,6 +468,23 @@ public class CommandLineTests
         var result = CommandLineBuilder.PreprocessArgs(args);
 
         Assert.Equal(["router", "System.Text.Json", "--versions"], result);
+    }
+
+    [Theory]
+    [InlineData("--version", "9.0.0", "System.Text.Json")]
+    [InlineData("--where", "Field=Value", "System.Text.Json")]
+    [InlineData("--match", "first", "System.Text.Json")]
+    [InlineData("--path", "lib/*", "System.Text.Json")]
+    [InlineData("--il-offset", "0x06000001+0x0", "System.Text.Json")]
+    [InlineData("--extract-resources", "/tmp/out", "System.Text.Json")]
+    [InlineData("--row", "1", "System.Text.Json")]
+    [InlineData("--top", "5", "System.Text.Json")]
+    [InlineData("--triage-shape", "box-value-type", "System.Text.Json")]
+    public void PreprocessArgs_LeadingValuedOption_SkipsValueAndRoutesBareTarget(string option, string value, string target)
+    {
+        var result = CommandLineBuilder.PreprocessArgs([option, value, target]);
+
+        Assert.Equal(["router", target, option, value], result);
     }
 
     [Fact]
@@ -1075,11 +1093,72 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void ExtensionsCommand_WithJsonlAfterPackage_DoesNotTreatFlagAsPackage()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["extensions", "ILogger", "--package", "Microsoft.Extensions.Logging.Abstractions", "--jsonl"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var packageOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "--package");
+        var jsonlOption = command.Options.OfType<Option<bool>>().Single(option => option.Name == "--jsonl");
+        var packages = result.GetValue(packageOption) ?? [];
+
+        Assert.Equal(["Microsoft.Extensions.Logging.Abstractions"], packages);
+        Assert.True(result.GetValue(jsonlOption));
+    }
+
+    [Fact]
+    public void ExtensionsCommand_RepeatedPackageOptions_KeepTrailingTargetPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["extensions", "--package", "Pkg1", "--package", "Pkg2", "ILogger"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var targetArgument = command.Arguments.OfType<Argument<string?>>().Single(argument => argument.Name == "type");
+        var packageOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "--package");
+
+        Assert.Equal("ILogger", result.GetValue(targetArgument));
+        Assert.Equal(["Pkg1", "Pkg2"], result.GetValue(packageOption) ?? []);
+    }
+
+    [Fact]
     public void ExtensionsCommand_WithNoArgs_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions"]);
 
         Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_ProjectOptionConsumesSingleValueSoTrailingSelectorStaysPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["member", "ILogger", "--project", "app.csproj", "Log:1"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var argsArgument = command.Arguments.OfType<Argument<string[]>>().Single(argument => argument.Name == "args");
+        var projectOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "--project");
+
+        Assert.Equal(["ILogger", "Log:1"], result.GetValue(argsArgument) ?? []);
+        Assert.Equal(["app.csproj"], result.GetValue(projectOption) ?? []);
+    }
+
+    [Fact]
+    public void MemberCommand_MemberOptionConsumesSingleValueSoTrailingTargetStaysPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["member", "-m", "Method1", "TargetType", "--package", "Pkg"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var argsArgument = command.Arguments.OfType<Argument<string[]>>().Single(argument => argument.Name == "args");
+        var memberOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "-m");
+
+        Assert.Equal(["TargetType"], result.GetValue(argsArgument) ?? []);
+        Assert.Equal(["Method1"], result.GetValue(memberOption) ?? []);
     }
 
     [Fact]

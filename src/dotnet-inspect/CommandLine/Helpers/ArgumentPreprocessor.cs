@@ -95,12 +95,20 @@ public static class ArgumentPreprocessor
         int firstPositional = -1;
         for (int i = 0; i < args.Length; i++)
         {
-            if (!args[i].StartsWith('-'))
+            var token = args[i];
+            if (!token.StartsWith('-'))
             {
-                // Skip the value token that follows -n, --head, or --tail (it's a number, not a command)
-                if (i > 0 && (args[i - 1] == "-n" || args[i - 1] == "--head" || args[i - 1] == "--tail")) continue;
                 firstPositional = i;
                 break;
+            }
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
             }
         }
 
@@ -114,7 +122,7 @@ public static class ArgumentPreprocessor
 
             // Route bare names through the router command (platform-preferred, NuGet fallback)
             RequestTelemetry.Breadcrumb("implicit-router", args[firstPositional]);
-            return ["router", .. args];
+            return ["router", args[firstPositional], .. args[..firstPositional], .. args[(firstPositional + 1)..]];
         }
 
         // Bare discovery flags (-S, --select) with no positional args → route to router
@@ -138,7 +146,13 @@ public static class ArgumentPreprocessor
     };
     private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
     {
-        "--package", "--library", "--project", "--bin", "--tfm", "-t", "--type",
+        "--package", "--library", "--assembly", "--project", "--bin", "--directory",
+        "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
+        "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
+        "--caller-package", "--caller-project", "--match", "--path",
+        "--il-offset", "--il-offsets", "--extract-resources", "--version", "--versions",
+        "--out", "--take", "--row", "--where", "--order-by",
+        "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--head", "--tail", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"

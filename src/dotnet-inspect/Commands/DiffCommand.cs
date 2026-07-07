@@ -123,12 +123,24 @@ public class DiffCommand
                 if (options.OneLine)
                 {
                     var typeDiffs = ApplyFilters(diff, options);
-                    var view = DiffOutputFormatter.BuildOneLineView(inputs.Name, typeDiffs, inputs.FromVersion, inputs.ToVersion);
-                    OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
-                        options.Columns, options.Fields,
-                        (writer, formatter, writerOptions) =>
-                            MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                        options.Rows);
+                    if (SelectsDetailedChanges(options))
+                    {
+                        var view = DiffOutputFormatter.BuildDetailedChangesView(inputs.Name, typeDiffs, inputs.FromVersion, inputs.ToVersion);
+                        OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                            options.Columns, options.Fields,
+                            (writer, formatter, writerOptions) =>
+                                MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
+                            options.Rows);
+                    }
+                    else
+                    {
+                        var view = DiffOutputFormatter.BuildOneLineView(inputs.Name, typeDiffs, inputs.FromVersion, inputs.ToVersion);
+                        OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                            options.Columns, options.Fields,
+                            (writer, formatter, writerOptions) =>
+                                MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
+                            options.Rows);
+                    }
                 }
                 else
                 {
@@ -338,6 +350,9 @@ public class DiffCommand
         => options.AllocRegressionsOnly
             || options.IncludeSections?.Contains("Analysis Diff") == true;
 
+    private static bool SelectsDetailedChanges(DiffOptions options)
+        => options.IncludeSections?.Contains("Changes") == true;
+
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
 
     // A diff row plus the metadata used to rank and classify it. Magnitude is the
@@ -488,6 +503,7 @@ public class DiffCommand
     internal static IReadOnlyList<TypeDiff> ApplyFilters(ApiDiff diff, DiffOptions options)
     {
         var typeDiffs = diff.TypeDiffs;
+        var beforeTypeFilterCount = typeDiffs.Count;
 
         // Apply type filter post-Compare
         if (options.TypeFilter.Count > 0)
@@ -496,13 +512,25 @@ public class DiffCommand
                 .Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, options.TypeFilter))
                 .ToList();
 
-            if (typeDiffs.Count == 0)
+            if (typeDiffs.Count == 0 && beforeTypeFilterCount > 0 && options.MemberFilter.Count == 0)
                 Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
         }
 
         // Apply classification filter
-        return FilterByClassification(typeDiffs, options);
+        var filtered = FilterByClassification(typeDiffs, options);
+        var classificationFilterActive = options.Breaking || options.Additive;
+        if (filtered.Count == 0 && typeDiffs.Count > 0 && classificationFilterActive)
+        {
+            Console.Error.WriteLine("Note: classification filter removed all changes after type/member filters.");
+        }
+
+        return filtered;
     }
+
+    private static IReadOnlyList<TypeDiff> ApplyTypeFilterOnly(IReadOnlyList<TypeDiff> typeDiffs, IReadOnlyCollection<string> typeFilters)
+        => typeFilters.Count == 0
+            ? typeDiffs
+            : typeDiffs.Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, typeFilters)).ToList();
 
     private static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
     {
@@ -557,9 +585,18 @@ public class DiffCommand
                     ApiScope: ApiDiffScope.Signature)).ApiDiff
             ?? new ApiDiff();
 
-        return options.MemberFilter.Count == 0
-            ? diff
-            : FilterApiDiffByMemberTargets(diff, fromSurface, toSurface, options);
+        if (options.MemberFilter.Count == 0)
+            return diff;
+
+        var candidateTypeDiffs = ApplyTypeFilterOnly(diff.TypeDiffs, options.TypeFilter);
+        if (candidateTypeDiffs.Count == 0 && diff.TypeDiffs.Count > 0 && options.TypeFilter.Count > 0)
+            Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
+
+        var filtered = FilterApiDiffByMemberTargets(diff, fromSurface, toSurface, options);
+        if (filtered.TypeDiffs.Count == 0 && candidateTypeDiffs.Count > 0)
+            Console.Error.WriteLine($"Note: member filter matched no changed members after type filters: {string.Join(", ", options.MemberFilter)}.");
+
+        return filtered;
     }
 
     internal static ApiDiff FilterApiDiffByMemberTargets(ApiDiff diff, ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)

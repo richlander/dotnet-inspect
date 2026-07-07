@@ -95,6 +95,177 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildDetailedChangesView_RendersMemberLevelRowsForJsonl()
+    {
+        var oldType = DiffType("Sample", "Widget", DiffMember("Echo", signature: "string Echo(string value)"));
+        var newType = DiffType("Sample", "Widget", DiffMember("Echo", signature: "string Echo(string value, int repeat)"));
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            "Member 'Echo' signature changed",
+            "string Echo(string value)",
+            "string Echo(string value, int repeat)",
+            Subject: ApiChangeSubject.Member(oldType, oldType.Members.Single(), newType, newType.Members.Single()));
+
+        var view = DiffOutputFormatter.BuildDetailedChangesView(
+            "Sample",
+            [new TypeDiff("Sample.Widget", [change])],
+            "old.dll",
+            "new.dll");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("x", row.Change);
+        Assert.Equal("breaking", row.Classification);
+        Assert.Equal("Widget", row.Type);
+        Assert.StartsWith("Echo~", row.Member);
+        Assert.Equal("MemberSignatureChanged", row.Kind);
+        Assert.Equal("string Echo(string value)", row.Old);
+        Assert.Equal("string Echo(string value, int repeat)", row.New);
+    }
+
+    [Fact]
+    public async Task BuildApiDiff_EmptyMemberFilteredDiff_ReportsMemberFilterNotTypeFilter()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            var oldSurface = DiffSurface(
+                DiffMember("Keep", signature: "void Keep()"),
+                DiffMember("Changed", signature: "void Changed()"));
+            var newSurface = DiffSurface(
+                DiffMember("Keep", signature: "void Keep()"),
+                DiffMember("Changed", signature: "int Changed()"));
+
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Keep"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("member filter matched no changed members", error);
+        Assert.DoesNotContain("type filter matched no changed types", error);
+    }
+
+    [Fact]
+    public async Task BuildApiDiff_ZeroChangeDiffWithMemberFilter_DoesNotBlameMemberFilter()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            var surface = DiffSurface(DiffMember("Keep", signature: "void Keep()"));
+            DiffCommand.BuildApiDiff(surface, surface, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Keep"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.DoesNotContain("member filter matched no changed members", error);
+        Assert.DoesNotContain("type filter matched no changed types", error);
+    }
+
+    [Fact]
+    public async Task BuildApiDiff_TypeFilterWithNoChangedTypesAndMemberFilter_ReportsTypeFilter()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            var oldSurface = DiffSurface(
+                DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+                DiffType("Sample", "Changed", DiffMember("Changed", signature: "void Changed()")));
+            var newSurface = DiffSurface(
+                DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+                DiffType("Sample", "Changed", DiffMember("Changed", signature: "int Changed()")));
+
+            DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Quiet"],
+                MemberFilter = ["Keep"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("type filter matched no changed types: Quiet", error);
+        Assert.DoesNotContain("member filter matched no changed members", error);
+    }
+
+    [Fact]
+    public async Task TypeFilterMissWithMemberFilter_DoesNotPrintDuplicateTypeFilterNotes()
+    {
+        var oldSurface = DiffSurface(
+            DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+            DiffType("Sample", "Changed", DiffMember("Changed", signature: "void Changed()")));
+        var newSurface = DiffSurface(
+            DiffType("Sample", "Quiet", DiffMember("Keep", signature: "void Keep()")),
+            DiffType("Sample", "Changed", DiffMember("Changed", signature: "int Changed()")));
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            var diff = DiffCommand.BuildApiDiff(oldSurface, newSurface, new DiffOptions
+            {
+                TypeFilter = ["Quiet"],
+                MemberFilter = ["Sample.Changed.Changed"]
+            });
+            DiffCommand.ApplyFilters(diff, new DiffOptions
+            {
+                TypeFilter = ["Quiet"],
+                MemberFilter = ["Sample.Changed.Changed"]
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(1, CountOccurrences(error, "type filter matched no changed types: Quiet"));
+        Assert.DoesNotContain("member filter matched no changed members", error);
+    }
+
+    [Fact]
+    public async Task ApplyFilters_ClassificationFilteredMemberDiff_ReportsClassificationFilter()
+    {
+        var type = DiffType("Sample", "Widget", DiffMember("Added", signature: "void Added()"));
+        var diff = new ApiDiff
+        {
+            TypeDiffs =
+            [
+                new TypeDiff("Sample.Widget",
+                [
+                    new ApiChange(
+                        ChangeKind.MemberAdded,
+                        ChangeClassification.Additive,
+                        "Member 'Added' was added",
+                        NewValue: "void Added()",
+                        Subject: ApiChangeSubject.Member(null, null, type, type.Members.Single()))
+                ])
+            ]
+        };
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            DiffCommand.ApplyFilters(diff, new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Added"],
+                Breaking = true
+            });
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("classification filter removed all changes", error);
+        Assert.DoesNotContain("member filter matched no changed members", error);
+    }
+
+    private static int CountOccurrences(string value, string substring)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = value.IndexOf(substring, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += substring.Length;
+        }
+        return count;
+    }
+
+    [Fact]
     public void BuildApiDiff_UsesResearchSignatureScopeByDefault()
     {
         var oldSurface = DiffSurface(DiffMember("Existing", ["A"]));

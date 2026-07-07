@@ -3804,6 +3804,83 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Extensions_JsonlAfterPackage_RendersJsonlAndDoesNotWarnAboutPackageFlag()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "--jsonl", "--rows", "-n", "2", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("{", output.TrimStart());
+        Assert.DoesNotContain("# Extension Methods", output);
+    }
+
+    [Fact]
+    public async Task Router_BareHelp_ExplainsPackageRouting()
+    {
+        var (exit, output, error) = await RunAppAsync("frobnicate", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Inspect a NuGet package", output);
+        Assert.Contains("interpreting bare token 'frobnicate' as a package or platform target", error);
+        Assert.Contains("dotnet-inspect --help", error);
+    }
+
+    [Fact]
+    public async Task Router_HelpBeforeBareToken_StillExplainsPackageRouting()
+    {
+        var (exit, output, error) = await RunAppAsync("--help", "frobnicate");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Inspect a NuGet package", output);
+        Assert.DoesNotContain("Auto-route bare input", output);
+        Assert.Contains("interpreting bare token 'frobnicate' as a package or platform target", error);
+    }
+
+    [Fact]
+    public async Task Router_BareDiscoveryHelp_DoesNotCallOptionABareToken()
+    {
+        var (exit, output, error) = await RunAppAsync("-S", "Methods", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Discover types in a package or library", output);
+        Assert.DoesNotContain("interpreting bare token '-S'", error);
+    }
+
+    [Fact]
+    public async Task Router_OutputFlagBeforeBareToken_KeepsBareTokenAsRouteTarget()
+    {
+        var (exit, output, error) = await RunAppAsync("--json", "frobnicate");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Package 'frobnicate' not found", error);
+        Assert.DoesNotContain("Package '--json' not found", error);
+    }
+
+    [Fact]
+    public async Task Router_ValueOptionBeforeBareToken_SkipsOptionValueWhenFindingRouteTarget()
+    {
+        var (exit, output, error) = await RunAppAsync("--type", "Widget", "frobnicate");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Package 'frobnicate' not found", error);
+        Assert.DoesNotContain("Package 'Widget' not found", error);
+    }
+
+    [Fact]
+    public async Task Router_MemberOptionBeforeBareToken_SkipsMemberValueWhenFindingRouteTarget()
+    {
+        var (exit, output, error) = await RunAppAsync("--member", "Keep", "frobnicate");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.DoesNotContain("Package 'Keep' not found", error);
+        Assert.DoesNotContain("Unrecognized option '--member'", error);
+    }
+
+    [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(

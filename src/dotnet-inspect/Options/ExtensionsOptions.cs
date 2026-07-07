@@ -83,6 +83,36 @@ public record ExtensionsOptions : IAssemblySourceOptions
     public bool CompactJson { get; init; }
 
     /// <summary>
+    /// Output as a pretty table.
+    /// </summary>
+    public bool OneLine { get; init; }
+
+    /// <summary>
+    /// Output as normalized tab-separated values.
+    /// </summary>
+    public bool Tsv { get; init; }
+
+    /// <summary>
+    /// Output as JSON Lines.
+    /// </summary>
+    public bool Jsonl { get; init; }
+
+    /// <summary>
+    /// Suppress table/TSV column headers.
+    /// </summary>
+    public bool NoHeader { get; init; }
+
+    /// <summary>
+    /// Project table columns.
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
+    /// Project field rows.
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
@@ -116,5 +146,5 @@ public record ExtensionsOptions : IAssemblySourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput;
+    public bool IsRawOutput => JsonOutput || OneLine || Tsv || Jsonl || NoHeader;
 }

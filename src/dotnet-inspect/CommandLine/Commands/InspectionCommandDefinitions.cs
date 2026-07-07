@@ -43,13 +43,13 @@ public static class InspectionCommandDefinitions
         var typeFilterOption = new Option<string[]>("-t")
         {
             Description = "Filter to specific type(s)",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         typeFilterOption.Aliases.Add("--type");
         var memberFilterOption = new Option<string[]>("-m")
         {
             Description = "Filter to specific member selector(s); use with --type or pass Type.Member",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         memberFilterOption.Aliases.Add("--member");
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };

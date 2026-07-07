@@ -18,6 +18,30 @@ public class DiffOneLineView
 [MarkoutSerializable]
 public record DiffOneLineRow(string Change, string Type, string Detail);
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class DiffDetailedChangesView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    public string Versions { get; set; } = "";
+    public string Summary { get; set; } = "";
+
+    [MarkoutSection(Name = "Changes")]
+    public List<DiffDetailedChangeRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record DiffDetailedChangeRow(
+    string Change,
+    string Classification,
+    string Type,
+    string Member,
+    string Kind,
+    string Detail,
+    string Old,
+    string New);
+
 /// <summary>
 /// View model for full diff rendering. Uses GroupBy to partition changes
 /// by type name, rendering each type as a subheading with its changes as list items.
@@ -72,6 +96,8 @@ public record DiffChangeRow(
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(DiffOneLineView))]
 [MarkoutContext(typeof(DiffOneLineRow))]
+[MarkoutContext(typeof(DiffDetailedChangesView))]
+[MarkoutContext(typeof(DiffDetailedChangeRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]
 [MarkoutContext(typeof(AnalysisDiffView))]

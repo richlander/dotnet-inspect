@@ -65,6 +65,30 @@ public static class DiffOutputFormatter
         };
     }
 
+    public static DiffDetailedChangesView BuildDetailedChangesView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    {
+        int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
+        foreach (var td in typeDiffs)
+        {
+            totalBreaking += td.BreakingCount;
+            totalAdditive += td.AdditiveCount;
+            totalPotentiallyBreaking += td.PotentiallyBreakingCount;
+        }
+
+        var rows = typeDiffs
+            .OrderBy(td => td.TypeFullName, StringComparer.Ordinal)
+            .SelectMany(td => td.Changes.Select(change => BuildDetailedRow(td.TypeFullName, change)))
+            .ToList();
+
+        return new DiffDetailedChangesView
+        {
+            Title = $"API Diff: {name}",
+            Versions = $"{fromVersion} -> {toVersion}",
+            Summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking),
+            Rows = rows.Count > 0 ? rows : null
+        };
+    }
+
     public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         var view = new DiffFullView
@@ -165,4 +189,38 @@ public static class DiffOutputFormatter
 
         return rows.Count > 0 ? rows : null;
     }
+
+    private static DiffDetailedChangeRow BuildDetailedRow(string typeFullName, ApiChange change)
+        => new(
+            ChangeSymbol(change.Classification, change.Kind),
+            ClassificationText(change.Classification),
+            TypeMatcher.GetSimpleName(typeFullName),
+            change.Subject?.OldMember?.StableSelector
+                ?? change.Subject?.NewMember?.StableSelector
+                ?? "",
+            ChangeKindText(change.Kind),
+            change.Message,
+            change.OldValue ?? "",
+            change.NewValue ?? "");
+
+    private static string ChangeSymbol(ChangeClassification classification, ChangeKind kind)
+        => kind switch
+        {
+            ChangeKind.TypeAdded or ChangeKind.MemberAdded => "+",
+            ChangeKind.TypeRemoved or ChangeKind.MemberRemoved => "-",
+            _ when classification == ChangeClassification.Breaking => "x",
+            _ => "~"
+        };
+
+    private static string ClassificationText(ChangeClassification classification)
+        => classification switch
+        {
+            ChangeClassification.Breaking => "breaking",
+            ChangeClassification.Additive => "additive",
+            ChangeClassification.PotentiallyBreaking => "potentially-breaking",
+            _ => classification.ToString()
+        };
+
+    private static string ChangeKindText(ChangeKind kind)
+        => kind.ToString();
 }

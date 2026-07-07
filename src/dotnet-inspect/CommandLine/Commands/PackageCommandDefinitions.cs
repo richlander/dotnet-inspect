@@ -30,7 +30,7 @@ public static class PackageCommandDefinitions
         {
             Description = "List package files with sizes (the Files section), scoped to a file, directory, glob, @readme (AGENTS.md > README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",
             Arity = ArgumentArity.ZeroOrMore,
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var pathMatchOption = new Option<string?>("--match") { Description = "For repeated --path: all (default) or first matching selector per package" };
         var skipEmptyOption = new Option<bool>("--skip-empty") { Description = "With multi-package Files rows, omit packages with no matching files" };

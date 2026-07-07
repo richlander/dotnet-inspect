@@ -73,6 +73,10 @@ public class ExtensionsCommand
             {
                 WriteCount(results);
             }
+            else if (options.OneLine || options.Tsv || options.Jsonl || options.NoHeader)
+            {
+                WriteTableOutput(targetType, results, options);
+            }
             else
             {
                 WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows);
@@ -190,6 +194,16 @@ public class ExtensionsCommand
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
         OutputFormatter.WriteLimitedMarkdown(Console.Out,
             MarkoutSerializer.Serialize(view, SearchViewContext.Default), rows);
+    }
+
+    private static void WriteTableOutput(string targetType, List<ExtensionMethodResult> results, ExtensionsOptions options)
+    {
+        var view = ExtensionsOutputFormatter.BuildView(targetType, results, options.Verbosity);
+        OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+            options.Columns, options.Fields,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+            options.Rows);
     }
 
     /// <summary>

@@ -24,12 +24,12 @@ public static class SearchCommandDefinitions
         var packageOption = new Option<string[]>("--package")
         {
             Description = "Search in package(s) (name or name@version). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var assemblyOption = new Option<string[]>("--library")
         {
             Description = "Search in library file(s). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
@@ -39,12 +39,12 @@ public static class SearchCommandDefinitions
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var binOption = new Option<string[]>("--bin")
         {
             Description = "Search all DLLs in output directory(s). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
@@ -131,12 +131,12 @@ public static class SearchCommandDefinitions
         var packageOption = new Option<string[]>("--package")
         {
             Description = "Search in package(s) (name or name@version). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var assemblyOption = new Option<string[]>("--library")
         {
             Description = "Search in library file(s). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
@@ -146,7 +146,7 @@ public static class SearchCommandDefinitions
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
@@ -259,12 +259,12 @@ public static class SearchCommandDefinitions
         var packageOption = new Option<string[]>("--package")
         {
             Description = "Search in package(s) (name or name@version). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var assemblyOption = new Option<string[]>("--library")
         {
             Description = "Search in library file(s). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
@@ -274,7 +274,7 @@ public static class SearchCommandDefinitions
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var reachableOption = new Option<bool>("--reachable")
         {
@@ -308,7 +308,10 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(typeFilterOption);
         extCommand.Options.Add(opts.Json);
         extCommand.Options.Add(compactOption);
+        opts.AddTableOptionsTo(extCommand);
         extCommand.Options.Add(packagePrefixOption);
+        extCommand.Options.Add(opts.Columns);
+        extCommand.Options.Add(opts.Fields);
         opts.AddCountOptionTo(extCommand);
         opts.AddOutputOptionsTo(extCommand);
         opts.AddNuGetOptionsTo(extCommand);
@@ -365,6 +368,12 @@ public static class SearchCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
+                OneLine = opts.ResolveOneLine(parseResult),
+                Tsv = opts.ResolveTsv(parseResult),
+                Jsonl = opts.ResolveJsonl(parseResult),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 PackagePrefix = packagePrefix,
@@ -390,12 +399,12 @@ public static class SearchCommandDefinitions
         var packageOption = new Option<string[]>("--package")
         {
             Description = "Search in package(s) (name or name@version). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var assemblyOption = new Option<string[]>("--library")
         {
             Description = "Search in library file(s). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
@@ -405,7 +414,7 @@ public static class SearchCommandDefinitions
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
