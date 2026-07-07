@@ -381,6 +381,53 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_UnsafeRunIgnoresNestedLocalFunctionLocalIndexCollisions()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var localBlock = new Block(0);
+        localBlock.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        localBlock.Add(new Return(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var localBody = new BlockContainer();
+        localBody.Add(localBlock);
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new LocalFunctionStatement(
+            "Local",
+            int32,
+            [],
+            isStatic: false,
+            [guid],
+            [],
+            usesUpdatedMemorySafetyRules: true,
+            skipLocalsInit: false,
+            localBody));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+
+        Assert.DoesNotContain("Local()", unsafeBody);
+    }
+
+    [Fact]
     public void NewRulesModule_StackAllocSpanDefault_EmitsNoUnsafeBlock()
     {
         // Without [SkipLocalsInit] the same stackalloc -> Span is safe under the
