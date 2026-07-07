@@ -1058,7 +1058,14 @@ public static class CompileBackSourceComposer
 
     static bool RequiresUnsafe(CompileBackMemberDeclaration member)
         => member.ReturnType?.DisplayName.Contains('*', StringComparison.Ordinal) == true
-            || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal));
+            || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal))
+            || MemberBodyRequiresUnsafe(member);
+
+    static bool MemberBodyRequiresUnsafe(CompileBackMemberDeclaration member)
+        => member.TargetBody is { } body
+            && (body.Contains("delegate*", StringComparison.Ordinal)
+                || body.Contains("stackalloc", StringComparison.Ordinal)
+                || body.Contains('*', StringComparison.Ordinal));
 
     static string AddAsyncModifier(string declaration)
     {
