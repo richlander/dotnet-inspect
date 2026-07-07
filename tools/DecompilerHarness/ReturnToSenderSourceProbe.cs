@@ -430,86 +430,11 @@ static class ReturnToSenderSourceProbe
                 if (!overloadsByType.TryGetValue(fullType, out var overloads))
                     overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
 
-                foreach (var typeHeaderMember in sourceIdentity.TypeHeaderMembers(type))
-                    NextOverload(overloads, typeHeaderMember.MetadataName);
-
-                foreach (var member in type.Members)
+                foreach (var sourceMember in sourceIdentity.TypeMembers(type, fullType))
                 {
-                    switch (member)
-                    {
-                        case MethodDeclarationSyntax method:
-                        {
-                            foreach (var methodMember in sourceIdentity.MethodMembers(method))
-                            {
-                                string methodName = methodMember.MetadataName;
-                                int overload = NextOverload(overloads, methodName);
-                                if (methodMember.Body is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                        case ConstructorDeclarationSyntax constructor:
-                        {
-                            foreach (var constructorMember in sourceIdentity.ConstructorMembers(constructor))
-                            {
-                                string methodName = constructorMember.MetadataName;
-                                int overload = NextOverload(overloads, methodName);
-                                if (constructorMember.Body is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                        case PropertyDeclarationSyntax property:
-                        {
-                            foreach (var propertyMember in sourceIdentity.PropertyMembers(property))
-                            {
-                                string methodName = propertyMember.MetadataName;
-                                int overload = NextOverload(overloads, methodName);
-                                if (propertyMember.Body is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                        case IndexerDeclarationSyntax indexer:
-                        {
-                            foreach (var indexerMember in sourceIdentity.IndexerMembers(indexer, fullType))
-                            {
-                                string methodName = indexerMember.MetadataName;
-                                int overload = NextOverload(overloads, methodName);
-                                if (indexerMember.Body is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                        case OperatorDeclarationSyntax op:
-                        {
-                            foreach (var operatorMember in sourceIdentity.OperatorMembers(op))
-                            {
-                                string methodName = operatorMember.MetadataName;
-                                int overload = NextOverload(overloads, methodName);
-                                if (operatorMember.Body is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                        case ConversionOperatorDeclarationSyntax conversion:
-                        {
-                            foreach (var conversionMember in sourceIdentity.ConversionOperatorMembers(conversion))
-                            {
-                                string methodName = conversionMember.MetadataName;
-                                int overload = NextOverload(overloads, methodName);
-                                if (conversionMember.Body is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                    }
+                    int overload = NextOverload(overloads, sourceMember.MetadataName);
+                    if (sourceMember.Body is { } body)
+                        yield return new SourceMember(fullType, sourceMember.MetadataName, overload, path, body);
                 }
             }
 

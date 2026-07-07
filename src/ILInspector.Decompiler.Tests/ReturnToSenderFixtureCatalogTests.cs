@@ -992,6 +992,38 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Contains("conversion-operator", member.Evidence);
     }
 
+    [Fact]
+    public void CSharpSourceIdentityContext_EmitsOrderedTypeMembers()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public class Class1(int value)
+            {
+                static Class1()
+                {
+                }
+
+                public Class1() : this(1)
+                {
+                }
+
+                public int P => value;
+
+                public int M() => value;
+
+                public int this[int index] => index;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<ClassDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var names = context.TypeMembers(type, "SourceProbe.Class1").Select(member => member.MetadataName).ToArray();
+
+        Assert.Equal([".ctor", ".cctor", ".ctor", "get_P", "M", "get_Item"], names);
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

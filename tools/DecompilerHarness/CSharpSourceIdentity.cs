@@ -26,6 +26,27 @@ internal sealed class CSharpSourceIdentityContext
         return new CSharpSourceIdentityContext(partialIndexerNames);
     }
 
+    public IEnumerable<CSharpSourceMemberIdentity> TypeMembers(TypeDeclarationSyntax type, string fullType)
+    {
+        foreach (var member in TypeHeaderMembers(type))
+            yield return member;
+        foreach (var declaration in type.Members)
+        {
+            IEnumerable<CSharpSourceMemberIdentity> members = declaration switch
+            {
+                MethodDeclarationSyntax method => MethodMembers(method),
+                ConstructorDeclarationSyntax constructor => ConstructorMembers(constructor),
+                PropertyDeclarationSyntax property => PropertyMembers(property),
+                IndexerDeclarationSyntax indexer => IndexerMembers(indexer, fullType),
+                OperatorDeclarationSyntax op => OperatorMembers(op),
+                ConversionOperatorDeclarationSyntax conversion => ConversionOperatorMembers(conversion),
+                _ => [],
+            };
+            foreach (var member in members)
+                yield return member;
+        }
+    }
+
     public IReadOnlyList<CSharpSourceMemberIdentity> MethodMembers(MethodDeclarationSyntax method)
     {
         if (method.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(method))
