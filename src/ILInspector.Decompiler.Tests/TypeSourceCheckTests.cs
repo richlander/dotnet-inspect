@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using ILInspector.DecompilerHarness;
@@ -376,6 +377,24 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    public void Evaluate_OnAttributedMemberFixture_DoesNotDuplicateAttributes()
+    {
+        string path = typeof(TypeSourceDuplicateAttributeFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceDuplicateAttributeFixture).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("[RequiresUnreferencedCode(\"trim\")]", source);
+        Assert.Contains("[RequiresDynamicCode(\"aot\")]", source);
+        Assert.DoesNotContain("System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode", source);
+        Assert.DoesNotContain("System.Diagnostics.CodeAnalysis.RequiresDynamicCode", source);
+        Assert.Equal(1, CountOccurrences(source, "RequiresUnreferencedCode"));
+        Assert.Equal(1, CountOccurrences(source, "RequiresDynamicCode"));
+    }
+
+    [Fact]
     public void WrongTypeKind_IsCaught()
     {
         var type = Type("N", "C", "struct", Member("Foo", "method"));
@@ -561,6 +580,18 @@ public class TypeSourceCheckTests
             $"{typeName} type source must compile, got:\n  {string.Join("\n  ", diagnostics)}\n--- source ---\n{source}");
     }
 
+    static int CountOccurrences(string text, string value)
+    {
+        int count = 0;
+        int index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+        return count;
+    }
+
 }
 
 public class TypeSourceNullableConstraintMatrix<TNotNull, TClassNullable, TUnmanaged, TNullableInterface>
@@ -593,6 +624,13 @@ public class @class<@event>
     public int @int { get; set; }
 
     public int @void() => @delegate;
+}
+
+public sealed class TypeSourceDuplicateAttributeFixture
+{
+    [RequiresUnreferencedCode("trim")]
+    [RequiresDynamicCode("aot")]
+    public int Dangerous() => 1;
 }
 
 public class TypeSourceFieldInitializerFixture

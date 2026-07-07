@@ -484,6 +484,19 @@ public static class AttributeReader
         return [];
     }
 
+    /// <summary>Renders the attributes on an event, found by name within the type.</summary>
+    public static List<string> RenderEventAttributes(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string eventName, SortedSet<string>? namespaces = null)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            if (reader.GetString(reader.GetEventDefinition(eventHandle).Name) == eventName)
+                return RenderAttributes(reader, eventHandle, namespaces);
+        }
+        return [];
+    }
+
     static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr, bool qualifyName)
     {
         if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
