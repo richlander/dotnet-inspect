@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
@@ -30,13 +31,70 @@ internal sealed record RaCensusAssembly(
 
 internal sealed record RaCensusReport(IReadOnlyList<RaCensusAssembly> Assemblies);
 
+// Committed-baseline snapshot for the Deep Inspect drift gate. Serialized with camelCase
+// (see JsonOptions); the agree rate is stored in basis points to keep the pinned baseline
+// integer-stable across runs.
+internal sealed record RaCensusSnapshot(
+    int SchemaVersion,
+    string Description,
+    DateTimeOffset GeneratedUtc,
+    RaCensusTolerances? Tolerances,
+    int Matched,
+    int Agree,
+    int Unmatched,
+    int AgreeBasisPoints,
+    IReadOnlyList<RaCensusAssemblySnapshot> Assemblies);
+
+internal sealed record RaCensusAssemblySnapshot(string Assembly, int Matched, int Agree, int Unmatched, int AgreeBasisPoints);
+
+internal sealed record RaCensusTolerances(int AgreeRateDropBasisPoints)
+{
+    // 50 bps (0.50%) absorbs corpus-composition drift (member counts shift with framework/NuGet
+    // version bumps) while still catching real agreement regressions, which move by whole points.
+    public static readonly RaCensusTolerances Default = new(AgreeRateDropBasisPoints: 50);
+}
+
 internal static class ReturnAddressCensus
 {
-    public static int Run(IReadOnlyList<string> assemblies, int maxExamples, RaCensusFormat format)
+    public static int Run(
+        IReadOnlyList<string> assemblies,
+        int maxExamples,
+        RaCensusFormat format,
+        string? emitSnapshot = null,
+        string? diffBaseline = null)
     {
         var report = Measure(assemblies, maxExamples);
         Console.Write(Format(report, maxExamples, format));
-        return 0;
+
+        if (emitSnapshot is null && diffBaseline is null)
+            return 0;
+
+        var snapshot = BuildSnapshot(report);
+
+        if (emitSnapshot is not null)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(emitSnapshot)) ?? ".");
+            File.WriteAllText(emitSnapshot, JsonSerializer.Serialize(snapshot, JsonOptions()));
+            // Status/gate messages go to stderr so stdout stays pristine for --tsv/--jsonl.
+            Console.Error.WriteLine($"Wrote return-address baseline: {emitSnapshot}");
+        }
+
+        if (diffBaseline is null)
+            return 0;
+
+        var baseline = JsonSerializer.Deserialize<RaCensusSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
+            ?? throw new InvalidOperationException($"Could not read return-address baseline '{diffBaseline}'.");
+        var regressions = Compare(baseline, snapshot);
+        if (regressions.Count == 0)
+        {
+            Console.Error.WriteLine($"Return-address census matched baseline: {diffBaseline}");
+            return 0;
+        }
+
+        Console.Error.WriteLine("Return-address census regressions:");
+        foreach (var regression in regressions)
+            Console.Error.WriteLine($"- {regression}");
+        return 1;
     }
 
     static RaCensusReport Measure(IReadOnlyList<string> assemblies, int maxExamples)
@@ -153,6 +211,56 @@ internal static class ReturnAddressCensus
     static int TotalUnmatched(RaCensusReport report) => report.Assemblies.Sum(a => a.Unmatched);
 
     static string Pct(int n, int total) => total == 0 ? "n/a" : $"{100.0 * n / total:0.00}%";
+
+    // --- Baseline snapshot + drift gate (mirrors CorpusSensor's emit/diff idiom) ---
+
+    static RaCensusSnapshot BuildSnapshot(RaCensusReport report)
+    {
+        int matched = TotalMatched(report), agree = TotalAgree(report), unmatched = TotalUnmatched(report);
+        return new RaCensusSnapshot(
+            SchemaVersion: 1,
+            Description: "#2440 Return Address member-identity equivalence census: agreement between the two "
+                + "Metadata producers (A = ApiMemberIdentity.GetMemberAnchor, B = ApiMemberIdentity.CreateMethodAnchor) "
+                + "over the pinned corpus. The agree rate is a floor that should ratchet toward 100% as identity "
+                + "consolidation lands; refresh this baseline upward when it legitimately improves.",
+            GeneratedUtc: DateTimeOffset.UtcNow,
+            Tolerances: RaCensusTolerances.Default,
+            Matched: matched,
+            Agree: agree,
+            Unmatched: unmatched,
+            AgreeBasisPoints: RateBasisPoints(agree, matched),
+            Assemblies: report.Assemblies
+                .Where(a => a.Opened)
+                .OrderBy(a => a.Name, StringComparer.Ordinal)
+                .Select(a => new RaCensusAssemblySnapshot(a.Name, a.Matched, a.Agree, a.Unmatched, RateBasisPoints(a.Agree, a.Matched)))
+                .ToList());
+    }
+
+    static IReadOnlyList<string> Compare(RaCensusSnapshot baseline, RaCensusSnapshot current)
+    {
+        var regressions = new List<string>();
+        int tolerance = baseline.Tolerances?.AgreeRateDropBasisPoints ?? RaCensusTolerances.Default.AgreeRateDropBasisPoints;
+
+        // The consolidation signal is the agree rate: it must not regress below the baseline
+        // floor. Improvements never fail (raise the floor by re-emitting the baseline). Matched
+        // and unmatched counts drift with corpus composition (framework/NuGet version bumps), so
+        // they are reported in the card for triage but not gated.
+        int drop = baseline.AgreeBasisPoints - current.AgreeBasisPoints;
+        if (drop > tolerance)
+            regressions.Add(
+                $"agree rate dropped {FormatBps(drop)} ({FormatBps(baseline.AgreeBasisPoints)} -> "
+                + $"{FormatBps(current.AgreeBasisPoints)}), tolerance {FormatBps(tolerance)}");
+
+        return regressions;
+    }
+
+    static int RateBasisPoints(int part, int whole)
+        => whole <= 0 ? 0 : (int)Math.Round(10_000.0 * part / whole, MidpointRounding.AwayFromZero);
+
+    static string FormatBps(int basisPoints) => $"{basisPoints / 100.0:F2}%";
+
+    static JsonSerializerOptions JsonOptions()
+        => new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     static IReadOnlyList<(string Metric, string Value)> SummaryRows(RaCensusReport report)
     {

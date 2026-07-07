@@ -125,6 +125,18 @@ jobs:
             --corpus-fidelity-cap 3 \
             --max-examples 3
 
+      - name: Run return-address equivalence census
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t assemblies < corpus-assemblies.txt
+          mkdir -p artifacts/deep-inspect
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-return-address-snapshot artifacts/deep-inspect/return-address-snapshot.json \
+            --diff-return-address-baseline tools/DecompilerHarness/corpus/return-address-baseline.json \
+            --max-examples 10 \
+            2>&1 | tee artifacts/deep-inspect/return-address-census.txt
+
       - name: Run validity predicate scan
         shell: bash
         run: |

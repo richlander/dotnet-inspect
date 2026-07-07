@@ -55,6 +55,8 @@ static class Program
         bool fidelityCheck = false;
         bool returnToSender = false;
         bool returnAddress = false;
+        string? emitReturnAddressSnapshot = null;
+        string? diffReturnAddressBaseline = null;
         bool censusTsv = false;
         bool censusJsonl = false;
         bool returnToSenderAb = false;
@@ -145,6 +147,12 @@ static class Program
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
                 case "--return-address": returnAddress = true; break;
+                case "--emit-return-address-snapshot":
+                    if (i + 1 >= args.Length) return Fail("--emit-return-address-snapshot requires <file>.");
+                    emitReturnAddressSnapshot = args[++i]; returnAddress = true; break;
+                case "--diff-return-address-baseline":
+                    if (i + 1 >= args.Length) return Fail("--diff-return-address-baseline requires <file>.");
+                    diffReturnAddressBaseline = args[++i]; returnAddress = true; break;
                 case "--tsv": censusTsv = true; break;
                 case "--jsonl": censusJsonl = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;
@@ -314,7 +322,9 @@ static class Program
                 maxExamples,
                 censusJsonl || json ? RaCensusFormat.Jsonl
                     : censusTsv ? RaCensusFormat.Tsv
-                    : RaCensusFormat.Markdown);
+                    : RaCensusFormat.Markdown,
+                emitReturnAddressSnapshot,
+                diffReturnAddressBaseline);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
@@ -1564,6 +1574,14 @@ static class Program
                                 agreement rate plus example divergences. Thin
                                 observer; --tsv/--jsonl select the format,
                                 --max-examples caps divergence rows. See #2440.
+          --emit-return-address-snapshot <f>
+                                run the return-address census and write a JSON
+                                baseline snapshot to <f> (implies --return-address).
+          --diff-return-address-baseline <f>
+                                run the return-address census and fail (exit 1) if
+                                the agree rate regressed below baseline <f> beyond
+                                its tolerance (implies --return-address). The Deep
+                                Inspect census lane runs this as a drift gate.
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
           --return-to-sender-source-probe
