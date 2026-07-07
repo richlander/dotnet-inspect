@@ -107,6 +107,90 @@ public class ProjectAssetsParserTests
     }
 
     [Fact]
+    public void Parse_PrunePlaceholderFallsBackToPackageFiles()
+    {
+        var packageRoot = CreateNuGetPackageAsset("pruned.fallback", "1.0.0", "lib/net10.0/Pruned.Fallback.dll");
+        var json = """
+        {
+            "targets": {
+                "net11.0": {
+                    "Pruned.Fallback/1.0.0": {
+                        "compile": { "lib/net10.0/_._": {} },
+                        "runtime": { "lib/net10.0/_._": {} }
+                    }
+                }
+            },
+            "libraries": {
+                "Pruned.Fallback/1.0.0": {
+                    "type": "package",
+                    "path": "pruned.fallback/1.0.0",
+                    "files": [
+                        "lib/net10.0/Pruned.Fallback.dll"
+                    ]
+                }
+            }
+        }
+        """;
+
+        var assetsPath = WriteTempFile(json);
+        try
+        {
+            var result = Assert.Single(ProjectAssetsParser.Parse(assetsPath, null, null));
+
+            Assert.Equal("Pruned.Fallback", result.PackageName);
+            Assert.Equal("1.0.0", result.Version);
+            Assert.Equal(Path.Combine(packageRoot, "lib", "net10.0", "Pruned.Fallback.dll"), result.Path);
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+            Directory.Delete(packageRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Parse_PrunePlaceholderUsesPlaceholderTfmOverHigherPackageFile()
+    {
+        var packageRoot = CreateNuGetPackageAsset("pruned.multitfm", "1.0.0",
+            "lib/net8.0/Pruned.MultiTfm.dll",
+            "lib/net10.0/Pruned.MultiTfm.dll");
+        var json = """
+        {
+            "targets": {
+                "net11.0": {
+                    "Pruned.MultiTfm/1.0.0": {
+                        "compile": { "lib/net8.0/_._": {} }
+                    }
+                }
+            },
+            "libraries": {
+                "Pruned.MultiTfm/1.0.0": {
+                    "type": "package",
+                    "path": "pruned.multitfm/1.0.0",
+                    "files": [
+                        "lib/net8.0/Pruned.MultiTfm.dll",
+                        "lib/net10.0/Pruned.MultiTfm.dll"
+                    ]
+                }
+            }
+        }
+        """;
+
+        var assetsPath = WriteTempFile(json);
+        try
+        {
+            var result = Assert.Single(ProjectAssetsParser.Parse(assetsPath, null, null));
+
+            Assert.Equal(Path.Combine(packageRoot, "lib", "net8.0", "Pruned.MultiTfm.dll"), result.Path);
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+            Directory.Delete(packageRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Parse_WithTfmFilter_SelectsMatchingTfm()
     {
         var json = """
@@ -468,5 +552,21 @@ public class ProjectAssetsParserTests
         var path = Path.Combine(Path.GetTempPath(), $"project-assets-test-{Guid.NewGuid():N}.json");
         File.WriteAllText(path, content);
         return path;
+    }
+
+    private static string CreateNuGetPackageAsset(string packageId, string version, params string[] relativeAssets)
+    {
+        var packageRoot = Path.Combine(DotnetInspector.Packages.NuGetCache.GetNuGetCachePath(), packageId, version);
+        if (Directory.Exists(packageRoot))
+            Directory.Delete(packageRoot, recursive: true);
+
+        foreach (var relativeAsset in relativeAssets)
+        {
+            var assetPath = Path.Combine(packageRoot, relativeAsset.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(assetPath)!);
+            File.WriteAllText(assetPath, "fake assembly");
+        }
+
+        return packageRoot;
     }
 }

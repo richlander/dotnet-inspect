@@ -180,6 +180,7 @@ public static class ProjectAssetsParser
 
                 if (dep.Value.TryGetProperty("compile", out var compile))
                 {
+                    var addedFromCompile = false;
                     foreach (var asm in compile.EnumerateObject())
                     {
                         if (!asm.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -192,7 +193,14 @@ public static class ProjectAssetsParser
                         if (File.Exists(fullPath))
                         {
                             results.Add((fullPath, packageName, version));
+                            addedFromCompile = true;
                         }
+                    }
+
+                    if (!addedFromCompile)
+                    {
+                        foreach (var fallbackPath in GetFallbackCompileAssets(libInfo, compile, packageName, packagePath, nugetCache, tfmFilter))
+                            results.Add((fallbackPath, packageName, version));
                     }
                 }
             }
@@ -203,6 +211,93 @@ public static class ProjectAssetsParser
         }
 
         return results;
+    }
+
+    private static IEnumerable<string> GetFallbackCompileAssets(
+        JsonElement library,
+        JsonElement compile,
+        string packageName,
+        string packagePath,
+        string nugetCache,
+        string? tfmFilter)
+    {
+        if (!library.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array)
+            yield break;
+
+        var fileCandidates = files.EnumerateArray()
+            .Select(file => file.GetString())
+            .Where(path => path is not null && IsAssemblyAsset(path))
+            .Select(path => path!)
+            .ToList();
+        if (fileCandidates.Count == 0)
+            yield break;
+
+        var tfmHints = compile.EnumerateObject()
+            .Where(asset => asset.Name.Contains("_._", StringComparison.Ordinal))
+            .Select(asset => TfmResolver.ExtractTfmFromPath(asset.Name))
+            .Where(tfm => !string.IsNullOrWhiteSpace(tfm))
+            .Select(tfm => tfm!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var selected = SelectFallbackAssetGroup(fileCandidates, tfmHints, tfmFilter);
+        foreach (var relativePath in selected)
+        {
+            var fullPath = Path.Combine(nugetCache, packagePath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(fullPath))
+                yield return fullPath;
+        }
+    }
+
+    private static bool IsAssemblyAsset(string? path)
+        => path is { Length: > 0 }
+           && path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+           && !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)
+           && (path.StartsWith("ref/", StringComparison.OrdinalIgnoreCase)
+               || path.StartsWith("lib/", StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<string> SelectFallbackAssetGroup(
+        IReadOnlyList<string> candidates,
+        IReadOnlyList<string> tfmHints,
+        string? tfmFilter)
+    {
+        var grouped = candidates
+            .Select(path => new
+            {
+                Path = path,
+                Tfm = TfmResolver.ExtractTfmFromPath(path),
+                Prefix = path.Split('/', 2)[0]
+            })
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Tfm))
+            .GroupBy(candidate => candidate.Tfm!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        if (grouped.Count == 0)
+            return [];
+
+        string? selectedTfm = null;
+        if (!string.IsNullOrWhiteSpace(tfmFilter) && grouped.ContainsKey(tfmFilter))
+            selectedTfm = tfmFilter;
+        else if (tfmHints.Count > 0)
+            selectedTfm = TfmSelector.SelectHighestTfm(tfmHints.Where(grouped.ContainsKey));
+        selectedTfm ??= TfmSelector.SelectHighestTfm(grouped.Keys);
+        if (selectedTfm is null || !grouped.TryGetValue(selectedTfm, out var selectedGroup))
+            return [];
+
+        var hintPrefixes = candidates
+            .Where(path => tfmHints.Contains(TfmResolver.ExtractTfmFromPath(path) ?? "", StringComparer.OrdinalIgnoreCase))
+            .Select(path => path.Split('/', 2)[0])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var prefixPriority = hintPrefixes.Length > 0
+            ? hintPrefixes
+            : ["ref", "lib"];
+
+        return selectedGroup
+            .OrderBy(candidate => Array.FindIndex(prefixPriority, prefix => prefix.Equals(candidate.Prefix, StringComparison.OrdinalIgnoreCase)) is var index && index >= 0 ? index : int.MaxValue)
+            .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(candidate => candidate.Path)
+            .ToList();
     }
 
     /// <summary>

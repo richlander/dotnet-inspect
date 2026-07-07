@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.16.1
+
+### Release packaging and project lookup
+
+- Bumps the package version so the next production package is publishable after
+  `0.16.0`.
+- Recovers project-scoped API lookup for restored projects whose NuGet assets
+  are package-pruned to `_._` compile placeholders by falling back to the
+  package file list's compatible assemblies.
+
 ## v0.16.0
 
 ### Research overlay and performance analysis (experimental)
