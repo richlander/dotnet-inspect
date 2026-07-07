@@ -22,6 +22,8 @@ public class SubstratePredicateCensusTests
             "Inlining-specific EH guard that first finds the containing catch clause before using ReferenceOwnership.IsInside on its filter.",
         [new("ExpressionInliningPass.cs", "SameRegions")] =
             "Inlining-specific EH range equality for candidate movement; the predicate is over function region spans, not IR identity.",
+        [new("FixedArrayRaising.cs", "SameLoadPlace")] =
+            "String-pin guard proof compares only the null-tested source load with the GetPinnableReference receiver; it admits arguments and locals for this Roslyn lowering, not a reusable place-identity atom.",
         [new("LocalFunctionRaisingPass.cs", "SameLocalFunctionMethod")] =
             "Local-function mangled names are unique within the declaring type; this pass-local check distinguishes self-recursion from nested or mutual local-function calls.",
         [new("NullCoalescingAssignmentPass.cs", "SameField")] =
