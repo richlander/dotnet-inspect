@@ -10,6 +10,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -662,7 +663,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertyGetter(
                 assemblyPath,
                 reader,
                 function,
@@ -748,7 +749,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertyGetter(
                 assemblyPath,
                 reader,
                 function,
@@ -821,7 +822,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposeMethod(
+            var sourceResult = ResearchReturnToSenderShells.ComposeMethod(
                 assemblyPath,
                 reader,
                 function,
@@ -906,7 +907,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposeMethod(
+            var sourceResult = ResearchReturnToSenderShells.ComposeMethod(
                 assemblyPath,
                 reader,
                 function,
@@ -979,7 +980,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertySetter(
                 assemblyPath,
                 reader,
                 function,
@@ -1065,7 +1066,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertySetter(
                 assemblyPath,
                 reader,
                 function,
@@ -1490,7 +1491,7 @@ static class ReturnToSender
             AddMemberFact(method.DeclaringType, "method", method.Name);
             AddMemberRequirement(
                 method.DeclaringType,
-                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method),
+                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, method),
                 allowTargetRoot: allowTargetRootOverride
                     || method.Name is not ".ctor" and not ".cctor"
                     && !method.Name.StartsWith("get_", StringComparison.Ordinal)
@@ -1502,7 +1503,7 @@ static class ReturnToSender
             AddMemberFact(field.DeclaringType, "field", field.Name);
             AddMemberRequirement(
                 field.DeclaringType,
-                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, field),
+                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, field),
                 allowTargetRoot: false);
         }
 
