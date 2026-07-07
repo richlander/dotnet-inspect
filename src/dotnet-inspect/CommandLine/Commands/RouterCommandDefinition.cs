@@ -50,7 +50,7 @@ public static class RouterCommandDefinition
                 return 1;
             }
 
-            if (ContainsHelpOption(tokens))
+            if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-', StringComparison.Ordinal))
             {
                 Console.Error.WriteLine($"Note: interpreting bare token '{tokens[0]}' as a package or platform target.");
                 Console.Error.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");

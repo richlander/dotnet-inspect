@@ -3838,6 +3838,16 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_BareDiscoveryHelp_DoesNotCallOptionABareToken()
+    {
+        var (exit, output, error) = await RunAppAsync("-S", "Methods", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Discover types in a package or library", output);
+        Assert.DoesNotContain("interpreting bare token '-S'", error);
+    }
+
+    [Fact]
     public async Task Router_OutputFlagBeforeBareToken_KeepsBareTokenAsRouteTarget()
     {
         var (exit, output, error) = await RunAppAsync("--json", "frobnicate");
