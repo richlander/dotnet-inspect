@@ -269,6 +269,40 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_UnsafeStackSlotReadInLaterBlockDeclaresUpFront()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.True(
+            output.IndexOf("* S_", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the stack-slot declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("_ = S_", output);
+    }
+
+    [Fact]
     public void NewRulesModule_UnsafeRunKeepsInitObjectDeclarationInScope()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");

@@ -1032,6 +1032,18 @@ public sealed partial class CSharpPrinter
                 if (store.Value is StackAllocArray)
                     _scopedLocals.Add(store.Index);
             }
+            foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
+            {
+                if (!HasUnsafeOperation(store.Value) || StackSlotReferencesStayInBlockAfterStore(function, store))
+                    continue;
+                _declaringStores.Remove(store);
+            }
+            foreach (var init in _declaringStores.OfType<InitObject>().ToList())
+            {
+                if (init.Address is not LoadLocalAddress local || LocalReferencesStayInBlockAfterStatement(function, init, local.Index))
+                    continue;
+                _declaringStores.Remove(init);
+            }
         }
     }
 
@@ -1074,14 +1086,23 @@ public sealed partial class CSharpPrinter
             return false;
         if (StoreValueReferencesLocal(store))
             return false;
-        var allowed = block.Children.Skip(store.ChildIndex).ToList();
         if (HasBranchTargetAfterStatement(store))
+            return false;
+        return LocalReferencesStayInBlockAfterStatement(function, store, store.Index);
+    }
+
+    bool LocalReferencesStayInBlockAfterStatement(IrFunction function, IrNode statement, int index)
+    {
+        if (statement.Parent is not Block block || statement.ChildIndex < 0)
+            return false;
+        var allowed = block.Children.Skip(statement.ChildIndex).ToList();
+        if (HasBranchTargetAfterStatement(statement))
             return false;
         foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
-            if (node is StoreLocal s && s.Index == store.Index
-                || node is LoadLocal l && l.Index == store.Index
-                || node is LoadLocalAddress a && a.Index == store.Index)
+            if (node is StoreLocal s && s.Index == index
+                || node is LoadLocal l && l.Index == index
+                || node is LoadLocalAddress a && a.Index == index)
             {
                 if (!allowed.Any(statement => IsDescendantOrSelf(node, statement)))
                     return false;
