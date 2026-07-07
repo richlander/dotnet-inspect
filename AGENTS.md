@@ -94,9 +94,10 @@ bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
 dotnetup sdk install 11.0-daily --interactive false
 ```
 
-When the default `dotnet` is not the repo SDK and the user has approved a
-user-level dotnetup install, run repo commands through dotnetup so the nightly
-SDK is selected only for that command:
+When the default `dotnet` for commands run from this repository is not the
+dotnetup-managed .NET 11 daily SDK, and the user has approved a user-level
+dotnetup install, run repo commands through dotnetup so the nightly SDK is
+selected only for that command:
 
 ```bash
 dotnetup dotnet build dotnet-inspect.slnx -c Release

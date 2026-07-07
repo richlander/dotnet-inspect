@@ -71,7 +71,7 @@ That affects only the current shell process and its children. It changes future
 shells only if you add the line to a startup file such as `.bashrc`, `.profile`,
 or `.zshrc`.
 
-Verify the selected SDK:
+Verify the `dotnet` selected for commands run from this repository:
 
 ```bash
 command -v dotnet
