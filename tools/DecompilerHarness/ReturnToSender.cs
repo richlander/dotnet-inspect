@@ -1709,14 +1709,6 @@ static class ReturnToSender
                     var typeGrew = AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts, out var typeResolved);
                     grew |= typeGrew;
                 }
-                else
-                {
-                    foreach (var name in names)
-                    {
-                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                        grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                    }
-                }
             }
             else if (diagnostic.Id is "CS0117")
             {
