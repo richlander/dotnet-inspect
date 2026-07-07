@@ -1020,17 +1020,24 @@ public sealed partial class CSharpPrinter
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
-                if (!HasUnsafeOperation(store.Value) || !LocalIsRead(function, store.Index))
+                if (store.Type.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
                     continue;
-                if (LocalReadsStayInsideUnsafeRun(function, store))
+                if (HasUnsafeOperation(store.Value)
+                    && LocalIsRead(function, store.Index)
+                    && !LocalReadsStayInsideUnsafeRun(function, store))
+                {
+                    _declaringStores.Remove(store);
+                    // A stackalloc-initialized span loses its inline `scoped`
+                    // inference when split from its declaration, so the hoisted
+                    // declaration must restore it (else CS9081). A stackalloc result
+                    // can never escape, so `scoped` is always correct here.
+                    if (store.Value is StackAllocArray)
+                        _scopedLocals.Add(store.Index);
+                    continue;
+                }
+                if (LocalReferencesStayInBlockAfterStore(function, store))
                     continue;
                 _declaringStores.Remove(store);
-                // A stackalloc-initialized span loses its inline `scoped`
-                // inference when split from its declaration, so the hoisted
-                // declaration must restore it (else CS9081). A stackalloc result
-                // can never escape, so `scoped` is always correct here.
-                if (store.Value is StackAllocArray)
-                    _scopedLocals.Add(store.Index);
             }
             foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
             {
@@ -1098,14 +1105,15 @@ public sealed partial class CSharpPrinter
         var allowed = block.Children.Skip(statement.ChildIndex).ToList();
         if (HasBranchTargetAfterStatement(statement))
             return false;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var candidateBlock in function.Body.Blocks)
         {
-            if (node is StoreLocal s && s.Index == index
-                || node is LoadLocal l && l.Index == index
-                || node is LoadLocalAddress a && a.Index == index)
+            foreach (var node in candidateBlock.Children)
             {
-                if (!allowed.Any(statement => IsDescendantOrSelf(node, statement)))
+                if (ReferencesLocalIncludingSharedNestedScopes(node, index)
+                    && !allowed.Any(statement => IsDescendantOrSelf(node, statement)))
+                {
                     return false;
+                }
             }
         }
         return true;
@@ -1181,7 +1189,8 @@ public sealed partial class CSharpPrinter
     }
 
     static bool IsLocalReference(IrNode node, int index)
-        => node is LoadLocal load && load.Index == index
+        => node is StoreLocal store && store.Index == index
+            || node is LoadLocal load && load.Index == index
             || node is LoadLocalAddress address && address.Index == index;
 
     static bool IsStackSlotReference(IrNode node, int slot)
