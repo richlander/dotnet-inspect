@@ -226,12 +226,17 @@ static class ReturnToSenderSourceProbe
 
             if (sourceMember.Body is not { } expected)
             {
+                var outcome = result.Status == FidelityCheck.CompileBackStatus.Exact
+                    ? ReturnToSenderSourceOutcome.ValidMatch
+                    : ReturnToSenderSourceOutcome.ValidDifferent;
                 results.Add(new ReturnToSenderSourceProbeResult(
                     target,
-                    ReturnToSenderSourceOutcome.UnsupportedTarget,
+                    outcome,
                     result.Status,
-                    "source-body-unavailable",
-                    $"source member matched {target.Type}::{target.Method}#{target.Overload}, but it has no comparable source body",
+                    outcome == ReturnToSenderSourceOutcome.ValidMatch
+                        ? "valid_match.source_bodyless"
+                        : "valid_different.source_bodyless",
+                    $"source member matched {target.Type}::{target.Method}#{target.Overload}, but it has no explicit source body; compile-back status is {result.Status}",
                     sourceMember.SourcePath,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody));

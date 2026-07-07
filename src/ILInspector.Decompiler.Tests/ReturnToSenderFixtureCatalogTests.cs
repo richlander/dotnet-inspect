@@ -131,8 +131,8 @@ public class ReturnToSenderFixtureCatalogTests
                     Overload: 0),
             ]));
 
-        Assert.Equal(ReturnToSenderSourceOutcome.UnsupportedTarget, result.Outcome);
-        Assert.Equal("source-body-unavailable", result.Reason);
+        Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+        Assert.Equal("valid_match.source_bodyless", result.Reason);
         Assert.EndsWith("LadderRung9.cs", result.SourcePath, StringComparison.Ordinal);
     }
 
@@ -148,8 +148,8 @@ public class ReturnToSenderFixtureCatalogTests
                     Overload: 0),
             ]));
 
-        Assert.Equal(ReturnToSenderSourceOutcome.UnsupportedTarget, result.Outcome);
-        Assert.Equal("source-body-unavailable", result.Reason);
+        Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+        Assert.Equal("valid_match.source_bodyless", result.Reason);
         Assert.EndsWith("LadderRung5.cs", result.SourcePath, StringComparison.Ordinal);
     }
 
