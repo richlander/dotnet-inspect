@@ -73,8 +73,12 @@ Before installing an SDK or changing PATH, inspect the current `dotnet`:
 
 ```bash
 command -v dotnet
-dotnet --info
+dotnet --version
 ```
+
+If `dotnet` already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
+`dotnet` commands for this repo. Do not wrap those commands in `dotnetup dotnet`
+unless you need to force an isolated dotnetup install.
 
 If `dotnet` is centrally installed (for example under `/usr/bin`,
 `/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`), stop and ask
@@ -90,8 +94,9 @@ bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
 dotnetup sdk install 11.0-daily --interactive false
 ```
 
-Prefer running repo commands through dotnetup so the nightly SDK is selected
-only for that command:
+When the default `dotnet` is not the repo SDK and the user has approved a
+user-level dotnetup install, run repo commands through dotnetup so the nightly
+SDK is selected only for that command:
 
 ```bash
 dotnetup dotnet build dotnet-inspect.slnx -c Release

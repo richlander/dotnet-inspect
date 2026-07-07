@@ -22,30 +22,37 @@ above. Contributors building this repository should use a .NET 11 daily SDK.
 The decompiler tracks compiler-produced C# shapes, and some correctness work
 needs daily compiler/runtime packs before the next public preview ships.
 
-Before changing any shell configuration, check how `dotnet` is installed:
+First check how `dotnet` is installed and which SDK it selects:
 
 ```bash
 command -v dotnet
-dotnet --info
+dotnet --version
+```
+
+If that already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
+`dotnet` commands:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 ```
 
 If `dotnet` comes from a centrally managed location such as `/usr/bin`,
 `/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`, do not replace
 it or prepend another `dotnet` to PATH unless that is intentional for your
-machine. Use the non-invasive dotnetup mode below, or ask your system
+machine. Use dotnetup in command-isolation mode, or ask your system
 administrator which setup is appropriate.
 
-Use `dotnetup` to install and track the daily SDK in a user-managed location:
+Install and track the daily SDK with dotnetup:
 
 ```bash
 curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
 bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
-
 dotnetup sdk install 11.0-daily --interactive false
 ```
 
-Run repo commands through dotnetup when you want the nightly SDK without making
-it your shell default:
+Then run repo commands through dotnetup when you want the nightly SDK without
+making it your shell default:
 
 ```bash
 dotnetup dotnet build dotnet-inspect.slnx -c Release
