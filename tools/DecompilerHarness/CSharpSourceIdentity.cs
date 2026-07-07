@@ -368,7 +368,8 @@ internal sealed class CSharpSourceIdentityContext
             : $"return {expression};";
 
     static string OperatorMetadataName(OperatorDeclarationSyntax op)
-        => op.OperatorToken.Kind() switch
+    {
+        string methodName = op.OperatorToken.Kind() switch
         {
             SyntaxKind.PlusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
             SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
@@ -395,4 +396,8 @@ internal sealed class CSharpSourceIdentityContext
             SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
             _ => op.OperatorToken.ValueText,
         };
+        return op.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword)
+            ? $"op_Checked{methodName["op_".Length..]}"
+            : methodName;
+    }
 }

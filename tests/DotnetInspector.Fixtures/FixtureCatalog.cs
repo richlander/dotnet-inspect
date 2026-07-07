@@ -1,3 +1,5 @@
+using System.Xml.Linq;
+
 namespace DotnetInspector.Fixtures;
 
 public sealed record FixtureDefinition(
@@ -502,8 +504,59 @@ public static class FixtureCatalog
     {
         string projectDirectory = ProjectDirectory(id);
         return [.. Directory.EnumerateFiles(projectDirectory, "*.cs", SearchOption.AllDirectories)
+            .Concat(ProjectCompileSourcePaths(projectDirectory))
+            .Select(Path.GetFullPath)
             .Where(path => !HasPathSegment(path, "bin") && !HasPathSegment(path, "obj"))
+            .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)];
+    }
+
+    static IEnumerable<string> ProjectCompileSourcePaths(string projectDirectory)
+    {
+        foreach (var projectFile in Directory.EnumerateFiles(projectDirectory, "*.csproj", SearchOption.TopDirectoryOnly))
+        {
+            XDocument project;
+            try
+            {
+                project = XDocument.Load(projectFile);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                continue;
+            }
+
+            foreach (var include in project
+                .Descendants()
+                .Where(element => element.Name.LocalName == "Compile")
+                .Select(element => element.Attribute("Include")?.Value)
+                .Where(value => !string.IsNullOrWhiteSpace(value)))
+            {
+                foreach (var path in ExpandCompileInclude(projectDirectory, include!))
+                    yield return path;
+            }
+        }
+    }
+
+    static IEnumerable<string> ExpandCompileInclude(string projectDirectory, string include)
+    {
+        string normalized = include
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .Replace('/', Path.DirectorySeparatorChar);
+        string fullPattern = Path.GetFullPath(Path.Combine(projectDirectory, normalized));
+        string? directory = Path.GetDirectoryName(fullPattern);
+        if (directory is null || !Directory.Exists(directory))
+            yield break;
+
+        string pattern = Path.GetFileName(fullPattern);
+        if (pattern.Contains('*', StringComparison.Ordinal) || pattern.Contains('?', StringComparison.Ordinal))
+        {
+            foreach (var path in Directory.EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly))
+                yield return path;
+            yield break;
+        }
+
+        if (File.Exists(fullPattern))
+            yield return fullPattern;
     }
 
     public static string AssetPath(string id, string assetName)

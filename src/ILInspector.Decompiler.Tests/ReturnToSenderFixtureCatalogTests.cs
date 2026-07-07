@@ -964,6 +964,36 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void CSharpSourceIdentityContext_ResolvesCheckedOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static Class1 operator checked +(Class1 left, Class1 right)
+                    => checked(new Class1(left._value + right._value));
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var op = Assert.Single(root.DescendantNodes().OfType<OperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.OperatorMembers(op));
+
+        Assert.Equal("op_CheckedAddition", member.MetadataName);
+        Assert.Equal("return checked(new Class1(left._value + right._value));", member.Body);
+        Assert.Contains("operator", member.Evidence);
+    }
+
+    [Fact]
     public void CSharpSourceIdentityContext_ResolvesConversionOperatorIdentity()
     {
         var root = CSharpSyntaxTree.ParseText("""

@@ -615,9 +615,9 @@ public static class CompileBackSourceComposer
             targetMembers.Add(equalitySibling);
         }
         if (!isConstructor
-            && CheckedConversionOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } conversionSibling)
+            && CheckedOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } checkedOperatorSibling)
         {
-            targetMembers.Add(conversionSibling);
+            targetMembers.Add(checkedOperatorSibling);
         }
         if (!isConstructor
             && TypedEqualsSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } typedEqualsSibling)
@@ -1239,19 +1239,14 @@ public static class CompileBackSourceComposer
         => left.ReturnType == right.ReturnType
             && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
 
-    static CompileBackMemberRequirement? CheckedConversionOperatorSibling(
+    static CompileBackMemberRequirement? CheckedOperatorSibling(
         MetadataReader reader,
         TypeDefinition typeDef,
         CompileBackTypeIdentity typeIdentity,
         string methodName,
         MethodSignature<string> targetSignature)
     {
-        var siblingName = methodName switch
-        {
-            "op_CheckedExplicit" => "op_Explicit",
-            "op_CheckedImplicit" => "op_Implicit",
-            _ => null,
-        };
+        var siblingName = UncheckedOperatorName(methodName);
         if (siblingName is null)
             return null;
 
@@ -1284,6 +1279,19 @@ public static class CompileBackSourceComposer
         }
 
         return null;
+    }
+
+    static string? UncheckedOperatorName(string methodName)
+    {
+        if (methodName is "op_CheckedExplicit")
+            return "op_Explicit";
+        if (methodName is "op_CheckedImplicit")
+            return "op_Implicit";
+        if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
+            return null;
+
+        string inner = methodName["op_Checked".Length..];
+        return OperatorNames.MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
     }
 
     static bool IsRecordGeneratedFieldReadHelper(
@@ -2235,8 +2243,12 @@ public static class CompileBackSourceComposer
                 || (!isConstructor && name.Contains('.', StringComparison.Ordinal)))
                 return null;
 
-            if (!isConstructor && method.Attributes.HasFlag(MethodAttributes.SpecialName))
+            if (!isConstructor
+                && method.Attributes.HasFlag(MethodAttributes.SpecialName)
+                && !name.StartsWith("op_", StringComparison.Ordinal))
+            {
                 return null;
+            }
 
             MethodSignature<string> signature;
             try
