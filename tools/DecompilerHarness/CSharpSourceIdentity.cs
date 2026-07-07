@@ -95,9 +95,15 @@ internal sealed class CSharpSourceIdentityContext
 
     public IReadOnlyList<CSharpSourceMemberIdentity> ConversionOperatorMembers(ConversionOperatorDeclarationSyntax conversion)
     {
-        string methodName = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword)
-            ? "op_Implicit"
-            : "op_Explicit";
+        bool isImplicit = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword);
+        bool isChecked = conversion.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword);
+        string methodName = (isImplicit, isChecked) switch
+        {
+            (true, true) => "op_CheckedImplicit",
+            (true, false) => "op_Implicit",
+            (false, true) => "op_CheckedExplicit",
+            (false, false) => "op_Explicit",
+        };
         return
         [
             new CSharpSourceMemberIdentity(

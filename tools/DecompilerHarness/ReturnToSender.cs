@@ -1478,13 +1478,14 @@ static class ReturnToSender
                 new CompileBackFact("metadata", "typed-member-ref", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
         }
 
-        void AddMethodFact(MethodRef method)
+        void AddMethodFact(MethodRef method, bool allowTargetRootOverride = false)
         {
             AddMemberFact(method.DeclaringType, "method", method.Name);
             AddMemberRequirement(
                 method.DeclaringType,
                 root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method),
-                allowTargetRoot: method.Name is not ".ctor" and not ".cctor"
+                allowTargetRoot: allowTargetRootOverride
+                    || method.Name is not ".ctor" and not ".cctor"
                     && !method.Name.StartsWith("get_", StringComparison.Ordinal)
                     && !method.Name.StartsWith("set_", StringComparison.Ordinal));
         }
@@ -1524,7 +1525,7 @@ static class ReturnToSender
                     AddMethodFact(call.Callee);
                     break;
                 case NewObject creation:
-                    AddMethodFact(creation.Constructor);
+                    AddMethodFact(creation.Constructor, allowTargetRootOverride: true);
                     break;
                 case LoadProperty load:
                     AddMethodFact(load.Accessor);

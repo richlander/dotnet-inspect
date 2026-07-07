@@ -365,6 +365,7 @@ public static class CompileBackSourceComposer
                 PrimaryConstructor: null,
                 targetFacts)
         };
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
@@ -614,12 +615,16 @@ public static class CompileBackSourceComposer
             targetMembers.Add(equalitySibling);
         }
         if (!isConstructor
+            && CheckedConversionOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } conversionSibling)
+        {
+            targetMembers.Add(conversionSibling);
+        }
+        if (!isConstructor
             && TypedEqualsSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } typedEqualsSibling)
         {
             targetMembers.Add(typedEqualsSibling);
         }
-        if (!targetTypeDef.GetDeclaringType().IsNil)
-            AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -1233,6 +1238,53 @@ public static class CompileBackSourceComposer
     static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
         => left.ReturnType == right.ReturnType
             && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
+
+    static CompileBackMemberRequirement? CheckedConversionOperatorSibling(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity typeIdentity,
+        string methodName,
+        MethodSignature<string> targetSignature)
+    {
+        var siblingName = methodName switch
+        {
+            "op_CheckedExplicit" => "op_Explicit",
+            "op_CheckedImplicit" => "op_Implicit",
+            _ => null,
+        };
+        if (siblingName is null)
+            return null;
+
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != siblingName)
+                continue;
+
+            var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            if (!OperatorSignaturesMatch(targetSignature, signature))
+                continue;
+
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
+                CompileBackMemberKind.Method,
+                method.Attributes.HasFlag(MethodAttributes.Static),
+                MethodParameters(reader, method, signature),
+                CompileBackTypeSignature.Display(signature.ReturnType),
+                MethodTypeParameters(reader, method),
+                CompileBackStubBodyKind.Throw,
+                TargetBody: null,
+                [new CompileBackFact("metadata", "operator-pair-sibling", siblingName)],
+                MemberAttributes(reader, method.GetCustomAttributes()),
+                MethodReturnAttributes(reader, method),
+                IsAbstract: IsAbstractMethod(method),
+                IsVirtual: IsVirtualMethod(method),
+                IsOverride: false,
+                IsSealed: false);
+        }
+
+        return null;
+    }
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,

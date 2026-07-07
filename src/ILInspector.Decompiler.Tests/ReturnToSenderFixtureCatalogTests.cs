@@ -993,6 +993,35 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void CSharpSourceIdentityContext_ResolvesCheckedConversionOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static explicit operator checked int(Class1 value) => checked(value._value + 1);
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var conversion = Assert.Single(root.DescendantNodes().OfType<ConversionOperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.ConversionOperatorMembers(conversion));
+
+        Assert.Equal("op_CheckedExplicit", member.MetadataName);
+        Assert.Equal("return checked(value._value + 1);", member.Body);
+        Assert.Contains("conversion-operator", member.Evidence);
+    }
+
+    [Fact]
     public void CSharpSourceIdentityContext_EmitsOrderedTypeMembers()
     {
         var root = CSharpSyntaxTree.ParseText("""
