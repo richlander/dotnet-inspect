@@ -104,6 +104,22 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PreservesUnsafeModifierAfterMemberAttributes()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures",
+                    "StackAllocSkipInit",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS1585", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
     {
         var fixture = CompileSourceFixture(

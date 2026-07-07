@@ -791,11 +791,10 @@ public static class CompileBackSourceComposer
 
         var apiType = ToApiType(type);
         var apiMember = ToApiMember(type, member);
-        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(apiType, apiMember);
-        if (member.IsAsync)
-            declaration = AddAsyncModifier(declaration);
-        if (RequiresUnsafe(member))
-            declaration = AddUnsafeModifier(declaration);
+        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            apiType,
+            apiMember,
+            new CSharpDeclarationOptions { ForceAsync = member.IsAsync });
         switch (member.Kind)
         {
             case CompileBackMemberKind.PropertyGet:
@@ -999,6 +998,7 @@ public static class CompileBackSourceComposer
             IsSealed = member.IsSealed,
             Accessibility = AccessibilityText(member.Accessibility),
             Attributes = member.Attributes?.ToList() ?? [],
+            IsUnsafe = RequiresUnsafe(member),
         };
         if (member.Kind == CompileBackMemberKind.Method)
         {
@@ -1071,34 +1071,6 @@ public static class CompileBackSourceComposer
             && (body.Contains("delegate*", StringComparison.Ordinal)
                 || body.Contains("stackalloc", StringComparison.Ordinal)
                 || body.Contains('*', StringComparison.Ordinal));
-
-    static string AddAsyncModifier(string declaration)
-    {
-        if (declaration.Contains(" async ", StringComparison.Ordinal))
-            return declaration;
-
-        foreach (var prefix in new[] { "public static ", "internal static ", "public ", "internal ", "static " })
-        {
-            if (declaration.StartsWith(prefix, StringComparison.Ordinal))
-                return prefix + "async " + declaration[prefix.Length..];
-        }
-
-        return "async " + declaration;
-    }
-
-    static string AddUnsafeModifier(string declaration)
-    {
-        if (declaration.Contains(" unsafe ", StringComparison.Ordinal))
-            return declaration;
-
-        foreach (var prefix in new[] { "public static ", "internal static ", "public ", "internal ", "static " })
-        {
-            if (declaration.StartsWith(prefix, StringComparison.Ordinal))
-                return prefix + "unsafe " + declaration[prefix.Length..];
-        }
-
-        return "unsafe " + declaration;
-    }
 
     static string AddPrimaryConstructorParameters(string declaration, string parameters)
     {
