@@ -69,20 +69,44 @@ Repository development tracks .NET 11 daily SDKs so decompiler work can follow
 compiler-produced shapes before monthly previews. Published tool users are not
 affected by this repo-development requirement.
 
-Use `dotnetup` for local SDK acquisition:
+Before installing an SDK or changing PATH, inspect the current `dotnet`:
+
+```bash
+command -v dotnet
+dotnet --info
+```
+
+If `dotnet` is centrally installed (for example under `/usr/bin`,
+`/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`), stop and ask
+for guidance before installing an additional user-level SDK or changing shell
+configuration. Do not remove, shadow, or replace a centrally managed install
+unless the user explicitly approves it.
+
+Use `dotnetup` for non-invasive local SDK acquisition:
 
 ```bash
 curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
 bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
-mkdir -p "$HOME/.dotnetup/dotnet"
-dotnetup sdk install 11.0-daily \
-  --install-path "$HOME/.dotnetup/dotnet" \
-  --set-default-install false \
-  --interactive false
-eval "$(dotnetup print-env-script --shell bash --dotnet-install-path "$HOME/.dotnetup/dotnet")"
+dotnetup sdk install 11.0-daily --interactive false
 ```
 
-Verify `dotnet --version` reports the dotnetup-managed daily SDK before building.
+Prefer running repo commands through dotnetup so the nightly SDK is selected
+only for that command:
+
+```bash
+dotnetup dotnet build dotnet-inspect.slnx -c Release
+dotnetup dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+```
+
+Only if the user explicitly wants this repo's shell to prefer the
+dotnetup-managed SDK, opt in through dotnetup's supported environment script:
+
+```bash
+eval "$(dotnetup print-env-script --shell bash)"
+```
+
+Verify the selected `dotnet --version` reports the dotnetup-managed daily SDK
+before building.
 
 Build the normal product/test/fixture graph:
 
