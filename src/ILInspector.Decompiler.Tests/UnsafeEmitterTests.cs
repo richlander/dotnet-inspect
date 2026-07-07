@@ -332,8 +332,12 @@ public class UnsafeEmitterTests
         var output = CSharpPrinter.Print(function).Output!;
         var unsafeBody = FirstUnsafeBlockBody(output);
 
-        Assert.Contains("Guid V_0 = default;", unsafeBody);
-        Assert.Contains("V_0.GetHashCode()", unsafeBody);
+        Assert.True(
+            output.IndexOf("Guid V_0;", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the InitObject declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("V_0 = default;", unsafeBody);
+        Assert.Contains("V_0.GetHashCode()", output);
     }
 
     [Fact]
@@ -369,6 +373,103 @@ public class UnsafeEmitterTests
             output.IndexOf("int V_0;", StringComparison.Ordinal)
                 < output.IndexOf("unsafe", StringComparison.Ordinal),
             "the safe local declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("_ = V_0;", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_SafeCrossBlockLocalWithoutUnsafeStaysInline()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, int32, new Constant(1, int32)));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new LoadLocal(0, int32)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("int V_0 = 1;", output);
+        Assert.DoesNotContain("unsafe", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunHoistsSafeLocalBetweenUnsafeDeclarationAndUse()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new StoreLocal(0, int32, new Constant(1, int32)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+        var unsafeBody = FirstUnsafeBlockBody(output);
+
+        Assert.DoesNotContain("int V_0 = 1;", unsafeBody);
+        Assert.Contains("V_0 = 1;", unsafeBody);
+        Assert.Contains("_ = V_0;", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafePointerLocalReadInLaterBlockDeclaresUpFront()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, bytePointer, new StackAllocate(new Constant(8, int32))));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new LoadLocal(0, bytePointer)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [bytePointer],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.True(
+            output.IndexOf("byte* V_0;", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the pointer local declaration must be hoisted above the unsafe block:\n" + output);
         Assert.Contains("_ = V_0;", output);
     }
 
@@ -451,8 +552,8 @@ public class UnsafeEmitterTests
 
         var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
 
-        Assert.Contains("Guid V_0 = default;", unsafeBody);
-        Assert.Contains("V_0.GetHashCode()", unsafeBody);
+        Assert.Contains("V_0 = default;", unsafeBody);
+        Assert.DoesNotContain("=>", unsafeBody);
     }
 
     [Fact]

@@ -1020,8 +1020,6 @@ public sealed partial class CSharpPrinter
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
-                if (store.Type.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
-                    continue;
                 if (HasUnsafeOperation(store.Value)
                     && LocalIsRead(function, store.Index)
                     && !LocalReadsStayInsideUnsafeRun(function, store))
@@ -1035,8 +1033,10 @@ public sealed partial class CSharpPrinter
                         _scopedLocals.Add(store.Index);
                     continue;
                 }
-                if (LocalReferencesStayInBlockAfterStore(function, store))
+                if (!UnsafeDeclarationBeforeInSameBlock(store))
+                {
                     continue;
+                }
                 _declaringStores.Remove(store);
             }
             foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
@@ -1047,8 +1047,12 @@ public sealed partial class CSharpPrinter
             }
             foreach (var init in _declaringStores.OfType<InitObject>().ToList())
             {
-                if (init.Address is not LoadLocalAddress local || LocalReferencesStayInBlockAfterStatement(function, init, local.Index))
+                if (init.Address is not LoadLocalAddress local)
                     continue;
+                if (!UnsafeDeclarationBeforeInSameBlock(init))
+                {
+                    continue;
+                }
                 _declaringStores.Remove(init);
             }
         }
@@ -1085,6 +1089,18 @@ public sealed partial class CSharpPrinter
             }
         }
         return true;
+    }
+
+    bool UnsafeDeclarationBeforeInSameBlock(IrNode statement)
+    {
+        if (statement.Parent is not Block block || statement.ChildIndex <= 0)
+            return false;
+        for (int i = 0; i < statement.ChildIndex; i++)
+        {
+            if (NeedsUnsafeContext(block.Children[i]))
+                return true;
+        }
+        return false;
     }
 
     bool LocalReferencesStayInBlockAfterStore(IrFunction function, StoreLocal store)
@@ -1676,10 +1692,8 @@ public sealed partial class CSharpPrinter
         {
             StoreStackSlot store when _declaringStores.Contains(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesStackSlot(node, store.Slot)),
-            StoreLocal store when _declaringStores.Contains(store)
+            StoreLocal store when _declaringStores.Contains(store) && HasUnsafeOperation(store.Value)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesLocalIncludingSharedNestedScopes(node, store.Index)),
-            InitObject { Address: LoadLocalAddress local } init when _declaringStores.Contains(init)
-                => LastReferenceEnd(statements, searchStart, node => ReferencesLocalIncludingSharedNestedScopes(node, local.Index)),
             _ => searchStart,
         };
     }
