@@ -2039,7 +2039,7 @@ public sealed partial class CSharpPrinter
                     ? nodeType
                     : null;
         }
-        return $"{CoalesceOperand(co.Left)} ?? {CoalesceRightText(co.Right, coalesceTarget, primitiveCoercionSourceType)}";
+        return $"{CoalesceLeftText(co.Left)} ?? {CoalesceRightText(co.Right, coalesceTarget, primitiveCoercionSourceType)}";
     }
 
     string CoalesceRightText(IrExpression right, TypeRef? target, TypeRef? primitiveCoercionSourceType = null)
@@ -2075,7 +2075,7 @@ public sealed partial class CSharpPrinter
             ? value
             : null;
 
-    string CoalesceOperand(IrExpression expression)
+    string CoalesceLeftText(IrExpression expression)
         => expression is LoadIndirect
         {
             Type:
@@ -2086,7 +2086,9 @@ public sealed partial class CSharpPrinter
             Address.ResultType.Kind: TypeRefKind.ByRef,
         } load
             ? DerefLoad(load)
-            : Operand(expression);
+            // `??` is right-associative, so the left operand is the equal-precedence
+            // hazard side: `(a ?? b) ?? c` must not render as `a ?? b ?? c`.
+            : RenderedExpression(expression).At(TighterThan(Precedence.NullCoalescing));
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch
