@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
 using ILInspector.DiffHarnessCommon;
@@ -180,25 +178,12 @@ catch (Exception ex) when (ex is BadImageFormatException or IOException or Inval
 
 static IlDiffPairCard BuildPairCard(AssemblyPair pair, int maxExamples)
 {
-    using var oldFile = File.OpenRead(pair.OldPath);
-    using var newFile = File.OpenRead(pair.NewPath);
-    using var oldPe = new PEReader(oldFile);
-    using var newPe = new PEReader(newFile);
-    var oldReader = oldPe.GetMetadataReader();
-    var newReader = newPe.GetMetadataReader();
-    var card = BuildCard(oldPe, oldReader, newPe, newReader, maxExamples);
-    return new IlDiffPairCard(pair.OldPath, pair.NewPath, card);
+    var pairResult = IlAssemblyDiff.CompareFiles(pair.OldPath, pair.NewPath, maxExamples);
+    return new IlDiffPairCard(pairResult.Old, pairResult.New, BuildCard(pairResult.Diff));
 }
 
-static IlDiffCard BuildCard(
-    PEReader oldPe,
-    MetadataReader oldReader,
-    PEReader newPe,
-    MetadataReader newReader,
-    int maxExamples)
+static IlDiffCard BuildCard(IlAssemblyDiffResult result)
 {
-    var result = IlAssemblyDiff.Compare(oldPe, oldReader, newPe, newReader, maxExamples);
-
     return new IlDiffCard(
         result.ComparedBodyCount,
         result.SelfDiffExactCount,
