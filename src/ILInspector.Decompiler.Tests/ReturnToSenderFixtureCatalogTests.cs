@@ -9,6 +9,7 @@ using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -764,6 +765,39 @@ public class ReturnToSenderFixtureCatalogTests
         {
             Directory.Delete(fixture.Directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesCrossFilePartialIndexerIdentity()
+    {
+        var definition = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                [System.Runtime.CompilerServices.IndexerName("Custom")]
+                public partial int this[int index] { get; }
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var implementation = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                public partial int this[int index] => index;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var indexer = Assert.Single(implementation.DescendantNodes().OfType<IndexerDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([definition, implementation]);
+        var member = Assert.Single(context.IndexerMembers(indexer, "SourceProbe.Class1"));
+
+        Assert.Equal("get_Custom", member.MetadataName);
+        Assert.Equal("return index;", member.Body);
+        Assert.Contains("indexer-name-attribute", member.Evidence);
+        Assert.Contains("partial-implementation", member.Evidence);
     }
 
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(

@@ -281,9 +281,9 @@ static class ReturnToSenderSourceProbe
                 sourceFiles.Add((sourcePath, root));
             }
 
-            var partialIndexerNames = PartialIndexerMetadataNames(sourceFiles.Select(file => file.Root));
+            var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
             foreach (var sourceFile in sourceFiles)
-                AddSourceFile(members, overloads, sourceFile.Path, sourceFile.Root, partialIndexerNames);
+                AddSourceFile(members, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
 
             return new FixtureSourceIndex(members);
         }
@@ -366,9 +366,9 @@ static class ReturnToSenderSourceProbe
             Dictionary<string, Dictionary<string, int>> overloads,
             string sourcePath,
             CompilationUnitSyntax root,
-            IReadOnlyDictionary<string, string> partialIndexerNames)
+            CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root, sourcePath, overloads, partialIndexerNames))
+            foreach (var member in SourceMembers(root, sourcePath, overloads, sourceIdentity))
                 members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
         }
 
@@ -376,9 +376,9 @@ static class ReturnToSenderSourceProbe
             CompilationUnitSyntax root,
             string sourcePath,
             Dictionary<string, Dictionary<string, int>> overloads,
-            IReadOnlyDictionary<string, string> partialIndexerNames)
+            CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads, partialIndexerNames))
+            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads, sourceIdentity))
                 yield return member;
         }
 
@@ -388,7 +388,7 @@ static class ReturnToSenderSourceProbe
             IReadOnlyList<string> containingTypes,
             string sourcePath,
             Dictionary<string, Dictionary<string, int>> overloads,
-            IReadOnlyDictionary<string, string> partialIndexerNames)
+            CSharpSourceIdentityContext sourceIdentity)
         {
             foreach (var declaration in declarations)
             {
@@ -399,7 +399,7 @@ static class ReturnToSenderSourceProbe
                         string nextNamespace = namespaceName.Length == 0
                             ? ns.Name.ToString()
                             : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads, partialIndexerNames))
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
@@ -411,9 +411,9 @@ static class ReturnToSenderSourceProbe
                             ? string.Join(".", typeStack)
                             : $"{namespaceName}.{string.Join(".", typeStack)}";
 
-                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, partialIndexerNames))
+                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, sourceIdentity))
                             yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads, partialIndexerNames))
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
@@ -425,7 +425,7 @@ static class ReturnToSenderSourceProbe
                 string fullType,
                 string path,
                 Dictionary<string, Dictionary<string, int>> overloadsByType,
-                IReadOnlyDictionary<string, string> partialIndexerNames)
+                CSharpSourceIdentityContext sourceIdentity)
             {
                 if (!overloadsByType.TryGetValue(fullType, out var overloads))
                     overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -485,22 +485,11 @@ static class ReturnToSenderSourceProbe
                             break;
                         case IndexerDeclarationSyntax indexer:
                         {
-                            if (IsBodylessPartial(indexer))
-                                break;
-                            string metadataName = IndexerMetadataName(indexer, type, fullType, partialIndexerNames);
-                            if (HasGetter(indexer))
+                            foreach (var indexerMember in sourceIdentity.IndexerMembers(indexer, fullType))
                             {
-                                string methodName = $"get_{metadataName}";
+                                string methodName = indexerMember.MetadataName;
                                 int overload = NextOverload(overloads, methodName);
-                                if (GetterBodyText(indexer) is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            if (HasSetter(indexer))
-                            {
-                                string methodName = $"set_{metadataName}";
-                                int overload = NextOverload(overloads, methodName);
-                                if (SetterBodyText(indexer) is { } body)
+                                if (indexerMember.Body is { } body)
                                     yield return new SourceMember(fullType, methodName, overload, path, body);
                             }
 
@@ -536,51 +525,6 @@ static class ReturnToSenderSourceProbe
             }
         }
 
-        static IReadOnlyDictionary<string, string> PartialIndexerMetadataNames(IEnumerable<CompilationUnitSyntax> roots)
-        {
-            var names = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var root in roots)
-                AddPartialIndexerNames(root.Members, namespaceName: "", containingTypes: [], names);
-            return names;
-        }
-
-        static void AddPartialIndexerNames(
-            SyntaxList<MemberDeclarationSyntax> declarations,
-            string namespaceName,
-            IReadOnlyList<string> containingTypes,
-            Dictionary<string, string> names)
-        {
-            foreach (var declaration in declarations)
-            {
-                switch (declaration)
-                {
-                    case BaseNamespaceDeclarationSyntax ns:
-                    {
-                        string nextNamespace = namespaceName.Length == 0
-                            ? ns.Name.ToString()
-                            : $"{namespaceName}.{ns.Name}";
-                        AddPartialIndexerNames(ns.Members, nextNamespace, containingTypes, names);
-                        break;
-                    }
-                    case TypeDeclarationSyntax type:
-                    {
-                        string typeName = type.Identifier.ValueText;
-                        var typeStack = containingTypes.Concat([typeName]).ToArray();
-                        string fullType = namespaceName.Length == 0
-                            ? string.Join(".", typeStack)
-                            : $"{namespaceName}.{string.Join(".", typeStack)}";
-                        foreach (var indexer in type.Members.OfType<IndexerDeclarationSyntax>().Where(IsBodylessPartial))
-                        {
-                            if (IndexerMetadataName(indexer) is { } metadataName)
-                                names.TryAdd(PartialIndexerKey(fullType, indexer), metadataName);
-                        }
-
-                        AddPartialIndexerNames(type.Members, namespaceName, typeStack, names);
-                        break;
-                    }
-                }
-            }
-        }
     }
 
     static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
@@ -742,11 +686,6 @@ static class ReturnToSenderSourceProbe
             && property.ExpressionBody is null
             && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
 
-    static bool IsBodylessPartial(IndexerDeclarationSyntax indexer)
-        => indexer.Modifiers.Any(SyntaxKind.PartialKeyword)
-            && indexer.ExpressionBody is null
-            && indexer.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
-
     static string? BodyText(ConstructorDeclarationSyntax constructor)
     {
         if (constructor.Body is { } body)
@@ -786,32 +725,9 @@ static class ReturnToSenderSourceProbe
         return null;
     }
 
-    static string? GetterBodyText(IndexerDeclarationSyntax indexer)
-    {
-        if (indexer.ExpressionBody is { } expressionBody)
-            return $"return {expressionBody.Expression};";
-        var getter = indexer.AccessorList?.Accessors.FirstOrDefault(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration));
-        if (getter?.Body is { } body)
-            return StatementsText(body);
-        if (getter?.ExpressionBody is { } getterExpression)
-            return $"return {getterExpression.Expression};";
-        return null;
-    }
-
     static string? SetterBodyText(PropertyDeclarationSyntax property)
     {
         var setter = property.AccessorList?.Accessors.FirstOrDefault(accessor =>
-            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
-        if (setter?.Body is { } body)
-            return StatementsText(body);
-        if (setter?.ExpressionBody is { } setterExpression)
-            return $"{setterExpression.Expression};";
-        return null;
-    }
-
-    static string? SetterBodyText(IndexerDeclarationSyntax indexer)
-    {
-        var setter = indexer.AccessorList?.Accessors.FirstOrDefault(accessor =>
             accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
         if (setter?.Body is { } body)
             return StatementsText(body);
@@ -828,14 +744,6 @@ static class ReturnToSenderSourceProbe
         => property.AccessorList?.Accessors.Any(accessor =>
             accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
 
-    static bool HasGetter(IndexerDeclarationSyntax indexer)
-        => indexer.ExpressionBody is not null
-            || indexer.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
-
-    static bool HasSetter(IndexerDeclarationSyntax indexer)
-        => indexer.AccessorList?.Accessors.Any(accessor =>
-            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
-
     static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
         => returnType is PredefinedTypeSyntax predefined
             && predefined.Keyword.IsKind(SyntaxKind.VoidKeyword)
@@ -847,64 +755,6 @@ static class ReturnToSenderSourceProbe
 
     static string NormalizeBody(string text)
         => Regex.Replace(text, @"\s+", "");
-
-    static string IndexerMetadataName(
-        IndexerDeclarationSyntax indexer,
-        TypeDeclarationSyntax declaringType,
-        string fullType,
-        IReadOnlyDictionary<string, string> partialIndexerNames)
-        => IndexerMetadataName(indexer)
-            ?? (partialIndexerNames.TryGetValue(PartialIndexerKey(fullType, indexer), out var partialMetadataName)
-                ? partialMetadataName
-                : null)
-            ?? declaringType.Members
-                .OfType<IndexerDeclarationSyntax>()
-                .Where(candidate => !ReferenceEquals(candidate, indexer)
-                    && IsBodylessPartial(candidate)
-                    && IndexerParametersMatch(candidate, indexer))
-                .Select(IndexerMetadataName)
-                .FirstOrDefault(name => name is not null)
-            ?? "Item";
-
-    static string? IndexerMetadataName(IndexerDeclarationSyntax indexer)
-    {
-        foreach (var attribute in indexer.AttributeLists.SelectMany(list => list.Attributes))
-        {
-            string name = attribute.Name.ToString();
-            if (!name.EndsWith("IndexerName", StringComparison.Ordinal)
-                && !name.EndsWith("IndexerNameAttribute", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is LiteralExpressionSyntax literal
-                && literal.IsKind(SyntaxKind.StringLiteralExpression)
-                && literal.Token.ValueText is { Length: > 0 } value)
-            {
-                return value;
-            }
-        }
-
-        return null;
-    }
-
-    static string PartialIndexerKey(string fullType, IndexerDeclarationSyntax indexer)
-        => $"{fullType}({string.Join(",", indexer.ParameterList.Parameters.Select(parameter => parameter.Type?.ToString() ?? ""))})";
-
-    static bool IndexerParametersMatch(IndexerDeclarationSyntax left, IndexerDeclarationSyntax right)
-    {
-        var leftParameters = left.ParameterList.Parameters;
-        var rightParameters = right.ParameterList.Parameters;
-        if (leftParameters.Count != rightParameters.Count)
-            return false;
-        for (int i = 0; i < leftParameters.Count; i++)
-        {
-            if (!string.Equals(leftParameters[i].Type?.ToString(), rightParameters[i].Type?.ToString(), StringComparison.Ordinal))
-                return false;
-        }
-
-        return true;
-    }
 
     static bool TryKnownTasteDifference(
         string expected,
