@@ -401,19 +401,24 @@ public sealed partial class CSharpPrinter
     }
 
     static bool NeedsUnsupportedFallbackReturn(IrFunction function)
-        => function.Signature.ReturnType is not { Namespace: "System", Name: "Void" }
-            && function.Signature.ReturnType.Kind != TypeRefKind.ByRef
-            && !AsyncReturnForbidsValue(function)
-            && !DescendantsOutsideNestedFunctions(function).Any(static n => n is YieldReturn or YieldBreak)
-            && DescendantsOutsideNestedFunctions(function).Any(static n => n is UnsupportedNode)
-            && !DescendantsOutsideNestedFunctions(function).Any(static n => n is Return);
+        => NeedsUnsupportedFallbackReturn(function.Signature.ReturnType, function.RequiresAsyncBodyModifier, function);
 
     static bool AsyncReturnForbidsValue(IrFunction function)
+        => AsyncReturnForbidsValue(function.Signature.ReturnType, function.RequiresAsyncBodyModifier);
+
+    static bool NeedsUnsupportedFallbackReturn(TypeRef returnType, bool requiresAsyncBodyModifier, IrNode bodyRoot)
+        => returnType is not { Namespace: "System", Name: "Void" }
+            && returnType.Kind != TypeRefKind.ByRef
+            && !AsyncReturnForbidsValue(returnType, requiresAsyncBodyModifier)
+            && !DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is YieldReturn or YieldBreak)
+            && DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is UnsupportedNode)
+            && !DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is Return);
+
+    static bool AsyncReturnForbidsValue(TypeRef type, bool requiresAsyncBodyModifier)
     {
-        if (!function.RequiresAsyncBodyModifier)
+        if (!requiresAsyncBodyModifier)
             return false;
 
-        var type = function.Signature.ReturnType;
         if (type is { Kind: TypeRefKind.Definition, Namespace: "System.Threading.Tasks", Name: "Task" or "ValueTask" })
             return true;
         if (type is { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System.Collections.Generic", Name: "IAsyncEnumerable`1" or "IAsyncEnumerator`1" } })
@@ -1438,7 +1443,11 @@ public sealed partial class CSharpPrinter
                 if (NeedsNestedLocalFunctionScope(localFunction))
                     AppendNestedLocalFunctionBody(sb, localFunction, indent + 1);
                 else
+                {
                     AppendContainer(sb, localFunction.Body, indent + 1);
+                    if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: false, localFunction.Body))
+                        sb.Append(new string(' ', (indent + 1) * 4)).AppendLine("return default;");
+                }
                 sb.Append(pad).AppendLine("}");
             }
             return;

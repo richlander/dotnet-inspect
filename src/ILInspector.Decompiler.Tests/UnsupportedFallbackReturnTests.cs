@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -10,6 +12,7 @@ public class UnsupportedFallbackReturnTests
     static readonly TypeRef ValueTask = TypeRef.CoreLib("System.Threading.Tasks", "ValueTask");
     static readonly TypeRef TaskInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Threading.Tasks", "Task`1"), [Int]);
     static readonly TypeRef ValueTaskInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Threading.Tasks", "ValueTask`1"), [Int]);
+    static readonly TypeRef FuncInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`1"), [Int]);
 
     [Fact]
     public void NonVoidUnsupportedBodyWithoutReturn_EmitsDefaultReturn()
@@ -89,17 +92,74 @@ public class UnsupportedFallbackReturnTests
         Assert.DoesNotContain("return default;", output);
     }
 
+    [Fact]
+    public void LocalFunctionUnsupportedBody_EmitsDefaultReturn()
+    {
+        var local = new LocalFunctionStatement(
+            "Local",
+            Int,
+            [],
+            isStatic: false,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            UnsupportedBody());
+        var block = new Block(0);
+        block.Add(local);
+        var output = CSharpPrinter.Print(WrapVoid(block)).Output ?? "";
+
+        Assert.Contains("int Local()", output);
+        Assert.Contains("return default;", output);
+    }
+
+    [Fact]
+    public void LambdaUnsupportedBody_EmitsDefaultReturn()
+    {
+        var lambda = new Lambda(
+            FuncInt,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            UnsupportedBody());
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, FuncInt, lambda));
+        var output = CSharpPrinter.Print(WrapVoid(block, [FuncInt])).Output ?? "";
+
+        Assert.Contains("=>", output);
+        Assert.Contains("return default;", output);
+    }
+
     static IrFunction UnsupportedFunction(TypeRef returnType)
     {
-        var block = new Block(0);
-        block.Add(new ExpressionStatement(new UnsupportedNode(0, "probe", "test unsupported")));
-        var body = new BlockContainer();
-        body.Add(block);
         return new IrFunction(
             "M",
             TypeRef.CoreLib("Synthetic", "Unsupported"),
             new MethodSignature(returnType, [], HasThis: false, GenericParameterCount: 0),
             [],
+            UnsupportedBody());
+    }
+
+    static BlockContainer UnsupportedBody()
+    {
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(new UnsupportedNode(0, "probe", "test unsupported")));
+        var body = new BlockContainer();
+        body.Add(block);
+        return body;
+    }
+
+    static IrFunction WrapVoid(Block block, ImmutableArray<TypeRef> locals = default)
+    {
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "Unsupported"),
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            locals.IsDefault ? [] : locals,
             body);
     }
 }
