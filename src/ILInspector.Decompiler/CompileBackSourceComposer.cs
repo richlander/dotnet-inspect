@@ -576,7 +576,7 @@ public static class CompileBackSourceComposer
         bool isConstructor = methodName is ".ctor" or ".cctor";
         var primaryConstructor = isConstructor
             ? PrimaryConstructorFromPrologue(reader, method, function, targetBody)
-            : null;
+            : PrimaryConstructorFromCapturedFields(reader, targetTypeDef, targetBody);
 
         var diagnostics = new List<CompileBackPlanningDiagnostic>();
         var targetRoot = TopLevelRootOf(reader, targetType);
@@ -587,7 +587,9 @@ public static class CompileBackSourceComposer
         if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
-        var targetMembers = primaryConstructor?.FieldInitializers.ToList() ??
+        var targetMembers = isConstructor && primaryConstructor is not null
+            ? primaryConstructor.FieldInitializers.ToList()
+            :
         [
             new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
@@ -1616,6 +1618,72 @@ public static class CompileBackSourceComposer
         string parameters = string.Join(", ", MethodParameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)))
             .Select(RenderParameter));
         return new CompileBackPrimaryConstructor(parameters, fieldInitializers);
+    }
+
+    static CompileBackPrimaryConstructor? PrimaryConstructorFromCapturedFields(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string renderedBody)
+    {
+        if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
+            return null;
+
+        var parameters = new List<CompileBackParameter>();
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (field.Attributes.HasFlag(FieldAttributes.Static))
+                continue;
+
+            string fieldName = reader.GetString(field.Name);
+            if (!TryPrimaryConstructorParameterName(fieldName, out var parameterName)
+                || !renderedBody.Contains(parameterName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string fieldType;
+            try
+            {
+                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+
+            if (fieldType.Contains("delegate*", StringComparison.Ordinal)
+                || fieldType.Contains("@delegate*", StringComparison.Ordinal))
+                return null;
+
+            parameters.Add(new CompileBackParameter(
+                Identifier(parameterName),
+                CompileBackTypeSignature.Display(fieldType),
+                Modifier: null,
+                Attributes: [],
+                HasDefault: false,
+                DefaultValueText: null));
+        }
+
+        return parameters.Count == 0
+            ? null
+            : new CompileBackPrimaryConstructor(
+                string.Join(", ", parameters.Select(RenderParameter)),
+                FieldInitializers: []);
+    }
+
+    static bool TryPrimaryConstructorParameterName(string fieldName, out string parameterName)
+    {
+        if (fieldName is ['<', ..]
+            && fieldName.EndsWith(">P", StringComparison.Ordinal)
+            && fieldName.IndexOf('>') == fieldName.Length - 2)
+        {
+            parameterName = fieldName[1..^2];
+            return parameterName.Length > 0;
+        }
+
+        parameterName = "";
+        return false;
     }
 
     static string RenderParameter(CompileBackParameter parameter)
