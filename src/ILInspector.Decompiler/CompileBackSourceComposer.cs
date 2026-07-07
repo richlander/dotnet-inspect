@@ -58,7 +58,9 @@ static class CompileBackCSharpNames
                 string word = type[start..i];
                 bool alreadyEscaped = start > 0 && type[start - 1] == '@';
                 bool qualifiedSegment = start > 0 && type[start - 1] == '.';
-                bool bareSpelling = (word is "void" or "ref" || IsPrimitiveTypeName(word)) && !qualifiedSegment;
+                bool functionPointerKeyword = word == "delegate" && i < type.Length && type[i] == '*';
+                bool bareSpelling = ((word is "void" or "ref" || IsPrimitiveTypeName(word)) && !qualifiedSegment)
+                    || functionPointerKeyword;
                 if (!alreadyEscaped && !bareSpelling && IsCSharpKeyword(word))
                     sb.Append('@');
                 sb.Append(word);

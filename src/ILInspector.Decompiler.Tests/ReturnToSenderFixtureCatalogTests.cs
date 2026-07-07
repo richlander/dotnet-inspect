@@ -120,6 +120,22 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PreservesFunctionPointerSignatureKeyword()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures",
+                    "InvokeFunctionPointer",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS1001", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesBodylessSourceMembersAsUnsupported()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
