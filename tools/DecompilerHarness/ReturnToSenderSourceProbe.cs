@@ -430,8 +430,8 @@ static class ReturnToSenderSourceProbe
                 if (!overloadsByType.TryGetValue(fullType, out var overloads))
                     overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
 
-                if (HasPrimaryConstructor(type))
-                    NextOverload(overloads, ".ctor");
+                foreach (var typeHeaderMember in sourceIdentity.TypeHeaderMembers(type))
+                    NextOverload(overloads, typeHeaderMember.MetadataName);
 
                 foreach (var member in type.Members)
                 {
@@ -453,10 +453,14 @@ static class ReturnToSenderSourceProbe
                         }
                         case ConstructorDeclarationSyntax constructor:
                         {
-                            string methodName = constructor.Modifiers.Any(SyntaxKind.StaticKeyword) ? ".cctor" : ".ctor";
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(constructor) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
+                            foreach (var constructorMember in sourceIdentity.ConstructorMembers(constructor))
+                            {
+                                string methodName = constructorMember.MetadataName;
+                                int overload = NextOverload(overloads, methodName);
+                                if (constructorMember.Body is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
                             break;
                         }
                         case PropertyDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
@@ -649,24 +653,6 @@ static class ReturnToSenderSourceProbe
             ReturnToSenderSourceOutcome.UnsupportedTarget => "unsupported_target",
             _ => outcome.ToString(),
         };
-
-    static bool HasPrimaryConstructor(TypeDeclarationSyntax type)
-        => type switch
-        {
-            ClassDeclarationSyntax { ParameterList: not null } => true,
-            StructDeclarationSyntax { ParameterList: not null } => true,
-            RecordDeclarationSyntax { ParameterList: not null } => true,
-            _ => false,
-        };
-
-    static string? BodyText(ConstructorDeclarationSyntax constructor)
-    {
-        if (constructor.Body is { } body)
-            return StatementsText(body);
-        if (constructor.ExpressionBody is { } expressionBody)
-            return $"{expressionBody.Expression};";
-        return null;
-    }
 
     static string? BodyText(OperatorDeclarationSyntax op)
     {

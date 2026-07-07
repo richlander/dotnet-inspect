@@ -860,6 +860,47 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Contains("partial-implementation", member.Evidence);
     }
 
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesConstructorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public class Class1(int value)
+            {
+                public static int StaticValue;
+                public int Value;
+
+                static Class1()
+                {
+                    StaticValue = 1;
+                }
+
+                public Class1() : this(1)
+                {
+                    Value = value;
+                }
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<ClassDeclarationSyntax>());
+        var constructors = root.DescendantNodes().OfType<ConstructorDeclarationSyntax>().ToArray();
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var primary = Assert.Single(context.TypeHeaderMembers(type));
+        var staticConstructor = Assert.Single(context.ConstructorMembers(constructors.Single(ctor => ctor.Modifiers.Any(SyntaxKind.StaticKeyword))));
+        var instanceConstructor = Assert.Single(context.ConstructorMembers(constructors.Single(ctor => !ctor.Modifiers.Any(SyntaxKind.StaticKeyword))));
+
+        Assert.Equal(".ctor", primary.MetadataName);
+        Assert.Null(primary.Body);
+        Assert.Contains("primary-constructor", primary.Evidence);
+        Assert.Equal(".cctor", staticConstructor.MetadataName);
+        Assert.Equal("StaticValue = 1;", staticConstructor.Body);
+        Assert.Contains("static-constructor", staticConstructor.Evidence);
+        Assert.Equal(".ctor", instanceConstructor.MetadataName);
+        Assert.Equal("Value = value;", instanceConstructor.Body);
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

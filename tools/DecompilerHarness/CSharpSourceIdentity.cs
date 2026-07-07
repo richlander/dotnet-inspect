@@ -40,6 +40,23 @@ internal sealed class CSharpSourceIdentityContext
         ];
     }
 
+    public IReadOnlyList<CSharpSourceMemberIdentity> TypeHeaderMembers(TypeDeclarationSyntax type)
+        => HasPrimaryConstructor(type)
+            ? [new CSharpSourceMemberIdentity(".ctor", Body: null, Evidence: ["primary-constructor"])]
+            : [];
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> ConstructorMembers(ConstructorDeclarationSyntax constructor)
+    {
+        string methodName = constructor.Modifiers.Any(SyntaxKind.StaticKeyword) ? ".cctor" : ".ctor";
+        return
+        [
+            new CSharpSourceMemberIdentity(
+                methodName,
+                BodyText(constructor),
+                ConstructorEvidence(constructor).ToArray()),
+        ];
+    }
+
     public IReadOnlyList<CSharpSourceMemberIdentity> PropertyMembers(PropertyDeclarationSyntax property)
     {
         if (IsBodylessPartial(property))
@@ -73,6 +90,12 @@ internal sealed class CSharpSourceIdentityContext
         => _partialIndexerNames.TryGetValue(PartialIndexerKey(fullType, indexer), out var metadataName)
             ? metadataName
             : null;
+
+    static IEnumerable<string> ConstructorEvidence(ConstructorDeclarationSyntax constructor)
+    {
+        if (constructor.Modifiers.Any(SyntaxKind.StaticKeyword))
+            yield return "static-constructor";
+    }
 
     static IEnumerable<string> MethodEvidence(MethodDeclarationSyntax method)
     {
@@ -165,6 +188,24 @@ internal sealed class CSharpSourceIdentityContext
         => method.Modifiers.Any(SyntaxKind.PartialKeyword)
             && method.Body is null
             && method.ExpressionBody is null;
+
+    static bool HasPrimaryConstructor(TypeDeclarationSyntax type)
+        => type switch
+        {
+            ClassDeclarationSyntax { ParameterList: not null } => true,
+            StructDeclarationSyntax { ParameterList: not null } => true,
+            RecordDeclarationSyntax { ParameterList: not null } => true,
+            _ => false,
+        };
+
+    static string? BodyText(ConstructorDeclarationSyntax constructor)
+    {
+        if (constructor.Body is { } body)
+            return StatementsText(body);
+        if (constructor.ExpressionBody is { } expressionBody)
+            return $"{expressionBody.Expression};";
+        return null;
+    }
 
     static string? BodyText(MethodDeclarationSyntax method)
     {
