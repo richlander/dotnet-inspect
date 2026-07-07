@@ -403,6 +403,8 @@ public sealed partial class CSharpPrinter
     static bool NeedsUnsupportedFallbackReturn(IrFunction function)
         => function.Signature.ReturnType is not { Namespace: "System", Name: "Void" }
             && function.Signature.ReturnType.Kind != TypeRefKind.ByRef
+            && !function.RequiresAsyncBodyModifier
+            && !DescendantsOutsideNestedFunctions(function).Any(static n => n is YieldReturn or YieldBreak)
             && DescendantsOutsideNestedFunctions(function).Any(static n => n is UnsupportedNode)
             && !DescendantsOutsideNestedFunctions(function).Any(static n => n is Return);
 
