@@ -128,6 +128,45 @@ public class SignatureBlobGuardTests
         Assert.Equal(0, rejected);
     }
 
+    [Fact]
+    public void DeepPrefixChains_AreUnsafe()
+    {
+        // SRM recurses natively through by-ref, pinned, and custom-modifier prefixes, so a long
+        // chain of them must be rejected exactly like a chain of pointers.
+        Assert.False(GuardTypeSpec(Nested(ByRef, 1_000)));
+        Assert.False(GuardTypeSpec(Nested(0x45 /* PINNED */, 1_000)));
+
+        var cmods = new List<byte>();
+        for (int i = 0; i < 1_000; i++)
+        {
+            cmods.Add(CmodReqd);
+            cmods.Add(0x06); // modifier's TypeDefOrRefOrSpec coded token
+        }
+        cmods.Add(I4);
+        Assert.False(GuardTypeSpec(cmods.ToArray()));
+    }
+
+    [Fact]
+    public void HugeDeclaredCount_IsUnsafe_AndDoesNotAllocate()
+    {
+        // A tiny FNPTR blob declaring ~536M parameters must be rejected without materializing a
+        // work item per declared slot (which would OOM). Bounding the count by the remaining blob
+        // length makes this cheap.
+        byte[] blob = [FnPtr, 0x00, 0xdf, 0xff, 0xff, 0xff];
+        Assert.False(GuardTypeSpec(blob));
+
+        // A method signature declaring a huge parameter count is likewise rejected cheaply.
+        var method = new BlobBuilder();
+        method.WriteByte(0x00);       // default calling convention
+        method.WriteByte(0xdf);       // compressed ~536M param count
+        method.WriteByte(0xff);
+        method.WriteByte(0xff);
+        method.WriteByte(0xff);
+        method.WriteByte(0x01);       // (truncated) return type VOID
+        var (reader, handle) = BuildStandaloneSig(method);
+        Assert.False(SignatureBlobGuard.IsSafeToDecode(reader, reader.GetStandaloneSignature(handle).Signature, SignatureBlobGuard.Kind.Method));
+    }
+
     static bool GuardTypeSpec(byte[] typeBlob)
     {
         var (reader, handle) = BuildTypeSpec(typeBlob);
