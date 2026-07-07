@@ -674,6 +674,32 @@ or API-filtered) that have no ApiSurface member, so they are counted for coverag
 but never miscompared. The sweep never crashes on unreadable file inputs — a bad
 path is reported as an unopened assembly.
 
+#### Baseline drift gate (Deep Inspect)
+
+The census runs in the Deep Inspect **census lane** as a committed-baseline drift
+gate, mirroring the real-world corpus sensor:
+
+```bash
+# Refresh the committed baseline (run when the agree rate legitimately improves):
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --emit-return-address-snapshot tools/DecompilerHarness/corpus/return-address-baseline.json
+
+# Gate against the committed baseline (fails with exit 1 on regression):
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-return-address-baseline tools/DecompilerHarness/corpus/return-address-baseline.json \
+  --max-examples 10
+```
+
+The baseline is the pinned real-world corpus (`eng/prepare-decompiler-corpus.sh`),
+the same corpus used by the real-world corpus sensor. The gate compares only the
+**global agree rate** (stored in basis points): it fails if the rate drops below
+the baseline beyond the tolerance embedded in the snapshot
+(`agreeRateDropBasisPoints`, default 50 bps). This makes the baseline a **floor**
+that ratchets toward 100% as identity consolidation (#2440) lands — improvements
+never fail; re-emit the baseline to raise the floor. `matched`/`unmatched` counts
+drift with corpus composition (framework/NuGet version bumps), so they are
+reported in the card for triage but not gated.
+
 ## Usage
 
 ```bash

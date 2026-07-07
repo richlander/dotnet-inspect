@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "description": "#2440 Return Address member-identity equivalence census: agreement between the two Metadata producers (A = ApiMemberIdentity.GetMemberAnchor, B = ApiMemberIdentity.CreateMethodAnchor) over the pinned corpus. The agree rate is a floor that should ratchet toward 100% as identity consolidation lands; refresh this baseline upward when it legitimately improves.",
+  "generatedUtc": "2026-07-07T00:31:09.578845+00:00",
+  "tolerances": {
+    "agreeRateDropBasisPoints": 50
+  },
+  "matched": 53628,
+  "agree": 26346,
+  "unmatched": 38995,
+  "agreeBasisPoints": 4913,
+  "assemblies": [
+    {
+      "assembly": "DotnetInspector.Core.dll",
+      "matched": 186,
+      "agree": 94,
+      "unmatched": 99,
+      "agreeBasisPoints": 5054
+    },
+    {
+      "assembly": "DotnetInspector.Packages.dll",
+      "matched": 148,
+      "agree": 52,
+      "unmatched": 155,
+      "agreeBasisPoints": 3514
+    },
+    {
+      "assembly": "DotnetInspector.Services.dll",
+      "matched": 181,
+      "agree": 59,
+      "unmatched": 269,
+      "agreeBasisPoints": 3260
+    },
+    {
+      "assembly": "ILInspector.Analysis.dll",
+      "matched": 349,
+      "agree": 152,
+      "unmatched": 376,
+      "agreeBasisPoints": 4355
+    },
+    {
+      "assembly": "ILInspector.Decompiler.dll",
+      "matched": 2822,
+      "agree": 1493,
+      "unmatched": 2627,
+      "agreeBasisPoints": 5291
+    },
+    {
+      "assembly": "ILInspector.Metadata.dll",
+      "matched": 857,
+      "agree": 329,
+      "unmatched": 992,
+      "agreeBasisPoints": 3839
+    },
+    {
+      "assembly": "ILInspector.MetadataPrimitives.dll",
+      "matched": 53,
+      "agree": 20,
+      "unmatched": 8,
+      "agreeBasisPoints": 3774
+    },
+    {
+      "assembly": "Microsoft.ApplicationInsights.dll",
+      "matched": 1379,
+      "agree": 728,
+      "unmatched": 1263,
+      "agreeBasisPoints": 5279
+    },
+    {
+      "assembly": "Microsoft.CodeAnalysis.CSharp.dll",
+      "matched": 27889,
+      "agree": 15162,
+      "unmatched": 15208,
+      "agreeBasisPoints": 5437
+    },
+    {
+      "assembly": "Microsoft.CodeAnalysis.dll",
+      "matched": 12534,
+      "agree": 4711,
+      "unmatched": 7033,
+      "agreeBasisPoints": 3759
+    },
+    {
+      "assembly": "Newtonsoft.Json.dll",
+      "matched": 2622,
+      "agree": 1149,
+      "unmatched": 1606,
+      "agreeBasisPoints": 4382
+    },
+    {
+      "assembly": "NuGet.Versioning.dll",
+      "matched": 230,
+      "agree": 80,
+      "unmatched": 80,
+      "agreeBasisPoints": 3478
+    },
+    {
+      "assembly": "System.CommandLine.dll",
+      "matched": 371,
+      "agree": 193,
+      "unmatched": 626,
+      "agreeBasisPoints": 5202
+    },
+    {
+      "assembly": "dotnet-inspect.dll",
+      "matched": 4007,
+      "agree": 2124,
+      "unmatched": 8653,
+      "agreeBasisPoints": 5301
+    }
+  ]
+}
