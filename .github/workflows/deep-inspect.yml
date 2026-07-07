@@ -135,7 +135,7 @@ jobs:
             --emit-return-address-snapshot artifacts/deep-inspect/return-address-snapshot.json \
             --diff-return-address-baseline tools/DecompilerHarness/corpus/return-address-baseline.json \
             --max-examples 10 \
-            | tee artifacts/deep-inspect/return-address-census.txt
+            2>&1 | tee artifacts/deep-inspect/return-address-census.txt
 
       - name: Run validity predicate scan
         shell: bash

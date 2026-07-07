@@ -146,8 +146,12 @@ static class Program
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
                 case "--return-address": returnAddress = true; break;
-                case "--emit-return-address-snapshot": emitReturnAddressSnapshot = args[++i]; returnAddress = true; break;
-                case "--diff-return-address-baseline": diffReturnAddressBaseline = args[++i]; returnAddress = true; break;
+                case "--emit-return-address-snapshot":
+                    if (i + 1 >= args.Length) return Fail("--emit-return-address-snapshot requires <file>.");
+                    emitReturnAddressSnapshot = args[++i]; returnAddress = true; break;
+                case "--diff-return-address-baseline":
+                    if (i + 1 >= args.Length) return Fail("--diff-return-address-baseline requires <file>.");
+                    diffReturnAddressBaseline = args[++i]; returnAddress = true; break;
                 case "--tsv": censusTsv = true; break;
                 case "--jsonl": censusJsonl = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;

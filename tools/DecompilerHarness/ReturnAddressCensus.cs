@@ -75,7 +75,8 @@ internal static class ReturnAddressCensus
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(emitSnapshot)) ?? ".");
             File.WriteAllText(emitSnapshot, JsonSerializer.Serialize(snapshot, JsonOptions()));
-            Console.WriteLine($"Wrote return-address baseline: {emitSnapshot}");
+            // Status/gate messages go to stderr so stdout stays pristine for --tsv/--jsonl.
+            Console.Error.WriteLine($"Wrote return-address baseline: {emitSnapshot}");
         }
 
         if (diffBaseline is null)
@@ -86,13 +87,13 @@ internal static class ReturnAddressCensus
         var regressions = Compare(baseline, snapshot);
         if (regressions.Count == 0)
         {
-            Console.WriteLine($"Return-address census matched baseline: {diffBaseline}");
+            Console.Error.WriteLine($"Return-address census matched baseline: {diffBaseline}");
             return 0;
         }
 
-        Console.WriteLine("Return-address census regressions:");
+        Console.Error.WriteLine("Return-address census regressions:");
         foreach (var regression in regressions)
-            Console.WriteLine($"- {regression}");
+            Console.Error.WriteLine($"- {regression}");
         return 1;
     }
 
