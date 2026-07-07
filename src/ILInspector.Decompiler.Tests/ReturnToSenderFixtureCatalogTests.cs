@@ -901,6 +901,65 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal("Value = value;", instanceConstructor.Body);
     }
 
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static Class1 operator >>>(Class1 value, int shift)
+                    => new Class1(value._value >>> shift);
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var op = Assert.Single(root.DescendantNodes().OfType<OperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.OperatorMembers(op));
+
+        Assert.Equal("op_UnsignedRightShift", member.MetadataName);
+        Assert.Equal("return new Class1(value._value >>> shift);", member.Body);
+        Assert.Contains("operator", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesConversionOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static implicit operator int(Class1 value) => value._value;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var conversion = Assert.Single(root.DescendantNodes().OfType<ConversionOperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.ConversionOperatorMembers(conversion));
+
+        Assert.Equal("op_Implicit", member.MetadataName);
+        Assert.Equal("return value._value;", member.Body);
+        Assert.Contains("conversion-operator", member.Evidence);
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

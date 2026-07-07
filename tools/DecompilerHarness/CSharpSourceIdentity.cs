@@ -57,6 +57,29 @@ internal sealed class CSharpSourceIdentityContext
         ];
     }
 
+    public IReadOnlyList<CSharpSourceMemberIdentity> OperatorMembers(OperatorDeclarationSyntax op)
+        =>
+        [
+            new CSharpSourceMemberIdentity(
+                OperatorMetadataName(op),
+                BodyText(op),
+                ["operator"]),
+        ];
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> ConversionOperatorMembers(ConversionOperatorDeclarationSyntax conversion)
+    {
+        string methodName = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword)
+            ? "op_Implicit"
+            : "op_Explicit";
+        return
+        [
+            new CSharpSourceMemberIdentity(
+                methodName,
+                BodyText(conversion),
+                ["conversion-operator"]),
+        ];
+    }
+
     public IReadOnlyList<CSharpSourceMemberIdentity> PropertyMembers(PropertyDeclarationSyntax property)
     {
         if (IsBodylessPartial(property))
@@ -216,6 +239,24 @@ internal sealed class CSharpSourceIdentityContext
         return null;
     }
 
+    static string? BodyText(OperatorDeclarationSyntax op)
+    {
+        if (op.Body is { } body)
+            return StatementsText(body);
+        if (op.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(op.ReturnType, expressionBody.Expression);
+        return null;
+    }
+
+    static string? BodyText(ConversionOperatorDeclarationSyntax conversion)
+    {
+        if (conversion.Body is { } body)
+            return StatementsText(body);
+        if (conversion.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(conversion.Type, expressionBody.Expression);
+        return null;
+    }
+
     static bool HasGetter(PropertyDeclarationSyntax property)
         => property.ExpressionBody is not null
             || property.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
@@ -292,4 +333,33 @@ internal sealed class CSharpSourceIdentityContext
             && predefined.Keyword.IsKind(SyntaxKind.VoidKeyword)
             ? $"{expression};"
             : $"return {expression};";
+
+    static string OperatorMetadataName(OperatorDeclarationSyntax op)
+        => op.OperatorToken.Kind() switch
+        {
+            SyntaxKind.PlusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
+            SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
+            SyntaxKind.ExclamationToken => "op_LogicalNot",
+            SyntaxKind.TildeToken => "op_OnesComplement",
+            SyntaxKind.PlusPlusToken => "op_Increment",
+            SyntaxKind.MinusMinusToken => "op_Decrement",
+            SyntaxKind.TrueKeyword => "op_True",
+            SyntaxKind.FalseKeyword => "op_False",
+            SyntaxKind.AsteriskToken => "op_Multiply",
+            SyntaxKind.SlashToken => "op_Division",
+            SyntaxKind.PercentToken => "op_Modulus",
+            SyntaxKind.AmpersandToken => "op_BitwiseAnd",
+            SyntaxKind.BarToken => "op_BitwiseOr",
+            SyntaxKind.CaretToken => "op_ExclusiveOr",
+            SyntaxKind.LessThanLessThanToken => "op_LeftShift",
+            SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
+            SyntaxKind.GreaterThanGreaterThanGreaterThanToken => "op_UnsignedRightShift",
+            SyntaxKind.EqualsEqualsToken => "op_Equality",
+            SyntaxKind.ExclamationEqualsToken => "op_Inequality",
+            SyntaxKind.LessThanToken => "op_LessThan",
+            SyntaxKind.GreaterThanToken => "op_GreaterThan",
+            SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
+            SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
+            _ => op.OperatorToken.ValueText,
+        };
 }

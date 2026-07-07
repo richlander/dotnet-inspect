@@ -493,20 +493,26 @@ static class ReturnToSenderSourceProbe
                         }
                         case OperatorDeclarationSyntax op:
                         {
-                            string methodName = OperatorMetadataName(op);
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(op) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
+                            foreach (var operatorMember in sourceIdentity.OperatorMembers(op))
+                            {
+                                string methodName = operatorMember.MetadataName;
+                                int overload = NextOverload(overloads, methodName);
+                                if (operatorMember.Body is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
                             break;
                         }
                         case ConversionOperatorDeclarationSyntax conversion:
                         {
-                            string methodName = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword)
-                                ? "op_Implicit"
-                                : "op_Explicit";
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(conversion) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
+                            foreach (var conversionMember in sourceIdentity.ConversionOperatorMembers(conversion))
+                            {
+                                string methodName = conversionMember.MetadataName;
+                                int overload = NextOverload(overloads, methodName);
+                                if (conversionMember.Body is { } body)
+                                    yield return new SourceMember(fullType, methodName, overload, path, body);
+                            }
+
                             break;
                         }
                     }
@@ -653,24 +659,6 @@ static class ReturnToSenderSourceProbe
             ReturnToSenderSourceOutcome.UnsupportedTarget => "unsupported_target",
             _ => outcome.ToString(),
         };
-
-    static string? BodyText(OperatorDeclarationSyntax op)
-    {
-        if (op.Body is { } body)
-            return StatementsText(body);
-        if (op.ExpressionBody is { } expressionBody)
-            return ExpressionBodyText(op.ReturnType, expressionBody.Expression);
-        return null;
-    }
-
-    static string? BodyText(ConversionOperatorDeclarationSyntax conversion)
-    {
-        if (conversion.Body is { } body)
-            return StatementsText(body);
-        if (conversion.ExpressionBody is { } expressionBody)
-            return ExpressionBodyText(conversion.Type, expressionBody.Expression);
-        return null;
-    }
 
     static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
         => returnType is PredefinedTypeSyntax predefined
@@ -819,34 +807,7 @@ static class ReturnToSenderSourceProbe
             };
     }
 
-    static string OperatorMetadataName(OperatorDeclarationSyntax op)
-        => op.OperatorToken.Kind() switch
-        {
-            SyntaxKind.PlusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
-            SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
-            SyntaxKind.ExclamationToken => "op_LogicalNot",
-            SyntaxKind.TildeToken => "op_OnesComplement",
-            SyntaxKind.PlusPlusToken => "op_Increment",
-            SyntaxKind.MinusMinusToken => "op_Decrement",
-            SyntaxKind.TrueKeyword => "op_True",
-            SyntaxKind.FalseKeyword => "op_False",
-            SyntaxKind.AsteriskToken => "op_Multiply",
-            SyntaxKind.SlashToken => "op_Division",
-            SyntaxKind.PercentToken => "op_Modulus",
-            SyntaxKind.AmpersandToken => "op_BitwiseAnd",
-            SyntaxKind.BarToken => "op_BitwiseOr",
-            SyntaxKind.CaretToken => "op_ExclusiveOr",
-            SyntaxKind.LessThanLessThanToken => "op_LeftShift",
-            SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
-            SyntaxKind.GreaterThanGreaterThanGreaterThanToken => "op_UnsignedRightShift",
-            SyntaxKind.EqualsEqualsToken => "op_Equality",
-            SyntaxKind.ExclamationEqualsToken => "op_Inequality",
-            SyntaxKind.LessThanToken => "op_LessThan",
-            SyntaxKind.GreaterThanToken => "op_GreaterThan",
-            SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
-            SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
-            _ => op.OperatorToken.ValueText,
-        };
+
 
     static string DiagnosticCode(string? detail)
     {
