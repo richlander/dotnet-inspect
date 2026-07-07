@@ -11,6 +11,7 @@ on:
         options:
           - test
           - census
+          - nightly
           - all
 
 env:
@@ -202,3 +203,72 @@ jobs:
             artifacts/assertion-scan/
             artifacts/analysis-census/
           if-no-files-found: warn
+
+  nightly:
+    name: Nightly SDK lane
+    # Intentionally not included in "all": this lane uses daily SDK bits and is
+    # for opt-in compiler/runtime validation before the next preview ships.
+    if: inputs.lane == 'nightly'
+    runs-on: ubuntu-26.04
+    env:
+      DOTNETUP_CHANNEL: 11.0-daily
+      DOTNET_ROOT: ${{ github.workspace }}/.dotnet-nightly
+      DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/.dotnetup
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install nightly .NET SDK with dotnetup
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dotnetup_dir="$RUNNER_TEMP/dotnetup"
+          getter_script="$RUNNER_TEMP/get-dotnetup.sh"
+
+          mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
+          curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o "$getter_script"
+          bash "$getter_script" --install-dir "$dotnetup_dir"
+
+          "$dotnetup_dir/dotnetup" --version
+          "$dotnetup_dir/dotnetup" sdk install "$DOTNETUP_CHANNEL" \
+            --install-path "$DOTNET_ROOT" \
+            --untracked \
+            --set-default-install false \
+            --interactive false
+
+          echo "$dotnetup_dir" >> "$GITHUB_PATH"
+          echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
+          "$DOTNET_ROOT/dotnet" --info
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-nightly-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-nightly-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Probe unsafe expression compiler support
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          check="$RUNNER_TEMP/unsafe-expression.cs"
+          cat > "$check" <<'EOF'
+          #:property LangVersion=preview
+          #:property AllowUnsafeBlocks=true
+          #:property Features=updated-memory-safety-rules
+
+          int value = 42;
+          nint address = (nint)unsafe(&value);
+          System.Console.WriteLine(address != 0);
+          EOF
+
+          dotnet run "$check"
+
+      - name: Build with nightly SDK
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Run unsafe decompiler tests with nightly SDK
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -filter "/*/*/UnsafeEmitterTests/*"
