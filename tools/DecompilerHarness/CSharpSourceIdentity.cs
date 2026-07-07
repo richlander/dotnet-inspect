@@ -68,9 +68,32 @@ internal sealed class CSharpSourceIdentityContext
     }
 
     public IReadOnlyList<CSharpSourceMemberIdentity> TypeHeaderMembers(TypeDeclarationSyntax type)
-        => HasPrimaryConstructor(type)
-            ? [new CSharpSourceMemberIdentity(".ctor", Body: null, Evidence: ["primary-constructor"])]
-            : [];
+    {
+        var members = new List<CSharpSourceMemberIdentity>();
+        if (HasPrimaryConstructor(type))
+            members.Add(new CSharpSourceMemberIdentity(".ctor", Body: null, Evidence: ["primary-constructor"]));
+        if (type is RecordDeclarationSyntax record)
+            members.AddRange(RecordSynthesizedMembers(record));
+        return members;
+    }
+
+    static IEnumerable<CSharpSourceMemberIdentity> RecordSynthesizedMembers(RecordDeclarationSyntax record)
+    {
+        var evidence = new[] { "record-synthesized" };
+        yield return new CSharpSourceMemberIdentity("ToString", Body: null, evidence);
+        yield return new CSharpSourceMemberIdentity("GetHashCode", Body: null, evidence);
+        yield return new CSharpSourceMemberIdentity("Equals", Body: null, evidence);
+        yield return new CSharpSourceMemberIdentity("Equals", Body: null, evidence);
+        yield return new CSharpSourceMemberIdentity("op_Equality", Body: null, evidence);
+        yield return new CSharpSourceMemberIdentity("op_Inequality", Body: null, evidence);
+
+        if (record.ParameterList is not { Parameters.Count: > 0 } parameters)
+            yield break;
+
+        yield return new CSharpSourceMemberIdentity("Deconstruct", Body: null, evidence);
+        foreach (var parameter in parameters.Parameters)
+            yield return new CSharpSourceMemberIdentity($"get_{parameter.Identifier.ValueText}", Body: null, evidence);
+    }
 
     public IReadOnlyList<CSharpSourceMemberIdentity> ConstructorMembers(ConstructorDeclarationSyntax constructor)
     {

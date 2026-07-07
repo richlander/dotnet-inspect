@@ -120,6 +120,40 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesBodylessSourceMembersAsUnsupported()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung9.DynamicConstructTarget",
+                    "get_Value",
+                    Overload: 0),
+            ]));
+
+        Assert.Equal(ReturnToSenderSourceOutcome.UnsupportedTarget, result.Outcome);
+        Assert.Equal("source-body-unavailable", result.Reason);
+        Assert.EndsWith("LadderRung9.cs", result.SourcePath, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesRecordSynthesizedMembersAsUnsupported()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung5.Point",
+                    "ToString",
+                    Overload: 0),
+            ]));
+
+        Assert.Equal(ReturnToSenderSourceOutcome.UnsupportedTarget, result.Outcome);
+        Assert.Equal("source-body-unavailable", result.Reason);
+        Assert.EndsWith("LadderRung5.cs", result.SourcePath, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
     {
         var fixture = CompileSourceFixture(

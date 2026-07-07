@@ -224,7 +224,20 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
-            string expected = sourceMember.Body;
+            if (sourceMember.Body is not { } expected)
+            {
+                results.Add(new ReturnToSenderSourceProbeResult(
+                    target,
+                    ReturnToSenderSourceOutcome.UnsupportedTarget,
+                    result.Status,
+                    "source-body-unavailable",
+                    $"source member matched {target.Type}::{target.Method}#{target.Overload}, but it has no comparable source body",
+                    sourceMember.SourcePath,
+                    ExpectedBody: null,
+                    ActualBody: result.TargetBody));
+                continue;
+            }
+
             string actual = result.TargetBody;
             if (NormalizeBody(expected) == NormalizeBody(actual))
             {
@@ -258,7 +271,7 @@ static class ReturnToSenderSourceProbe
         return results;
     }
 
-    sealed record SourceMember(string Type, string Method, int Overload, string SourcePath, string Body);
+    sealed record SourceMember(string Type, string Method, int Overload, string SourcePath, string? Body);
 
     sealed class FixtureSourceIndex
     {
@@ -433,8 +446,7 @@ static class ReturnToSenderSourceProbe
                 foreach (var sourceMember in sourceIdentity.TypeMembers(type, fullType))
                 {
                     int overload = NextOverload(overloads, sourceMember.MetadataName);
-                    if (sourceMember.Body is { } body)
-                        yield return new SourceMember(fullType, sourceMember.MetadataName, overload, path, body);
+                    yield return new SourceMember(fullType, sourceMember.MetadataName, overload, path, sourceMember.Body);
                 }
             }
 
