@@ -719,6 +719,32 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StringPinningKeepsPointerAliasInsideFixed()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: true, includeUnpin: false)).Output ?? "";
+
+        Assert.Contains("unsafe", body);
+        Assert.Contains("fixed (char* S_0 = value)", body);
+        Assert.Contains("return *((char*)S_0);", body);
+        Assert.True(
+            body.IndexOf("return *((char*)S_0);", StringComparison.Ordinal) < body.LastIndexOf('}'),
+            "pointer dereference must stay inside the fixed region:\n" + body);
+        Assert.False(body.StartsWith("char* V_1;", StringComparison.Ordinal), body);
+        AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
+    }
+
+    [Fact]
+    public void Rung6StringPinningAbsorbsRoslynUnpinStore()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: false, includeUnpin: true)).Output ?? "";
+
+        Assert.Contains("fixed (char* S_0 = value)", body);
+        Assert.DoesNotContain("V_0 =", body);
+        Assert.DoesNotContain("pinned", body);
+        AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
+    }
+
+    [Fact]
     public void Rung6StackallocInitializerResiduals_DegradeHonestly()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
@@ -735,6 +761,58 @@ public class LadderRung6GateTests
             Assert.Contains(FidelityRemarks.Collect(member.Function), r => r.Code == DiagnosticIds.UnsupportedConstruct);
             Assert.Contains("cpblk", member.Body);
         }
+    }
+
+    static IrFunction SyntheticStringPin(bool aliasPointerLocal, bool includeUnpin)
+    {
+        var charType = TypeRef.CoreLib("System", "Char");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var nativeUInt = TypeRef.CoreLib("System", "UIntPtr");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var charPointer = TypeRef.Pointer(charType);
+        var pinnedCharRef = TypeRef.Pinned(TypeRef.ByRef(charType));
+        var locals = aliasPointerLocal
+            ? ImmutableArray.Create(pinnedCharRef, charPointer)
+            : ImmutableArray.Create(pinnedCharRef);
+        var getPinnableReference = new MethodRef(
+            stringType,
+            "GetPinnableReference",
+            TypeRef.ByRef(charType),
+            [],
+            HasThis: true);
+
+        var thenArm = new Block(1);
+        thenArm.Add(new StoreStackSlot(0, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new Constant(0, intType))));
+
+        var elseArm = new Block(2);
+        elseArm.Add(new StoreLocal(0, pinnedCharRef, new Call(getPinnableReference, isVirtual: false, [new LoadArgument(0, "value", stringType)])));
+        elseArm.Add(new StoreStackSlot(0, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new LoadLocal(0, pinnedCharRef))));
+
+        var block = new Block(0);
+        block.Add(new IfStatement(new LogicalNot(new LoadArgument(0, "value", stringType)), thenArm, elseArm));
+        if (aliasPointerLocal)
+        {
+            block.Add(new StoreLocal(1, charPointer, new ILInspector.Decompiler.Pipeline.Convert(charPointer, isChecked: false, isUnsigned: false, new LoadStackSlot(0, nativeUInt))));
+            block.Add(new Return(new LoadIndirect(charType, new LoadLocal(1, charPointer))));
+        }
+        else
+        {
+            block.Add(new Return(new LoadIndirect(charType, new LoadStackSlot(0, nativeUInt))));
+        }
+        if (includeUnpin)
+            block.Add(new StoreLocal(0, pinnedCharRef, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new Constant(0, intType))));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "StringPin"),
+            new MethodSignature(intType, [new Parameter("value", stringType)], HasThis: false, GenericParameterCount: 0),
+            locals,
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
     }
 
     static void AssertExactCompileBack(string assemblyPath, string typeName, string methodName)

@@ -280,8 +280,8 @@ public sealed partial class CSharpPrinter
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
 
-    /// <summary>Synthesized stack slots a <see cref="Fixed"/> statement owns and declares in its header.</summary>
-    readonly HashSet<int> _fixedStackSlots = [];
+    /// <summary>Synthesized stack-slot names a <see cref="Fixed"/> statement owns and declares in its header.</summary>
+    readonly HashSet<string> _fixedStackSlotNames = [];
 
     /// <summary>Resource local slots a <see cref="UsingStatement"/> owns: declared by the using header, not up front.</summary>
     readonly HashSet<int> _usingLocals = [];
@@ -336,7 +336,7 @@ public sealed partial class CSharpPrinter
         foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
         {
             if (fixedNode.LocalIsStackSlot)
-                _fixedStackSlots.Add(fixedNode.LocalIndex);
+                _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
             else
                 _fixedLocals.Add(fixedNode.LocalIndex);
         }
@@ -544,9 +544,9 @@ public sealed partial class CSharpPrinter
                         : $"{scoped}{TypeText(type)} {LocalName(index)};";
             }
         }
-        foreach (var ((slot, _), (name, type)) in _stackSlotDeclarations)
+        foreach (var ((_, _), (name, type)) in _stackSlotDeclarations)
         {
-            if (_fixedStackSlots.Contains(slot))
+            if (_fixedStackSlotNames.Contains(name))
                 continue;
             if (_declaringStores.OfType<StoreStackSlot>().Any(s => StackSlotName(s) == name))
                 continue;

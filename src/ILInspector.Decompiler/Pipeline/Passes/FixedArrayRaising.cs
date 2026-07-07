@@ -85,22 +85,40 @@ internal static class FixedArrayRaising
         }
 
         int pointerSlot = thenStore.Slot;
+        var pointerAliases = entry.Children
+            .OfType<StoreLocal>()
+            .Where(store => store.ChildIndex > guard.ChildIndex
+                && PointerAliasLocal(store, pointerSlot))
+            .Select(store => store.Index)
+            .ToHashSet();
+
+        var unpins = entry.Children
+            .OfType<StoreLocal>()
+            .Where(store => store.Index == pinStore.Index && store != pinStore)
+            .ToList();
+        if (unpins.Count > 1 || unpins.Any(store => !IsUnpin(store)))
+            return;
+        var unpin = unpins.SingleOrDefault();
+
+        int bodyEnd = unpin?.ChildIndex - 1 ?? LastPointerUseIndex(entry, guard.ChildIndex + 1, pointerSlot, pointerAliases);
+        if (bodyEnd <= guard.ChildIndex)
+            return;
+
         var bodyStmts = entry.Children
-            .Where(c => c.ChildIndex > guard.ChildIndex)
-            .TakeWhile(c => StatementReferencesStackSlot(c, pointerSlot))
+            .Where(c => c.ChildIndex > guard.ChildIndex && c.ChildIndex <= bodyEnd)
             .ToList();
         if (bodyStmts.Count == 0)
             return;
 
         foreach (var node in function.Descendants)
         {
-            if (node is StoreLocal store && store.Index == pinStore.Index && store != pinStore)
+            if (node is StoreLocal store && store.Index == pinStore.Index && store != pinStore && store != unpin)
                 return;
             if (node is LoadLocal load && load.Index == pinStore.Index && load != pinLoad)
                 return;
             if (node is StoreStackSlot stackStore && stackStore.Slot == pointerSlot && stackStore != thenStore && stackStore != elseStore)
                 return;
-            if (ReferencesStackSlot(node, pointerSlot)
+            if (ReferencesPinnedPointer(node, pointerSlot, pointerAliases)
                 && node != thenStore && node != elseStore
                 && !bodyStmts.Any(stmt => ReferenceOwnership.IsInside(node, stmt)))
             {
@@ -110,6 +128,7 @@ internal static class FixedArrayRaising
 
         foreach (var stmt in bodyStmts)
             stmt.Detach();
+        unpin?.Detach();
 
         var body = new BlockContainer();
         var bodyBlock = new Block(entry.StartOffset);
@@ -231,6 +250,9 @@ internal static class FixedArrayRaising
     static bool IsNullStore(StoreLocal store)
         => StripConverts(store.Value) is Constant { Value: null or 0 or 0L };
 
+    static bool IsUnpin(StoreLocal store)
+        => StripConverts(store.Value) is Constant { Value: null or 0 or 0L };
+
     static IrExpression? PinSource(IrExpression value)
         => value is Call { Callee.Name: "GetPinnableReference", Callee.HasThis: true, Arguments: [var source] }
             ? source
@@ -255,6 +277,33 @@ internal static class FixedArrayRaising
     static bool StatementReferencesStackSlot(IrNode node, int slot)
         => ReferencesStackSlot(node, slot)
             || node.Descendants.Any(descendant => ReferencesStackSlot(descendant, slot));
+
+    static bool PointerAliasLocal(StoreLocal store, int pointerSlot)
+        => StripConverts(store.Value) is LoadStackSlot load && load.Slot == pointerSlot;
+
+    static bool ReferencesPointerAlias(IrNode node, IReadOnlySet<int> aliases) => node switch
+    {
+        LoadLocal load => aliases.Contains(load.Index),
+        LoadLocalAddress address => aliases.Contains(address.Index),
+        StoreLocal store => aliases.Contains(store.Index),
+        _ => false,
+    };
+
+    static bool ReferencesPinnedPointer(IrNode node, int pointerSlot, IReadOnlySet<int> aliases)
+        => ReferencesStackSlot(node, pointerSlot) || ReferencesPointerAlias(node, aliases);
+
+    static bool StatementReferencesPinnedPointer(IrNode node, int pointerSlot, IReadOnlySet<int> aliases)
+        => ReferencesPinnedPointer(node, pointerSlot, aliases)
+            || node.Descendants.Any(descendant => ReferencesPinnedPointer(descendant, pointerSlot, aliases));
+
+    static int LastPointerUseIndex(Block entry, int start, int pointerSlot, IReadOnlySet<int> aliases)
+    {
+        int last = start - 1;
+        foreach (var child in entry.Children.Where(c => c.ChildIndex >= start))
+            if (StatementReferencesPinnedPointer(child, pointerSlot, aliases))
+                last = child.ChildIndex;
+        return last;
+    }
 
     static bool ReferencesPointerSlot(IrNode node, int pointerSlot) => node switch
     {
