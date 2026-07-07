@@ -1188,6 +1188,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("member: Method1~abcdef1234  canonical=M:TestType.Method1()", report);
         Assert.Contains("closure: types=2 members=1 roslyn-types=1 roslyn-member-surfaces=1", report);
         Assert.Contains("roslyn-fallbacks=CS0103/closure-root:1", report);
+        Assert.Contains("Roslyn fallback evidence:", report);
+        Assert.Contains("CS0103/closure-root: 1", report);
         Assert.Contains("Research evidence:", report);
         Assert.Contains("rts.status.fail: 1", report);
         Assert.Contains("il.operation.added: 1", report);
@@ -1200,6 +1202,9 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(1, view.Targets.Failed);
         Assert.NotNull(view.Research);
         Assert.Single(view.Research.Summary.ActionableSubjects);
+        var fallback = Assert.Single(view.RoslynFallbacks);
+        Assert.Equal("CS0103/closure-root", fallback.Key);
+        Assert.Equal(1, fallback.Count);
         Assert.Single(view.FailedTargetBuckets);
         Assert.Single(view.FailedFixtures);
 
@@ -1208,6 +1213,8 @@ public class GeneratedFixtureCatalogTests
         Assert.Contains("## Summary", markout);
         Assert.Contains("## Research evidence", markout);
         Assert.Contains("## Actionable subjects", markout);
+        Assert.Contains("## Roslyn fallback evidence", markout);
+        Assert.Contains("CS0103/closure-root", markout);
         Assert.Contains("Method1~abcdef1234", markout);
         Assert.Contains("il.operation.added: 1", markout);
         Assert.Contains("IL display:", markout);
@@ -1220,6 +1227,9 @@ public class GeneratedFixtureCatalogTests
 
         string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
         using var document = JsonDocument.Parse(json);
+        var fallbackJson = Assert.Single(document.RootElement.GetProperty("RoslynFallbacks").EnumerateArray());
+        Assert.Equal("CS0103/closure-root", fallbackJson.GetProperty("Key").GetString());
+        Assert.Equal(1, fallbackJson.GetProperty("Count").GetInt32());
         var actionable = Assert.Single(document.RootElement
             .GetProperty("ResearchSummary")
             .GetProperty("ActionableSubjects")

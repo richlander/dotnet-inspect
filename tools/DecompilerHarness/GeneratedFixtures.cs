@@ -2346,6 +2346,7 @@ internal static class GeneratedFixtureRunner
             Results = run.Results.Select(SerializableReturnToSenderResult).ToArray(),
             ResearchDiff = SerializableResearchDiff(research),
             ResearchSummary = ReturnToSenderEvidence.Summarize(research, int.MaxValue),
+            RoslynFallbacks = ReturnToSenderCatalogReport.RoslynFallbackBuckets(run.Results),
             run.Passed,
         };
         return JsonSerializer.Serialize(payload, s_jsonOptions);

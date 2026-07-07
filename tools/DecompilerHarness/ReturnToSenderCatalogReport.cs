@@ -26,6 +26,7 @@ internal sealed record ReturnToSenderCatalogReportView(
     ReturnToSenderCatalogReportCounts Fixtures,
     ReturnToSenderCatalogReportCounts Targets,
     ReturnToSenderCatalogResearchSection? Research,
+    IReadOnlyList<ReturnToSenderCatalogReportBucket> RoslynFallbacks,
     IReadOnlyList<ReturnToSenderCatalogReportBucket> SkippedTargetReasons,
     IReadOnlyList<ReturnToSenderCatalogReportBucket> FailedTargetBuckets,
     IReadOnlyList<ReturnToSenderCatalogFixtureGroup> FailedFixtures,
@@ -78,6 +79,7 @@ internal static class ReturnToSenderCatalogReport
                 run.Results.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Skip),
                 run.Results.Count(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail)),
             researchSection,
+            RoslynFallbackBuckets(run.Results),
             Buckets(run.Results.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Skip)),
             Buckets(run.Results.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail)),
             [.. fixtureRows.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail).Take(maxExamples)],
@@ -103,6 +105,7 @@ internal static class ReturnToSenderCatalogReport
 
         AppendResearchEvidence(sb, view.Research);
         AppendActionableSubjects(sb, view.Research?.Summary);
+        AppendBuckets(sb, "Roslyn fallback evidence:", view.RoslynFallbacks);
         AppendBuckets(sb, "Skipped target reasons:", view.SkippedTargetReasons);
         AppendBuckets(sb, "Failed target buckets:", view.FailedTargetBuckets);
         AppendFailedFixtures(sb, view);
@@ -144,6 +147,7 @@ internal static class ReturnToSenderCatalogReport
             ActionableSubjects = view.Research?.Summary.ActionableSubjects.Count > 0
                 ? [.. view.Research.Summary.ActionableSubjects.Select(ActionableRow)]
                 : null,
+            RoslynFallbacks = view.RoslynFallbacks.Count == 0 ? null : [.. view.RoslynFallbacks.Select(BucketRow)],
             SkippedTargetReasons = view.SkippedTargetReasons.Count == 0 ? null : [.. view.SkippedTargetReasons.Select(BucketRow)],
             FailedTargetBuckets = view.FailedTargetBuckets.Count == 0 ? null : [.. view.FailedTargetBuckets.Select(BucketRow)],
             FailedFixtures = view.FailedFixtures.Count == 0 ? null : [.. view.FailedFixtures.SelectMany(fixture => fixture.Rows.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail).Select(row => FailedRow(fixture.FixtureId, row)))],
@@ -193,13 +197,25 @@ internal static class ReturnToSenderCatalogReport
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new ReturnToSenderCatalogReportBucket(group.Key, group.Count()))];
 
+    internal static IReadOnlyList<ReturnToSenderCatalogReportBucket> RoslynFallbackBuckets(IEnumerable<GeneratedFixtureReturnToSenderResult> rows)
+        => [.. rows
+            .Where(row => row.ClosureEvidence is not null)
+            .SelectMany(row => row.ClosureEvidence!.RoslynFallbacks)
+            .GroupBy(RoslynFallbackKey, StringComparer.Ordinal)
+            .Select(group => new ReturnToSenderCatalogReportBucket(group.Key, group.Sum(fallback => fallback.Count)))
+            .OrderByDescending(bucket => bucket.Count)
+            .ThenBy(bucket => bucket.Key, StringComparer.Ordinal)];
+
     static string ClosureText(ReturnToSenderClosureEvidence evidence)
     {
         var text = $"types={evidence.RequiredTypes} members={evidence.RequiredMembers} roslyn-types={evidence.RoslynRecoveredTypes} roslyn-member-surfaces={evidence.RoslynRecoveredMemberSurfaces}";
         if (evidence.RoslynFallbacks.Count == 0)
             return text;
-        return $"{text} roslyn-fallbacks={string.Join(",", evidence.RoslynFallbacks.Select(fallback => $"{fallback.Diagnostic}/{fallback.Recovery}:{fallback.Count}"))}";
+        return $"{text} roslyn-fallbacks={string.Join(",", evidence.RoslynFallbacks.Select(fallback => $"{RoslynFallbackKey(fallback)}:{fallback.Count}"))}";
     }
+
+    static string RoslynFallbackKey(ReturnToSenderRoslynFallback fallback)
+        => $"{fallback.Diagnostic}/{fallback.Recovery}";
 
     static void AppendResearchEvidence(StringBuilder sb, ReturnToSenderCatalogResearchSection? research)
     {
@@ -316,6 +332,9 @@ internal sealed class ReturnToSenderCatalogMarkoutView
 
     [MarkoutSection(Name = "Actionable subjects", EmptyText = "None")]
     public List<ReturnToSenderActionableRow>? ActionableSubjects { get; init; }
+
+    [MarkoutSection(Name = "Roslyn fallback evidence", EmptyText = "None")]
+    public List<ReturnToSenderBucketRow>? RoslynFallbacks { get; init; }
 
     [MarkoutSection(Name = "Skipped target reasons", EmptyText = "None")]
     public List<ReturnToSenderBucketRow>? SkippedTargetReasons { get; init; }
