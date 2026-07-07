@@ -606,6 +606,13 @@ classifies the remaining stack-slot webs by deferral class (`multi-use`,
 and store/load-only residuals). This is C2 entry evidence, not a correctness
 gate; use `--corpus-method-cap N` for a quick bounded read.
 
+**Slot unifier census** (`--slot-unifier-census`): the C2/#2209 burn-down view
+from the printer's own stack-slot unifier path. It runs the full product
+pipeline, then asks `CSharpPrinter` to collect its stack-slot naming/type
+telemetry without emitting C#. The key lines are `Multi-candidate slots unified
+by printer` and `Object-fallback slots`; C2 slices should drive both down until
+no `LoadStackSlot`/`StoreStackSlot` reaches the printer.
+
 **Gaps** (`--gaps`): the *self-contained* real-gap view. It inspects only the raised tree: a method is a gap iff it still holds **unstructured control flow** — a `Branch`/`ConditionalBranch`/`SwitchBranch` the structuring passes could not consume, or an EH `Leave` (a surviving `goto`) — or an `UnsupportedNode`. A fully-raised tree holds only structured nodes (`IfStatement`, loops, `Switch`, `TryCatch`), so the residual is exact: reading the tree alone tells you the gap, no recompile or comparison needed. It reports "fully raised" (the metric to drive up) and a residual-kind docket (the prioritized work). It measures completeness, not correctness, so pair it with `--fidelity-check` for fidelity.
 
 *When to use it.* Track the structuring completeness with `--gaps`. Over CoreLib it currently reads ~97% fully raised, the residual dominated by `structuring: conditional-branch` (the forward-branch-to-common-exit work). Add `--by-shape` to sub-classify the `switch-branch` bucket by the structural shape of its residual switch, classifying the imported (pre-pass) tree where the switch is still a block terminator. The buckets, in priority order, are `loop-back-edge` (a section block branches backward — a loop/iterator), `nested-switch` (a case body is itself a switch, or the method has more than one), `default-routes-into-cases` (the default is a case target or branches into one), `external-entry-into-cases` (a block before the switch jumps into a case body), `multi-block-case-section` (a case body carries its own `if`/`?:` — raised by the section-as-region relaxation), and `single-block-clean` (none of the above — a clean switch that nonetheless did not raise, i.e. a pass bug to investigate). A bucket count becomes a per-shape slice docket that scopes the next `SwitchRaisingPass` relaxation.

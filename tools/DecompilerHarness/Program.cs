@@ -35,6 +35,7 @@ static class Program
         string? emitRenderAb = null;
         bool idempotenceCheck = false;
         bool slotResidualCensus = false;
+        bool slotUnifierCensus = false;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -218,6 +219,7 @@ static class Program
                 case "--emit-render-ab": emitRenderAb = args[++i]; break;
                 case "--idempotence-check": idempotenceCheck = true; break;
                 case "--slot-residual-census": slotResidualCensus = true; break;
+                case "--slot-unifier-census": slotUnifierCensus = true; break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -346,6 +348,9 @@ static class Program
 
         if (slotResidualCensus)
             return SlotResidualCensus.Run(assemblies, corpusMethodCap, maxExamples);
+
+        if (slotUnifierCensus)
+            return SlotUnifierCensus.Run(assemblies, corpusMethodCap, maxExamples);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1546,6 +1551,9 @@ static class Program
                                 and report StoreStackSlot/LoadStackSlot burn-down
                                 plus post-F2 residual deferral classes. Uses
                                 --corpus-method-cap to bound the sweep.
+          --slot-unifier-census   run the full pipeline and report the
+                                CSharpPrinter's own stack-slot unifier telemetry.
+                                Uses --corpus-method-cap to bound the sweep.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
