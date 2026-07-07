@@ -25,6 +25,15 @@ public sealed record IlAssemblyDiffPairResult(
     string New,
     IlAssemblyDiffResult Diff);
 
+public sealed record IlMemberDiffSubject(
+    string Identity,
+    string Label);
+
+public sealed record IlMemberDiffResult(
+    IlMemberDiffSubject Old,
+    IlMemberDiffSubject New,
+    IlBodyDiffResult Diff);
+
 /// <summary>
 /// Product-owned IL/body diff producer over two metadata-backed assemblies.
 /// </summary>
@@ -177,6 +186,62 @@ public static class IlAssemblyDiff
             Buckets(hunkKinds),
             Buckets(opcodeFamilies),
             examples.ToImmutable());
+    }
+
+    public static IlMemberDiffResult CompareMembers(
+        PEReader oldPe,
+        MetadataReader oldReader,
+        MethodDefinitionHandle oldMethod,
+        PEReader newPe,
+        MetadataReader newReader,
+        MethodDefinitionHandle newMethod,
+        string? oldLabel = null,
+        string? newLabel = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldPe);
+        ArgumentNullException.ThrowIfNull(oldReader);
+        ArgumentNullException.ThrowIfNull(newPe);
+        ArgumentNullException.ThrowIfNull(newReader);
+        if (oldMethod.IsNil)
+            throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
+        if (newMethod.IsNil)
+            throw new ArgumentException("New method handle must not be nil.", nameof(newMethod));
+
+        var oldDefinition = oldReader.GetMethodDefinition(oldMethod);
+        var newDefinition = newReader.GetMethodDefinition(newMethod);
+        var oldIdentity = MethodKey(oldReader, oldDefinition);
+        var newIdentity = MethodKey(newReader, newDefinition);
+        var oldSubject = new IlMemberDiffSubject(oldIdentity, oldLabel ?? oldIdentity);
+        var newSubject = new IlMemberDiffSubject(newIdentity, newLabel ?? newIdentity);
+
+        var oldBody = TryGetBody(oldPe, oldDefinition, "old");
+        var newBody = TryGetBody(newPe, newDefinition, "new");
+        var diff = oldBody.Result ?? newBody.Result ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!);
+        return new IlMemberDiffResult(oldSubject, newSubject, diff);
+    }
+
+    static (MethodBodyBlock? Body, IlBodyDiffResult? Result) TryGetBody(PEReader pe, MethodDefinition method, string side)
+    {
+        if (method.RelativeVirtualAddress == 0)
+        {
+            var result = side == "old"
+                ? IlBodyDiffResult.OldBodyMissing("method has no body")
+                : IlBodyDiffResult.NewBodyMissing("method has no body");
+            return (null, result);
+        }
+
+        try
+        {
+            return (pe.GetMethodBody(method.RelativeVirtualAddress), null);
+        }
+        catch (BadImageFormatException ex)
+        {
+            return (null, IlBodyDiffResult.Failed(
+                IlDiffFailureKind.DecodeFailure,
+                "body read failed",
+                side,
+                ex.Message));
+        }
     }
 
     static Dictionary<string, MethodDefinitionHandle> MethodMap(MetadataReader reader)

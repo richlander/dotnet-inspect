@@ -15,6 +15,12 @@ rendering and Markout/card projection; they should consume
 `IlAssemblyDiffResult` / `IlAssemblyDiffPairResult` rather than reimplementing
 method matching or bucket wording.
 
+`CompareMembers` is the member-scoped entry point for callers that already
+resolved exact `MethodDefinitionHandle` values. It returns old/new
+`IlMemberDiffSubject` identity labels plus the underlying `IlBodyDiffResult`,
+so RTS, Research, and diagnostics can attach IL diff evidence to their own
+member identity without running an assembly-wide card.
+
 The boundary is intentionally narrow: the diff answers "which decoded IL
 operations changed?" It does not claim source equivalence, semantic equivalence,
 or durable identity for every operand category.
