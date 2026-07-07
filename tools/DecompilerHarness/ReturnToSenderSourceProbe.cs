@@ -40,7 +40,7 @@ sealed record ReturnToSenderSourceProbeResult(
 
 static class ReturnToSenderSourceProbe
 {
-    sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
+    internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
 
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
@@ -520,7 +520,7 @@ static class ReturnToSenderSourceProbe
         return members;
     }
 
-    static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
+    internal static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
     {
         var targets = new List<ProbeTarget>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -552,7 +552,6 @@ static class ReturnToSenderSourceProbe
                 .Select(attribute => $"[{attribute}]")
                 .ToArray();
 
-            var methodOverloads = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var methodHandle in type.GetMethods())
             {
                 if (targets.Count >= cap)
@@ -573,8 +572,7 @@ static class ReturnToSenderSourceProbe
                     continue;
                 }
 
-                var overload = methodOverloads.GetValueOrDefault(methodName);
-                methodOverloads[methodName] = overload + 1;
+                var overload = OverloadIndex(reader, type, methodHandle, methodName);
                 var fragments = new List<string>();
                 fragments.AddRange(typeFragments);
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, method.GetCustomAttributes(), qualifyNames: true)

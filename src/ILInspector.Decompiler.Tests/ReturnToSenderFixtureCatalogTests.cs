@@ -1159,6 +1159,48 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PreservesMethodOverloadIndexesAcrossNonPublicOverloads()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                private int Foo(int value)
+                {
+                    return value + 1;
+                }
+
+                public string Foo(string text)
+                {
+                    return text + "!";
+                }
+            }
+            """));
+        try
+        {
+            var discovered = Assert.Single(ReturnToSenderSourceProbe.DiscoverTargets(fixture.AssemblyPath, cap: 10));
+            Assert.Equal("Foo", discovered.Target.Method);
+            Assert.Equal(1, discovered.Target.Overload);
+
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [discovered.Target],
+                fixture.SourcePaths));
+
+            Assert.Equal("Foo", result.Target.Method);
+            Assert.Equal(1, result.Target.Overload);
+            Assert.Equal("returntext+\"!\";", Normalize(result.ExpectedBody));
+            Assert.DoesNotContain("value + 1", result.ExpectedBody, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CSharpSourceIdentityContext_ResolvesOperatorIdentity()
     {
         var root = CSharpSyntaxTree.ParseText("""
