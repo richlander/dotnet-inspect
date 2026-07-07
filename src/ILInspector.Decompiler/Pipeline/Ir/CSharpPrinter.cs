@@ -403,10 +403,24 @@ public sealed partial class CSharpPrinter
     static bool NeedsUnsupportedFallbackReturn(IrFunction function)
         => function.Signature.ReturnType is not { Namespace: "System", Name: "Void" }
             && function.Signature.ReturnType.Kind != TypeRefKind.ByRef
-            && !function.RequiresAsyncBodyModifier
+            && !AsyncReturnForbidsValue(function)
             && !DescendantsOutsideNestedFunctions(function).Any(static n => n is YieldReturn or YieldBreak)
             && DescendantsOutsideNestedFunctions(function).Any(static n => n is UnsupportedNode)
             && !DescendantsOutsideNestedFunctions(function).Any(static n => n is Return);
+
+    static bool AsyncReturnForbidsValue(IrFunction function)
+    {
+        if (!function.RequiresAsyncBodyModifier)
+            return false;
+
+        var type = function.Signature.ReturnType;
+        if (type is { Kind: TypeRefKind.Definition, Namespace: "System.Threading.Tasks", Name: "Task" or "ValueTask" })
+            return true;
+        if (type is { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System.Collections.Generic", Name: "IAsyncEnumerable`1" or "IAsyncEnumerator`1" } })
+            return true;
+
+        return false;
+    }
 
     void AppendContainer(StringBuilder sb, BlockContainer container, int indent, bool topLevel = false)
     {

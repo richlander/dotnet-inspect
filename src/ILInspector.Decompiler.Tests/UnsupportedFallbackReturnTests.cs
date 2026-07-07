@@ -7,6 +7,9 @@ public class UnsupportedFallbackReturnTests
     static readonly TypeRef Int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+    static readonly TypeRef ValueTask = TypeRef.CoreLib("System.Threading.Tasks", "ValueTask");
+    static readonly TypeRef TaskInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Threading.Tasks", "Task`1"), [Int]);
+    static readonly TypeRef ValueTaskInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Threading.Tasks", "ValueTask`1"), [Int]);
 
     [Fact]
     public void NonVoidUnsupportedBodyWithoutReturn_EmitsDefaultReturn()
@@ -39,6 +42,42 @@ public class UnsupportedFallbackReturnTests
 
         Assert.Contains("Unsupported IL_0000", output);
         Assert.DoesNotContain("return default;", output);
+    }
+
+    [Fact]
+    public void AsyncValueTaskUnsupportedBody_DoesNotEmitValueReturn()
+    {
+        var function = UnsupportedFunction(ValueTask);
+        function.RequiresAsyncBodyModifier = true;
+
+        var output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("Unsupported IL_0000", output);
+        Assert.DoesNotContain("return default;", output);
+    }
+
+    [Fact]
+    public void AsyncGenericTaskUnsupportedBody_EmitsDefaultReturn()
+    {
+        var function = UnsupportedFunction(TaskInt);
+        function.RequiresAsyncBodyModifier = true;
+
+        var output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("Unsupported IL_0000", output);
+        Assert.Contains("return default;", output);
+    }
+
+    [Fact]
+    public void AsyncGenericValueTaskUnsupportedBody_EmitsDefaultReturn()
+    {
+        var function = UnsupportedFunction(ValueTaskInt);
+        function.RequiresAsyncBodyModifier = true;
+
+        var output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("Unsupported IL_0000", output);
+        Assert.Contains("return default;", output);
     }
 
     [Fact]
