@@ -461,21 +461,11 @@ static class ReturnToSenderSourceProbe
                             break;
                         case PropertyDeclarationSyntax property:
                         {
-                            if (IsBodylessPartial(property))
-                                break;
-                            if (HasGetter(property))
+                            foreach (var propertyMember in sourceIdentity.PropertyMembers(property))
                             {
-                                string methodName = $"get_{property.Identifier.ValueText}";
+                                string methodName = propertyMember.MetadataName;
                                 int overload = NextOverload(overloads, methodName);
-                                if (GetterBodyText(property) is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            if (HasSetter(property))
-                            {
-                                string methodName = $"set_{property.Identifier.ValueText}";
-                                int overload = NextOverload(overloads, methodName);
-                                if (SetterBodyText(property) is { } body)
+                                if (propertyMember.Body is { } body)
                                     yield return new SourceMember(fullType, methodName, overload, path, body);
                             }
 
@@ -681,11 +671,6 @@ static class ReturnToSenderSourceProbe
             && method.Body is null
             && method.ExpressionBody is null;
 
-    static bool IsBodylessPartial(PropertyDeclarationSyntax property)
-        => property.Modifiers.Any(SyntaxKind.PartialKeyword)
-            && property.ExpressionBody is null
-            && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
-
     static string? BodyText(ConstructorDeclarationSyntax constructor)
     {
         if (constructor.Body is { } body)
@@ -712,37 +697,6 @@ static class ReturnToSenderSourceProbe
             return ExpressionBodyText(conversion.Type, expressionBody.Expression);
         return null;
     }
-
-    static string? GetterBodyText(PropertyDeclarationSyntax property)
-    {
-        if (property.ExpressionBody is { } expressionBody)
-            return $"return {expressionBody.Expression};";
-        var getter = property.AccessorList?.Accessors.FirstOrDefault(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration));
-        if (getter?.Body is { } body)
-            return StatementsText(body);
-        if (getter?.ExpressionBody is { } getterExpression)
-            return $"return {getterExpression.Expression};";
-        return null;
-    }
-
-    static string? SetterBodyText(PropertyDeclarationSyntax property)
-    {
-        var setter = property.AccessorList?.Accessors.FirstOrDefault(accessor =>
-            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
-        if (setter?.Body is { } body)
-            return StatementsText(body);
-        if (setter?.ExpressionBody is { } setterExpression)
-            return $"{setterExpression.Expression};";
-        return null;
-    }
-
-    static bool HasGetter(PropertyDeclarationSyntax property)
-        => property.ExpressionBody is not null
-            || property.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
-
-    static bool HasSetter(PropertyDeclarationSyntax property)
-        => property.AccessorList?.Accessors.Any(accessor =>
-            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
 
     static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
         => returnType is PredefinedTypeSyntax predefined

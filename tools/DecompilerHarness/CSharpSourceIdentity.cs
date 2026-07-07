@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ILInspector.DecompilerHarness;
 
-internal sealed record CSharpSourceIndexerMember(
+internal sealed record CSharpSourceMemberIdentity(
     string MetadataName,
     string? Body,
     IReadOnlyList<string> Evidence);
@@ -26,18 +26,32 @@ internal sealed class CSharpSourceIdentityContext
         return new CSharpSourceIdentityContext(partialIndexerNames);
     }
 
-    public IReadOnlyList<CSharpSourceIndexerMember> IndexerMembers(IndexerDeclarationSyntax indexer, string fullType)
+    public IReadOnlyList<CSharpSourceMemberIdentity> PropertyMembers(PropertyDeclarationSyntax property)
+    {
+        if (IsBodylessPartial(property))
+            return [];
+
+        var evidence = PropertyEvidence(property).ToArray();
+        var members = new List<CSharpSourceMemberIdentity>(2);
+        if (HasGetter(property))
+            members.Add(new CSharpSourceMemberIdentity($"get_{property.Identifier.ValueText}", GetterBodyText(property), evidence));
+        if (HasSetter(property))
+            members.Add(new CSharpSourceMemberIdentity($"set_{property.Identifier.ValueText}", SetterBodyText(property), evidence));
+        return members;
+    }
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> IndexerMembers(IndexerDeclarationSyntax indexer, string fullType)
     {
         if (IsBodylessPartial(indexer))
             return [];
 
         string metadataName = IndexerMetadataName(indexer) ?? PartialIndexerMetadataName(fullType, indexer) ?? "Item";
         var evidence = IndexerEvidence(indexer, metadataName).ToArray();
-        var members = new List<CSharpSourceIndexerMember>(2);
+        var members = new List<CSharpSourceMemberIdentity>(2);
         if (HasGetter(indexer))
-            members.Add(new CSharpSourceIndexerMember($"get_{metadataName}", GetterBodyText(indexer), evidence));
+            members.Add(new CSharpSourceMemberIdentity($"get_{metadataName}", GetterBodyText(indexer), evidence));
         if (HasSetter(indexer))
-            members.Add(new CSharpSourceIndexerMember($"set_{metadataName}", SetterBodyText(indexer), evidence));
+            members.Add(new CSharpSourceMemberIdentity($"set_{metadataName}", SetterBodyText(indexer), evidence));
         return members;
     }
 
@@ -122,6 +136,19 @@ internal sealed class CSharpSourceIdentityContext
             && indexer.ExpressionBody is null
             && indexer.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
 
+    static bool IsBodylessPartial(PropertyDeclarationSyntax property)
+        => property.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && property.ExpressionBody is null
+            && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
+
+    static bool HasGetter(PropertyDeclarationSyntax property)
+        => property.ExpressionBody is not null
+            || property.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
+
+    static bool HasSetter(PropertyDeclarationSyntax property)
+        => property.AccessorList?.Accessors.Any(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
+
     static bool HasGetter(IndexerDeclarationSyntax indexer)
         => indexer.ExpressionBody is not null
             || indexer.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
@@ -142,6 +169,18 @@ internal sealed class CSharpSourceIdentityContext
         return null;
     }
 
+    static string? GetterBodyText(PropertyDeclarationSyntax property)
+    {
+        if (property.ExpressionBody is { } expressionBody)
+            return $"return {expressionBody.Expression};";
+        var getter = property.AccessorList?.Accessors.FirstOrDefault(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration));
+        if (getter?.Body is { } body)
+            return StatementsText(body);
+        if (getter?.ExpressionBody is { } getterExpression)
+            return $"return {getterExpression.Expression};";
+        return null;
+    }
+
     static string? SetterBodyText(IndexerDeclarationSyntax indexer)
     {
         var setter = indexer.AccessorList?.Accessors.FirstOrDefault(accessor =>
@@ -151,6 +190,23 @@ internal sealed class CSharpSourceIdentityContext
         if (setter?.ExpressionBody is { } setterExpression)
             return $"{setterExpression.Expression};";
         return null;
+    }
+
+    static string? SetterBodyText(PropertyDeclarationSyntax property)
+    {
+        var setter = property.AccessorList?.Accessors.FirstOrDefault(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
+        if (setter?.Body is { } body)
+            return StatementsText(body);
+        if (setter?.ExpressionBody is { } setterExpression)
+            return $"{setterExpression.Expression};";
+        return null;
+    }
+
+    static IEnumerable<string> PropertyEvidence(PropertyDeclarationSyntax property)
+    {
+        if (property.Modifiers.Any(SyntaxKind.PartialKeyword))
+            yield return "partial-implementation";
     }
 
     static string StatementsText(BlockSyntax body)

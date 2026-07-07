@@ -800,6 +800,32 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Contains("partial-implementation", member.Evidence);
     }
 
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesPartialPropertyIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                public partial int P { get; }
+
+                public partial int P => 1;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var implementation = root.DescendantNodes()
+            .OfType<PropertyDeclarationSyntax>()
+            .Single(property => property.ExpressionBody is not null);
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.PropertyMembers(implementation));
+
+        Assert.Equal("get_P", member.MetadataName);
+        Assert.Equal("return 1;", member.Body);
+        Assert.Contains("partial-implementation", member.Evidence);
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {
