@@ -650,6 +650,9 @@ public class MemberCodeView
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 
+    [MarkoutSection(Name = SectionNames.SourceDiff)]
+    public CodeSection SourceDiffCode { get; set; }
+
     [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
     public List<CallSiteRow>? CallRows { get; set; }
 
