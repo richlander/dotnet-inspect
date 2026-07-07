@@ -395,8 +395,16 @@ public sealed partial class CSharpPrinter
             sb.AppendLine();
 
         AppendContainer(sb, function.Body, 0, topLevel: true);
+        if (NeedsUnsupportedFallbackReturn(function))
+            sb.AppendLine("return default;");
         return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + Environment.NewLine : "";
     }
+
+    static bool NeedsUnsupportedFallbackReturn(IrFunction function)
+        => function.Signature.ReturnType is not { Namespace: "System", Name: "Void" }
+            && function.Signature.ReturnType.Kind != TypeRefKind.ByRef
+            && DescendantsOutsideNestedFunctions(function).Any(static n => n is UnsupportedNode)
+            && !DescendantsOutsideNestedFunctions(function).Any(static n => n is Return);
 
     void AppendContainer(StringBuilder sb, BlockContainer container, int indent, bool topLevel = false)
     {
