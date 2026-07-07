@@ -2339,6 +2339,7 @@ internal static class GeneratedFixtureRunner
     public static string FormatReturnToSenderCatalogJson(GeneratedFixtureReturnToSenderRunResult run)
     {
         var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
+        var report = ReturnToSenderCatalogReport.Build(run, int.MaxValue);
         var payload = new
         {
             ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
@@ -2346,6 +2347,7 @@ internal static class GeneratedFixtureRunner
             Results = run.Results.Select(SerializableReturnToSenderResult).ToArray(),
             ResearchDiff = SerializableResearchDiff(research),
             ResearchSummary = ReturnToSenderEvidence.Summarize(research, int.MaxValue),
+            report.RoslynFallbacks,
             run.Passed,
         };
         return JsonSerializer.Serialize(payload, s_jsonOptions);
