@@ -149,7 +149,10 @@ public static class ArgumentPreprocessor
         "--package", "--library", "--assembly", "--project", "--bin", "--directory",
         "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
-        "--caller-package", "--caller-project",
+        "--caller-package", "--caller-project", "--match", "--path",
+        "--il-offset", "--il-offsets", "--extract-resources", "--version", "--versions",
+        "--out", "--take", "--row", "--where", "--order-by",
+        "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--head", "--tail", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"

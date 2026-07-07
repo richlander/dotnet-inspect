@@ -470,6 +470,23 @@ public class CommandLineTests
         Assert.Equal(["router", "System.Text.Json", "--versions"], result);
     }
 
+    [Theory]
+    [InlineData("--version", "9.0.0", "System.Text.Json")]
+    [InlineData("--where", "Field=Value", "System.Text.Json")]
+    [InlineData("--match", "first", "System.Text.Json")]
+    [InlineData("--path", "lib/*", "System.Text.Json")]
+    [InlineData("--il-offset", "0x06000001+0x0", "System.Text.Json")]
+    [InlineData("--extract-resources", "/tmp/out", "System.Text.Json")]
+    [InlineData("--row", "1", "System.Text.Json")]
+    [InlineData("--top", "5", "System.Text.Json")]
+    [InlineData("--triage-shape", "box-value-type", "System.Text.Json")]
+    public void PreprocessArgs_LeadingValuedOption_SkipsValueAndRoutesBareTarget(string option, string value, string target)
+    {
+        var result = CommandLineBuilder.PreprocessArgs([option, value, target]);
+
+        Assert.Equal(["router", target, option, value], result);
+    }
+
     [Fact]
     public void PreprocessArgs_MergesRepeatedSelectIntoOneSemicolonValue()
     {
