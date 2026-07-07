@@ -82,7 +82,7 @@ internal sealed class CSharpSourceIdentityContext
 
     public IReadOnlyList<CSharpSourceMemberIdentity> PropertyMembers(PropertyDeclarationSyntax property)
     {
-        if (IsBodylessPartial(property))
+        if (property.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(property))
             return [];
 
         var evidence = PropertyEvidence(property).ToArray();
@@ -96,7 +96,7 @@ internal sealed class CSharpSourceIdentityContext
 
     public IReadOnlyList<CSharpSourceMemberIdentity> IndexerMembers(IndexerDeclarationSyntax indexer, string fullType)
     {
-        if (IsBodylessPartial(indexer))
+        if (indexer.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(indexer))
             return [];
 
         string metadataName = IndexerMetadataName(indexer) ?? PartialIndexerMetadataName(fullType, indexer) ?? "Item";

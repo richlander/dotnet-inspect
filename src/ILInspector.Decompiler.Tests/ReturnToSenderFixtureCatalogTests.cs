@@ -827,6 +827,38 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void CSharpSourceIdentityContext_SkipsExplicitPropertyAndIndexerImplementations()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public interface IValues
+            {
+                int P { get; }
+                int this[int index] { get; }
+            }
+
+            public class Class1 : IValues
+            {
+                int IValues.P => 1;
+                int IValues.this[int index] => index;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var property = Assert.Single(
+            root.DescendantNodes().OfType<PropertyDeclarationSyntax>(),
+            property => property.ExplicitInterfaceSpecifier is not null);
+        var indexer = Assert.Single(
+            root.DescendantNodes().OfType<IndexerDeclarationSyntax>(),
+            indexer => indexer.ExplicitInterfaceSpecifier is not null);
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+
+        Assert.Empty(context.PropertyMembers(property));
+        Assert.Empty(context.IndexerMembers(indexer, "SourceProbe.Class1"));
+    }
+
+    [Fact]
     public void CSharpSourceIdentityContext_ResolvesMethodIdentity()
     {
         var root = CSharpSyntaxTree.ParseText("""

@@ -437,8 +437,6 @@ static class ReturnToSenderSourceProbe
                 {
                     switch (member)
                     {
-                        case MethodDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
-                            break;
                         case MethodDeclarationSyntax method:
                         {
                             foreach (var methodMember in sourceIdentity.MethodMembers(method))
@@ -463,8 +461,6 @@ static class ReturnToSenderSourceProbe
 
                             break;
                         }
-                        case PropertyDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
-                            break;
                         case PropertyDeclarationSyntax property:
                         {
                             foreach (var propertyMember in sourceIdentity.PropertyMembers(property))
@@ -477,8 +473,6 @@ static class ReturnToSenderSourceProbe
 
                             break;
                         }
-                        case IndexerDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
-                            break;
                         case IndexerDeclarationSyntax indexer:
                         {
                             foreach (var indexerMember in sourceIdentity.IndexerMembers(indexer, fullType))
