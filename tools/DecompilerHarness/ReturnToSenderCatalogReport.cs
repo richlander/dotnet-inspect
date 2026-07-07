@@ -197,7 +197,7 @@ internal static class ReturnToSenderCatalogReport
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new ReturnToSenderCatalogReportBucket(group.Key, group.Count()))];
 
-    static IReadOnlyList<ReturnToSenderCatalogReportBucket> RoslynFallbackBuckets(IEnumerable<GeneratedFixtureReturnToSenderResult> rows)
+    internal static IReadOnlyList<ReturnToSenderCatalogReportBucket> RoslynFallbackBuckets(IEnumerable<GeneratedFixtureReturnToSenderResult> rows)
         => [.. rows
             .Where(row => row.ClosureEvidence is not null)
             .SelectMany(row => row.ClosureEvidence!.RoslynFallbacks)
