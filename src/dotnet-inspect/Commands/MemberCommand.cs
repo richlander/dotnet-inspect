@@ -272,7 +272,7 @@ public static class MemberCommand
                 && NeedsMemberSourceResolution(apiType, effectiveOptions))
             {
                 bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                    .Contains(SectionNames.OriginalSource);
+                    .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
                 var sourceTypeName = selectedMember?.DeclaringType ?? apiType.FullName;
                 var sourceOverloadIndex = (selectedMember?.DeclaringOverloadIndex ?? effectiveOptions.OverloadIndex.Value) - 1;
@@ -501,6 +501,7 @@ public static class MemberCommand
         SectionNames.DecompiledSource,
         SectionNames.AnnotatedSource,
         SectionNames.OriginalSource,
+        SectionNames.SourceDiff,
         SectionNames.Calls,
         SectionNames.ExceptionRegions,
         SectionNames.AllocationFacts,
@@ -548,7 +549,7 @@ public static class MemberCommand
     private static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (sections.Contains(SectionNames.OriginalSource))
+        if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             return true;
 
         bool pdbAuthorized = options.IncludeSections is { Count: > 0 }

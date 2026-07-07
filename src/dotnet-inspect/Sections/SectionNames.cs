@@ -93,6 +93,9 @@ public static class SectionNames
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 
+    /// <summary>Section for a line diff between original and decompiled method source.</summary>
+    public const string SourceDiff = "Source Diff";
+
     /// <summary>Section for SourceLink source file URLs for a type.</summary>
     public const string SourceFiles = "Source Files";
 

@@ -102,6 +102,7 @@ public static class ApiMemberSectionDescriptors
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
+            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
             .Add<ILBody>()
             .Add<Facts>()
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
@@ -511,6 +512,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
+            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
             .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleMethodLikeMember)
@@ -558,6 +560,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
             .Add<OriginalSource>()
+            .Add<SourceDiff>()
             .Add<SourceLocations>()
             .Add<Calls>()
             .Add<ExceptionRegions>()
@@ -576,6 +579,7 @@ public static class ApiMemberDetailSectionDescriptors
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
                 SectionNames.OriginalSource,
+                SectionNames.SourceDiff,
                 SectionNames.IL);
     }
 
@@ -662,6 +666,19 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class SourceDiff : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.SourceDiff;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class SourceLocations : ISectionDescriptor<ApiType>

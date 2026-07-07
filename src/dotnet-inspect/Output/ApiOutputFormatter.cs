@@ -1128,7 +1128,8 @@ public static class ApiOutputFormatter
     internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null, ApiOptions? options = null)
     {
         var request = new MemberCodeProvider.Request(
-            DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
+            DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
+                || requestedSections.Contains(SectionNames.SourceDiff),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),

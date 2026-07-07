@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
@@ -7,7 +8,9 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -2642,6 +2645,49 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectSourceDiff_RendersOriginalVsDecompiledDiff()
+    {
+        using var stream = File.OpenRead(TestAssemblyPath);
+        using var peReader = new PEReader(stream);
+        var api = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(CommandExecutionSourceDiffFixture).FullName);
+        var member = Assert.Single(type.Members, m => m.Name == nameof(CommandExecutionSourceDiffFixture.AddOne));
+        type.Members = [member];
+
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            DllPath = TestAssemblyPath,
+            TypeName = type.FullName,
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { nameof(CommandExecutionSourceDiffFixture.AddOne) },
+            OverloadIndex = member.DeclaringOverloadIndex ?? 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.SourceDiff },
+            MethodSource = new MethodSourceContext(
+                """
+                public int AddOne(int value)
+                {
+                    return value + 2;
+                }
+                """,
+                SourceUrl: null)
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(type, foundIn: "dotnet-inspect.Tests", packageName: null, packageVersion: null, apiSource: null, selectedTfm: null, options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("```diff", output);
+        Assert.Contains("--- Original Source", output);
+        Assert.Contains("+++ Decompiled Source", output);
+        Assert.Contains("-    return value + 2;", output);
+        Assert.Contains("+public int AddOne(int value) => value + 1;", output);
+        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+    }
+
+    [Fact]
     public async Task Member_NonPublicMethod_UnderIncludeAll_RendersBodyAndIL()
     {
         // #1323: a non-public method selected under --all must render its body and IL, not
@@ -4695,6 +4741,7 @@ public class CommandExecutionTests
         "Cost Overlay",
         "Semantics Overlay",
         "Original Source",
+        "Source Diff",
         "Calls",
         "Callers",
         "Call Graph",
@@ -8769,6 +8816,14 @@ public sealed class MemberGenericSelectorFixture
 {
     public string GenericChoice(string value) => value;
     public T GenericChoice<T>(T value) => value;
+}
+
+public sealed class CommandExecutionSourceDiffFixture
+{
+    public int AddOne(int value)
+    {
+        return value + 1;
+    }
 }
 
 public static class FactsTableFixture

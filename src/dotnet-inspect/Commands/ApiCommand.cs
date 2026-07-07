@@ -729,11 +729,13 @@ public class ApiCommand
 
             // Source code (already resolved in command layer)
             if (options is MemberOptions { MethodSource: not null } mo5
-                && GetRequestedMemberSections(type, mo5).Contains(SectionNames.OriginalSource))
+                && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             {
                 view.MemberCode ??= new MemberCodeView();
                 view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
             }
+
+            PopulateSourceDiff(view, GetRequestedMemberSections(type, options));
 
         }
 
@@ -875,13 +877,14 @@ public class ApiCommand
             SectionNames.OriginalSource => CodeSectionDocument(section, "Original Source", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.OriginalSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", null, view.MemberCode?.SourceDiffCode.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
 
         if (documents.Count == 0
             && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.OriginalSource
-                or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.IL))
+                or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
         {
             Console.Error.WriteLine($"Error: section '{section}' is not printable.");
             return 1;
@@ -1084,6 +1087,7 @@ public class ApiCommand
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
             SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content ?? "",
+            SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
             SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
             SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
@@ -1301,11 +1305,12 @@ public class ApiCommand
                         requestedSections, memberOptions.PdbPath, memberOptions.IncludeSections,
                         memberOptions.CallerScopeAssemblies, memberOptions);
 
-                if (memberOptions.MethodSource != null && requestedSections.Contains(SectionNames.OriginalSource))
+                if (memberOptions.MethodSource != null && requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
                 {
                     view.MemberCode ??= new MemberCodeView();
                     view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", memberOptions.MethodSource.SourceCode);
                 }
+                PopulateSourceDiff(view, requestedSections);
             }
 
             MethodBodyInspectionSession? typeAnalysisSession = null;
@@ -1365,6 +1370,21 @@ public class ApiCommand
             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
         writer.Flush();
         return sw.ToString();
+    }
+
+    private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
+    {
+        if (!requestedSections.Contains(SectionNames.SourceDiff))
+            return;
+
+        view.MemberCode ??= new MemberCodeView();
+        view.MemberCode.SourceDiffCode = new Markout.CodeSection(
+            "diff",
+            SourceTextDiff.CreateUnifiedDiff(
+                view.MemberCode.OriginalSourceCode.Content,
+                view.MemberCode.DecompiledSourceCode.Content,
+                "Original Source",
+                "Decompiled Source"));
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
