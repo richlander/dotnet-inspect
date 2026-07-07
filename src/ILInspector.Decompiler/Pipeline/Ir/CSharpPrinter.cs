@@ -307,8 +307,8 @@ public sealed partial class CSharpPrinter
         int CandidateSlots,
         int SingleCandidateSlots,
         int MultiCandidateUnifiedSlots,
-        int ObjectFallbackSlots,
-        int RenderDeclarationNames);
+        int UnunifiedSplitSlots,
+        int EmittedDeclarationNames);
 
     readonly Dictionary<StackSlotRenderKey, string> _stackSlotNames = [];
     readonly Dictionary<StoreStackSlot, TypeRef?> _stackSlotStoreTypes = [];
@@ -610,7 +610,7 @@ public sealed partial class CSharpPrinter
             }
             else if (_stackSlotTelemetry is { } telemetryAfter)
             {
-                telemetryAfter.RecordFallback();
+                telemetryAfter.RecordUnunifiedSplit();
             }
         }
 
@@ -647,7 +647,7 @@ public sealed partial class CSharpPrinter
                     break;
             }
         }
-        _stackSlotTelemetry?.RecordRenderDeclarations(_stackSlotDeclarations.Count);
+        _stackSlotTelemetry?.RecordEmittedDeclarations(EmittedStackSlotDeclarationCount());
 
         static int CandidateCount(
             IReadOnlyList<IrExpression> stores,
@@ -662,6 +662,18 @@ public sealed partial class CSharpPrinter
                 .Count();
     }
 
+    int EmittedStackSlotDeclarationCount()
+    {
+        int count = 0;
+        foreach (var (_, (name, _)) in _stackSlotDeclarations)
+        {
+            if (_declaringStores.OfType<StoreStackSlot>().Any(s => StackSlotName(s) == name))
+                continue;
+            count++;
+        }
+        return count;
+    }
+
     sealed class StackSlotUnifierTelemetryBuilder
     {
         int _lastCandidateCount;
@@ -671,8 +683,8 @@ public sealed partial class CSharpPrinter
         public int CandidateSlots { get; private set; }
         public int SingleCandidateSlots { get; private set; }
         public int MultiCandidateUnifiedSlots { get; private set; }
-        public int ObjectFallbackSlots { get; private set; }
-        public int RenderDeclarationNames { get; private set; }
+        public int UnunifiedSplitSlots { get; private set; }
+        public int EmittedDeclarationNames { get; private set; }
 
         public void RecordNodes(int stores, int loads)
         {
@@ -694,9 +706,9 @@ public sealed partial class CSharpPrinter
                 MultiCandidateUnifiedSlots++;
         }
 
-        public void RecordFallback() => ObjectFallbackSlots++;
+        public void RecordUnunifiedSplit() => UnunifiedSplitSlots++;
 
-        public void RecordRenderDeclarations(int count) => RenderDeclarationNames += count;
+        public void RecordEmittedDeclarations(int count) => EmittedDeclarationNames += count;
 
         public StackSlotUnifierTelemetry ToTelemetry()
             => new(
@@ -706,8 +718,8 @@ public sealed partial class CSharpPrinter
                 CandidateSlots,
                 SingleCandidateSlots,
                 MultiCandidateUnifiedSlots,
-                ObjectFallbackSlots,
-                RenderDeclarationNames);
+                UnunifiedSplitSlots,
+                EmittedDeclarationNames);
     }
 
     bool TryChooseUnifiedStackSlotType(

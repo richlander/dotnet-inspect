@@ -26,13 +26,13 @@ public class SlotResidualCensusTests
         string output = CaptureConsole(() => SlotUnifierCensus.Run([FixturePath], cap: 20, maxExamples: 2));
 
         Assert.Contains("STACK-SLOT UNIFIER CENSUS", output);
-        Assert.Contains("Object-fallback slots", output);
+        Assert.Contains("Un-unified split slots", output);
         Assert.Contains("Multi-candidate slots unified by printer", output);
-        Assert.Contains("Render declaration names emitted", output);
+        Assert.Contains("Stack-slot declarations emitted", output);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_UsesActualPrinterObjectFallback()
+    public void StackSlotUnifierTelemetry_RecordsUnunifiedSplitSlots()
     {
         var obj = TypeRef.CoreLib("System", "Object");
         var str = TypeRef.CoreLib("System", "String");
@@ -58,7 +58,7 @@ public class SlotResidualCensusTests
         Assert.Equal(3, telemetry.StoreNodes);
         Assert.Equal(1, telemetry.LoadNodes);
         Assert.Equal(1, telemetry.DistinctSlots);
-        Assert.Equal(1, telemetry.ObjectFallbackSlots);
+        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
         Assert.Equal(0, telemetry.MultiCandidateUnifiedSlots);
     }
 

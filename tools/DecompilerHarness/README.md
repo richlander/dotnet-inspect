@@ -610,7 +610,7 @@ gate; use `--corpus-method-cap N` for a quick bounded read.
 from the printer's own stack-slot unifier path. It runs the full product
 pipeline, then asks `CSharpPrinter` to collect its stack-slot naming/type
 telemetry without emitting C#. The key lines are `Multi-candidate slots unified
-by printer` and `Object-fallback slots`; C2 slices should drive both down until
+by printer` and `Un-unified split slots`; C2 slices should drive both down until
 no `LoadStackSlot`/`StoreStackSlot` reaches the printer.
 
 **Gaps** (`--gaps`): the *self-contained* real-gap view. It inspects only the raised tree: a method is a gap iff it still holds **unstructured control flow** — a `Branch`/`ConditionalBranch`/`SwitchBranch` the structuring passes could not consume, or an EH `Leave` (a surviving `goto`) — or an `UnsupportedNode`. A fully-raised tree holds only structured nodes (`IfStatement`, loops, `Switch`, `TryCatch`), so the residual is exact: reading the tree alone tells you the gap, no recompile or comparison needed. It reports "fully raised" (the metric to drive up) and a residual-kind docket (the prioritized work). It measures completeness, not correctness, so pair it with `--fidelity-check` for fidelity.

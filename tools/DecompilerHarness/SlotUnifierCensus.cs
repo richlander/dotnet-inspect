@@ -35,8 +35,8 @@ static class SlotUnifierCensus
                     totals.Add(telemetry);
                     if (telemetry.DistinctSlots > 0)
                         totals.MethodsWithSlots++;
-                    if (telemetry.ObjectFallbackSlots > 0 && examples.Count < maxExamples)
-                        examples.Add($"{typeName}::{methodName} ({telemetry.ObjectFallbackSlots} object-fallback slot{(telemetry.ObjectFallbackSlots == 1 ? "" : "s")})");
+                    if (telemetry.UnunifiedSplitSlots > 0 && examples.Count < maxExamples)
+                        examples.Add($"{typeName}::{methodName} ({telemetry.UnunifiedSplitSlots} un-unified split slot{(telemetry.UnunifiedSplitSlots == 1 ? "" : "s")})");
                 }
                 catch (Exception ex)
                 {
@@ -61,8 +61,8 @@ static class SlotUnifierCensus
         Console.WriteLine($"| Methods with residual stack slots | {totals.MethodsWithSlots} |");
         Console.WriteLine($"| Single-candidate slots | {totals.SingleCandidateSlots} |");
         Console.WriteLine($"| Multi-candidate slots unified by printer | {totals.MultiCandidateUnifiedSlots} |");
-        Console.WriteLine($"| Object-fallback slots | {totals.ObjectFallbackSlots} |");
-        Console.WriteLine($"| Render declaration names emitted | {totals.RenderDeclarationNames} |");
+        Console.WriteLine($"| Un-unified split slots | {totals.UnunifiedSplitSlots} |");
+        Console.WriteLine($"| Stack-slot declarations emitted | {totals.EmittedDeclarationNames} |");
 
         if (examples.Count > 0)
         {
@@ -85,8 +85,8 @@ static class SlotUnifierCensus
         public long CandidateSlots;
         public long SingleCandidateSlots;
         public long MultiCandidateUnifiedSlots;
-        public long ObjectFallbackSlots;
-        public long RenderDeclarationNames;
+        public long UnunifiedSplitSlots;
+        public long EmittedDeclarationNames;
         public long MethodsWithSlots;
 
         public void Add(CSharpPrinter.StackSlotUnifierTelemetry telemetry)
@@ -97,8 +97,8 @@ static class SlotUnifierCensus
             CandidateSlots += telemetry.CandidateSlots;
             SingleCandidateSlots += telemetry.SingleCandidateSlots;
             MultiCandidateUnifiedSlots += telemetry.MultiCandidateUnifiedSlots;
-            ObjectFallbackSlots += telemetry.ObjectFallbackSlots;
-            RenderDeclarationNames += telemetry.RenderDeclarationNames;
+            UnunifiedSplitSlots += telemetry.UnunifiedSplitSlots;
+            EmittedDeclarationNames += telemetry.EmittedDeclarationNames;
         }
     }
 }
