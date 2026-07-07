@@ -212,6 +212,13 @@ static class ReturnToSenderSourceProbe
 
             if (!sourceFound || sourceMember is null)
             {
+                if (sourceIndex is not null
+                    && sourceIndex.TryFindRecordSynthesizedMember(target, out var recordSourcePath))
+                {
+                    AddBodylessSourceResult(results, target, result, recordSourcePath);
+                    continue;
+                }
+
                 results.Add(new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
@@ -226,20 +233,7 @@ static class ReturnToSenderSourceProbe
 
             if (sourceMember.Body is not { } expected)
             {
-                var outcome = result.Status == FidelityCheck.CompileBackStatus.Exact
-                    ? ReturnToSenderSourceOutcome.ValidMatch
-                    : ReturnToSenderSourceOutcome.ValidDifferent;
-                results.Add(new ReturnToSenderSourceProbeResult(
-                    target,
-                    outcome,
-                    result.Status,
-                    outcome == ReturnToSenderSourceOutcome.ValidMatch
-                        ? "valid_match.source_bodyless"
-                        : "valid_different.source_bodyless",
-                    $"source member matched {target.Type}::{target.Method}#{target.Overload}, but it has no explicit source body; compile-back status is {result.Status}",
-                    sourceMember.SourcePath,
-                    ExpectedBody: null,
-                    ActualBody: result.TargetBody));
+                AddBodylessSourceResult(results, target, result, sourceMember.SourcePath);
                 continue;
             }
 
@@ -276,20 +270,45 @@ static class ReturnToSenderSourceProbe
         return results;
     }
 
+    static void AddBodylessSourceResult(
+        List<ReturnToSenderSourceProbeResult> results,
+        ReturnToSender.RequestedTarget target,
+        ReturnToSender.Result result,
+        string sourcePath)
+    {
+        var outcome = result.Status == FidelityCheck.CompileBackStatus.Exact
+            ? ReturnToSenderSourceOutcome.ValidMatch
+            : ReturnToSenderSourceOutcome.ValidDifferent;
+        results.Add(new ReturnToSenderSourceProbeResult(
+            target,
+            outcome,
+            result.Status,
+            outcome == ReturnToSenderSourceOutcome.ValidMatch
+                ? "valid_match.source_bodyless"
+                : "valid_different.source_bodyless",
+            $"source member matched {target.Type}::{target.Method}#{target.Overload}, but it has no explicit source body; compile-back status is {result.Status}",
+            sourcePath,
+            ExpectedBody: null,
+            ActualBody: result.TargetBody));
+    }
+
     sealed record SourceMember(string Type, string Method, int Overload, string SourcePath, string? Body);
 
     sealed class FixtureSourceIndex
     {
         readonly Dictionary<string, SourceMember> _members;
+        readonly Dictionary<string, string> _recordSourcePaths;
 
-        FixtureSourceIndex(Dictionary<string, SourceMember> members)
+        FixtureSourceIndex(Dictionary<string, SourceMember> members, Dictionary<string, string> recordSourcePaths)
         {
             _members = members;
+            _recordSourcePaths = recordSourcePaths;
         }
 
         public static FixtureSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
         {
             var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
+            var recordSourcePaths = new Dictionary<string, string>(StringComparer.Ordinal);
             var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
             var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
             foreach (var sourcePath in sourcePaths)
@@ -301,9 +320,9 @@ static class ReturnToSenderSourceProbe
 
             var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
             foreach (var sourceFile in sourceFiles)
-                AddSourceFile(members, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+                AddSourceFile(members, recordSourcePaths, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
 
-            return new FixtureSourceIndex(members);
+            return new FixtureSourceIndex(members, recordSourcePaths);
         }
 
         public static FixtureSourceIndex? TryCreate(string assemblyPath)
@@ -361,6 +380,18 @@ static class ReturnToSenderSourceProbe
         public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
             => _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
 
+        public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
+        {
+            if (IsRecordSynthesizedMember(target.Method)
+                && _recordSourcePaths.TryGetValue(target.Type, out sourcePath!))
+            {
+                return true;
+            }
+
+            sourcePath = "";
+            return false;
+        }
+
         static bool TryReadSourceFile(string sourcePath, out CompilationUnitSyntax root)
         {
             string source;
@@ -381,22 +412,24 @@ static class ReturnToSenderSourceProbe
 
         static void AddSourceFile(
             Dictionary<string, SourceMember> members,
+            Dictionary<string, string> recordSourcePaths,
             Dictionary<string, Dictionary<string, int>> overloads,
             string sourcePath,
             CompilationUnitSyntax root,
             CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root, sourcePath, overloads, sourceIdentity))
+            foreach (var member in SourceMembers(root, sourcePath, recordSourcePaths, overloads, sourceIdentity))
                 members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
         }
 
         static IEnumerable<SourceMember> SourceMembers(
             CompilationUnitSyntax root,
             string sourcePath,
+            Dictionary<string, string> recordSourcePaths,
             Dictionary<string, Dictionary<string, int>> overloads,
             CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads, sourceIdentity))
+            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, recordSourcePaths, overloads, sourceIdentity))
                 yield return member;
         }
 
@@ -405,6 +438,7 @@ static class ReturnToSenderSourceProbe
             string namespaceName,
             IReadOnlyList<string> containingTypes,
             string sourcePath,
+            Dictionary<string, string> recordSourcePaths,
             Dictionary<string, Dictionary<string, int>> overloads,
             CSharpSourceIdentityContext sourceIdentity)
         {
@@ -417,7 +451,7 @@ static class ReturnToSenderSourceProbe
                         string nextNamespace = namespaceName.Length == 0
                             ? ns.Name.ToString()
                             : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads, sourceIdentity))
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, recordSourcePaths, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
@@ -428,10 +462,12 @@ static class ReturnToSenderSourceProbe
                         string fullType = namespaceName.Length == 0
                             ? string.Join(".", typeStack)
                             : $"{namespaceName}.{string.Join(".", typeStack)}";
+                        if (type is RecordDeclarationSyntax)
+                            recordSourcePaths.TryAdd(fullType, sourcePath);
 
                         foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, sourceIdentity))
                             yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads, sourceIdentity))
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, recordSourcePaths, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
@@ -464,6 +500,10 @@ static class ReturnToSenderSourceProbe
         }
 
     }
+
+    static bool IsRecordSynthesizedMember(string method)
+        => method is "ToString" or "GetHashCode" or "Equals" or "op_Equality" or "op_Inequality" or "Deconstruct"
+            || method.StartsWith("get_", StringComparison.Ordinal);
 
     static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
     {

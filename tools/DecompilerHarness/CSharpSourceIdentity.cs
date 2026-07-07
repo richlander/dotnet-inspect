@@ -72,53 +72,7 @@ internal sealed class CSharpSourceIdentityContext
         var members = new List<CSharpSourceMemberIdentity>();
         if (HasPrimaryConstructor(type))
             members.Add(new CSharpSourceMemberIdentity(".ctor", Body: null, Evidence: ["primary-constructor"]));
-        if (type is RecordDeclarationSyntax record)
-            members.AddRange(RecordSynthesizedMembers(record));
         return members;
-    }
-
-    static IEnumerable<CSharpSourceMemberIdentity> RecordSynthesizedMembers(RecordDeclarationSyntax record)
-    {
-        var evidence = new[] { "record-synthesized" };
-        var explicitMethods = record.Members
-            .OfType<MethodDeclarationSyntax>()
-            .Where(method => method.ExplicitInterfaceSpecifier is null)
-            .Select(method => method.Identifier.ValueText)
-            .ToHashSet(StringComparer.Ordinal);
-        var explicitOperators = record.Members
-            .OfType<OperatorDeclarationSyntax>()
-            .Select(OperatorMetadataName)
-            .ToHashSet(StringComparer.Ordinal);
-        var explicitProperties = record.Members
-            .OfType<PropertyDeclarationSyntax>()
-            .Where(property => property.ExplicitInterfaceSpecifier is null)
-            .Select(property => property.Identifier.ValueText)
-            .ToHashSet(StringComparer.Ordinal);
-
-        if (!explicitMethods.Contains("ToString"))
-            yield return new CSharpSourceMemberIdentity("ToString", Body: null, evidence);
-        if (!explicitMethods.Contains("GetHashCode"))
-            yield return new CSharpSourceMemberIdentity("GetHashCode", Body: null, evidence);
-        if (!explicitMethods.Contains("Equals"))
-        {
-            yield return new CSharpSourceMemberIdentity("Equals", Body: null, evidence);
-            yield return new CSharpSourceMemberIdentity("Equals", Body: null, evidence);
-        }
-        if (!explicitOperators.Contains("op_Equality"))
-            yield return new CSharpSourceMemberIdentity("op_Equality", Body: null, evidence);
-        if (!explicitOperators.Contains("op_Inequality"))
-            yield return new CSharpSourceMemberIdentity("op_Inequality", Body: null, evidence);
-
-        if (record.ParameterList is not { Parameters.Count: > 0 } parameters)
-            yield break;
-
-        if (!explicitMethods.Contains("Deconstruct"))
-            yield return new CSharpSourceMemberIdentity("Deconstruct", Body: null, evidence);
-        foreach (var parameter in parameters.Parameters)
-        {
-            if (!explicitProperties.Contains(parameter.Identifier.ValueText))
-                yield return new CSharpSourceMemberIdentity($"get_{parameter.Identifier.ValueText}", Body: null, evidence);
-        }
     }
 
     public IReadOnlyList<CSharpSourceMemberIdentity> ConstructorMembers(ConstructorDeclarationSyntax constructor)
