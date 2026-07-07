@@ -12,6 +12,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 using LegacyFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
+using NewStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
 using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
 using ChainC = ILInspector.Decompiler.Fixtures.UnsafeChainC.Program;
 
@@ -55,6 +56,9 @@ public class UnsafeEmitterTests
 
     static string DecompileLegacy(string method) =>
         Decompile(typeof(LegacyFixtures).Assembly.Location, typeof(LegacyFixtures).FullName!, method);
+
+    static string DecompileNewStackalloc(string method) =>
+        Decompile(typeof(NewStackallocFixtures).Assembly.Location, typeof(NewStackallocFixtures).FullName!, method);
 
     static string DecompileChainB(string method) =>
         Decompile(typeof(ChainB).Assembly.Location, typeof(ChainB).FullName!, method);
@@ -251,6 +255,421 @@ public class UnsafeEmitterTests
         // `scoped` to stay clean (otherwise CS9081). A stackalloc result is
         // always scoped, so this is mode-independent correctness, not a guess.
         Assert.Contains("scoped Span<int> s", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_StackAllocPointerInitializer_HoistsStackSlotDeclaration()
+    {
+        var output = DecompileNewStackalloc(nameof(NewStackallocFixtures.StackallocPointerInitializer));
+        var block = FirstUnsafeBlockBody(output);
+
+        Assert.Contains("* S_", block);
+        Assert.Contains("stackalloc byte[", block);
+        Assert.Contains("_ = S_", block);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeStackSlotReadInLaterBlockDeclaresUpFront()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.True(
+            output.IndexOf("* S_", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the stack-slot declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("_ = S_", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunKeepsInitObjectDeclarationInScope()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new ExpressionStatement(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+        var unsafeBody = FirstUnsafeBlockBody(output);
+
+        Assert.True(
+            output.IndexOf("Guid V_0;", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the InitObject declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("V_0 = default;", unsafeBody);
+        Assert.Contains("V_0.GetHashCode()", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunHoistsSafeLocalReadInLaterBlock()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        first.Add(new StoreLocal(0, int32, new Constant(1, int32)));
+        first.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new LoadLocal(0, int32)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.True(
+            output.IndexOf("int V_0;", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the safe local declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("_ = V_0;", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_SafeCrossBlockLocalWithoutUnsafeStaysInline()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, int32, new Constant(1, int32)));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new LoadLocal(0, int32)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("int V_0 = 1;", output);
+        Assert.DoesNotContain("unsafe", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunHoistsSafeLocalBetweenUnsafeDeclarationAndUse()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new StoreLocal(0, int32, new Constant(1, int32)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+        var unsafeBody = FirstUnsafeBlockBody(output);
+
+        Assert.DoesNotContain("int V_0 = 1;", unsafeBody);
+        Assert.Contains("V_0 = 1;", unsafeBody);
+        Assert.Contains("_ = V_0;", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_SafeLocalAfterClosedUnsafeRunStaysInline()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new StoreLocal(0, int32, new Constant(42, int32)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("int V_0 = 42;", output);
+        Assert.DoesNotContain("\nV_0 = 42;", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafePointerLocalReadInLaterBlockDeclaresUpFront()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, bytePointer, new StackAllocate(new Constant(8, int32))));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new LoadLocal(0, bytePointer)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [bytePointer],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.True(
+            output.IndexOf("byte* V_0;", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the pointer local declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("_ = V_0;", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunHoistsInitObjectCapturedByLaterLambda()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var action = TypeRef.CoreLib("System", "Action");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new ExpressionStatement(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        first.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        first.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        var second = new Block(1);
+        second.Add(new StoreLocal(1, action, new Lambda(action, [], [], [], usesUpdatedMemorySafetyRules: true, skipLocalsInit: false, lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid, action],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.True(
+            output.IndexOf("Guid V_0;", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the captured InitObject local declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("V_0.GetHashCode()", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunKeepsCapturedOuterLocalLambdaInScope()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var action = TypeRef.CoreLib("System", "Action");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new ExpressionStatement(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new StoreLocal(1, action, new Lambda(action, [], [], [], usesUpdatedMemorySafetyRules: true, skipLocalsInit: false, lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid, action],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+
+        Assert.Contains("V_0 = default;", unsafeBody);
+        Assert.DoesNotContain("=>", unsafeBody);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunIgnoresNestedLambdaLocalIndexCollisions()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var action = TypeRef.CoreLib("System", "Action");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        lambdaBlock.Add(new ExpressionStatement(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new StoreLocal(1, action, new Lambda(action, [], [guid], [], usesUpdatedMemorySafetyRules: true, skipLocalsInit: false, lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid, action],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+
+        Assert.DoesNotContain("=>", unsafeBody);
+    }
+
+    [Fact]
+    public void NewRulesModule_UnsafeRunIgnoresNestedLocalFunctionLocalIndexCollisions()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+        var getHashCode = new MethodRef(guid, "GetHashCode", int32, [], HasThis: true);
+
+        var localBlock = new Block(0);
+        localBlock.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        localBlock.Add(new Return(new Call(getHashCode, isVirtual: true, [new LoadLocal(0, guid)])));
+        var localBody = new BlockContainer();
+        localBody.Add(localBlock);
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new StackAllocate(new Constant(8, int32))));
+        block.Add(new InitObject(guid, new LoadLocalAddress(0, guid)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, bytePointer)));
+        block.Add(new LocalFunctionStatement(
+            "Local",
+            int32,
+            [],
+            isStatic: false,
+            [guid],
+            [],
+            usesUpdatedMemorySafetyRules: true,
+            skipLocalsInit: false,
+            localBody));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [guid],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+
+        Assert.DoesNotContain("Local()", unsafeBody);
     }
 
     [Fact]

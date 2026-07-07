@@ -1020,17 +1020,40 @@ public sealed partial class CSharpPrinter
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
-                if (!HasUnsafeOperation(store.Value) || !LocalIsRead(function, store.Index))
+                if (HasUnsafeOperation(store.Value)
+                    && LocalIsRead(function, store.Index)
+                    && !LocalReadsStayInsideUnsafeRun(function, store))
+                {
+                    _declaringStores.Remove(store);
+                    // A stackalloc-initialized span loses its inline `scoped`
+                    // inference when split from its declaration, so the hoisted
+                    // declaration must restore it (else CS9081). A stackalloc result
+                    // can never escape, so `scoped` is always correct here.
+                    if (store.Value is StackAllocArray)
+                        _scopedLocals.Add(store.Index);
                     continue;
-                if (LocalReadsStayInsideUnsafeRun(function, store))
+                }
+                if (!DeclarationIsInsideUnsafeRun(store))
+                {
+                    continue;
+                }
+                _declaringStores.Remove(store);
+            }
+            foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
+            {
+                if (!HasUnsafeOperation(store.Value) || StackSlotReferencesStayInBlockAfterStore(function, store))
                     continue;
                 _declaringStores.Remove(store);
-                // A stackalloc-initialized span loses its inline `scoped`
-                // inference when split from its declaration, so the hoisted
-                // declaration must restore it (else CS9081). A stackalloc result
-                // can never escape, so `scoped` is always correct here.
-                if (store.Value is StackAllocArray)
-                    _scopedLocals.Add(store.Index);
+            }
+            foreach (var init in _declaringStores.OfType<InitObject>().ToList())
+            {
+                if (init.Address is not LoadLocalAddress local)
+                    continue;
+                if (!DeclarationIsInsideUnsafeRun(init))
+                {
+                    continue;
+                }
+                _declaringStores.Remove(init);
             }
         }
     }
@@ -1068,23 +1091,48 @@ public sealed partial class CSharpPrinter
         return true;
     }
 
+    bool DeclarationIsInsideUnsafeRun(IrNode statement)
+    {
+        if (statement.Parent is not Block block || statement.ChildIndex <= 0)
+            return false;
+        for (int i = 0; i < statement.ChildIndex; i++)
+        {
+            if (NeedsUnsafeContext(block.Children[i])
+                && UnsafeRunEnd(block.Children, i) > statement.ChildIndex)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool LocalReferencesStayInBlockAfterStore(IrFunction function, StoreLocal store)
     {
         if (store.Parent is not Block block || store.ChildIndex < 0)
             return false;
         if (StoreValueReferencesLocal(store))
             return false;
-        var allowed = block.Children.Skip(store.ChildIndex).ToList();
         if (HasBranchTargetAfterStatement(store))
             return false;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        return LocalReferencesStayInBlockAfterStatement(function, store, store.Index);
+    }
+
+    bool LocalReferencesStayInBlockAfterStatement(IrFunction function, IrNode statement, int index)
+    {
+        if (statement.Parent is not Block block || statement.ChildIndex < 0)
+            return false;
+        var allowed = block.Children.Skip(statement.ChildIndex).ToList();
+        if (HasBranchTargetAfterStatement(statement))
+            return false;
+        foreach (var candidateBlock in function.Body.Blocks)
         {
-            if (node is StoreLocal s && s.Index == store.Index
-                || node is LoadLocal l && l.Index == store.Index
-                || node is LoadLocalAddress a && a.Index == store.Index)
+            foreach (var node in candidateBlock.Children)
             {
-                if (!allowed.Any(statement => IsDescendantOrSelf(node, statement)))
+                if (ReferencesLocalIncludingSharedNestedScopes(node, index)
+                    && !allowed.Any(statement => IsDescendantOrSelf(node, statement)))
+                {
                     return false;
+                }
             }
         }
         return true;
@@ -1132,6 +1180,26 @@ public sealed partial class CSharpPrinter
         return DescendantsOutsideNestedFunctions(node).Any(n => IsLocalReference(n, index));
     }
 
+    static bool ReferencesLocalIncludingSharedNestedScopes(IrNode node, int index)
+    {
+        if (node is Lambda nestedLambda && NeedsNestedLambdaScope(nestedLambda))
+            return false;
+        if (node is LocalFunctionStatement nestedLocalFunction && NeedsNestedLocalFunctionScope(nestedLocalFunction))
+            return false;
+        if (IsLocalReference(node, index))
+            return true;
+        foreach (var child in node.Children)
+        {
+            if (child is Lambda lambda && NeedsNestedLambdaScope(lambda))
+                continue;
+            if (child is LocalFunctionStatement localFunction && NeedsNestedLocalFunctionScope(localFunction))
+                continue;
+            if (ReferencesLocalIncludingSharedNestedScopes(child, index))
+                return true;
+        }
+        return false;
+    }
+
     static bool ReferencesStackSlot(IrNode node, int slot)
     {
         if (IsStackSlotReference(node, slot))
@@ -1140,7 +1208,8 @@ public sealed partial class CSharpPrinter
     }
 
     static bool IsLocalReference(IrNode node, int index)
-        => node is LoadLocal load && load.Index == index
+        => node is StoreLocal store && store.Index == index
+            || node is LoadLocal load && load.Index == index
             || node is LoadLocalAddress address && address.Index == index;
 
     static bool IsStackSlotReference(IrNode node, int slot)
@@ -1575,9 +1644,7 @@ public sealed partial class CSharpPrinter
 
             if (_newMemorySafetyRules && _unsafeDepth == 0 && NeedsUnsafeContext(statements[i]))
             {
-                int j = i + 1;
-                while (j < statements.Count && NeedsUnsafeContext(statements[j]))
-                    j++;
+                int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
                 sb.Append(pad).AppendLine("unsafe");
                 sb.Append(pad).AppendLine("{");
@@ -1600,6 +1667,47 @@ public sealed partial class CSharpPrinter
                 i++;
             }
         }
+    }
+
+    int UnsafeRunEnd(IReadOnlyList<IrNode> statements, int start)
+    {
+        int end = start + 1;
+        while (end < statements.Count && NeedsUnsafeContext(statements[end]))
+            end++;
+
+        for (int i = start; i < end; i++)
+        {
+            int requiredEnd = UnsafeRunRequiredEnd(statements, i, end);
+            if (requiredEnd > end)
+            {
+                end = requiredEnd;
+                while (end < statements.Count && NeedsUnsafeContext(statements[end]))
+                    end++;
+            }
+        }
+
+        return end;
+    }
+
+    int UnsafeRunRequiredEnd(IReadOnlyList<IrNode> statements, int declarationIndex, int searchStart)
+    {
+        return statements[declarationIndex] switch
+        {
+            StoreStackSlot store when _declaringStores.Contains(store)
+                => LastReferenceEnd(statements, searchStart, node => ReferencesStackSlot(node, store.Slot)),
+            StoreLocal store when _declaringStores.Contains(store) && HasUnsafeOperation(store.Value)
+                => LastReferenceEnd(statements, searchStart, node => ReferencesLocalIncludingSharedNestedScopes(node, store.Index)),
+            _ => searchStart,
+        };
+    }
+
+    static int LastReferenceEnd(IReadOnlyList<IrNode> statements, int start, Func<IrNode, bool> hasReference)
+    {
+        int end = start;
+        for (int i = start; i < statements.Count; i++)
+            if (hasReference(statements[i]))
+                end = i + 1;
+        return end;
     }
 
     void AppendStatementLabel(StringBuilder sb, IrNode statement, int indent)
