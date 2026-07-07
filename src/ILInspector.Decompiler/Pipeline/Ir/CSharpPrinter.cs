@@ -1576,8 +1576,12 @@ public sealed partial class CSharpPrinter
             if (_newMemorySafetyRules && _unsafeDepth == 0 && NeedsUnsafeContext(statements[i]))
             {
                 int j = i + 1;
-                while (j < statements.Count && NeedsUnsafeContext(statements[j]))
+                while (j < statements.Count
+                    && (NeedsUnsafeContext(statements[j])
+                        || UnsafeRunNeedsToReachFutureDeclarationReference(statements, i, j)))
+                {
                     j++;
+                }
                 string pad = new(' ', indent * 4);
                 sb.Append(pad).AppendLine("unsafe");
                 sb.Append(pad).AppendLine("{");
@@ -1600,6 +1604,48 @@ public sealed partial class CSharpPrinter
                 i++;
             }
         }
+    }
+
+    bool UnsafeRunNeedsToReachFutureDeclarationReference(IReadOnlyList<IrNode> statements, int start, int candidate)
+    {
+        for (int i = start; i < candidate; i++)
+        {
+            switch (statements[i])
+            {
+                case StoreStackSlot store when _declaringStores.Contains(store):
+                    for (int j = candidate; j < statements.Count; j++)
+                    {
+                        if (ReferencesStackSlot(statements[j], store.Slot))
+                            return true;
+                    }
+                    break;
+                case StoreLocal store when _declaringStores.Contains(store):
+                    for (int j = candidate; j < statements.Count; j++)
+                    {
+                        if (ReferencesLocal(statements[j], store.Index))
+                            return true;
+                    }
+                    break;
+            }
+        }
+
+        return false;
+    }
+
+    bool UnsafeRunDeclaresStackSlotReferencedBy(IReadOnlyList<IrNode> statements, int start, int candidate)
+    {
+        for (int i = start; i < candidate; i++)
+        {
+            if (statements[i] is StoreStackSlot store
+                && _declaringStores.Contains(store)
+                && HasUnsafeOperation(store.Value)
+                && ReferencesStackSlot(statements[candidate], store.Slot))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     void AppendStatementLabel(StringBuilder sb, IrNode statement, int indent)

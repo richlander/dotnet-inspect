@@ -12,6 +12,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 using LegacyFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
+using NewStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
 using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
 using ChainC = ILInspector.Decompiler.Fixtures.UnsafeChainC.Program;
 
@@ -55,6 +56,9 @@ public class UnsafeEmitterTests
 
     static string DecompileLegacy(string method) =>
         Decompile(typeof(LegacyFixtures).Assembly.Location, typeof(LegacyFixtures).FullName!, method);
+
+    static string DecompileNewStackalloc(string method) =>
+        Decompile(typeof(NewStackallocFixtures).Assembly.Location, typeof(NewStackallocFixtures).FullName!, method);
 
     static string DecompileChainB(string method) =>
         Decompile(typeof(ChainB).Assembly.Location, typeof(ChainB).FullName!, method);
@@ -251,6 +255,17 @@ public class UnsafeEmitterTests
         // `scoped` to stay clean (otherwise CS9081). A stackalloc result is
         // always scoped, so this is mode-independent correctness, not a guess.
         Assert.Contains("scoped Span<int> s", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_StackAllocPointerInitializer_HoistsStackSlotDeclaration()
+    {
+        var output = DecompileNewStackalloc(nameof(NewStackallocFixtures.StackallocPointerInitializer));
+        var block = FirstUnsafeBlockBody(output);
+
+        Assert.Contains("* S_", block);
+        Assert.Contains("stackalloc byte[", block);
+        Assert.Contains("_ = S_", block);
     }
 
     [Fact]
