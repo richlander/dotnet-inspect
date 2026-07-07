@@ -61,10 +61,15 @@ internal static class FixedArrayRaising
         if (function.Body.Blocks.Count == 0)
             return;
 
-        var entry = function.Body.Blocks[0];
-        foreach (var guard in entry.Children.OfType<IfStatement>().Where(g => g.HasElse).OrderByDescending(g => g.ChildIndex).ToList())
+        var blocks = function.Descendants.OfType<Block>()
+            .OrderByDescending(Depth)
+            .ToList();
+        foreach (var entry in blocks)
         {
-            TryRaiseStringPin(function, entry, guard, context);
+            foreach (var guard in entry.Children.OfType<IfStatement>().Where(g => g.HasElse).OrderByDescending(g => g.ChildIndex).ToList())
+            {
+                TryRaiseStringPin(function, entry, guard, context);
+            }
         }
     }
 
@@ -85,7 +90,8 @@ internal static class FixedArrayRaising
         }
 
         int pointerSlot = thenStore.Slot;
-        var pointerAliases = PointerAliases(function, entry, guard.ChildIndex, pointerSlot);
+        if (!TryPointerAliases(function, entry, guard.ChildIndex, pointerSlot, out var pointerAliases))
+            return;
 
         var unpins = entry.Children
             .OfType<StoreLocal>()
@@ -291,25 +297,31 @@ internal static class FixedArrayRaising
         => ReferencesStackSlot(node, slot)
             || node.Descendants.Any(descendant => ReferencesStackSlot(descendant, slot));
 
-    static HashSet<int> PointerAliases(IrFunction function, Block entry, int guardIndex, int pointerSlot)
+    static bool TryPointerAliases(IrFunction function, Block entry, int guardIndex, int pointerSlot, out HashSet<int> aliases)
     {
-        var aliases = new HashSet<int>();
+        aliases = [];
+        var storesAfterGuard = function.Descendants
+            .OfType<StoreLocal>()
+            .Where(store => IsAfterEntryStatement(store, entry, guardIndex))
+            .ToLookup(store => store.Index);
         bool changed;
         do
         {
             changed = false;
-            foreach (var store in function.Descendants.OfType<StoreLocal>())
+            foreach (var store in storesAfterGuard.SelectMany(group => group))
             {
-                if (!IsAfterEntryStatement(store, entry, guardIndex) || !IsPointerCarrier(store.Type))
+                if (!IsPointerCarrier(store.Type))
                     continue;
                 if (ValueReferencesPinnedPointer(store.Value, pointerSlot, aliases)
                     && aliases.Add(store.Index))
                 {
+                    if (storesAfterGuard[store.Index].Count() > 1)
+                        return false;
                     changed = true;
                 }
             }
         } while (changed);
-        return aliases;
+        return true;
     }
 
     static bool IsAfterEntryStatement(IrNode node, Block entry, int guardIndex)
@@ -318,6 +330,14 @@ internal static class FixedArrayRaising
             if (ReferenceEquals(current.Parent, entry))
                 return current.ChildIndex > guardIndex;
         return false;
+    }
+
+    static int Depth(IrNode node)
+    {
+        int depth = 0;
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            depth++;
+        return depth;
     }
 
     static bool IsPointerCarrier(TypeRef type)

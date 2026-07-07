@@ -795,6 +795,26 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StringPinningRaisesPinsInsideNestedBlocks()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticNestedBlockStringPin()).Output ?? "";
+
+        Assert.Contains("if (true)", body);
+        Assert.Contains("fixed (char* V_", body);
+        Assert.DoesNotContain("pinned", body);
+        AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
+    }
+
+    [Fact]
+    public void Rung6StringPinningAliasOverwriteFailsClosed()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: true, includeUnpin: false, overwriteAlias: true)).Output ?? "";
+
+        Assert.DoesNotContain("fixed (char* ", body);
+        Assert.Contains("pinned ref char", body);
+    }
+
+    [Fact]
     public void Rung6StackallocInitializerResiduals_DegradeHonestly()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
@@ -818,7 +838,8 @@ public class LadderRung6GateTests
         bool includeUnpin,
         bool derivedAlias = false,
         bool collideStackSlotName = false,
-        bool sourceLocal = false)
+        bool sourceLocal = false,
+        bool overwriteAlias = false)
     {
         var charType = TypeRef.CoreLib("System", "Char");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -867,6 +888,8 @@ public class LadderRung6GateTests
                     new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, basePointer, new Constant(1, intType)))
                 : basePointer;
             block.Add(new StoreLocal(1, charPointer, aliasValue));
+            if (overwriteAlias)
+                block.Add(new StoreLocal(1, charPointer, new ILInspector.Decompiler.Pipeline.Convert(charPointer, isChecked: false, isUnsigned: false, new Constant(0, intType))));
             block.Add(new Return(new LoadIndirect(charType, new LoadLocal(1, charPointer))));
         }
         else
@@ -890,6 +913,35 @@ public class LadderRung6GateTests
         if (collideStackSlotName)
             function.LocalNames = ImmutableArray.Create<string?>("S_0");
         return function;
+    }
+
+    static IrFunction SyntheticNestedBlockStringPin()
+    {
+        var inner = SyntheticStringPin(aliasPointerLocal: false, includeUnpin: false);
+        var nestedStatements = inner.Body.Blocks[0].Children.ToList();
+        foreach (var child in nestedStatements)
+            child.Detach();
+        var outerThen = new Block(1);
+        foreach (var child in nestedStatements)
+            outerThen.Add(child);
+
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var block = new Block(0);
+        block.Add(new IfStatement(new Constant(true, boolType), outerThen, null));
+        block.Add(new Return(new Constant(0, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "StringPin"),
+            new MethodSignature(intType, [new Parameter("value", stringType)], HasThis: false, GenericParameterCount: 0),
+            inner.Locals,
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
     }
 
     static IrFunction SyntheticNestedStringPins()
