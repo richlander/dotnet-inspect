@@ -2688,6 +2688,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SingleOverload_SourceCategory_IncludesSourceDiff()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandExecutionSourceDiffFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CommandExecutionSourceDiffFixture.AddOne), "-S", "@Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## Annotated Source", output);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("## IL", output);
+    }
+
+    [Fact]
     public async Task Member_NonPublicMethod_UnderIncludeAll_RendersBodyAndIL()
     {
         // #1323: a non-public method selected under --all must render its body and IL, not

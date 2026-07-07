@@ -1904,4 +1904,20 @@ public class SectionPipelineTests
             ],
             categories[SectionCategoryNames.Source]);
     }
+
+    [Fact]
+    public void ApiMemberOverloadPipeline_SourceCategory_MapsToSourceViews()
+    {
+        var categories = ApiMemberOverloadSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal(
+            [
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.OriginalSource,
+                SectionNames.SourceDiff,
+                SectionNames.IL
+            ],
+            categories[SectionCategoryNames.Source]);
+    }
 }

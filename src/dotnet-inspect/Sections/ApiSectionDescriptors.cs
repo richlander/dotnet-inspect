@@ -527,7 +527,13 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.Facts>();
+            .Add<ApiMemberSectionDescriptors.Facts>()
+            .AddCategory(SectionCategoryNames.Source,
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.OriginalSource,
+                SectionNames.SourceDiff,
+                SectionNames.IL);
     }
 
     private static bool HasSingleMethodLikeMember(ApiType model)
