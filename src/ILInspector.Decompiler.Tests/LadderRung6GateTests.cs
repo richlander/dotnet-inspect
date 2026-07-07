@@ -745,6 +745,31 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StringPinningKeepsDerivedPointerAliasInsideFixed()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: true, includeUnpin: false, derivedAlias: true)).Output ?? "";
+
+        Assert.Contains("fixed (char* S_0 = value)", body);
+        Assert.Contains("return *", body);
+        Assert.True(
+            body.IndexOf("return *", StringComparison.Ordinal) < body.LastIndexOf('}'),
+            "derived pointer dereference must stay inside the fixed region:\n" + body);
+        AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
+    }
+
+    [Fact]
+    public void Rung6StringPinningUsesResolvedStackSlotNameInFixedHeader()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: false, includeUnpin: false, collideStackSlotName: true)).Output ?? "";
+
+        Assert.Contains("fixed (char* S_0_1 = value)", body);
+        Assert.Contains("(char*)S_0_1", body);
+        Assert.DoesNotContain("fixed (char* S_0 = value)", body);
+        Assert.DoesNotContain("nuint S_0_1;", body);
+        AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
+    }
+
+    [Fact]
     public void Rung6StackallocInitializerResiduals_DegradeHonestly()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
@@ -763,7 +788,11 @@ public class LadderRung6GateTests
         }
     }
 
-    static IrFunction SyntheticStringPin(bool aliasPointerLocal, bool includeUnpin)
+    static IrFunction SyntheticStringPin(
+        bool aliasPointerLocal,
+        bool includeUnpin,
+        bool derivedAlias = false,
+        bool collideStackSlotName = false)
     {
         var charType = TypeRef.CoreLib("System", "Char");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -792,7 +821,15 @@ public class LadderRung6GateTests
         block.Add(new IfStatement(new LogicalNot(new LoadArgument(0, "value", stringType)), thenArm, elseArm));
         if (aliasPointerLocal)
         {
-            block.Add(new StoreLocal(1, charPointer, new ILInspector.Decompiler.Pipeline.Convert(charPointer, isChecked: false, isUnsigned: false, new LoadStackSlot(0, nativeUInt))));
+            var basePointer = new ILInspector.Decompiler.Pipeline.Convert(charPointer, isChecked: false, isUnsigned: false, new LoadStackSlot(0, nativeUInt));
+            var aliasValue = derivedAlias
+                ? new ILInspector.Decompiler.Pipeline.Convert(
+                    charPointer,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, basePointer, new Constant(1, intType)))
+                : basePointer;
+            block.Add(new StoreLocal(1, charPointer, aliasValue));
             block.Add(new Return(new LoadIndirect(charType, new LoadLocal(1, charPointer))));
         }
         else
@@ -804,7 +841,7 @@ public class LadderRung6GateTests
 
         var container = new BlockContainer();
         container.Add(block);
-        return new IrFunction(
+        var function = new IrFunction(
             "M",
             TypeRef.CoreLib("Synthetic", "StringPin"),
             new MethodSignature(intType, [new Parameter("value", stringType)], HasThis: false, GenericParameterCount: 0),
@@ -813,6 +850,9 @@ public class LadderRung6GateTests
         {
             UsesUpdatedMemorySafetyRules = true,
         };
+        if (collideStackSlotName)
+            function.LocalNames = ImmutableArray.Create<string?>("S_0");
+        return function;
     }
 
     static void AssertExactCompileBack(string assemblyPath, string typeName, string methodName)

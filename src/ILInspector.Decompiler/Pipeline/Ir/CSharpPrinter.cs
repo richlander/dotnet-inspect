@@ -333,13 +333,6 @@ public sealed partial class CSharpPrinter
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
-        foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
-        {
-            if (fixedNode.LocalIsStackSlot)
-                _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
-            else
-                _fixedLocals.Add(fixedNode.LocalIndex);
-        }
         foreach (var usingNode in DescendantsOutsideNestedFunctions(function).OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
         foreach (var foreachNode in DescendantsOutsideNestedFunctions(function).OfType<ForeachStatement>())
@@ -358,6 +351,13 @@ public sealed partial class CSharpPrinter
         CollectDeclaringStores(function);
         CollectInlineReceiverTempStores(function);
         CollectStackSlotNames(function);
+        foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
+        {
+            if (fixedNode.LocalIsStackSlot)
+                _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
+            else
+                _fixedLocals.Add(fixedNode.LocalIndex);
+        }
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
             _facts.LocalNames = [.. Enumerable.Range(0, function.Locals.Length).Select(LocalName)];
@@ -912,7 +912,11 @@ public sealed partial class CSharpPrinter
 
     string FixedLocalName(Fixed fixedStatement)
         => fixedStatement.LocalIsStackSlot
-            ? $"S_{fixedStatement.LocalIndex}"
+            ? _stackSlotNames.TryGetValue(new StackSlotRenderKey(
+                    fixedStatement.LocalIndex,
+                    StackSlotTypeKey(StackSlotRenderType(fixedStatement.LocalIndex, fixedStatement.LocalStackSlotType))), out var name)
+                ? name
+                : $"S_{fixedStatement.LocalIndex}"
             : LocalName(fixedStatement.LocalIndex);
 
     IReadOnlySet<string> CurrentScopeNames()

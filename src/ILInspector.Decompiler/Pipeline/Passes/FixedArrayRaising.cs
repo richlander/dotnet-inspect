@@ -85,12 +85,7 @@ internal static class FixedArrayRaising
         }
 
         int pointerSlot = thenStore.Slot;
-        var pointerAliases = entry.Children
-            .OfType<StoreLocal>()
-            .Where(store => store.ChildIndex > guard.ChildIndex
-                && PointerAliasLocal(store, pointerSlot))
-            .Select(store => store.Index)
-            .ToHashSet();
+        var pointerAliases = PointerAliases(function, entry, guard.ChildIndex, pointerSlot);
 
         var unpins = entry.Children
             .OfType<StoreLocal>()
@@ -136,7 +131,14 @@ internal static class FixedArrayRaising
             bodyBlock.Add(stmt);
         body.Add(bodyBlock);
 
-        var fixedStatement = new Fixed(byRef.ElementType!, pointerSlot, (IrExpression)source.Clone(), body, sourceIsAddress: false, localIsStackSlot: true);
+        var fixedStatement = new Fixed(
+            byRef.ElementType!,
+            pointerSlot,
+            (IrExpression)source.Clone(),
+            body,
+            sourceIsAddress: false,
+            localIsStackSlot: true,
+            localStackSlotType: thenStore.Value.ResultType);
         context.Stepper.StepOver("raise pinned string to fixed statement", guard);
         guard.ReplaceWith(fixedStatement);
     }
@@ -278,8 +280,38 @@ internal static class FixedArrayRaising
         => ReferencesStackSlot(node, slot)
             || node.Descendants.Any(descendant => ReferencesStackSlot(descendant, slot));
 
-    static bool PointerAliasLocal(StoreLocal store, int pointerSlot)
-        => StripConverts(store.Value) is LoadStackSlot load && load.Slot == pointerSlot;
+    static HashSet<int> PointerAliases(IrFunction function, Block entry, int guardIndex, int pointerSlot)
+    {
+        var aliases = new HashSet<int>();
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var store in function.Descendants.OfType<StoreLocal>())
+            {
+                if (!IsAfterEntryStatement(store, entry, guardIndex) || store.Type.Kind != TypeRefKind.Pointer)
+                    continue;
+                if (ValueReferencesPinnedPointer(store.Value, pointerSlot, aliases)
+                    && aliases.Add(store.Index))
+                {
+                    changed = true;
+                }
+            }
+        } while (changed);
+        return aliases;
+    }
+
+    static bool IsAfterEntryStatement(IrNode node, Block entry, int guardIndex)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+            if (ReferenceEquals(current.Parent, entry))
+                return current.ChildIndex > guardIndex;
+        return false;
+    }
+
+    static bool ValueReferencesPinnedPointer(IrNode value, int pointerSlot, IReadOnlySet<int> aliases)
+        => ReferencesPinnedPointer(value, pointerSlot, aliases)
+            || value.Descendants.Any(descendant => ReferencesPinnedPointer(descendant, pointerSlot, aliases));
 
     static bool ReferencesPointerAlias(IrNode node, IReadOnlySet<int> aliases) => node switch
     {

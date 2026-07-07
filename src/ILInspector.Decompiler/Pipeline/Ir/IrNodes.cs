@@ -809,12 +809,13 @@ public sealed class Lock : IrNode
 /// </summary>
 public sealed class Fixed : IrNode
 {
-    public Fixed(TypeRef elementType, int localIndex, IrExpression pinSource, BlockContainer body, bool sourceIsAddress = true, bool localIsStackSlot = false)
+    public Fixed(TypeRef elementType, int localIndex, IrExpression pinSource, BlockContainer body, bool sourceIsAddress = true, bool localIsStackSlot = false, TypeRef? localStackSlotType = null)
     {
         ElementType = elementType;
         LocalIndex = localIndex;
         SourceIsAddress = sourceIsAddress;
         LocalIsStackSlot = localIsStackSlot;
+        LocalStackSlotType = localStackSlotType;
         AddChild(pinSource);
         AddChild(body);
     }
@@ -827,6 +828,9 @@ public sealed class Fixed : IrNode
 
     /// <summary>True when <see cref="LocalIndex"/> names a synthesized stack slot rather than a metadata local.</summary>
     public bool LocalIsStackSlot { get; }
+
+    /// <summary>The stack-slot render type used to resolve <see cref="LocalIndex"/>'s emitted name when <see cref="LocalIsStackSlot"/> is true.</summary>
+    public TypeRef? LocalStackSlotType { get; }
 
     /// <summary>
     /// True for the managed-reference pin (<c>fixed (T* p = &amp;place)</c>), where the
