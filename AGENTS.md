@@ -65,6 +65,25 @@ Console.WriteLine($"Found {items.Count} items");
 
 ## Building and Testing
 
+Repository development tracks .NET 11 daily SDKs so decompiler work can follow
+compiler-produced shapes before monthly previews. Published tool users are not
+affected by this repo-development requirement.
+
+Use `dotnetup` for local SDK acquisition:
+
+```bash
+curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
+bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
+mkdir -p "$HOME/.dotnetup/dotnet"
+dotnetup sdk install 11.0-daily \
+  --install-path "$HOME/.dotnetup/dotnet" \
+  --set-default-install false \
+  --interactive false
+eval "$(dotnetup print-env-script --shell bash --dotnet-install-path "$HOME/.dotnetup/dotnet")"
+```
+
+Verify `dotnet --version` reports the dotnetup-managed daily SDK before building.
+
 Build the normal product/test/fixture graph:
 
 ```bash

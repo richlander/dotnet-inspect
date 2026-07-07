@@ -15,6 +15,45 @@ Run without installing:
 dnx dotnet-inspect -y -- <command>
 ```
 
+## Repository development SDK
+
+Published tool users can install or run `dotnet-inspect` with the commands
+above. Contributors building this repository should use a .NET 11 daily SDK.
+The decompiler tracks compiler-produced C# shapes, and some correctness work
+needs daily compiler/runtime packs before the next public preview ships.
+
+Use `dotnetup` to install and track the daily SDK:
+
+```bash
+curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
+bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
+
+mkdir -p "$HOME/.dotnetup/dotnet"
+dotnetup sdk install 11.0-daily \
+  --install-path "$HOME/.dotnetup/dotnet" \
+  --set-default-install false \
+  --interactive false
+```
+
+Configure the shell through dotnetup's supported environment script:
+
+```bash
+eval "$(dotnetup print-env-script --shell bash --dotnet-install-path "$HOME/.dotnetup/dotnet")"
+```
+
+Verify the repo SDK:
+
+```bash
+command -v dotnet
+dotnet --version
+dotnetup list
+```
+
+The Deep Inspect `nightly` lane uses the same pattern. It restores with a
+temporary NuGet config that includes both the .NET 11 daily feed and nuget.org:
+most projects target the nightly `net11.0` SDK, while a few fixture projects
+still target stable `net10.0` packs.
+
 ## What it inspects
 
 | Source | Examples | Notes |
