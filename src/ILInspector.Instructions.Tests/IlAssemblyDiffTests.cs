@@ -7,6 +7,15 @@ namespace ILInspector.Instructions.Tests;
 
 public class IlAssemblyDiffTests
 {
+    public static int MemberA() => 1;
+
+    public static int MemberB() => 2;
+
+    public abstract class Bodyless
+    {
+        public abstract int Missing();
+    }
+
     [Fact]
     public void Compare_SameAssembly_HasNoPairChangesOrFailures()
     {
@@ -68,5 +77,88 @@ public class IlAssemblyDiffTests
 
         Assert.True(oldStream.CanRead);
         Assert.True(newStream.CanRead);
+    }
+
+    [Fact]
+    public void CompareMembers_SameMethod_IsExactAndPreservesDefaultSubject()
+    {
+        using var stream = File.OpenRead(typeof(IlAssemblyDiffTests).Assembly.Location);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var method = FindMethod(reader, nameof(MemberA));
+
+        var result = IlAssemblyDiff.CompareMembers(pe, reader, method, pe, reader, method);
+
+        Assert.True(result.Diff.IsExact);
+        Assert.Equal(result.Old.Identity, result.Old.Label);
+        Assert.Equal(result.Old.Identity, result.New.Identity);
+        Assert.Contains(nameof(MemberA), result.Old.Identity, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareMembers_DifferentMethods_ReturnsChangedBodyDiffAndCustomLabels()
+    {
+        using var stream = File.OpenRead(typeof(IlAssemblyDiffTests).Assembly.Location);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        var result = IlAssemblyDiff.CompareMembers(
+            pe,
+            reader,
+            FindMethod(reader, nameof(MemberA)),
+            pe,
+            reader,
+            FindMethod(reader, nameof(MemberB)),
+            oldLabel: "old-member",
+            newLabel: "new-member");
+
+        Assert.False(result.Diff.IsExact);
+        Assert.NotEmpty(result.Diff.Rows);
+        Assert.Equal("old-member", result.Old.Label);
+        Assert.Equal("new-member", result.New.Label);
+        Assert.Contains(nameof(MemberA), result.Old.Identity, StringComparison.Ordinal);
+        Assert.Contains(nameof(MemberB), result.New.Identity, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareMembers_BodylessOldMethod_ReturnsOldBodyMissing()
+    {
+        using var stream = File.OpenRead(typeof(IlAssemblyDiffTests).Assembly.Location);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        var result = IlAssemblyDiff.CompareMembers(
+            pe,
+            reader,
+            FindMethod(reader, nameof(Bodyless), nameof(Bodyless.Missing)),
+            pe,
+            reader,
+            FindMethod(reader, nameof(MemberA)));
+
+        var failure = Assert.Single(result.Diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.OldBodyMissing, failure.Kind);
+        Assert.Equal("old", failure.Side);
+    }
+
+    static MethodDefinitionHandle FindMethod(MetadataReader reader, string methodName)
+        => FindMethod(reader, nameof(IlAssemblyDiffTests), methodName);
+
+    static MethodDefinitionHandle FindMethod(MetadataReader reader, string typeName, string methodName)
+    {
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) == methodName)
+                    return methodHandle;
+            }
+        }
+
+        throw new InvalidOperationException($"{typeName}.{methodName} not found.");
     }
 }
