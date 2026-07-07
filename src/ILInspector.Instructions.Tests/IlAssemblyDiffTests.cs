@@ -26,4 +26,34 @@ public class IlAssemblyDiffTests
         Assert.Empty(result.TopOpcodeFamilies);
         Assert.Empty(result.Examples);
     }
+
+    [Fact]
+    public void CompareFiles_SameAssembly_PreservesInputPaths()
+    {
+        var assemblyPath = typeof(IlAssemblyDiffTests).Assembly.Location;
+
+        var pair = IlAssemblyDiff.CompareFiles(assemblyPath, assemblyPath, maxExamples: 3);
+
+        Assert.Equal(assemblyPath, pair.Old);
+        Assert.Equal(assemblyPath, pair.New);
+        Assert.True(pair.Diff.ComparedBodyCount > 0);
+        Assert.Equal(0, pair.Diff.ChangedBodyCount);
+        Assert.Equal(0, pair.Diff.FailureCount);
+    }
+
+    [Fact]
+    public void CompareStreams_SameAssembly_PreservesSourceNames()
+    {
+        var assemblyPath = typeof(IlAssemblyDiffTests).Assembly.Location;
+        using var oldStream = File.OpenRead(assemblyPath);
+        using var newStream = File.OpenRead(assemblyPath);
+
+        var pair = IlAssemblyDiff.CompareStreams(oldStream, "old.dll", newStream, "new.dll", maxExamples: 3);
+
+        Assert.Equal("old.dll", pair.Old);
+        Assert.Equal("new.dll", pair.New);
+        Assert.True(pair.Diff.ComparedBodyCount > 0);
+        Assert.Equal(0, pair.Diff.ChangedBodyCount);
+        Assert.Equal(0, pair.Diff.FailureCount);
+    }
 }

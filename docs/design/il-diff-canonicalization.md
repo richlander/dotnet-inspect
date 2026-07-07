@@ -8,9 +8,12 @@ amount of canonicalization, then projects producer-owned rows through
 `IlAssemblyDiff` is the assembly/member producer above that substrate. It owns
 method identity for pairing bodies, runs self-diff and pair-diff checks, and
 emits summary counts, failure buckets, operation-family buckets, and typed
-example diffs. Harnesses own rendering and Markout/card projection; they should
-consume `IlAssemblyDiffResult` rather than reimplementing method matching or
-bucket wording.
+example diffs. Use `CompareFiles` / `CompareStreams` when the caller starts from
+assembly paths or streams; use the lower-level `Compare` overload only when the
+caller already owns `PEReader` / `MetadataReader` instances. Harnesses own
+rendering and Markout/card projection; they should consume
+`IlAssemblyDiffResult` / `IlAssemblyDiffPairResult` rather than reimplementing
+method matching or bucket wording.
 
 The boundary is intentionally narrow: the diff answers "which decoded IL
 operations changed?" It does not claim source equivalence, semantic equivalence,

@@ -20,11 +20,47 @@ public sealed record IlAssemblyDiffResult(
     ImmutableArray<IlDiffBucket> TopOpcodeFamilies,
     ImmutableArray<IlAssemblyDiffExample> Examples);
 
+public sealed record IlAssemblyDiffPairResult(
+    string Old,
+    string New,
+    IlAssemblyDiffResult Diff);
+
 /// <summary>
 /// Product-owned IL/body diff producer over two metadata-backed assemblies.
 /// </summary>
 public static class IlAssemblyDiff
 {
+    public static IlAssemblyDiffPairResult CompareFiles(
+        string oldPath,
+        string newPath,
+        int maxExamples = 5)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(oldPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newPath);
+
+        using var oldStream = File.OpenRead(oldPath);
+        using var newStream = File.OpenRead(newPath);
+        return CompareStreams(oldStream, oldPath, newStream, newPath, maxExamples);
+    }
+
+    public static IlAssemblyDiffPairResult CompareStreams(
+        Stream oldStream,
+        string oldName,
+        Stream newStream,
+        string newName,
+        int maxExamples = 5)
+    {
+        ArgumentNullException.ThrowIfNull(oldStream);
+        ArgumentException.ThrowIfNullOrWhiteSpace(oldName);
+        ArgumentNullException.ThrowIfNull(newStream);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+
+        using var oldPe = new PEReader(oldStream);
+        using var newPe = new PEReader(newStream);
+        var result = Compare(oldPe, oldPe.GetMetadataReader(), newPe, newPe.GetMetadataReader(), maxExamples);
+        return new IlAssemblyDiffPairResult(oldName, newName, result);
+    }
+
     public static IlAssemblyDiffResult Compare(
         PEReader oldPe,
         MetadataReader oldReader,
