@@ -33,6 +33,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// is unpinned by a single later <c>pin = null</c> store, and every read of the
 /// pinned slot lives inside the diamond (its length guard and element address).
 /// Anything else leaves the method flat.</para>
+///
+/// <para>String pinning lowers differently: the guard writes the derived pointer
+/// to a stack slot, and the non-null arm first stores
+/// <c>value.GetPinnableReference()</c> into a <c>pinned char&amp;</c> local. The
+/// same language spelling is <c>fixed (char* p = value)</c>, so this pass also
+/// recognizes that narrower string guard and makes the stack slot the fixed
+/// pointer variable.</para>
 /// </summary>
 internal static class FixedArrayRaising
 {
@@ -45,6 +52,104 @@ internal static class FixedArrayRaising
 
         foreach (var slot in pinnedArraySlots)
             TryRaise(function, slot, context);
+
+        RaiseStringPins(function, context);
+    }
+
+    static void RaiseStringPins(IrFunction function, PassContext context)
+    {
+        if (function.Body.Blocks.Count == 0)
+            return;
+
+        var blocks = function.Descendants.OfType<Block>()
+            .OrderByDescending(Depth)
+            .ToList();
+        foreach (var entry in blocks)
+        {
+            foreach (var guard in entry.Children.OfType<IfStatement>().Where(g => g.HasElse).OrderByDescending(g => g.ChildIndex).ToList())
+            {
+                TryRaiseStringPin(function, entry, guard, context);
+            }
+        }
+    }
+
+    static void TryRaiseStringPin(IrFunction function, Block entry, IfStatement guard, PassContext context)
+    {
+        if (guard.Then.Children is not [StoreStackSlot thenStore]
+            || guard.Else is not { Children: [StoreLocal pinStore, StoreStackSlot elseStore] }
+            || thenStore.Slot != elseStore.Slot
+            || !IsNullPointer(thenStore.Value)
+            || function.Locals[pinStore.Index] is not { Kind: TypeRefKind.Pinned, ElementType: { Kind: TypeRefKind.ByRef } byRef }
+            || PinSource(pinStore.Value) is not { } source
+            || !IsString(source.ResultType)
+            || !ConditionNullChecksSource(guard.Condition, source)
+            || StripConverts(elseStore.Value) is not LoadLocal pinLoad
+            || pinLoad.Index != pinStore.Index)
+        {
+            return;
+        }
+
+        int pointerSlot = thenStore.Slot;
+        if (!TryPointerAliases(function, entry, guard.ChildIndex, pointerSlot, out var pointerAliases))
+            return;
+
+        var unpins = entry.Children
+            .OfType<StoreLocal>()
+            .Where(store => store.Index == pinStore.Index && store != pinStore)
+            .ToList();
+        if (unpins.Count > 1 || unpins.Any(store => !IsUnpin(store)))
+            return;
+        var unpin = unpins.SingleOrDefault();
+
+        int bodyEnd = unpin?.ChildIndex - 1 ?? LastPointerUseIndex(entry, guard.ChildIndex + 1, pointerSlot, pointerAliases);
+        if (bodyEnd <= guard.ChildIndex)
+            return;
+
+        var bodyStmts = entry.Children
+            .Where(c => c.ChildIndex > guard.ChildIndex && c.ChildIndex <= bodyEnd)
+            .ToList();
+        if (bodyStmts.Count == 0)
+            return;
+
+        foreach (var node in function.Descendants)
+        {
+            if (node is StoreLocal store && store.Index == pinStore.Index && store != pinStore && store != unpin)
+                return;
+            if (node is LoadLocal load && load.Index == pinStore.Index && load != pinLoad)
+                return;
+            if (node is StoreStackSlot stackStore && stackStore.Slot == pointerSlot && stackStore != thenStore && stackStore != elseStore)
+                return;
+            if (ReferencesPinnedPointer(node, pointerSlot, pointerAliases)
+                && node != thenStore && node != elseStore
+                && !bodyStmts.Any(stmt => ReferenceOwnership.IsInside(node, stmt)))
+            {
+                return;
+            }
+        }
+
+        foreach (var stmt in bodyStmts)
+            stmt.Detach();
+        unpin?.Detach();
+
+        var body = new BlockContainer();
+        var bodyBlock = new Block(entry.StartOffset);
+        foreach (var stmt in bodyStmts)
+            bodyBlock.Add(stmt);
+        body.Add(bodyBlock);
+
+        var pointerType = TypeRef.Pointer(byRef.ElementType!);
+        int fixedLocal = function.AddLocal(pointerType);
+        ReplacePinnedPointerLoads(body, pointerSlot, pointerType, fixedLocal);
+
+        var fixedStatement = new Fixed(
+            byRef.ElementType!,
+            fixedLocal,
+            (IrExpression)source.Clone(),
+            body,
+            sourceIsAddress: false,
+            requiresUnsafeContext: true);
+        context.Stepper.StepOver("raise pinned string to fixed statement", guard);
+        guard.ReplaceWith(fixedStatement);
     }
 
     static void TryRaise(IrFunction function, int pin, PassContext context)
@@ -155,6 +260,130 @@ internal static class FixedArrayRaising
 
     static bool IsNullStore(StoreLocal store)
         => StripConverts(store.Value) is Constant { Value: null or 0 or 0L };
+
+    static bool IsUnpin(StoreLocal store)
+        => StripConverts(store.Value) is Constant { Value: null or 0 or 0L };
+
+    static IrExpression? PinSource(IrExpression value)
+        => value is Call { Callee.Name: "GetPinnableReference", Callee.HasThis: true, Arguments: [var source] }
+            ? source
+            : null;
+
+    static bool IsString(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "String" };
+
+    static bool ConditionNullChecksSource(IrExpression condition, IrExpression source)
+        => condition is LogicalNot { Operand: { } nullChecked }
+            && SameLoadPlace(nullChecked, source);
+
+    static bool SameLoadPlace(IrExpression left, IrExpression right)
+        => left switch
+        {
+            LoadArgument leftArgument when right is LoadArgument rightArgument
+                => leftArgument.Index == rightArgument.Index && leftArgument.Name == rightArgument.Name,
+            LoadLocal leftLocal when right is LoadLocal rightLocal
+                => leftLocal.Index == rightLocal.Index,
+            _ => false,
+        };
+
+    static bool ReferencesStackSlot(IrNode node, int slot) => node switch
+    {
+        LoadStackSlot load => load.Slot == slot,
+        StoreStackSlot store => store.Slot == slot,
+        _ => false,
+    };
+
+    static bool StatementReferencesStackSlot(IrNode node, int slot)
+        => ReferencesStackSlot(node, slot)
+            || node.Descendants.Any(descendant => ReferencesStackSlot(descendant, slot));
+
+    static bool TryPointerAliases(IrFunction function, Block entry, int guardIndex, int pointerSlot, out HashSet<int> aliases)
+    {
+        aliases = [];
+        var storesAfterGuard = function.Descendants
+            .OfType<StoreLocal>()
+            .Where(store => IsAfterEntryStatement(store, entry, guardIndex))
+            .ToLookup(store => store.Index);
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var store in storesAfterGuard.SelectMany(group => group))
+            {
+                if (!IsPointerCarrier(store.Type))
+                    continue;
+                if (ValueReferencesPinnedPointer(store.Value, pointerSlot, aliases)
+                    && aliases.Add(store.Index))
+                {
+                    if (storesAfterGuard[store.Index].Count() > 1)
+                        return false;
+                    changed = true;
+                }
+            }
+        } while (changed);
+        return true;
+    }
+
+    static bool IsAfterEntryStatement(IrNode node, Block entry, int guardIndex)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+            if (ReferenceEquals(current.Parent, entry))
+                return current.ChildIndex > guardIndex;
+        return false;
+    }
+
+    static int Depth(IrNode node)
+    {
+        int depth = 0;
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            depth++;
+        return depth;
+    }
+
+    static bool IsPointerCarrier(TypeRef type)
+        => type.Kind == TypeRefKind.Pointer
+            || type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "IntPtr" or "UIntPtr" };
+
+    static bool ValueReferencesPinnedPointer(IrNode value, int pointerSlot, IReadOnlySet<int> aliases)
+        => ReferencesPinnedPointer(value, pointerSlot, aliases)
+            || value.Descendants.Any(descendant => ReferencesPinnedPointer(descendant, pointerSlot, aliases));
+
+    static bool ReferencesPointerAlias(IrNode node, IReadOnlySet<int> aliases) => node switch
+    {
+        LoadLocal load => aliases.Contains(load.Index),
+        LoadLocalAddress address => aliases.Contains(address.Index),
+        StoreLocal store => aliases.Contains(store.Index),
+        _ => false,
+    };
+
+    static bool ReferencesPinnedPointer(IrNode node, int pointerSlot, IReadOnlySet<int> aliases)
+        => ReferencesStackSlot(node, pointerSlot) || ReferencesPointerAlias(node, aliases);
+
+    static bool StatementReferencesPinnedPointer(IrNode node, int pointerSlot, IReadOnlySet<int> aliases)
+        => ReferencesPinnedPointer(node, pointerSlot, aliases)
+            || node.Descendants.Any(descendant => ReferencesPinnedPointer(descendant, pointerSlot, aliases));
+
+    static int LastPointerUseIndex(Block entry, int start, int pointerSlot, IReadOnlySet<int> aliases)
+    {
+        int last = start - 1;
+        foreach (var child in entry.Children.Where(c => c.ChildIndex >= start))
+            if (StatementReferencesPinnedPointer(child, pointerSlot, aliases))
+                last = child.ChildIndex;
+        return last;
+    }
+
+    static void ReplacePinnedPointerLoads(IrNode node, int pointerSlot, TypeRef pointerType, int fixedLocal)
+    {
+        for (int i = 0; i < node.Children.Count; i++)
+        {
+            if (node.Children[i] is LoadStackSlot load && load.Slot == pointerSlot)
+            {
+                node.SetChild(i, new LoadLocal(fixedLocal, pointerType));
+                continue;
+            }
+            ReplacePinnedPointerLoads(node.Children[i], pointerSlot, pointerType, fixedLocal);
+        }
+    }
 
     static bool ReferencesPointerSlot(IrNode node, int pointerSlot) => node switch
     {

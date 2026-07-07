@@ -809,11 +809,14 @@ public sealed class Lock : IrNode
 /// </summary>
 public sealed class Fixed : IrNode
 {
-    public Fixed(TypeRef elementType, int localIndex, IrExpression pinSource, BlockContainer body, bool sourceIsAddress = true)
+    public Fixed(TypeRef elementType, int localIndex, IrExpression pinSource, BlockContainer body, bool sourceIsAddress = true, bool localIsStackSlot = false, TypeRef? localStackSlotType = null, bool requiresUnsafeContext = false)
     {
         ElementType = elementType;
         LocalIndex = localIndex;
         SourceIsAddress = sourceIsAddress;
+        LocalIsStackSlot = localIsStackSlot;
+        LocalStackSlotType = localStackSlotType;
+        RequiresUnsafeContext = requiresUnsafeContext;
         AddChild(pinSource);
         AddChild(body);
     }
@@ -823,6 +826,15 @@ public sealed class Fixed : IrNode
 
     /// <summary>The pinned local slot that becomes the <c>fixed</c> pointer variable.</summary>
     public int LocalIndex { get; }
+
+    /// <summary>True when <see cref="LocalIndex"/> names a synthesized stack slot rather than a metadata local.</summary>
+    public bool LocalIsStackSlot { get; }
+
+    /// <summary>The stack-slot render type used to resolve <see cref="LocalIndex"/>'s emitted name when <see cref="LocalIsStackSlot"/> is true.</summary>
+    public TypeRef? LocalStackSlotType { get; }
+
+    /// <summary>True when this fixed statement must be wrapped in an explicit unsafe context under updated memory-safety rules.</summary>
+    public bool RequiresUnsafeContext { get; }
 
     /// <summary>
     /// True for the managed-reference pin (<c>fixed (T* p = &amp;place)</c>), where the
