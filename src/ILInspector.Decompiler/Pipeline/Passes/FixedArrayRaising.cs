@@ -62,7 +62,7 @@ internal static class FixedArrayRaising
             return;
 
         var entry = function.Body.Blocks[0];
-        foreach (var guard in entry.Children.OfType<IfStatement>().Where(g => g.HasElse).ToList())
+        foreach (var guard in entry.Children.OfType<IfStatement>().Where(g => g.HasElse).OrderByDescending(g => g.ChildIndex).ToList())
         {
             TryRaiseStringPin(function, entry, guard, context);
         }
@@ -264,10 +264,18 @@ internal static class FixedArrayRaising
         => type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "String" };
 
     static bool ConditionNullChecksSource(IrExpression condition, IrExpression source)
-        => condition is LogicalNot { Operand: LoadArgument nullChecked }
-            && source is LoadArgument pinSource
-            && nullChecked.Index == pinSource.Index
-            && nullChecked.Name == pinSource.Name;
+        => condition is LogicalNot { Operand: { } nullChecked }
+            && SameLoadPlace(nullChecked, source);
+
+    static bool SameLoadPlace(IrExpression left, IrExpression right)
+        => left switch
+        {
+            LoadArgument leftArgument when right is LoadArgument rightArgument
+                => leftArgument.Index == rightArgument.Index && leftArgument.Name == rightArgument.Name,
+            LoadLocal leftLocal when right is LoadLocal rightLocal
+                => leftLocal.Index == rightLocal.Index,
+            _ => false,
+        };
 
     static bool ReferencesStackSlot(IrNode node, int slot) => node switch
     {

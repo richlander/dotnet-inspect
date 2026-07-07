@@ -770,6 +770,32 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StringPinningSupportsLocalSource()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticStringPin(aliasPointerLocal: false, includeUnpin: false, sourceLocal: true)).Output ?? "";
+
+        Assert.Contains("string V_1 = value;", body);
+        Assert.Contains("fixed (char* S_0 = V_1)", body);
+        Assert.DoesNotContain("pinned", body);
+        AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
+    }
+
+    [Fact]
+    public void Rung6StringPinningRaisesNestedPinsInnerFirst()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticNestedStringPins()).Output ?? "";
+
+        Assert.Contains("fixed (char* S_0 = value)", body);
+        Assert.Contains("fixed (char* S_1 = value)", body);
+        Assert.True(
+            body.IndexOf("fixed (char* S_0 = value)", StringComparison.Ordinal)
+                < body.IndexOf("fixed (char* S_1 = value)", StringComparison.Ordinal),
+            body);
+        Assert.Contains("return", body);
+        AssertNoErrors(RecompileNewRules("static int M(string value)", body), body);
+    }
+
+    [Fact]
     public void Rung6StackallocInitializerResiduals_DegradeHonestly()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
@@ -792,7 +818,8 @@ public class LadderRung6GateTests
         bool aliasPointerLocal,
         bool includeUnpin,
         bool derivedAlias = false,
-        bool collideStackSlotName = false)
+        bool collideStackSlotName = false,
+        bool sourceLocal = false)
     {
         var charType = TypeRef.CoreLib("System", "Char");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -800,9 +827,15 @@ public class LadderRung6GateTests
         var stringType = TypeRef.CoreLib("System", "String");
         var charPointer = TypeRef.Pointer(charType);
         var pinnedCharRef = TypeRef.Pinned(TypeRef.ByRef(charType));
-        var locals = aliasPointerLocal
-            ? ImmutableArray.Create(pinnedCharRef, charPointer)
-            : ImmutableArray.Create(pinnedCharRef);
+        var locals = ImmutableArray.Create(pinnedCharRef);
+        int sourceLocalIndex = -1;
+        if (aliasPointerLocal)
+            locals = locals.Add(charPointer);
+        if (sourceLocal)
+        {
+            sourceLocalIndex = locals.Length;
+            locals = locals.Add(stringType);
+        }
         var getPinnableReference = new MethodRef(
             stringType,
             "GetPinnableReference",
@@ -810,15 +843,20 @@ public class LadderRung6GateTests
             [],
             HasThis: true);
 
+        IrExpression SourceRead()
+            => sourceLocal ? new LoadLocal(sourceLocalIndex, stringType) : new LoadArgument(0, "value", stringType);
+
         var thenArm = new Block(1);
         thenArm.Add(new StoreStackSlot(0, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new Constant(0, intType))));
 
         var elseArm = new Block(2);
-        elseArm.Add(new StoreLocal(0, pinnedCharRef, new Call(getPinnableReference, isVirtual: false, [new LoadArgument(0, "value", stringType)])));
+        elseArm.Add(new StoreLocal(0, pinnedCharRef, new Call(getPinnableReference, isVirtual: false, [SourceRead()])));
         elseArm.Add(new StoreStackSlot(0, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new LoadLocal(0, pinnedCharRef))));
 
         var block = new Block(0);
-        block.Add(new IfStatement(new LogicalNot(new LoadArgument(0, "value", stringType)), thenArm, elseArm));
+        if (sourceLocal)
+            block.Add(new StoreLocal(sourceLocalIndex, stringType, new LoadArgument(0, "value", stringType)));
+        block.Add(new IfStatement(new LogicalNot(SourceRead()), thenArm, elseArm));
         if (aliasPointerLocal)
         {
             var basePointer = new ILInspector.Decompiler.Pipeline.Convert(charPointer, isChecked: false, isUnsigned: false, new LoadStackSlot(0, nativeUInt));
@@ -853,6 +891,60 @@ public class LadderRung6GateTests
         if (collideStackSlotName)
             function.LocalNames = ImmutableArray.Create<string?>("S_0");
         return function;
+    }
+
+    static IrFunction SyntheticNestedStringPins()
+    {
+        var charType = TypeRef.CoreLib("System", "Char");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var nativeUInt = TypeRef.CoreLib("System", "UIntPtr");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var pinnedCharRef = TypeRef.Pinned(TypeRef.ByRef(charType));
+        var getPinnableReference = new MethodRef(
+            stringType,
+            "GetPinnableReference",
+            TypeRef.ByRef(charType),
+            [],
+            HasThis: true);
+
+        static IfStatement Guard(
+            int pinnedLocal,
+            int pointerSlot,
+            TypeRef intType,
+            TypeRef nativeUInt,
+            TypeRef stringType,
+            TypeRef pinnedCharRef,
+            MethodRef getPinnableReference)
+        {
+            var thenArm = new Block(1);
+            thenArm.Add(new StoreStackSlot(pointerSlot, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new Constant(0, intType))));
+            var elseArm = new Block(2);
+            elseArm.Add(new StoreLocal(pinnedLocal, pinnedCharRef, new Call(getPinnableReference, isVirtual: false, [new LoadArgument(0, "value", stringType)])));
+            elseArm.Add(new StoreStackSlot(pointerSlot, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new LoadLocal(pinnedLocal, pinnedCharRef))));
+            return new IfStatement(new LogicalNot(new LoadArgument(0, "value", stringType)), thenArm, elseArm);
+        }
+
+        var block = new Block(0);
+        block.Add(Guard(0, 0, intType, nativeUInt, stringType, pinnedCharRef, getPinnableReference));
+        block.Add(Guard(1, 1, intType, nativeUInt, stringType, pinnedCharRef, getPinnableReference));
+        block.Add(new Return(new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadIndirect(charType, new LoadStackSlot(0, nativeUInt)),
+            new LoadIndirect(charType, new LoadStackSlot(1, nativeUInt)))));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "StringPin"),
+            new MethodSignature(intType, [new Parameter("value", stringType)], HasThis: false, GenericParameterCount: 0),
+            ImmutableArray.Create(pinnedCharRef, pinnedCharRef),
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
     }
 
     static void AssertExactCompileBack(string assemblyPath, string typeName, string methodName)
