@@ -186,6 +186,22 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ResolvesCs0234FullTypeClosureRoots()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung1.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung1.Program",
+                    "Greet",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS0234", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
     {
         var fixture = CompileSourceFixture(

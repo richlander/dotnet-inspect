@@ -1727,7 +1727,10 @@ static class ReturnToSender
                     }
                 }
                 if (diagnostic.Id is "CS0234" && names.Count == 2)
+                {
+                    grew |= AddRoots(indexes, indexes.FullTypes, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
                     grew |= AddRoots(indexes, indexes.Namespaces, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
+                }
             }
             else if (diagnostic.Id is "CS1061")
             {
