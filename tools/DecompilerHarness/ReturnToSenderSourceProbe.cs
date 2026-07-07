@@ -40,7 +40,7 @@ sealed record ReturnToSenderSourceProbeResult(
 
 static class ReturnToSenderSourceProbe
 {
-    sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
+    internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
 
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
@@ -212,6 +212,13 @@ static class ReturnToSenderSourceProbe
 
             if (!sourceFound || sourceMember is null)
             {
+                if (sourceIndex is not null
+                    && sourceIndex.TryFindRecordSynthesizedMember(target, out var recordSourcePath))
+                {
+                    AddBodylessSourceResult(results, target, result, recordSourcePath);
+                    continue;
+                }
+
                 results.Add(new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
@@ -224,7 +231,12 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
-            string expected = sourceMember.Body;
+            if (sourceMember.Body is not { } expected)
+            {
+                AddBodylessSourceResult(results, target, result, sourceMember.SourcePath);
+                continue;
+            }
+
             string actual = result.TargetBody;
             if (NormalizeBody(expected) == NormalizeBody(actual))
             {
@@ -258,20 +270,41 @@ static class ReturnToSenderSourceProbe
         return results;
     }
 
-    sealed record SourceMember(string Type, string Method, int Overload, string SourcePath, string Body);
+    static void AddBodylessSourceResult(
+        List<ReturnToSenderSourceProbeResult> results,
+        ReturnToSender.RequestedTarget target,
+        ReturnToSender.Result result,
+        string sourcePath)
+    {
+        var exact = result.Status == FidelityCheck.CompileBackStatus.Exact;
+        results.Add(new ReturnToSenderSourceProbeResult(
+            target,
+            exact ? ReturnToSenderSourceOutcome.ValidMatch : ReturnToSenderSourceOutcome.Invalid,
+            result.Status,
+            exact ? "valid_match.source_bodyless" : "invalid.source_bodyless_non_exact",
+            $"source member matched {target.Type}::{target.Method}#{target.Overload}, but it has no explicit source body; compile-back status is {result.Status}",
+            sourcePath,
+            ExpectedBody: null,
+            ActualBody: result.TargetBody));
+    }
+
+    sealed record SourceMember(string Type, string Method, int Overload, string SourcePath, string? Body);
 
     sealed class FixtureSourceIndex
     {
         readonly Dictionary<string, SourceMember> _members;
+        readonly Dictionary<string, RecordSourceInfo> _recordSources;
 
-        FixtureSourceIndex(Dictionary<string, SourceMember> members)
+        FixtureSourceIndex(Dictionary<string, SourceMember> members, Dictionary<string, RecordSourceInfo> recordSources)
         {
             _members = members;
+            _recordSources = recordSources;
         }
 
         public static FixtureSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
         {
             var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
+            var recordSources = new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal);
             var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
             var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
             foreach (var sourcePath in sourcePaths)
@@ -283,9 +316,9 @@ static class ReturnToSenderSourceProbe
 
             var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
             foreach (var sourceFile in sourceFiles)
-                AddSourceFile(members, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+                AddSourceFile(members, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
 
-            return new FixtureSourceIndex(members);
+            return new FixtureSourceIndex(members, recordSources);
         }
 
         public static FixtureSourceIndex? TryCreate(string assemblyPath)
@@ -343,6 +376,19 @@ static class ReturnToSenderSourceProbe
         public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
             => _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
 
+        public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
+        {
+            if (_recordSources.TryGetValue(target.Type, out var source)
+                && source.SynthesizedMembers.Contains(target.Method))
+            {
+                sourcePath = source.SourcePath;
+                return true;
+            }
+
+            sourcePath = "";
+            return false;
+        }
+
         static bool TryReadSourceFile(string sourcePath, out CompilationUnitSyntax root)
         {
             string source;
@@ -363,22 +409,24 @@ static class ReturnToSenderSourceProbe
 
         static void AddSourceFile(
             Dictionary<string, SourceMember> members,
+            Dictionary<string, RecordSourceInfo> recordSources,
             Dictionary<string, Dictionary<string, int>> overloads,
             string sourcePath,
             CompilationUnitSyntax root,
             CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root, sourcePath, overloads, sourceIdentity))
+            foreach (var member in SourceMembers(root, sourcePath, recordSources, overloads, sourceIdentity))
                 members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
         }
 
         static IEnumerable<SourceMember> SourceMembers(
             CompilationUnitSyntax root,
             string sourcePath,
+            Dictionary<string, RecordSourceInfo> recordSources,
             Dictionary<string, Dictionary<string, int>> overloads,
             CSharpSourceIdentityContext sourceIdentity)
         {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, overloads, sourceIdentity))
+            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, recordSources, overloads, sourceIdentity))
                 yield return member;
         }
 
@@ -387,6 +435,7 @@ static class ReturnToSenderSourceProbe
             string namespaceName,
             IReadOnlyList<string> containingTypes,
             string sourcePath,
+            Dictionary<string, RecordSourceInfo> recordSources,
             Dictionary<string, Dictionary<string, int>> overloads,
             CSharpSourceIdentityContext sourceIdentity)
         {
@@ -399,21 +448,23 @@ static class ReturnToSenderSourceProbe
                         string nextNamespace = namespaceName.Length == 0
                             ? ns.Name.ToString()
                             : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, overloads, sourceIdentity))
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, recordSources, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
                     case TypeDeclarationSyntax type:
                     {
-                        string typeName = type.Identifier.ValueText;
+                        string typeName = CSharpSourceIdentityContext.TypeMetadataName(type);
                         var typeStack = containingTypes.Concat([typeName]).ToArray();
                         string fullType = namespaceName.Length == 0
                             ? string.Join(".", typeStack)
                             : $"{namespaceName}.{string.Join(".", typeStack)}";
+                        if (type is RecordDeclarationSyntax record)
+                            recordSources.TryAdd(fullType, new RecordSourceInfo(sourcePath, RecordSynthesizedMembers(record)));
 
                         foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, sourceIdentity))
                             yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, overloads, sourceIdentity))
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, recordSources, overloads, sourceIdentity))
                             yield return member;
                         break;
                     }
@@ -430,90 +481,10 @@ static class ReturnToSenderSourceProbe
                 if (!overloadsByType.TryGetValue(fullType, out var overloads))
                     overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
 
-                if (HasPrimaryConstructor(type))
-                    NextOverload(overloads, ".ctor");
-
-                foreach (var member in type.Members)
+                foreach (var sourceMember in sourceIdentity.TypeMembers(type, fullType))
                 {
-                    switch (member)
-                    {
-                        case MethodDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
-                            break;
-                        case MethodDeclarationSyntax method:
-                        {
-                            if (IsBodylessPartial(method))
-                                break;
-                            string methodName = method.Identifier.ValueText;
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(method) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
-                            break;
-                        }
-                        case ConstructorDeclarationSyntax constructor:
-                        {
-                            string methodName = constructor.Modifiers.Any(SyntaxKind.StaticKeyword) ? ".cctor" : ".ctor";
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(constructor) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
-                            break;
-                        }
-                        case PropertyDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
-                            break;
-                        case PropertyDeclarationSyntax property:
-                        {
-                            if (IsBodylessPartial(property))
-                                break;
-                            if (HasGetter(property))
-                            {
-                                string methodName = $"get_{property.Identifier.ValueText}";
-                                int overload = NextOverload(overloads, methodName);
-                                if (GetterBodyText(property) is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            if (HasSetter(property))
-                            {
-                                string methodName = $"set_{property.Identifier.ValueText}";
-                                int overload = NextOverload(overloads, methodName);
-                                if (SetterBodyText(property) is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                        case IndexerDeclarationSyntax { ExplicitInterfaceSpecifier: not null }:
-                            break;
-                        case IndexerDeclarationSyntax indexer:
-                        {
-                            foreach (var indexerMember in sourceIdentity.IndexerMembers(indexer, fullType))
-                            {
-                                string methodName = indexerMember.MetadataName;
-                                int overload = NextOverload(overloads, methodName);
-                                if (indexerMember.Body is { } body)
-                                    yield return new SourceMember(fullType, methodName, overload, path, body);
-                            }
-
-                            break;
-                        }
-                        case OperatorDeclarationSyntax op:
-                        {
-                            string methodName = OperatorMetadataName(op);
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(op) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
-                            break;
-                        }
-                        case ConversionOperatorDeclarationSyntax conversion:
-                        {
-                            string methodName = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword)
-                                ? "op_Implicit"
-                                : "op_Explicit";
-                            int overload = NextOverload(overloads, methodName);
-                            if (BodyText(conversion) is { } body)
-                                yield return new SourceMember(fullType, methodName, overload, path, body);
-                            break;
-                        }
-                    }
+                    int overload = NextOverload(overloads, sourceMember.MetadataName);
+                    yield return new SourceMember(fullType, sourceMember.MetadataName, overload, path, sourceMember.Body);
                 }
             }
 
@@ -527,7 +498,29 @@ static class ReturnToSenderSourceProbe
 
     }
 
-    static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
+    sealed record RecordSourceInfo(string SourcePath, IReadOnlySet<string> SynthesizedMembers);
+
+    static IReadOnlySet<string> RecordSynthesizedMembers(RecordDeclarationSyntax record)
+    {
+        var members = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ToString",
+            "GetHashCode",
+            "Equals",
+            "op_Equality",
+            "op_Inequality",
+        };
+        if (record.ParameterList is { Parameters.Count: > 0 } parameters)
+        {
+            members.Add("Deconstruct");
+            foreach (var parameter in parameters.Parameters)
+                members.Add($"get_{parameter.Identifier.ValueText}");
+        }
+
+        return members;
+    }
+
+    internal static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
     {
         var targets = new List<ProbeTarget>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -559,7 +552,6 @@ static class ReturnToSenderSourceProbe
                 .Select(attribute => $"[{attribute}]")
                 .ToArray();
 
-            var methodOverloads = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var methodHandle in type.GetMethods())
             {
                 if (targets.Count >= cap)
@@ -567,8 +559,6 @@ static class ReturnToSenderSourceProbe
 
                 var method = reader.GetMethodDefinition(methodHandle);
                 var methodName = reader.GetString(method.Name);
-                var overload = methodOverloads.GetValueOrDefault(methodName);
-                methodOverloads[methodName] = overload + 1;
 
                 if (method.RelativeVirtualAddress == 0
                     || (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
@@ -582,6 +572,7 @@ static class ReturnToSenderSourceProbe
                     continue;
                 }
 
+                var overload = OverloadIndex(reader, type, methodHandle, methodName);
                 var fragments = new List<string>();
                 fragments.AddRange(typeFragments);
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, method.GetCustomAttributes(), qualifyNames: true)
@@ -657,92 +648,6 @@ static class ReturnToSenderSourceProbe
             ReturnToSenderSourceOutcome.UnsupportedTarget => "unsupported_target",
             _ => outcome.ToString(),
         };
-
-    static string? BodyText(MethodDeclarationSyntax method)
-    {
-        if (method.Body is { } body)
-            return StatementsText(body);
-        if (method.ExpressionBody is { } expressionBody)
-            return ExpressionBodyText(method.ReturnType, expressionBody.Expression);
-        return null;
-    }
-
-    static bool HasPrimaryConstructor(TypeDeclarationSyntax type)
-        => type switch
-        {
-            ClassDeclarationSyntax { ParameterList: not null } => true,
-            StructDeclarationSyntax { ParameterList: not null } => true,
-            RecordDeclarationSyntax { ParameterList: not null } => true,
-            _ => false,
-        };
-
-    static bool IsBodylessPartial(MethodDeclarationSyntax method)
-        => method.Modifiers.Any(SyntaxKind.PartialKeyword)
-            && method.Body is null
-            && method.ExpressionBody is null;
-
-    static bool IsBodylessPartial(PropertyDeclarationSyntax property)
-        => property.Modifiers.Any(SyntaxKind.PartialKeyword)
-            && property.ExpressionBody is null
-            && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
-
-    static string? BodyText(ConstructorDeclarationSyntax constructor)
-    {
-        if (constructor.Body is { } body)
-            return StatementsText(body);
-        if (constructor.ExpressionBody is { } expressionBody)
-            return $"{expressionBody.Expression};";
-        return null;
-    }
-
-    static string? BodyText(OperatorDeclarationSyntax op)
-    {
-        if (op.Body is { } body)
-            return StatementsText(body);
-        if (op.ExpressionBody is { } expressionBody)
-            return ExpressionBodyText(op.ReturnType, expressionBody.Expression);
-        return null;
-    }
-
-    static string? BodyText(ConversionOperatorDeclarationSyntax conversion)
-    {
-        if (conversion.Body is { } body)
-            return StatementsText(body);
-        if (conversion.ExpressionBody is { } expressionBody)
-            return ExpressionBodyText(conversion.Type, expressionBody.Expression);
-        return null;
-    }
-
-    static string? GetterBodyText(PropertyDeclarationSyntax property)
-    {
-        if (property.ExpressionBody is { } expressionBody)
-            return $"return {expressionBody.Expression};";
-        var getter = property.AccessorList?.Accessors.FirstOrDefault(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration));
-        if (getter?.Body is { } body)
-            return StatementsText(body);
-        if (getter?.ExpressionBody is { } getterExpression)
-            return $"return {getterExpression.Expression};";
-        return null;
-    }
-
-    static string? SetterBodyText(PropertyDeclarationSyntax property)
-    {
-        var setter = property.AccessorList?.Accessors.FirstOrDefault(accessor =>
-            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
-        if (setter?.Body is { } body)
-            return StatementsText(body);
-        if (setter?.ExpressionBody is { } setterExpression)
-            return $"{setterExpression.Expression};";
-        return null;
-    }
-
-    static bool HasGetter(PropertyDeclarationSyntax property)
-        => property.ExpressionBody is not null
-            || property.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
-
-    static bool HasSetter(PropertyDeclarationSyntax property)
-        => property.AccessorList?.Accessors.Any(accessor =>
-            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
 
     static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
         => returnType is PredefinedTypeSyntax predefined
@@ -891,34 +796,7 @@ static class ReturnToSenderSourceProbe
             };
     }
 
-    static string OperatorMetadataName(OperatorDeclarationSyntax op)
-        => op.OperatorToken.Kind() switch
-        {
-            SyntaxKind.PlusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
-            SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
-            SyntaxKind.ExclamationToken => "op_LogicalNot",
-            SyntaxKind.TildeToken => "op_OnesComplement",
-            SyntaxKind.PlusPlusToken => "op_Increment",
-            SyntaxKind.MinusMinusToken => "op_Decrement",
-            SyntaxKind.TrueKeyword => "op_True",
-            SyntaxKind.FalseKeyword => "op_False",
-            SyntaxKind.AsteriskToken => "op_Multiply",
-            SyntaxKind.SlashToken => "op_Division",
-            SyntaxKind.PercentToken => "op_Modulus",
-            SyntaxKind.AmpersandToken => "op_BitwiseAnd",
-            SyntaxKind.BarToken => "op_BitwiseOr",
-            SyntaxKind.CaretToken => "op_ExclusiveOr",
-            SyntaxKind.LessThanLessThanToken => "op_LeftShift",
-            SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
-            SyntaxKind.GreaterThanGreaterThanGreaterThanToken => "op_UnsignedRightShift",
-            SyntaxKind.EqualsEqualsToken => "op_Equality",
-            SyntaxKind.ExclamationEqualsToken => "op_Inequality",
-            SyntaxKind.LessThanToken => "op_LessThan",
-            SyntaxKind.GreaterThanToken => "op_GreaterThan",
-            SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
-            SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
-            _ => op.OperatorToken.ValueText,
-        };
+
 
     static string DiagnosticCode(string? detail)
     {

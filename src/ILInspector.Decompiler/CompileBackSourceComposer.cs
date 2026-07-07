@@ -130,7 +130,9 @@ public sealed record CompileBackTypeDeclaration(
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<CompileBackTypeDeclaration> NestedTypes,
     IReadOnlyList<string>? Attributes = null,
-    bool IsAbstract = false)
+    bool IsAbstract = false,
+    bool IsSealed = false,
+    bool IsStatic = false)
 {
     public string Namespace => Identity.Namespace;
     public string Name => Identity.DisplayName;
@@ -160,7 +162,9 @@ public sealed record CompileBackMemberDeclaration(
     bool IsAbstract = false,
     bool IsVirtual = false,
     bool IsOverride = false,
-    bool IsSealed = false)
+    bool IsSealed = false,
+    bool IsAsync = false,
+    bool IsExtension = false)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -249,6 +253,7 @@ public sealed record CompileBackFact(string Producer, string Id, string Detail);
 
 public sealed record CompileBackPrimaryConstructor(
     string Parameters,
+    IReadOnlyList<CompileBackParameter> ParameterList,
     IReadOnlyList<CompileBackMemberRequirement> FieldInitializers);
 
 public sealed record CompileBackTypeRequirement(
@@ -273,7 +278,9 @@ public sealed record CompileBackMemberRequirement(
     bool IsAbstract = false,
     bool IsVirtual = false,
     bool IsOverride = false,
-    bool IsSealed = false);
+    bool IsSealed = false,
+    bool IsAsync = false,
+    bool IsExtension = false);
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
@@ -363,6 +370,7 @@ public static class CompileBackSourceComposer
                 PrimaryConstructor: null,
                 targetFacts)
         };
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
@@ -397,14 +405,29 @@ public static class CompileBackSourceComposer
     static void AddRequiredMembers(
         List<CompileBackMemberRequirement> members,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> requirementsByRoot,
-        TypeDefinitionHandle root)
+        TypeDefinitionHandle root,
+        CompileBackPrimaryConstructor? primaryConstructor = null)
     {
         if (!requirementsByRoot.TryGetValue(root, out var requiredMembers))
             return;
         foreach (var required in requiredMembers)
+        {
+            if (primaryConstructor is not null
+                && required.Kind == CompileBackMemberKind.Constructor
+                && SameParameters(required.Parameters, primaryConstructor.ParameterList))
+            {
+                continue;
+            }
             if (!members.Any(existing => SameMemberDeclaration(existing, required)))
                 members.Add(required);
+        }
     }
+
+    static bool SameParameters(IReadOnlyList<CompileBackParameter> left, IReadOnlyList<CompileBackParameter> right)
+        => left.Count == right.Count
+            && left.Zip(right).All(pair =>
+                string.Equals(pair.First.Type.DisplayName, pair.Second.Type.DisplayName, StringComparison.Ordinal)
+                && string.Equals(pair.First.Modifier, pair.Second.Modifier, StringComparison.Ordinal));
 
     static bool SameMemberDeclaration(CompileBackMemberRequirement left, CompileBackMemberRequirement right)
         => left.Kind == right.Kind
@@ -573,7 +596,7 @@ public static class CompileBackSourceComposer
         bool isConstructor = methodName is ".ctor" or ".cctor";
         var primaryConstructor = isConstructor
             ? PrimaryConstructorFromPrologue(reader, method, function, targetBody)
-            : null;
+            : PrimaryConstructorFromCapturedFields(reader, targetTypeDef, targetBody);
 
         var diagnostics = new List<CompileBackPlanningDiagnostic>();
         var targetRoot = TopLevelRootOf(reader, targetType);
@@ -584,7 +607,9 @@ public static class CompileBackSourceComposer
         if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
-        var targetMembers = primaryConstructor?.FieldInitializers.ToList() ??
+        var targetMembers = isConstructor && primaryConstructor is not null
+            ? primaryConstructor.FieldInitializers.ToList()
+            :
         [
             new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
@@ -601,7 +626,8 @@ public static class CompileBackSourceComposer
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
-                IsSealed: false)
+                IsSealed: false,
+                IsAsync: !isConstructor && function.RequiresAsyncBodyModifier)
         ];
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
@@ -611,12 +637,16 @@ public static class CompileBackSourceComposer
             targetMembers.Add(equalitySibling);
         }
         if (!isConstructor
+            && CheckedOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } checkedOperatorSibling)
+        {
+            targetMembers.Add(checkedOperatorSibling);
+        }
+        if (!isConstructor
             && TypedEqualsSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } typedEqualsSibling)
         {
             targetMembers.Add(typedEqualsSibling);
         }
-        if (!targetTypeDef.GetDeclaringType().IsNil)
-            AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -783,9 +813,10 @@ public static class CompileBackSourceComposer
 
         var apiType = ToApiType(type);
         var apiMember = ToApiMember(type, member);
-        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(apiType, apiMember);
-        if (RequiresUnsafe(member))
-            declaration = AddUnsafeModifier(declaration);
+        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            apiType,
+            apiMember,
+            new CSharpDeclarationOptions { ForceAsync = member.IsAsync });
         switch (member.Kind)
         {
             case CompileBackMemberKind.PropertyGet:
@@ -794,6 +825,7 @@ public static class CompileBackSourceComposer
                     sb.AppendLine($"{pad}{declaration}");
                     return;
                 }
+
                 if (member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
                 {
                     sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)};{(HasSetterShape(member) ? " set;" : "")} }}");
@@ -898,7 +930,7 @@ public static class CompileBackSourceComposer
                     sb.AppendLine($"{pad}}}");
                     break;
                 }
-                sb.AppendLine($"{pad}{declaration} {{ throw null; }}");
+                sb.AppendLine($"{pad}{declaration}{PrimaryConstructorInitializer(type)} {{ throw null; }}");
                 break;
             case CompileBackMemberKind.Method:
                 if (type.Kind == CompileBackTypeKind.Interface || member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
@@ -950,6 +982,8 @@ public static class CompileBackSourceComposer
             BaseType = type.BaseType?.DisplayName,
             Attributes = type.Attributes?.ToList() ?? [],
             IsAbstract = type.IsAbstract,
+            IsSealed = type.IsSealed,
+            IsStatic = type.IsStatic,
         };
 
     static ApiMember ToApiMember(CompileBackTypeDeclaration type, CompileBackMemberDeclaration member)
@@ -988,6 +1022,8 @@ public static class CompileBackSourceComposer
             IsSealed = member.IsSealed,
             Accessibility = AccessibilityText(member.Accessibility),
             Attributes = member.Attributes?.ToList() ?? [],
+            IsUnsafe = RequiresUnsafe(member),
+            IsExtension = member.IsExtension,
         };
         if (member.Kind == CompileBackMemberKind.Method)
         {
@@ -1052,21 +1088,14 @@ public static class CompileBackSourceComposer
 
     static bool RequiresUnsafe(CompileBackMemberDeclaration member)
         => member.ReturnType?.DisplayName.Contains('*', StringComparison.Ordinal) == true
-            || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal));
+            || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal))
+            || MemberBodyRequiresUnsafe(member);
 
-    static string AddUnsafeModifier(string declaration)
-    {
-        if (declaration.Contains(" unsafe ", StringComparison.Ordinal))
-            return declaration;
-
-        foreach (var prefix in new[] { "public static ", "internal static ", "public ", "internal ", "static " })
-        {
-            if (declaration.StartsWith(prefix, StringComparison.Ordinal))
-                return prefix + "unsafe " + declaration[prefix.Length..];
-        }
-
-        return "unsafe " + declaration;
-    }
+    static bool MemberBodyRequiresUnsafe(CompileBackMemberDeclaration member)
+        => member.TargetBody is { } body
+            && (body.Contains("delegate*", StringComparison.Ordinal)
+                || body.Contains("stackalloc", StringComparison.Ordinal)
+                || body.Contains('*', StringComparison.Ordinal));
 
     static string AddPrimaryConstructorParameters(string declaration, string parameters)
     {
@@ -1206,6 +1235,61 @@ public static class CompileBackSourceComposer
     static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
         => left.ReturnType == right.ReturnType
             && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
+
+    static CompileBackMemberRequirement? CheckedOperatorSibling(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity typeIdentity,
+        string methodName,
+        MethodSignature<string> targetSignature)
+    {
+        var siblingName = UncheckedOperatorName(methodName);
+        if (siblingName is null)
+            return null;
+
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != siblingName)
+                continue;
+
+            var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            if (!OperatorSignaturesMatch(targetSignature, signature))
+                continue;
+
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
+                CompileBackMemberKind.Method,
+                method.Attributes.HasFlag(MethodAttributes.Static),
+                MethodParameters(reader, method, signature),
+                CompileBackTypeSignature.Display(signature.ReturnType),
+                MethodTypeParameters(reader, method),
+                CompileBackStubBodyKind.Throw,
+                TargetBody: null,
+                [new CompileBackFact("metadata", "operator-pair-sibling", siblingName)],
+                MemberAttributes(reader, method.GetCustomAttributes()),
+                MethodReturnAttributes(reader, method),
+                IsAbstract: IsAbstractMethod(method),
+                IsVirtual: IsVirtualMethod(method),
+                IsOverride: false,
+                IsSealed: false);
+        }
+
+        return null;
+    }
+
+    static string? UncheckedOperatorName(string methodName)
+    {
+        if (methodName is "op_CheckedExplicit")
+            return "op_Explicit";
+        if (methodName is "op_CheckedImplicit")
+            return "op_Implicit";
+        if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
+            return null;
+
+        string inner = methodName["op_Checked".Length..];
+        return OperatorNames.MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
+    }
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,
@@ -1554,9 +1638,114 @@ public static class CompileBackSourceComposer
         if (!RenderedBodyMatchesPrimaryConstructorInitializers(renderedBody, initializerTexts))
             return null;
 
-        string parameters = string.Join(", ", MethodParameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)))
-            .Select(RenderParameter));
-        return new CompileBackPrimaryConstructor(parameters, fieldInitializers);
+        var parameters = MethodParameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)));
+        return new CompileBackPrimaryConstructor(
+            string.Join(", ", parameters.Select(RenderParameter)),
+            parameters,
+            fieldInitializers);
+    }
+
+    static CompileBackPrimaryConstructor? PrimaryConstructorFromCapturedFields(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string renderedBody)
+    {
+        if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
+            return null;
+
+        var parameters = new List<CompileBackParameter>();
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (field.Attributes.HasFlag(FieldAttributes.Static))
+                continue;
+
+            string fieldName = reader.GetString(field.Name);
+            if (!TryPrimaryConstructorParameterName(fieldName, out var parameterName)
+                || !renderedBody.Contains(parameterName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string fieldType;
+            try
+            {
+                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+
+            if (fieldType.Contains("delegate*", StringComparison.Ordinal)
+                || fieldType.Contains("@delegate*", StringComparison.Ordinal))
+                return null;
+
+            parameters.Add(new CompileBackParameter(
+                Identifier(parameterName),
+                CompileBackTypeSignature.Display(fieldType),
+                Modifier: null,
+                Attributes: [],
+                HasDefault: false,
+                DefaultValueText: null));
+        }
+
+        return parameters.Count == 0
+            ? null
+            : new CompileBackPrimaryConstructor(
+                string.Join(", ", parameters.Select(RenderParameter)),
+                parameters,
+                FieldInitializers: []);
+    }
+
+    static string PrimaryConstructorInitializer(CompileBackTypeDeclaration type)
+    {
+        if (type.PrimaryConstructorParameters is not { Length: > 0 } parameters)
+            return "";
+
+        int count = SplitTopLevelParameters(parameters).Count();
+        return count == 0
+            ? ""
+            : $" : this({string.Join(", ", Enumerable.Repeat("default", count))})";
+    }
+
+    static IEnumerable<string> SplitTopLevelParameters(string parameters)
+    {
+        int start = 0;
+        int depth = 0;
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            char c = parameters[i];
+            depth += c switch
+            {
+                '<' or '(' or '[' => 1,
+                '>' or ')' or ']' => depth > 0 ? -1 : 0,
+                _ => 0,
+            };
+            if (c != ',' || depth != 0)
+                continue;
+
+            yield return parameters[start..i].Trim();
+            start = i + 1;
+        }
+
+        string last = parameters[start..].Trim();
+        if (last.Length > 0)
+            yield return last;
+    }
+
+    static bool TryPrimaryConstructorParameterName(string fieldName, out string parameterName)
+    {
+        if (fieldName is ['<', ..]
+            && fieldName.EndsWith(">P", StringComparison.Ordinal)
+            && fieldName.IndexOf('>') == fieldName.Length - 2)
+        {
+            parameterName = fieldName[1..^2];
+            return parameterName.Length > 0;
+        }
+
+        parameterName = "";
+        return false;
     }
 
     static string RenderParameter(CompileBackParameter parameter)
@@ -2156,8 +2345,12 @@ public static class CompileBackSourceComposer
                 || (!isConstructor && name.Contains('.', StringComparison.Ordinal)))
                 return null;
 
-            if (!isConstructor && method.Attributes.HasFlag(MethodAttributes.SpecialName))
+            if (!isConstructor
+                && method.Attributes.HasFlag(MethodAttributes.SpecialName)
+                && !name.StartsWith("op_", StringComparison.Ordinal))
+            {
                 return null;
+            }
 
             MethodSignature<string> signature;
             try
@@ -2196,8 +2389,16 @@ public static class CompileBackSourceComposer
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
-                IsSealed: false);
+                IsSealed: false,
+                IsExtension: IsExtensionMethod(reader, typeDef, method));
         }
+
+        static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+            => typeDef.Attributes.HasFlag(TypeAttributes.Abstract)
+               && typeDef.Attributes.HasFlag(TypeAttributes.Sealed)
+               && method.Attributes.HasFlag(MethodAttributes.Static)
+               && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())
+               && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 
         static int DeclaringOverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string name)
         {
@@ -2244,7 +2445,9 @@ public static class CompileBackSourceComposer
                     includeMemberSurface,
                     diagnostics),
                 TypeAttributeList(reader, typeDef),
-                IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0);
+                IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0,
+                IsSealed: (typeDef.Attributes & TypeAttributes.Sealed) != 0,
+                IsStatic: IsStaticType(typeDef));
         }
 
         static List<CompileBackMemberDeclaration> RequiredMemberDeclarations(CompileBackTypeRequirement requirement)
@@ -2268,7 +2471,9 @@ public static class CompileBackSourceComposer
                     member.IsAbstract,
                     member.IsVirtual,
                     member.IsOverride,
-                    member.IsSealed));
+                    member.IsSealed,
+                    member.IsAsync,
+                    member.IsExtension));
             }
 
             return members;
@@ -2318,11 +2523,18 @@ public static class CompileBackSourceComposer
                     requirement.SourceFacts,
                     NestedTypes(reader, nestedDef, requirementsByMetadataName, includeNestedMemberSurface, diagnostics),
                     TypeAttributeList(reader, nestedDef),
-                    IsAbstract: (nestedDef.Attributes & TypeAttributes.Abstract) != 0 && (nestedDef.Attributes & TypeAttributes.Interface) == 0));
+                    IsAbstract: (nestedDef.Attributes & TypeAttributes.Abstract) != 0 && (nestedDef.Attributes & TypeAttributes.Interface) == 0,
+                    IsSealed: (nestedDef.Attributes & TypeAttributes.Sealed) != 0,
+                    IsStatic: IsStaticType(nestedDef)));
             }
 
             return nestedTypes;
         }
+
+        static bool IsStaticType(TypeDefinition typeDef)
+            => (typeDef.Attributes & TypeAttributes.Abstract) != 0
+               && (typeDef.Attributes & TypeAttributes.Sealed) != 0
+               && (typeDef.Attributes & TypeAttributes.Interface) == 0;
 
         static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
             => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);

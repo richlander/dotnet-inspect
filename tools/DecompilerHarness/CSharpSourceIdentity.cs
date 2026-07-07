@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ILInspector.DecompilerHarness;
 
-internal sealed record CSharpSourceIndexerMember(
+internal sealed record CSharpSourceMemberIdentity(
     string MetadataName,
     string? Body,
     IReadOnlyList<string> Evidence);
@@ -26,18 +26,122 @@ internal sealed class CSharpSourceIdentityContext
         return new CSharpSourceIdentityContext(partialIndexerNames);
     }
 
-    public IReadOnlyList<CSharpSourceIndexerMember> IndexerMembers(IndexerDeclarationSyntax indexer, string fullType)
+    public static string TypeMetadataName(TypeDeclarationSyntax type)
     {
-        if (IsBodylessPartial(indexer))
+        int arity = type.TypeParameterList?.Parameters.Count ?? 0;
+        return arity == 0 ? type.Identifier.ValueText : $"{type.Identifier.ValueText}`{arity}";
+    }
+
+    public IEnumerable<CSharpSourceMemberIdentity> TypeMembers(TypeDeclarationSyntax type, string fullType)
+    {
+        foreach (var member in TypeHeaderMembers(type))
+            yield return member;
+        foreach (var declaration in type.Members)
+        {
+            IEnumerable<CSharpSourceMemberIdentity> members = declaration switch
+            {
+                MethodDeclarationSyntax method => MethodMembers(method),
+                ConstructorDeclarationSyntax constructor => ConstructorMembers(constructor),
+                PropertyDeclarationSyntax property => PropertyMembers(property),
+                IndexerDeclarationSyntax indexer => IndexerMembers(indexer, fullType),
+                OperatorDeclarationSyntax op => OperatorMembers(op),
+                ConversionOperatorDeclarationSyntax conversion => ConversionOperatorMembers(conversion),
+                _ => [],
+            };
+            foreach (var member in members)
+                yield return member;
+        }
+    }
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> MethodMembers(MethodDeclarationSyntax method)
+    {
+        if (method.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(method))
+            return [];
+
+        return
+        [
+            new CSharpSourceMemberIdentity(
+                method.Identifier.ValueText,
+                BodyText(method),
+                MethodEvidence(method).ToArray()),
+        ];
+    }
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> TypeHeaderMembers(TypeDeclarationSyntax type)
+    {
+        var members = new List<CSharpSourceMemberIdentity>();
+        if (HasPrimaryConstructor(type))
+            members.Add(new CSharpSourceMemberIdentity(".ctor", Body: null, Evidence: ["primary-constructor"]));
+        return members;
+    }
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> ConstructorMembers(ConstructorDeclarationSyntax constructor)
+    {
+        string methodName = constructor.Modifiers.Any(SyntaxKind.StaticKeyword) ? ".cctor" : ".ctor";
+        return
+        [
+            new CSharpSourceMemberIdentity(
+                methodName,
+                BodyText(constructor),
+                ConstructorEvidence(constructor).ToArray()),
+        ];
+    }
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> OperatorMembers(OperatorDeclarationSyntax op)
+        =>
+        [
+            new CSharpSourceMemberIdentity(
+                OperatorMetadataName(op),
+                BodyText(op),
+                ["operator"]),
+        ];
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> ConversionOperatorMembers(ConversionOperatorDeclarationSyntax conversion)
+    {
+        bool isImplicit = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword);
+        bool isChecked = conversion.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword);
+        string methodName = (isImplicit, isChecked) switch
+        {
+            (true, true) => "op_CheckedImplicit",
+            (true, false) => "op_Implicit",
+            (false, true) => "op_CheckedExplicit",
+            (false, false) => "op_Explicit",
+        };
+        return
+        [
+            new CSharpSourceMemberIdentity(
+                methodName,
+                BodyText(conversion),
+                ["conversion-operator"]),
+        ];
+    }
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> PropertyMembers(PropertyDeclarationSyntax property)
+    {
+        if (property.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(property))
+            return [];
+
+        var evidence = PropertyEvidence(property).ToArray();
+        var members = new List<CSharpSourceMemberIdentity>(2);
+        if (HasGetter(property))
+            members.Add(new CSharpSourceMemberIdentity($"get_{property.Identifier.ValueText}", GetterBodyText(property), evidence));
+        if (HasSetter(property))
+            members.Add(new CSharpSourceMemberIdentity($"set_{property.Identifier.ValueText}", SetterBodyText(property), evidence));
+        return members;
+    }
+
+    public IReadOnlyList<CSharpSourceMemberIdentity> IndexerMembers(IndexerDeclarationSyntax indexer, string fullType)
+    {
+        if (indexer.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(indexer))
             return [];
 
         string metadataName = IndexerMetadataName(indexer) ?? PartialIndexerMetadataName(fullType, indexer) ?? "Item";
         var evidence = IndexerEvidence(indexer, metadataName).ToArray();
-        var members = new List<CSharpSourceIndexerMember>(2);
+        var members = new List<CSharpSourceMemberIdentity>(2);
         if (HasGetter(indexer))
-            members.Add(new CSharpSourceIndexerMember($"get_{metadataName}", GetterBodyText(indexer), evidence));
+            members.Add(new CSharpSourceMemberIdentity($"get_{metadataName}", GetterBodyText(indexer), evidence));
         if (HasSetter(indexer))
-            members.Add(new CSharpSourceIndexerMember($"set_{metadataName}", SetterBodyText(indexer), evidence));
+            members.Add(new CSharpSourceMemberIdentity($"set_{metadataName}", SetterBodyText(indexer), evidence));
         return members;
     }
 
@@ -45,6 +149,18 @@ internal sealed class CSharpSourceIdentityContext
         => _partialIndexerNames.TryGetValue(PartialIndexerKey(fullType, indexer), out var metadataName)
             ? metadataName
             : null;
+
+    static IEnumerable<string> ConstructorEvidence(ConstructorDeclarationSyntax constructor)
+    {
+        if (constructor.Modifiers.Any(SyntaxKind.StaticKeyword))
+            yield return "static-constructor";
+    }
+
+    static IEnumerable<string> MethodEvidence(MethodDeclarationSyntax method)
+    {
+        if (method.Modifiers.Any(SyntaxKind.PartialKeyword))
+            yield return "partial-implementation";
+    }
 
     static IEnumerable<string> IndexerEvidence(IndexerDeclarationSyntax indexer, string metadataName)
     {
@@ -74,7 +190,7 @@ internal sealed class CSharpSourceIdentityContext
                 }
                 case TypeDeclarationSyntax type:
                 {
-                    string typeName = type.Identifier.ValueText;
+                    string typeName = TypeMetadataName(type);
                     var typeStack = containingTypes.Concat([typeName]).ToArray();
                     string fullType = namespaceName.Length == 0
                         ? string.Join(".", typeStack)
@@ -122,6 +238,69 @@ internal sealed class CSharpSourceIdentityContext
             && indexer.ExpressionBody is null
             && indexer.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
 
+    static bool IsBodylessPartial(PropertyDeclarationSyntax property)
+        => property.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && property.ExpressionBody is null
+            && property.AccessorList?.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null) == true;
+
+    static bool IsBodylessPartial(MethodDeclarationSyntax method)
+        => method.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && method.Body is null
+            && method.ExpressionBody is null;
+
+    static bool HasPrimaryConstructor(TypeDeclarationSyntax type)
+        => type switch
+        {
+            ClassDeclarationSyntax { ParameterList: not null } => true,
+            StructDeclarationSyntax { ParameterList: not null } => true,
+            RecordDeclarationSyntax { ParameterList: not null } => true,
+            _ => false,
+        };
+
+    static string? BodyText(ConstructorDeclarationSyntax constructor)
+    {
+        if (constructor.Body is { } body)
+            return StatementsText(body);
+        if (constructor.ExpressionBody is { } expressionBody)
+            return $"{expressionBody.Expression};";
+        return null;
+    }
+
+    static string? BodyText(MethodDeclarationSyntax method)
+    {
+        if (method.Body is { } body)
+            return StatementsText(body);
+        if (method.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(method.ReturnType, expressionBody.Expression);
+        return null;
+    }
+
+    static string? BodyText(OperatorDeclarationSyntax op)
+    {
+        if (op.Body is { } body)
+            return StatementsText(body);
+        if (op.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(op.ReturnType, expressionBody.Expression);
+        return null;
+    }
+
+    static string? BodyText(ConversionOperatorDeclarationSyntax conversion)
+    {
+        if (conversion.Body is { } body)
+            return StatementsText(body);
+        if (conversion.ExpressionBody is { } expressionBody)
+            return ExpressionBodyText(conversion.Type, expressionBody.Expression);
+        return null;
+    }
+
+    static bool HasGetter(PropertyDeclarationSyntax property)
+        => property.ExpressionBody is not null
+            || property.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
+
+    static bool HasSetter(PropertyDeclarationSyntax property)
+        => property.AccessorList?.Accessors.Any(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) == true;
+
     static bool HasGetter(IndexerDeclarationSyntax indexer)
         => indexer.ExpressionBody is not null
             || indexer.AccessorList?.Accessors.Any(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration)) == true;
@@ -142,6 +321,18 @@ internal sealed class CSharpSourceIdentityContext
         return null;
     }
 
+    static string? GetterBodyText(PropertyDeclarationSyntax property)
+    {
+        if (property.ExpressionBody is { } expressionBody)
+            return $"return {expressionBody.Expression};";
+        var getter = property.AccessorList?.Accessors.FirstOrDefault(accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration));
+        if (getter?.Body is { } body)
+            return StatementsText(body);
+        if (getter?.ExpressionBody is { } getterExpression)
+            return $"return {getterExpression.Expression};";
+        return null;
+    }
+
     static string? SetterBodyText(IndexerDeclarationSyntax indexer)
     {
         var setter = indexer.AccessorList?.Accessors.FirstOrDefault(accessor =>
@@ -153,6 +344,63 @@ internal sealed class CSharpSourceIdentityContext
         return null;
     }
 
+    static string? SetterBodyText(PropertyDeclarationSyntax property)
+    {
+        var setter = property.AccessorList?.Accessors.FirstOrDefault(accessor =>
+            accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration));
+        if (setter?.Body is { } body)
+            return StatementsText(body);
+        if (setter?.ExpressionBody is { } setterExpression)
+            return $"{setterExpression.Expression};";
+        return null;
+    }
+
+    static IEnumerable<string> PropertyEvidence(PropertyDeclarationSyntax property)
+    {
+        if (property.Modifiers.Any(SyntaxKind.PartialKeyword))
+            yield return "partial-implementation";
+    }
+
     static string StatementsText(BlockSyntax body)
         => string.Join(Environment.NewLine, body.Statements.Select(statement => statement.ToString()));
+
+    static string ExpressionBodyText(TypeSyntax returnType, ExpressionSyntax expression)
+        => returnType is PredefinedTypeSyntax predefined
+            && predefined.Keyword.IsKind(SyntaxKind.VoidKeyword)
+            ? $"{expression};"
+            : $"return {expression};";
+
+    static string OperatorMetadataName(OperatorDeclarationSyntax op)
+    {
+        string methodName = op.OperatorToken.Kind() switch
+        {
+            SyntaxKind.PlusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
+            SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
+            SyntaxKind.ExclamationToken => "op_LogicalNot",
+            SyntaxKind.TildeToken => "op_OnesComplement",
+            SyntaxKind.PlusPlusToken => "op_Increment",
+            SyntaxKind.MinusMinusToken => "op_Decrement",
+            SyntaxKind.TrueKeyword => "op_True",
+            SyntaxKind.FalseKeyword => "op_False",
+            SyntaxKind.AsteriskToken => "op_Multiply",
+            SyntaxKind.SlashToken => "op_Division",
+            SyntaxKind.PercentToken => "op_Modulus",
+            SyntaxKind.AmpersandToken => "op_BitwiseAnd",
+            SyntaxKind.BarToken => "op_BitwiseOr",
+            SyntaxKind.CaretToken => "op_ExclusiveOr",
+            SyntaxKind.LessThanLessThanToken => "op_LeftShift",
+            SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
+            SyntaxKind.GreaterThanGreaterThanGreaterThanToken => "op_UnsignedRightShift",
+            SyntaxKind.EqualsEqualsToken => "op_Equality",
+            SyntaxKind.ExclamationEqualsToken => "op_Inequality",
+            SyntaxKind.LessThanToken => "op_LessThan",
+            SyntaxKind.GreaterThanToken => "op_GreaterThan",
+            SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
+            SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
+            _ => op.OperatorToken.ValueText,
+        };
+        return op.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword)
+            ? $"op_Checked{methodName["op_".Length..]}"
+            : methodName;
+    }
 }

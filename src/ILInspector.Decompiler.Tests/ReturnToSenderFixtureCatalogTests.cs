@@ -104,6 +104,141 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PreservesUnsafeModifierAfterMemberAttributes()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures",
+                    "StackAllocSkipInit",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS1585", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesBodylessSourceMembersAsUnsupported()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung9.DynamicConstructTarget",
+                    "get_Value",
+                    Overload: 0),
+            ]));
+
+        Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+        Assert.Equal("valid_match.source_bodyless", result.Reason);
+        Assert.EndsWith("LadderRung9.cs", result.SourcePath, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesRecordSynthesizedMembersAsUnsupported()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung5.Point",
+                    "ToString",
+                    Overload: 0),
+            ]));
+
+        Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+        Assert.Equal("valid_match.source_bodyless", result.Reason);
+        Assert.EndsWith("LadderRung5.cs", result.SourcePath, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_PreservesPrimaryConstructorShellParameters()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung5.PrimaryCounter",
+                    "Next",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS0103", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_PrimaryConstructorShellDoesNotDuplicateConstructorRequirements()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1(int left, int right)
+            {
+                public Class1 Clone()
+                {
+                    return new Class1(left, right);
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "Clone",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.DoesNotContain("CS0111", result.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS8862", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_PreservesExtensionMethodShellParameters()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung2.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung2.Program",
+                    "Main",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS1061", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ResolvesCs0234FullTypeClosureRoots()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung1.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung1.Program",
+                    "Greet",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS0234", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
     {
         var fixture = CompileSourceFixture(
@@ -798,6 +933,449 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal("return index;", member.Body);
         Assert.Contains("indexer-name-attribute", member.Evidence);
         Assert.Contains("partial-implementation", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesPartialPropertyIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public partial class Class1
+            {
+                public partial int P { get; }
+
+                public partial int P => 1;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var implementation = root.DescendantNodes()
+            .OfType<PropertyDeclarationSyntax>()
+            .Single(property => property.ExpressionBody is not null);
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.PropertyMembers(implementation));
+
+        Assert.Equal("get_P", member.MetadataName);
+        Assert.Equal("return 1;", member.Body);
+        Assert.Contains("partial-implementation", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_SkipsExplicitPropertyAndIndexerImplementations()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public interface IValues
+            {
+                int P { get; }
+                int this[int index] { get; }
+            }
+
+            public class Class1 : IValues
+            {
+                int IValues.P => 1;
+                int IValues.this[int index] => index;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var property = Assert.Single(
+            root.DescendantNodes().OfType<PropertyDeclarationSyntax>(),
+            property => property.ExplicitInterfaceSpecifier is not null);
+        var indexer = Assert.Single(
+            root.DescendantNodes().OfType<IndexerDeclarationSyntax>(),
+            indexer => indexer.ExplicitInterfaceSpecifier is not null);
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+
+        Assert.Empty(context.PropertyMembers(property));
+        Assert.Empty(context.IndexerMembers(indexer, "SourceProbe.Class1"));
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesMethodIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public interface IValue
+            {
+                int M();
+            }
+
+            public partial class Class1 : IValue
+            {
+                partial void M();
+                int IValue.M() => 0;
+                public partial int M(int value) => value;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var methods = root.DescendantNodes().OfType<MethodDeclarationSyntax>().ToArray();
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        Assert.Empty(context.MethodMembers(methods.Single(method =>
+            method.Modifiers.Any(SyntaxKind.PartialKeyword)
+            && method.Body is null
+            && method.ExpressionBody is null)));
+        Assert.Empty(context.MethodMembers(methods.Single(method => method.ExplicitInterfaceSpecifier is not null)));
+        var member = Assert.Single(context.MethodMembers(methods.Single(method => method.Modifiers.Any(SyntaxKind.PublicKeyword))));
+
+        Assert.Equal("M", member.MetadataName);
+        Assert.Equal("return value;", member.Body);
+        Assert.Contains("partial-implementation", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesConstructorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public class Class1(int value)
+            {
+                public static int StaticValue;
+                public int Value;
+
+                static Class1()
+                {
+                    StaticValue = 1;
+                }
+
+                public Class1() : this(1)
+                {
+                    Value = value;
+                }
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<ClassDeclarationSyntax>());
+        var constructors = root.DescendantNodes().OfType<ConstructorDeclarationSyntax>().ToArray();
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var primary = Assert.Single(context.TypeHeaderMembers(type));
+        var staticConstructor = Assert.Single(context.ConstructorMembers(constructors.Single(ctor => ctor.Modifiers.Any(SyntaxKind.StaticKeyword))));
+        var instanceConstructor = Assert.Single(context.ConstructorMembers(constructors.Single(ctor => !ctor.Modifiers.Any(SyntaxKind.StaticKeyword))));
+
+        Assert.Equal(".ctor", primary.MetadataName);
+        Assert.Null(primary.Body);
+        Assert.Contains("primary-constructor", primary.Evidence);
+        Assert.Equal(".cctor", staticConstructor.MetadataName);
+        Assert.Equal("StaticValue = 1;", staticConstructor.Body);
+        Assert.Contains("static-constructor", staticConstructor.Evidence);
+        Assert.Equal(".ctor", instanceConstructor.MetadataName);
+        Assert.Equal("Value = value;", instanceConstructor.Body);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_PreservesExplicitRecordMemberBodies()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public record Class1(int Value)
+            {
+                public override string ToString()
+                {
+                    return Value.ToString();
+                }
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<RecordDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var members = context.TypeMembers(type, "SourceProbe.Class1").Where(member => member.MetadataName == "ToString").ToArray();
+
+        var member = Assert.Single(members);
+        Assert.Equal("return Value.ToString();", member.Body);
+        Assert.DoesNotContain("record-synthesized", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_PreservesExplicitRecordEqualsOverloads()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public record Class1(int Value)
+            {
+                public bool Equals(int other)
+                {
+                    return Value == other;
+                }
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<RecordDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var members = context.TypeMembers(type, "SourceProbe.Class1").Where(member => member.MetadataName == "Equals").ToArray();
+
+        var member = Assert.Single(members);
+        Assert.Equal("return Value == other;", member.Body);
+        Assert.DoesNotContain("record-synthesized", member.Evidence);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_PreservesExplicitRecordPropertyBodies()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public record Class1
+            {
+                public int P
+                {
+                    get
+                    {
+                        return 1;
+                    }
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "get_P",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome);
+            Assert.Equal("valid_match", result.Reason);
+            Assert.Equal("return1;", Normalize(result.ExpectedBody));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_PreservesMethodOverloadIndexesAcrossNonPublicOverloads()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                private int Foo(int value)
+                {
+                    return value + 1;
+                }
+
+                public string Foo(string text)
+                {
+                    return text + "!";
+                }
+            }
+            """));
+        try
+        {
+            var discovered = Assert.Single(ReturnToSenderSourceProbe.DiscoverTargets(fixture.AssemblyPath, cap: 10));
+            Assert.Equal("Foo", discovered.Target.Method);
+            Assert.Equal(1, discovered.Target.Overload);
+
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [discovered.Target],
+                fixture.SourcePaths));
+
+            Assert.Equal("Foo", result.Target.Method);
+            Assert.Equal(1, result.Target.Overload);
+            Assert.Equal("returntext+\"!\";", Normalize(result.ExpectedBody));
+            Assert.DoesNotContain("value + 1", result.ExpectedBody, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static Class1 operator >>>(Class1 value, int shift)
+                    => new Class1(value._value >>> shift);
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var op = Assert.Single(root.DescendantNodes().OfType<OperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.OperatorMembers(op));
+
+        Assert.Equal("op_UnsignedRightShift", member.MetadataName);
+        Assert.Equal("return new Class1(value._value >>> shift);", member.Body);
+        Assert.Contains("operator", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesCheckedOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static Class1 operator checked +(Class1 left, Class1 right)
+                    => checked(new Class1(left._value + right._value));
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var op = Assert.Single(root.DescendantNodes().OfType<OperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.OperatorMembers(op));
+
+        Assert.Equal("op_CheckedAddition", member.MetadataName);
+        Assert.Equal("return checked(new Class1(left._value + right._value));", member.Body);
+        Assert.Contains("operator", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesConversionOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static implicit operator int(Class1 value) => value._value;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var conversion = Assert.Single(root.DescendantNodes().OfType<ConversionOperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.ConversionOperatorMembers(conversion));
+
+        Assert.Equal("op_Implicit", member.MetadataName);
+        Assert.Equal("return value._value;", member.Body);
+        Assert.Contains("conversion-operator", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_ResolvesCheckedConversionOperatorIdentity()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public readonly struct Class1
+            {
+                readonly int _value;
+
+                public Class1(int value)
+                {
+                    _value = value;
+                }
+
+                public static explicit operator checked int(Class1 value) => checked(value._value + 1);
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var conversion = Assert.Single(root.DescendantNodes().OfType<ConversionOperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.ConversionOperatorMembers(conversion));
+
+        Assert.Equal("op_CheckedExplicit", member.MetadataName);
+        Assert.Equal("return checked(value._value + 1);", member.Body);
+        Assert.Contains("conversion-operator", member.Evidence);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_EmitsOrderedTypeMembers()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public class Class1(int value)
+            {
+                static Class1()
+                {
+                }
+
+                public Class1() : this(1)
+                {
+                }
+
+                public int P => value;
+
+                public int M() => value;
+
+                public int this[int index] => index;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<ClassDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var names = context.TypeMembers(type, "SourceProbe.Class1").Select(member => member.MetadataName).ToArray();
+
+        Assert.Equal([".ctor", ".cctor", ".ctor", "get_P", "M", "get_Item"], names);
+    }
+
+    [Fact]
+    public void CSharpSourceIdentityContext_UsesMetadataArityForGenericTypes()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public class Class1<T>
+            {
+                public int M() => 1;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<ClassDeclarationSyntax>());
+
+        Assert.Equal("Class1`1", CSharpSourceIdentityContext.TypeMetadataName(type));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_MapsGenericTypeSourceMembers()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DiffV1.AssemblyPath(),
+            [new ReturnToSender.RequestedTarget("DiffFixtureSample.GenericTypeAritySample`1", "M", Overload: 0)]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+        Assert.Equal("return1;", Normalize(result.ExpectedBody));
     }
 
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(

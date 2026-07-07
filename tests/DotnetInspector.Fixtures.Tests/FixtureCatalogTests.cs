@@ -81,6 +81,16 @@ public class FixtureCatalogTests
     }
 
     [Fact]
+    public void SourcePaths_IncludeLinkedCompileSources()
+    {
+        var paths = FixtureCatalog.DecompilerLadderRung5.SourcePaths();
+
+        Assert.Contains(paths, path => path.EndsWith(
+            Path.Combine("ILInspector.Decompiler.Fixtures.LadderRung5", "LadderRung5.cs"),
+            StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SidecarAssets_ResolveTraceCoupledRunFasterAsset()
     {
         var fixture = FixtureCatalog.RunFasterAllocation;

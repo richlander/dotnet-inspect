@@ -10,6 +10,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -662,7 +663,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertyGetter(
                 assemblyPath,
                 reader,
                 function,
@@ -748,7 +749,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertyGetter(
                 assemblyPath,
                 reader,
                 function,
@@ -821,7 +822,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposeMethod(
+            var sourceResult = ResearchReturnToSenderShells.ComposeMethod(
                 assemblyPath,
                 reader,
                 function,
@@ -906,7 +907,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposeMethod(
+            var sourceResult = ResearchReturnToSenderShells.ComposeMethod(
                 assemblyPath,
                 reader,
                 function,
@@ -979,7 +980,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertySetter(
                 assemblyPath,
                 reader,
                 function,
@@ -1065,7 +1066,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
+            var sourceResult = ResearchReturnToSenderShells.ComposePropertySetter(
                 assemblyPath,
                 reader,
                 function,
@@ -1478,13 +1479,21 @@ static class ReturnToSender
                 new CompileBackFact("metadata", "typed-member-ref", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
         }
 
-        void AddMethodFact(MethodRef method)
+        void AddMethodFact(MethodRef method, bool allowTargetRootOverride = false)
+        {
+            AddSingleMethodFact(method, allowTargetRootOverride);
+            if (UncheckedOperatorName(method.Name) is { } siblingName)
+                AddSingleMethodFact(method with { Name = siblingName }, allowTargetRootOverride);
+        }
+
+        void AddSingleMethodFact(MethodRef method, bool allowTargetRootOverride)
         {
             AddMemberFact(method.DeclaringType, "method", method.Name);
             AddMemberRequirement(
                 method.DeclaringType,
-                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method),
-                allowTargetRoot: method.Name is not ".ctor" and not ".cctor"
+                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, method),
+                allowTargetRoot: allowTargetRootOverride
+                    || method.Name is not ".ctor" and not ".cctor"
                     && !method.Name.StartsWith("get_", StringComparison.Ordinal)
                     && !method.Name.StartsWith("set_", StringComparison.Ordinal));
         }
@@ -1494,7 +1503,7 @@ static class ReturnToSender
             AddMemberFact(field.DeclaringType, "field", field.Name);
             AddMemberRequirement(
                 field.DeclaringType,
-                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, field),
+                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, field),
                 allowTargetRoot: false);
         }
 
@@ -1524,7 +1533,7 @@ static class ReturnToSender
                     AddMethodFact(call.Callee);
                     break;
                 case NewObject creation:
-                    AddMethodFact(creation.Constructor);
+                    AddMethodFact(creation.Constructor, allowTargetRootOverride: true);
                     break;
                 case LoadProperty load:
                     AddMethodFact(load.Accessor);
@@ -1543,6 +1552,16 @@ static class ReturnToSender
                     break;
                 case DelegateCreation creation:
                     AddMethodFact(creation.Method);
+                    break;
+                case IncrementDecrement { IsUserDefined: true, Target.ResultType: { } operatorType } increment:
+                    AddMethodFact(new MethodRef(
+                        operatorType,
+                        increment.IsChecked
+                            ? increment.IsIncrement ? "op_CheckedIncrement" : "op_CheckedDecrement"
+                            : increment.IsIncrement ? "op_Increment" : "op_Decrement",
+                        operatorType,
+                        [operatorType],
+                        HasThis: false));
                     break;
                 case RecursivePropertyDeclarationPattern pattern:
                     AddMethodFact(pattern.Accessor);
@@ -1582,6 +1601,19 @@ static class ReturnToSender
                     AddFieldFact(assignment.Field);
                     break;
             }
+        }
+
+        static string? UncheckedOperatorName(string methodName)
+        {
+            if (methodName is "op_CheckedExplicit")
+                return "op_Explicit";
+            if (methodName is "op_CheckedImplicit")
+                return "op_Implicit";
+            if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
+                return null;
+
+            string inner = methodName["op_Checked".Length..];
+            return OperatorNames.MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
         }
     }
 
@@ -1696,7 +1728,10 @@ static class ReturnToSender
                     }
                 }
                 if (diagnostic.Id is "CS0234" && names.Count == 2)
+                {
+                    grew |= AddRoots(indexes, indexes.FullTypes, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
                     grew |= AddRoots(indexes, indexes.Namespaces, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
+                }
             }
             else if (diagnostic.Id is "CS1061")
             {
