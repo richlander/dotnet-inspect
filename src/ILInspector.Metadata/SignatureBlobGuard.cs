@@ -1,0 +1,286 @@
+using System.Reflection.Metadata;
+
+namespace ILInspector.Metadata;
+
+/// <summary>
+/// Bounds the structural nesting depth of a metadata signature blob *before* it is handed to
+/// <c>System.Reflection.Metadata</c>'s <c>SignatureDecoder</c>.
+///
+/// SRM decodes a signature by recursing on the native stack once per nested structural element
+/// (pointer / array / by-ref / pinned / generic-instantiation argument / function-pointer
+/// parameter / custom modifier), *before* any <see cref="ISignatureTypeProvider{TType,TContext}"/>
+/// callback runs. Attacker-controlled metadata can therefore encode a signature whose nesting is
+/// deep enough to overflow the stack with an <b>uncatchable</b> <c>StackOverflowException</c> that
+/// terminates the process — no provider-side guard can stop it, because the overflow happens on
+/// the descent before the first callback fires.
+///
+/// This guard walks the blob *iteratively* (an explicit heap work-stack, never the native stack),
+/// computing the maximum type-nesting depth, and reports whether it exceeds a safe limit so the
+/// caller can fail closed (skip the decode and degrade to an unresolved shape) instead of crashing.
+/// A raw blob-length cap is deliberately avoided: a legitimately <i>wide</i> method signature (many
+/// parameters or generic arguments) is long but structurally shallow, so length would false-reject
+/// real code. Depth does not.
+/// </summary>
+public static class SignatureBlobGuard
+{
+    /// <summary>
+    /// Maximum structural type-nesting depth allowed before a signature is treated as unsafe to
+    /// decode. Real signatures nest only a handful of levels deep (CoreLib's deepest is in the
+    /// single digits); the limit is far above that yet far below the native depth that overflows a
+    /// default managed thread stack, so it only trips on malformed / adversarial metadata.
+    /// </summary>
+    public const int DefaultMaxDepth = 512;
+
+    /// <summary>The kind of signature the blob encodes, which determines its header layout.</summary>
+    public enum Kind
+    {
+        /// <summary>A MethodDefSig / MethodRefSig (also property signatures): header, [generic
+        /// param count], param count, return type, parameters.</summary>
+        Method,
+
+        /// <summary>A FieldSig: header, custom-mods, type.</summary>
+        Field,
+
+        /// <summary>A LocalVarSig: header, local count, locals.</summary>
+        LocalVariables,
+
+        /// <summary>A MethodSpec instantiation signature: header, arg count, type args.</summary>
+        MethodSpecification,
+
+        /// <summary>A TypeSpec signature: a single Type with no header.</summary>
+        TypeSpecification,
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> if the signature is shallow enough to hand to SRM safely.
+    /// Returns <see langword="false"/> if its structural nesting exceeds <paramref name="maxDepth"/>
+    /// (or the blob is malformed in a way that makes the depth unknowable), in which case the caller
+    /// must not decode it. Truncated-but-shallow blobs return <see langword="true"/>: SRM raises a
+    /// catchable <c>BadImageFormatException</c> for those, which is not the crash this guards.
+    /// </summary>
+    public static bool IsSafeToDecode(BlobReader blob, Kind kind, int maxDepth = DefaultMaxDepth)
+    {
+        try
+        {
+            return !ExceedsDepth(blob, kind, maxDepth);
+        }
+        catch (BadImageFormatException)
+        {
+            // The blob underran while we were reading a length/token. It is structurally shallow up
+            // to the truncation (a deep blob would have tripped the depth check first), so SRM's own
+            // catchable BadImageFormatException is the appropriate failure — allow the decode.
+            return true;
+        }
+    }
+
+    /// <summary>Convenience overload that reads the blob for <paramref name="signature"/>.</summary>
+    public static bool IsSafeToDecode(MetadataReader reader, BlobHandle signature, Kind kind, int maxDepth = DefaultMaxDepth)
+    {
+        if (signature.IsNil)
+            return true;
+        return IsSafeToDecode(reader.GetBlobReader(signature), kind, maxDepth);
+    }
+
+    static bool ExceedsDepth(BlobReader blob, Kind kind, int maxDepth)
+    {
+        // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
+        // at what depth, so recursion lives on the heap and can never overflow the native stack.
+        // Every Type work item consumes at least one blob byte, and count-driven pushes are bounded
+        // by the remaining blob length (see PushTypes), so the stack size is O(blob length).
+        var work = new Stack<WorkItem>();
+        if (SeedRoots(ref blob, kind, work))
+            return true;
+
+        while (work.Count > 0)
+        {
+            var item = work.Pop();
+            switch (item.Op)
+            {
+                case Op.Type:
+                    if (item.Depth > maxDepth)
+                        return true;
+                    if (ReadType(ref blob, item.Depth, work))
+                        return true;
+                    break;
+
+                case Op.ArrayShape:
+                    if (SkipArrayShape(ref blob))
+                        return true;
+                    break;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Pushes <paramref name="count"/> Type slots at <paramref name="depth"/>. Returns true
+    /// (unsafe) if the count exceeds the bytes left in the blob: every Type consumes at least one
+    /// byte, so a larger count is malformed and must not be materialized (a compressed integer can
+    /// encode ~536M, which would otherwise OOM the work-stack before SRM ever sees the blob).</summary>
+    static bool PushTypes(Stack<WorkItem> work, int count, int depth, ref BlobReader blob)
+    {
+        if (count < 0 || count > blob.RemainingBytes)
+            return true;
+        for (int i = 0; i < count; i++)
+            work.Push(WorkItem.Type(depth));
+        return false;
+    }
+
+    static bool SeedRoots(ref BlobReader blob, Kind kind, Stack<WorkItem> work)
+    {
+        switch (kind)
+        {
+            case Kind.TypeSpecification:
+                work.Push(WorkItem.Type(1));
+                return false;
+
+            case Kind.Field:
+                blob.ReadSignatureHeader();
+                work.Push(WorkItem.Type(1));
+                return false;
+
+            case Kind.MethodSpecification:
+            case Kind.LocalVariables:
+            {
+                blob.ReadSignatureHeader();
+                int count = blob.ReadCompressedInteger();
+                return PushTypes(work, count, 1, ref blob);
+            }
+
+            case Kind.Method:
+                return SeedMethodRoots(ref blob, work, depth: 1);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool SeedMethodRoots(ref BlobReader blob, Stack<WorkItem> work, int depth)
+    {
+        var header = blob.ReadSignatureHeader();
+        if (header.IsGeneric)
+            blob.ReadCompressedInteger(); // generic parameter count
+        int paramCount = blob.ReadCompressedInteger();
+        // Return type + each parameter are Type slots (leading modifiers / by-ref / typedbyref /
+        // sentinel are handled inside ReadType). Ordering among siblings does not affect the maximum
+        // depth. Bound paramCount + 1 (the return type) against the remaining blob before pushing.
+        if (paramCount < 0 || (long)paramCount + 1 > blob.RemainingBytes)
+            return true;
+        work.Push(WorkItem.Type(depth)); // return type
+        for (int i = 0; i < paramCount; i++)
+            work.Push(WorkItem.Type(depth));
+        return false;
+    }
+
+    /// <summary>Reads one Type at <paramref name="depth"/>, consuming its own bytes and pushing its
+    /// child Type slots for the main loop to process. Returns true (unsafe) if a malformed count is
+    /// encountered. Every prefix that SRM recurses through (custom modifier, by-ref, pinned) pushes
+    /// the modified type at <paramref name="depth"/> + 1 so a long prefix chain is bounded exactly
+    /// like a chain of pointers.</summary>
+    static bool ReadType(ref BlobReader blob, int depth, Stack<WorkItem> work)
+    {
+        byte code = blob.ReadByte();
+        switch (code)
+        {
+            case ElementTypeCmodReqd:
+            case ElementTypeCmodOpt:
+                blob.ReadTypeHandle();               // modifier's TypeDefOrRefOrSpec token
+                work.Push(WorkItem.Type(depth + 1)); // SRM recurses through the modified type
+                return false;
+
+            case ElementTypeByRef:
+            case ElementTypePinned:
+            case ElementTypeSentinel:
+                work.Push(WorkItem.Type(depth + 1)); // SRM recurses through the referenced type
+                return false;
+
+            case ElementTypePtr:
+            case ElementTypeSzArray:
+                work.Push(WorkItem.Type(depth + 1));
+                return false;
+
+            case ElementTypeArray:
+                // ELEMENT_TYPE_ARRAY: Type ArrayShape. The shape trails the element in the blob, so
+                // schedule it to be read *after* the element subtree (pushed first here, popped last).
+                work.Push(WorkItem.ArrayShape());
+                work.Push(WorkItem.Type(depth + 1));
+                return false;
+
+            case ElementTypeGenericInst:
+            {
+                // GENERICINST (CLASS|VALUETYPE) TypeToken GenArgCount Type*
+                blob.ReadByte();       // CLASS / VALUETYPE
+                blob.ReadTypeHandle(); // generic type token
+                int args = blob.ReadCompressedInteger();
+                return PushTypes(work, args, depth + 1, ref blob);
+            }
+
+            case ElementTypeFnPtr:
+                // FNPTR MethodSig: its return type and parameters are the children.
+                return SeedMethodRoots(ref blob, work, depth + 1);
+
+            case ElementTypeClass:
+            case ElementTypeValueType:
+                blob.ReadTypeHandle();
+                return false;
+
+            case ElementTypeVar:
+            case ElementTypeMVar:
+                blob.ReadCompressedInteger(); // generic parameter index
+                return false;
+
+            default:
+                // Primitive / VOID / OBJECT / STRING / TYPEDBYREF / I / U and anything else:
+                // a leaf that consumes no further bytes here.
+                return false;
+        }
+    }
+
+    /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if either
+    /// count exceeds the remaining blob: SRM's array decoder pre-allocates a builder from these
+    /// counts before reading elements, so an unbounded count (a compressed integer can encode ~536M)
+    /// would OOM SRM even though the blob is only a few bytes.</summary>
+    static bool SkipArrayShape(ref BlobReader blob)
+    {
+        blob.ReadCompressedInteger();           // rank
+        int numSizes = blob.ReadCompressedInteger();
+        if (numSizes < 0 || numSizes > blob.RemainingBytes)
+            return true;
+        for (int i = 0; i < numSizes; i++)
+            blob.ReadCompressedInteger();        // size
+        int numLoBounds = blob.ReadCompressedInteger();
+        if (numLoBounds < 0 || numLoBounds > blob.RemainingBytes)
+            return true;
+        for (int i = 0; i < numLoBounds; i++)
+            blob.ReadCompressedSignedInteger();  // lower bound
+        return false;
+    }
+
+    // ECMA-335 II.23.1.16 element types, by raw byte value (the SignatureTypeCode enum does not
+    // name the modifier / prefix codes we care about, so spell them all out to avoid ambiguity).
+    const byte ElementTypePtr = 0x0f;         // ELEMENT_TYPE_PTR
+    const byte ElementTypeByRef = 0x10;       // ELEMENT_TYPE_BYREF
+    const byte ElementTypeValueType = 0x11;   // ELEMENT_TYPE_VALUETYPE
+    const byte ElementTypeClass = 0x12;       // ELEMENT_TYPE_CLASS
+    const byte ElementTypeVar = 0x13;         // ELEMENT_TYPE_VAR
+    const byte ElementTypeArray = 0x14;       // ELEMENT_TYPE_ARRAY
+    const byte ElementTypeGenericInst = 0x15; // ELEMENT_TYPE_GENERICINST
+    const byte ElementTypeFnPtr = 0x1b;       // ELEMENT_TYPE_FNPTR
+    const byte ElementTypeSzArray = 0x1d;     // ELEMENT_TYPE_SZARRAY
+    const byte ElementTypeMVar = 0x1e;        // ELEMENT_TYPE_MVAR
+    const byte ElementTypeCmodReqd = 0x1f;    // ELEMENT_TYPE_CMOD_REQD
+    const byte ElementTypeCmodOpt = 0x20;     // ELEMENT_TYPE_CMOD_OPT
+    const byte ElementTypeSentinel = 0x41;    // ELEMENT_TYPE_SENTINEL
+    const byte ElementTypePinned = 0x45;      // ELEMENT_TYPE_PINNED
+
+    enum Op : byte { Type, ArrayShape }
+
+    readonly struct WorkItem
+    {
+        public Op Op { get; }
+        public int Depth { get; }
+        WorkItem(Op op, int depth) { Op = op; Depth = depth; }
+        public static WorkItem Type(int depth) => new(Op.Type, depth);
+        public static WorkItem ArrayShape() => new(Op.ArrayShape, 0);
+    }
+}

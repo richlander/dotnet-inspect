@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -18,6 +19,8 @@ internal static class MemberResolver
                 var typeScope = new GenericScope(
                     GenericParameterNames(reader, declaringType.GetGenericParameters()),
                     GenericParameterNames(reader, method.GetGenericParameters()));
+                if (!SignatureBlobGuard.IsSafeToDecode(reader, method.Signature, SignatureBlobGuard.Kind.Method))
+                    return MemberRef.Unsupported("method signature nesting depth exceeded");
                 var signature = method.DecodeSignature(TypeRefDecoder.Instance, typeScope);
                 string name = reader.GetString(method.Name);
                 return new MemberRef(declaring, name, signature.ParameterTypes, signature.ReturnType, KindFor(name))
@@ -31,6 +34,8 @@ internal static class MemberResolver
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
                 var declaring = ResolveParentType(reader, member.Parent, callerScope);
+                if (!SignatureBlobGuard.IsSafeToDecode(reader, member.Signature, SignatureBlobGuard.Kind.Method))
+                    return MemberRef.Unsupported("member-reference signature nesting depth exceeded");
                 var signature = member.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty);
                 var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
                 string name = reader.GetString(member.Name);
@@ -51,6 +56,8 @@ internal static class MemberResolver
             {
                 var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
                 var generic = ResolveMethod(reader, spec.Method, callerScope);
+                if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, SignatureBlobGuard.Kind.MethodSpecification))
+                    return MemberRef.Unsupported("method-specification signature nesting depth exceeded");
                 var methodArguments = spec.DecodeSignature(TypeRefDecoder.Instance, callerScope);
                 return generic with
                 {
