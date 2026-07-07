@@ -405,7 +405,7 @@ static class ReturnToSenderSourceProbe
                     }
                     case TypeDeclarationSyntax type:
                     {
-                        string typeName = type.Identifier.ValueText;
+                        string typeName = CSharpSourceIdentityContext.TypeMetadataName(type);
                         var typeStack = containingTypes.Concat([typeName]).ToArray();
                         string fullType = namespaceName.Length == 0
                             ? string.Join(".", typeStack)

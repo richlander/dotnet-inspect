@@ -1024,6 +1024,34 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal([".ctor", ".cctor", ".ctor", "get_P", "M", "get_Item"], names);
     }
 
+    [Fact]
+    public void CSharpSourceIdentityContext_UsesMetadataArityForGenericTypes()
+    {
+        var root = CSharpSyntaxTree.ParseText("""
+            namespace SourceProbe;
+
+            public class Class1<T>
+            {
+                public int M() => 1;
+            }
+            """, cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var type = Assert.Single(root.DescendantNodes().OfType<ClassDeclarationSyntax>());
+
+        Assert.Equal("Class1`1", CSharpSourceIdentityContext.TypeMetadataName(type));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_MapsGenericTypeSourceMembers()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DiffV1.AssemblyPath(),
+            [new ReturnToSender.RequestedTarget("DiffFixtureSample.GenericTypeAritySample`1", "M", Overload: 0)]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+        Assert.Equal("return1;", Normalize(result.ExpectedBody));
+    }
+
     static (string Directory, string AssemblyPath, IReadOnlyList<string> SourcePaths) CompileSourceFixture(
         params (string FileName, string Source)[] sources)
     {

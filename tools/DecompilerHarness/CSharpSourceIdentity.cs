@@ -26,6 +26,12 @@ internal sealed class CSharpSourceIdentityContext
         return new CSharpSourceIdentityContext(partialIndexerNames);
     }
 
+    public static string TypeMetadataName(TypeDeclarationSyntax type)
+    {
+        int arity = type.TypeParameterList?.Parameters.Count ?? 0;
+        return arity == 0 ? type.Identifier.ValueText : $"{type.Identifier.ValueText}`{arity}";
+    }
+
     public IEnumerable<CSharpSourceMemberIdentity> TypeMembers(TypeDeclarationSyntax type, string fullType)
     {
         foreach (var member in TypeHeaderMembers(type))
@@ -175,7 +181,7 @@ internal sealed class CSharpSourceIdentityContext
                 }
                 case TypeDeclarationSyntax type:
                 {
-                    string typeName = type.Identifier.ValueText;
+                    string typeName = TypeMetadataName(type);
                     var typeStack = containingTypes.Concat([typeName]).ToArray();
                     string fullType = namespaceName.Length == 0
                         ? string.Join(".", typeStack)
