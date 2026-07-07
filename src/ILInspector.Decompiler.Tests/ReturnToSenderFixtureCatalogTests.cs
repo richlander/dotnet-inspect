@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using System.Reflection;
 
 using DotnetInspector.Fixtures;
+using ILInspector.Decompiler;
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -133,6 +134,13 @@ public class ReturnToSenderFixtureCatalogTests
 
         Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
         Assert.DoesNotContain("CS1001", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompileBackCSharpNames_EscapesQualifiedDelegateIdentifier()
+    {
+        Assert.Equal("A.B.@delegate*", CompileBackCSharpNames.Clean("A.B.delegate*"));
+        Assert.Equal("delegate*<System.Int32, System.Int32>", CompileBackCSharpNames.Clean("delegate*<System.Int32, System.Int32>"));
     }
 
     [Fact]
