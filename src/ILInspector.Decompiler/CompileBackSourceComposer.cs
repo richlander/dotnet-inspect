@@ -160,7 +160,8 @@ public sealed record CompileBackMemberDeclaration(
     bool IsAbstract = false,
     bool IsVirtual = false,
     bool IsOverride = false,
-    bool IsSealed = false)
+    bool IsSealed = false,
+    bool IsAsync = false)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -273,7 +274,8 @@ public sealed record CompileBackMemberRequirement(
     bool IsAbstract = false,
     bool IsVirtual = false,
     bool IsOverride = false,
-    bool IsSealed = false);
+    bool IsSealed = false,
+    bool IsAsync = false);
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
@@ -601,7 +603,8 @@ public static class CompileBackSourceComposer
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
-                IsSealed: false)
+                IsSealed: false,
+                IsAsync: !isConstructor && function.RequiresAsyncBodyModifier)
         ];
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
@@ -784,6 +787,8 @@ public static class CompileBackSourceComposer
         var apiType = ToApiType(type);
         var apiMember = ToApiMember(type, member);
         string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(apiType, apiMember);
+        if (member.IsAsync)
+            declaration = AddAsyncModifier(declaration);
         if (RequiresUnsafe(member))
             declaration = AddUnsafeModifier(declaration);
         switch (member.Kind)
@@ -794,6 +799,7 @@ public static class CompileBackSourceComposer
                     sb.AppendLine($"{pad}{declaration}");
                     return;
                 }
+
                 if (member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
                 {
                     sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)};{(HasSetterShape(member) ? " set;" : "")} }}");
@@ -1053,6 +1059,20 @@ public static class CompileBackSourceComposer
     static bool RequiresUnsafe(CompileBackMemberDeclaration member)
         => member.ReturnType?.DisplayName.Contains('*', StringComparison.Ordinal) == true
             || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal));
+
+    static string AddAsyncModifier(string declaration)
+    {
+        if (declaration.Contains(" async ", StringComparison.Ordinal))
+            return declaration;
+
+        foreach (var prefix in new[] { "public static ", "internal static ", "public ", "internal ", "static " })
+        {
+            if (declaration.StartsWith(prefix, StringComparison.Ordinal))
+                return prefix + "async " + declaration[prefix.Length..];
+        }
+
+        return "async " + declaration;
+    }
 
     static string AddUnsafeModifier(string declaration)
     {
@@ -2268,7 +2288,8 @@ public static class CompileBackSourceComposer
                     member.IsAbstract,
                     member.IsVirtual,
                     member.IsOverride,
-                    member.IsSealed));
+                    member.IsSealed,
+                    member.IsAsync));
             }
 
             return members;
