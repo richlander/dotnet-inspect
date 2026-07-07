@@ -65,13 +65,13 @@ public static class ApiCommandDefinitions
         var memberOption = new Option<string[]>("-m")
         {
             Description = "Filter members by name or limit count (-m 5)",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         memberOption.Aliases.Add("--member");
         var kindOption = new Option<string[]>("-k")
         {
             Description = "Filter by kind (class, struct, interface, enum, delegate, method, property, field, event, constructor)",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
 
@@ -173,7 +173,7 @@ public static class ApiCommandDefinitions
         var memberOption = new Option<string[]>("-m")
         {
             Description = "Filter members by name (supports globs, Type.Member dotted syntax)",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         memberOption.Aliases.Add("--member");
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
@@ -184,7 +184,7 @@ public static class ApiCommandDefinitions
         var binOption = new Option<string[]>("--bin")
         {
             Description = "Scan output directory(s) for inbound callers of the selected member (Callers section). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         binOption.Aliases.Add("--directory");
         var callerProjectOption = new Option<string[]>("--project")
@@ -195,12 +195,12 @@ public static class ApiCommandDefinitions
         var callerPackageOption = new Option<string[]>("--caller-package")
         {
             Description = "Download and scan package(s) for inbound callers (Callers section). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         var kindOption = new Option<string[]>("-k")
         {
             Description = "Filter by member kind (method, property, field, event, constructor)",
-            AllowMultipleArgumentsPerToken = true
+            AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
 

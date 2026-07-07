@@ -1092,6 +1092,21 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void ExtensionsCommand_RepeatedPackageOptions_KeepTrailingTargetPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["extensions", "--package", "Pkg1", "--package", "Pkg2", "ILogger"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var targetArgument = command.Arguments.OfType<Argument<string?>>().Single(argument => argument.Name == "type");
+        var packageOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "--package");
+
+        Assert.Equal("ILogger", result.GetValue(targetArgument));
+        Assert.Equal(["Pkg1", "Pkg2"], result.GetValue(packageOption) ?? []);
+    }
+
+    [Fact]
     public void ExtensionsCommand_WithNoArgs_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions"]);
@@ -1112,6 +1127,21 @@ public class CommandLineTests
 
         Assert.Equal(["ILogger", "Log:1"], result.GetValue(argsArgument) ?? []);
         Assert.Equal(["app.csproj"], result.GetValue(projectOption) ?? []);
+    }
+
+    [Fact]
+    public void MemberCommand_MemberOptionConsumesSingleValueSoTrailingTargetStaysPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(["member", "-m", "Method1", "TargetType", "--package", "Pkg"]);
+
+        Assert.Empty(result.Errors);
+        var command = result.CommandResult.Command;
+        var argsArgument = command.Arguments.OfType<Argument<string[]>>().Single(argument => argument.Name == "args");
+        var memberOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "-m");
+
+        Assert.Equal(["TargetType"], result.GetValue(argsArgument) ?? []);
+        Assert.Equal(["Method1"], result.GetValue(memberOption) ?? []);
     }
 
     [Fact]

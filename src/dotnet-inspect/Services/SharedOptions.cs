@@ -62,7 +62,7 @@ public class SharedOptions
     public Option<string[]> PerformanceTriageShape { get; } = new("--triage-shape")
     {
         Description = "Performance Triage: include only shape(s), comma-separated or repeated; run -S \"Performance Triage\" to see shapes",
-        AllowMultipleArgumentsPerToken = true
+        AllowMultipleArgumentsPerToken = false
     };
     public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Performance Triage: show the top N ranked rows" };
     public Option<string[]> RowWhere { get; } = new("--where")
@@ -79,12 +79,12 @@ public class SharedOptions
     public Option<string[]> Source { get; } = new("--source")
     {
         Description = "NuGet source URL (replaces defaults, can repeat)",
-        AllowMultipleArgumentsPerToken = true
+        AllowMultipleArgumentsPerToken = false
     };
     public Option<string[]> AddSource { get; } = new("--add-source")
     {
         Description = "NuGet source URL to add (can repeat)",
-        AllowMultipleArgumentsPerToken = true
+        AllowMultipleArgumentsPerToken = false
     };
     public Option<string?> NuGetConfig { get; } = new("--nugetconfig")
     {
