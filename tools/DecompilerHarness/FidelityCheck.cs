@@ -344,7 +344,7 @@ static class FidelityCheck
         {
             var assemblyResults = new ConcurrentBag<CompileBackResult>();
             int attempts = 0;
-            int attemptCap = perAssemblyCap * 10;
+            int attemptCap = Math.Max(perAssemblyCap * 10, 100);
             int successCount = 0;
 
             PEReader pe;
@@ -366,6 +366,9 @@ static class FidelityCheck
 
                     Parallel.ForEach(reader.TypeDefinitions, options, (typeHandle, state) =>
                     {
+                        if (ShouldSkipBeforeSampleReservation(reader, typeHandle))
+                            return;
+
                         if (Volatile.Read(ref successCount) >= perAssemblyCap)
                         {
                             state.Break();
@@ -411,6 +414,21 @@ static class FidelityCheck
                                             .ThenBy(r => r.Signature, StringComparer.Ordinal));
         }
         return results;
+    }
+
+    static bool ShouldSkipBeforeSampleReservation(MetadataReader reader, TypeDefinitionHandle typeHandle)
+    {
+        try
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct))
+                return true;
+            return IsGeneratedType(reader, typeDef, reader.GetFullTypeName(typeDef));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return true;
+        }
     }
 
     internal static bool IsUsefulCorpusSample(CompileBackResult result)
