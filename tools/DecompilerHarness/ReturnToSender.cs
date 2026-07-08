@@ -1598,15 +1598,8 @@ static class ReturnToSender
                 case DelegateCreation creation:
                     AddMethodFact(creation.Method);
                     break;
-                case IncrementDecrement { IsUserDefined: true, Target.ResultType: { } operatorType } increment:
-                    AddMethodFact(new MethodRef(
-                        operatorType,
-                        increment.IsChecked
-                            ? increment.IsIncrement ? "op_CheckedIncrement" : "op_CheckedDecrement"
-                            : increment.IsIncrement ? "op_Increment" : "op_Decrement",
-                        operatorType,
-                        [operatorType],
-                        HasThis: false));
+                case IncrementDecrement { ConsumedMethod: { } operatorMethod }:
+                    AddMethodFact(operatorMethod);
                     break;
                 case RecursivePropertyDeclarationPattern pattern:
                     AddMethodFact(pattern.Accessor);
