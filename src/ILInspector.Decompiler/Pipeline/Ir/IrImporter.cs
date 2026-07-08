@@ -60,13 +60,14 @@ public static class IrImporter
         => Import(source, ImporterTypeName(method.DeclaringType), method.Name);
 
     /// <summary>
-    /// Typed evidence for a type's directly-declared interface implementations:
-    /// the <see cref="TypeRef"/> of each interface named in the type's
-    /// InterfaceImpl rows, decoded through the product's signature decoder so
-    /// every handle kind (TypeDef, TypeRef, and generic-instance TypeSpec) is
-    /// spelled uniformly. Compile-back consumers use this to seed target-type
-    /// interface closure roots without reaching into metadata themselves —
-    /// interface discovery is product knowledge, not harness knowledge.
+    /// Typed evidence for the interfaces a type declares in its own assembly: the
+    /// <see cref="TypeRef"/> of each InterfaceImpl row whose interface is a
+    /// TypeDefinition (defined in this assembly), decoded through the product's
+    /// signature decoder. Constructed generic-instance (TypeSpec) and cross-assembly
+    /// (TypeReference) interfaces are excluded — they are never local closure roots,
+    /// and only TypeDefinition rows were ever seeded. Compile-back consumers use this
+    /// to seed target-type interface closure roots without walking metadata
+    /// themselves: interface discovery is product knowledge, not harness knowledge.
     /// </summary>
     public static ImmutableArray<TypeRef> ImportImplementedInterfaces(MetadataReader reader, TypeDefinitionHandle typeHandle)
     {
@@ -78,20 +79,13 @@ public static class IrImporter
         var builder = ImmutableArray.CreateBuilder<TypeRef>(implementations.Count);
         foreach (var implementationHandle in implementations)
         {
-            var implementation = reader.GetInterfaceImplementation(implementationHandle);
-            builder.Add(DecodeInterfaceType(reader, implementation.Interface));
+            var interfaceHandle = reader.GetInterfaceImplementation(implementationHandle).Interface;
+            if (interfaceHandle.Kind == HandleKind.TypeDefinition)
+                builder.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)interfaceHandle, 0));
         }
 
         return builder.ToImmutable();
     }
-
-    static TypeRef DecodeInterfaceType(MetadataReader reader, EntityHandle interfaceHandle) => interfaceHandle.Kind switch
-    {
-        HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)interfaceHandle, 0),
-        HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)interfaceHandle, 0),
-        HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)interfaceHandle, 0),
-        _ => TypeRef.Unsupported($"unsupported interface handle kind {interfaceHandle.Kind}"),
-    };
 
     static string ImporterTypeName(TypeRef type)
     {

@@ -495,6 +495,44 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_SeedsTargetInterfaceRootWhenTargetAssemblyNameIsCorelibFacade()
+    {
+        // A target assembly whose own name is a canonicalized corelib facade
+        // (System.Runtime, mscorlib, ...) must still resolve its own interface
+        // definitions: TypeRefDecoder canonicalizes the assembly name, so the
+        // same-assembly gate has to canonicalize too. Assert on the seeded plan
+        // facts (not recompile status) so this holds independent of the compile
+        // environment.
+        var assemblyPath = CompileFixture(
+            """
+            public interface IValue
+            {
+                int GetValue();
+            }
+
+            public class Class1 : IValue
+            {
+                public int GetValue() => 42;
+            }
+            """,
+            assemblyName: "System.Runtime");
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "GetValue", 0)]));
+
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "IValue"
+                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "target-interface"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTypedObjectInitializerPropertyRequirement()
     {
         var assemblyPath = CompileFixture("""

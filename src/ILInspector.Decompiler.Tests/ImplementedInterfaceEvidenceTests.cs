@@ -28,42 +28,47 @@ public class ImplementedInterfaceEvidenceTests
     }
 
     [Fact]
-    public void ImportImplementedInterfaces_DecodesDefinitionGenericAndNestedInterfaces()
+    public void ImportImplementedInterfaces_ReturnsSameAssemblyDefinitions()
     {
         using var source = MetadataSource.Open(typeof(InterfaceEvidenceSample).Assembly.Location);
         var reader = source.Reader;
 
         var interfaces = IrImporter.ImportImplementedInterfaces(reader, FindHandle(reader, nameof(InterfaceEvidenceSample)));
 
-        Assert.Equal(3, interfaces.Length);
+        // Only same-assembly TypeDefinition interfaces are evidence: the marker and
+        // the nested interface, but not the generic instantiation (a TypeSpec).
+        Assert.Equal(2, interfaces.Length);
+        Assert.All(interfaces, type => Assert.Equal(TypeRefKind.Definition, type.Kind));
+        Assert.All(interfaces, type => Assert.Equal(source.AssemblyName, type.Assembly));
 
-        // Same-assembly non-generic interface: a resolvable Definition ref.
-        var marker = Assert.Single(interfaces, type => type.Kind == TypeRefKind.Definition && type.Name.EndsWith("ILocalMarker", StringComparison.Ordinal));
-        Assert.Equal(source.AssemblyName, marker.Assembly);
-
-        // Generic interface implementation is a TypeSpec, decoded to a generic instance.
-        var generic = Assert.Single(interfaces, type => type.Kind == TypeRefKind.GenericInstance);
-        Assert.Contains("ILocalGeneric", generic.ElementType!.Name, StringComparison.Ordinal);
-        Assert.Equal("Int32", Assert.Single(generic.TypeArguments).Name);
-
+        Assert.Single(interfaces, type => type.Name.EndsWith("ILocalMarker", StringComparison.Ordinal));
         // Nested interfaces keep their metadata nesting spelling ('+').
-        Assert.Single(interfaces, type => type.Kind == TypeRefKind.Definition && type.Name.EndsWith("OuterHost+INested", StringComparison.Ordinal));
+        Assert.Single(interfaces, type => type.Name.EndsWith("OuterHost+INested", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void ImportImplementedInterfaces_CrossAssemblyInterfaceKeepsForeignAssembly()
+    public void ImportImplementedInterfaces_ExcludesConstructedInterface()
+    {
+        using var source = MetadataSource.Open(typeof(InterfaceEvidenceSample).Assembly.Location);
+        var reader = source.Reader;
+
+        var interfaces = IrImporter.ImportImplementedInterfaces(reader, FindHandle(reader, nameof(InterfaceEvidenceSample)));
+
+        // A generic interface implementation is a TypeSpec, never a local closure
+        // root, so it is not part of the evidence set.
+        Assert.DoesNotContain(interfaces, type => type.Kind == TypeRefKind.GenericInstance);
+        Assert.DoesNotContain(interfaces, type => type.Name.Contains("ILocalGeneric", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ImportImplementedInterfaces_ExcludesCrossAssemblyInterface()
     {
         using var source = MetadataSource.Open(typeof(DisposableSample).Assembly.Location);
         var reader = source.Reader;
 
-        var iface = Assert.Single(IrImporter.ImportImplementedInterfaces(reader, FindHandle(reader, nameof(DisposableSample))));
-
-        // A cross-assembly interface is a TypeRef decoded to a Definition in the
-        // foreign assembly — so target-interface seeding correctly declines it as
-        // a local closure root.
-        Assert.Equal(TypeRefKind.Definition, iface.Kind);
-        Assert.EndsWith("IDisposable", iface.Name, StringComparison.Ordinal);
-        Assert.NotEqual(source.AssemblyName, iface.Assembly);
+        // A cross-assembly interface is a TypeReference, not a local definition, so
+        // it is excluded — target-interface seeding never treated it as a root.
+        Assert.Empty(IrImporter.ImportImplementedInterfaces(reader, FindHandle(reader, nameof(DisposableSample))));
     }
 
     [Fact]
