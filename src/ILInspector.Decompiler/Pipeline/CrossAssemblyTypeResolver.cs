@@ -352,7 +352,7 @@ internal sealed class CrossAssemblyTypeResolver
                 if (!string.Equals(reader.GetString(candidate.Name), field.Name, StringComparison.Ordinal))
                     continue;
 
-                var fieldType = candidate.DecodeSignature(TypeRefDecoder.Instance, typeScope).Instantiate(typeArguments, []);
+                var fieldType = GuardedDecode.FieldType(reader, candidate, typeScope).Instantiate(typeArguments, []);
                 if (!SameSignatureType(fieldType, field.Type, allowCoreLibraryAliases))
                     continue;
 
@@ -394,7 +394,7 @@ internal sealed class CrossAssemblyTypeResolver
         var scope = new GenericScope(
             MethodDefinitionFacts.GenericParameterNames(reader, declaringType.GetGenericParameters()),
             MethodDefinitionFacts.GenericParameterNames(reader, method.GetGenericParameters()));
-        var signature = method.DecodeSignature(TypeRefDecoder.Instance, scope);
+        var signature = GuardedDecode.MethodSignature(reader, method, scope);
         if (signature.Header.IsInstance != callee.HasThis)
             return false;
         if (signature.GenericParameterCount != callee.TypeArguments.Length)

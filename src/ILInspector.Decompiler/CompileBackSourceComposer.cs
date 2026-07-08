@@ -1532,7 +1532,7 @@ public static class CompileBackSourceComposer
     }
 
     static IReadOnlyList<TypeRef> MethodParameterTypes(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
-        => method.DecodeSignature(TypeRefDecoder.Instance, IrImporter.CallerScope(reader, typeDef, method)).ParameterTypes;
+        => GuardedDecode.MethodSignature(reader, method, IrImporter.CallerScope(reader, typeDef, method)).ParameterTypes;
 
     static bool IsSelfType(TypeRef type, CompileBackTypeIdentity identity)
     {
@@ -2440,7 +2440,7 @@ public static class CompileBackSourceComposer
                 return false;
             try
             {
-                var signature = method.DecodeSignature(TypeRefDecoder.Instance, IrImporter.CallerScope(reader, typeDef, method));
+                var signature = GuardedDecode.MethodSignature(reader, method, IrImporter.CallerScope(reader, typeDef, method));
                 return signature.ParameterTypes.Length == methodRef.ParameterTypes.Length
                     && signature.ParameterTypes.SequenceEqual(methodRef.ParameterTypes);
             }

@@ -164,7 +164,7 @@ public static class IrImporter
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != methodName)
                     continue;
-                var signature = method.DecodeSignature(TypeRefDecoder.Instance, CallerScope(reader, typeDef, method));
+                var signature = GuardedDecode.MethodSignature(reader, method, CallerScope(reader, typeDef, method));
                 bool isPublic = (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
                     == System.Reflection.MethodAttributes.Public;
                 result.Add(new OverloadInfo(
@@ -354,7 +354,7 @@ public static class IrImporter
 
     static string StableSampleKey(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, string typeName, string methodName)
     {
-        var signature = method.DecodeSignature(TypeRefDecoder.Instance, CallerScope(reader, typeDef, method));
+        var signature = GuardedDecode.MethodSignature(reader, method, CallerScope(reader, typeDef, method));
         return string.Join("|",
             typeName,
             methodName,
@@ -1437,9 +1437,10 @@ public static class IrImporter
                     // the return and parameter types and whether the pointer is
                     // an instance function pointer. The function-pointer value
                     // is on top; the arguments are beneath it.
-                    var signature = source.Reader
-                        .GetStandaloneSignature((StandaloneSignatureHandle)MetadataTokens.EntityHandle(reader.ReadILToken()))
-                        .DecodeMethodSignature(TypeRefDecoder.Instance, callerScope);
+                    var signature = GuardedDecode.MethodSignature(
+                        source.Reader,
+                        source.Reader.GetStandaloneSignature((StandaloneSignatureHandle)MetadataTokens.EntityHandle(reader.ReadILToken())),
+                        callerScope);
                     var pointer = Pop(stack);
                     int argumentCount = signature.ParameterTypes.Length + (signature.Header.IsInstance ? 1 : 0);
                     var arguments = new IrExpression[argumentCount];
@@ -1950,7 +1951,7 @@ public static class IrImporter
                 var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
                 var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
                 var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
-                var signature = method.DecodeSignature(TypeRefDecoder.Instance, typeScope);
+                var signature = GuardedDecode.MethodSignature(reader, method, typeScope);
                 var parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, signature.ParameterTypes);
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
                 bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes());
@@ -1978,7 +1979,7 @@ public static class IrImporter
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
                 var declaring = ResolveParentType(reader, member.Parent, callerScope);
-                var signature = member.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+                var signature = GuardedDecode.MethodSignature(reader, member, GenericScope.Empty);
                 // The signature's !N are the declaring type's parameters;
                 // instantiate them against the parent's type arguments so a
                 // call on List<int> reports int, not T.
@@ -2028,7 +2029,7 @@ public static class IrImporter
                 // arguments so the call site reports concrete types.
                 var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
                 var generic = ResolveMethod(reader, spec.Method, callerScope);
-                var methodArguments = spec.DecodeSignature(TypeRefDecoder.Instance, callerScope);
+                var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
                 return generic with
                 {
                     TypeArguments = methodArguments,
@@ -2382,7 +2383,7 @@ public static class IrImporter
                 var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
                 var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
                 var name = reader.GetString(field.Name);
-                return new FieldRef(declaring, name, field.DecodeSignature(TypeRefDecoder.Instance, typeScope))
+                return new FieldRef(declaring, name, GuardedDecode.FieldType(reader, field, typeScope))
                 {
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
                 };
@@ -2391,7 +2392,7 @@ public static class IrImporter
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
                 var declaring = ResolveParentType(reader, member.Parent, callerScope);
-                var fieldType = member.DecodeFieldSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+                var fieldType = GuardedDecode.FieldType(reader, member, GenericScope.Empty);
                 if (declaring.Kind == TypeRefKind.GenericInstance)
                     fieldType = fieldType.Instantiate(declaring.TypeArguments, []);
                 var name = reader.GetString(member.Name);
@@ -2450,6 +2451,8 @@ public static class IrImporter
         var field = source.Reader.GetFieldDefinition(handle);
         int rva = field.GetRelativeVirtualAddress();
         if (rva == 0)
+            return null;
+        if (!ILInspector.Metadata.SignatureBlobGuard.IsSafeToDecode(source.Reader, field.Signature, ILInspector.Metadata.SignatureBlobGuard.Kind.Field))
             return null;
         int size = field.DecodeSignature(FieldDataSizeProvider.Instance, null);
         if (size <= 0)
