@@ -1491,6 +1491,7 @@ static class ReturnToSender
         // fail to resolve its own definitions and drop their closure roots/facts.
         string assemblyName = TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name));
         var definitions = TypeDefinitionsByTypeRefIdentity(reader);
+        var consumedMemberEvidence = new List<ConsumedMemberEvidence>();
         AddTargetInterfaceRoots(targetType);
         foreach (var node in function.Descendants.Prepend(function))
         {
@@ -1653,7 +1654,9 @@ static class ReturnToSender
 
         void AddTypedClosureMemberFacts(IrNode node)
         {
-            foreach (var evidence in ConsumedMemberEvidence.From(node))
+            consumedMemberEvidence.Clear();
+            ConsumedMemberEvidence.AddFrom(node, consumedMemberEvidence);
+            foreach (var evidence in consumedMemberEvidence)
             {
                 if (evidence.Method is { } method)
                     AddMethodFact(method, evidence.AllowTargetRoot);
