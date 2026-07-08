@@ -2148,6 +2148,7 @@ public sealed partial class CSharpPrinter
         Conditional t => ConditionalText(t),
         SwitchExpression se => SwitchExpressionInline(se),
         UnionSwitchExpression se => UnionSwitchExpressionInline(se),
+        NullCoalescingFieldAssignmentExpression n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)}",
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",

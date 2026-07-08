@@ -149,7 +149,9 @@ public class FidelityGateTests
     /// dispatch (relational pivots over linear == chains) back into a `switch`.
     /// NullCoalescingAssignStaticField and NullCoalescingAssignInstanceField must
     /// keep folding the field null-test diamond into `field ??= fallback` whose
-    /// two member loads recompile opcode-exact. WhileTrueWithReturns and
+    /// two member loads recompile opcode-exact. LazyFieldGetter must keep folding
+    /// csc's expression-valued lazy field getter into `return field ??= fallback`,
+    /// preserving the dup/null-test/result-slot lowering opcode-exact. WhileTrueWithReturns and
     /// WhileTrueWithBreak must keep raising csc's unconditional back-edge into a
     /// `while (true)` loop whose break/return exits recompile opcode-exact.
     /// SubIntPromotionToUInt must keep re-inserting the `(uint)` cast C# requires
@@ -242,6 +244,7 @@ public class FidelityGateTests
         "NthCharFromEnd",
         "NullCoalescingAssignStaticField",
         "NullCoalescingAssignInstanceField",
+        "LazyFieldGetter",
         "SubIntPromotionToUInt",
         "WhileTrueWithReturns",
         "WhileTrueWithBreak",

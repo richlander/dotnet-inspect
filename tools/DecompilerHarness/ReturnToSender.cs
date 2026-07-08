@@ -1719,6 +1719,9 @@ static class ReturnToSender
                 case NullCoalescingFieldAssignment assignment:
                     AddFieldFact(assignment.Field);
                     break;
+                case NullCoalescingFieldAssignmentExpression assignment:
+                    AddFieldFact(assignment.Field);
+                    break;
                 case ObjectInitializerExpression initializer:
                     AddObjectInitializerFacts(initializer);
                     break;

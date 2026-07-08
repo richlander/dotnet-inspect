@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -139,6 +140,7 @@ public class NullCoalescingAssignmentPassTests
         Assert.Equal("Cache", assignment.Field.Name);
         Assert.True(assignment.HasInstance);
         Assert.IsType<LoadArgument>(assignment.Instance);
+        Assert.Empty(function.Descendants.OfType<NullCoalescingFieldAssignmentExpression>());
         Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
     }
 
@@ -152,11 +154,50 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    public void LazyFieldGetter_RaisesToExpressionNullCoalescingAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.LazyFieldGetter));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingFieldAssignmentExpression>());
+        Assert.Equal("LazyFieldCache", assignment.Field.Name);
+        Assert.True(assignment.HasInstance);
+        Assert.IsType<LoadArgument>(assignment.Instance);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.Empty(function.Descendants.OfType<NullCoalescingFieldAssignment>());
+    }
+
+    [Fact]
+    public void LazyFieldGetter_RendersExpressionNullCoalescingAssignment()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.LazyFieldGetter))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("return LazyFieldCache ??= fallback;", output);
+    }
+
+    [Fact]
+    public void LazyFieldGetter_RecompilesOpcodeExact()
+    {
+        var assembly = typeof(CfgSampleClass).Assembly.Location;
+        var result = Assert.Single(FidelityCheck.EvaluateTargets(
+            [assembly],
+            [new FidelityCheck.CompileBackTarget(
+                assembly,
+                typeof(CfgSampleClass).FullName!,
+                nameof(CfgSampleClass.LazyFieldGetter),
+                Overload: 0,
+                Signature: "(corelib:System.String) -> corelib:System.String")]));
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    [Fact]
     public void FieldNullAssignmentWithExtraThenStatement_IsNotRaised()
     {
         var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignFieldWithExtraThenStatement));
 
         Assert.Empty(function.Descendants.OfType<NullCoalescingFieldAssignment>());
+        Assert.Empty(function.Descendants.OfType<NullCoalescingFieldAssignmentExpression>());
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);

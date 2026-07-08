@@ -71,6 +71,9 @@ public sealed class TypedConstantsPass : IIrPass
                 case NullCoalescingFieldAssignment { Value: { } value } assign:
                     Retype(value, assign.Field.Type, shapes, stepper);
                     break;
+                case NullCoalescingFieldAssignmentExpression { Value: { } value } assign:
+                    Retype(value, assign.Field.Type, shapes, stepper);
+                    break;
                 case NullCoalescingPropertyAssignment { Value: { } value } assign:
                     Retype(value, assign.PropertyType, shapes, stepper);
                     break;

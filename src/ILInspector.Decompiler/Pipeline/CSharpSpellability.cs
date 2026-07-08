@@ -37,6 +37,7 @@ internal static class CSharpSpellability
             LoadProperty load => PropertyReason(load.PropertyName),
             StoreProperty store => PropertyReason(store.PropertyName),
             NullCoalescingFieldAssignment assignment => FieldReason(assignment.Field),
+            NullCoalescingFieldAssignmentExpression assignment => FieldReason(assignment.Field),
             NullCoalescingPropertyAssignment assignment => PropertyReason(assignment.PropertyName),
             AnonymousObject anonymous => InitializerMembersReason(anonymous.PropertyNames),
             ObjectInitializerExpression initializer => InitializerMembersReason(initializer.Members),
