@@ -860,7 +860,7 @@ public sealed partial class CSharpPrinter
             return CanRenderCoalesceForTarget(coalesce, target)
                 || (coalesce.ResultType is { } coalesceType
                     && CanAssignType(coalesceType, target)
-                    && CanRenderCoalesceForTarget(coalesce, coalesceType));
+                    && !IsReferenceLike(coalesceType));
         return value.ResultType is { } source && CanAssignType(source, target);
     }
 

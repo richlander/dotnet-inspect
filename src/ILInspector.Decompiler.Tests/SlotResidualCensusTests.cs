@@ -200,6 +200,42 @@ public class SlotResidualCensusTests
         Assert.Equal(1, telemetry.UnunifiedSplitSlots);
     }
 
+    [Fact]
+    public void StackSlotUnifierTelemetry_UnifiesNullableValueCoalesceAtValueTarget()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var nullableInt32 = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), [int32]);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadArgument(0, "left", nullableInt32),
+            new Constant(0, int32))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [int32], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, int32)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [
+                new Parameter("left", nullableInt32),
+            ], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("int S_0 = left ?? 0;", output);
+        Assert.Contains("Use(S_0);", output);
+    }
+
     static string CaptureConsole(Func<int> action)
     {
         lock (ConsoleGate)
