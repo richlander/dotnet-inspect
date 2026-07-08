@@ -8,6 +8,7 @@ using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -132,6 +133,33 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.NotEmpty(display!.Rows);
         Assert.Contains(display.Rows, row => row.Kind == IlDiffKind.Remove);
         Assert.Contains(display.Rows, row => row.Kind == IlDiffKind.Add);
+    }
+
+    [Fact]
+    public void ReturnToSenderImplementationDiff_ProjectsMemberScopedCSharpAndIlEvidence()
+    {
+        string assemblyPath = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        string fullType = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
+        var original = FindMethod(reader, fullType, nameof(FixtureCatalog_ExposesCheckedInSourcePaths));
+
+        var diff = ReturnToSender.BuildImplementationDiff(
+            assemblyPath,
+            reader,
+            original,
+            File.ReadAllBytes(assemblyPath),
+            fullType,
+            nameof(DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions),
+            overload: 0,
+            ImplementationDiffMechanism.All);
+
+        Assert.NotNull(diff);
+        Assert.True(diff!.HasCSharpEvidence);
+        Assert.True(diff.HasIlEvidence);
+        Assert.NotNull(diff.IlDiff);
+        Assert.False(diff.IlDiff.Diff.IsExact);
     }
 
     [Fact]

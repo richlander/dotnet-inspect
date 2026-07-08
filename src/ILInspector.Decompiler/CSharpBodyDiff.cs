@@ -178,6 +178,31 @@ public static class CSharpBodyDiff
     public static CSharpBodyDiffResult CompareAssemblies(string oldPath, string newPath, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
         => CompareAssemblies([oldPath], [newPath], includeNonPublic, typeFilters);
 
+    public static CSharpBodyDiffResult CompareMembers(
+        MetadataSource oldSource,
+        MethodDefinitionHandle oldMethod,
+        MetadataSource newSource,
+        MethodDefinitionHandle newMethod)
+    {
+        ArgumentNullException.ThrowIfNull(oldSource);
+        ArgumentNullException.ThrowIfNull(newSource);
+        if (oldMethod.IsNil)
+            throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
+        if (newMethod.IsNil)
+            throw new ArgumentException("New method handle must not be nil.", nameof(newMethod));
+
+        var oldEntry = CreateMethodEntry(oldSource, oldSource.Reader.GetMethodDefinition(oldMethod).GetDeclaringType(), oldMethod, StableAssemblyKey(oldSource));
+        var newEntry = CreateMethodEntry(newSource, newSource.Reader.GetMethodDefinition(newMethod).GetDeclaringType(), newMethod, StableAssemblyKey(newSource));
+        if (oldEntry.BodyFingerprint == newEntry.BodyFingerprint)
+            return new CSharpBodyDiffResult([]);
+
+        var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
+        var failureRows = ImmutableArray.CreateBuilder<CSharpDiffFailureRow>();
+        int hunkId = 0;
+        AddLineDiffRows(rows, failureRows, oldEntry, Decompile(oldEntry, oldSource), Decompile(newEntry, newSource), ref hunkId);
+        return new CSharpBodyDiffResult(rows.ToImmutable(), failureRows.ToImmutable());
+    }
+
     public static CSharpBodyDiffResult CompareAssemblies(IReadOnlyList<string> oldPaths, IReadOnlyList<string> newPaths, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
     {
         ArgumentNullException.ThrowIfNull(oldPaths);
@@ -257,10 +282,15 @@ public static class CSharpBodyDiff
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
     {
+        var source = sources.Open(entry.Path);
+        return Decompile(entry, source);
+    }
+
+    static CSharpMethodRender Decompile(CSharpMethodEntry entry, MetadataSource source)
+    {
         if (!entry.HasBody)
             return new CSharpMethodRender(CSharpMethodRenderState.NoBody, ["/* no method body */"], DecompilationFidelity.IlOnly);
 
-        var source = sources.Open(entry.Path);
         var function = IrImporter.Import(source, entry.TypeFullName, entry.MethodName, entry.OverloadIndex, publicOnly: false);
         if (function is null)
             return new CSharpMethodRender(CSharpMethodRenderState.NoBody, ["/* no method body */"], DecompilationFidelity.IlOnly);
@@ -283,7 +313,6 @@ public static class CSharpBodyDiff
             var type = reader.GetTypeDefinition(typeHandle);
             string typeFullName = reader.GetFullTypeName(type);
             string typeKey = TypeIdentityKey(reader, typeHandle);
-            string typeDisplay = typeFullName;
             if (!includeNonPublic && !IsVisibleSurfaceType(reader, typeHandle, typeDefinitionsByName))
                 continue;
             if (!MatchesTypeFilters(typeFullName, typeFilters))
@@ -301,33 +330,68 @@ public static class CSharpBodyDiff
                 if (!includeNonPublic && !IsPublicSurface(method) && !explicitImplementationBodies.Contains(methodHandle))
                     continue;
 
-                var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
-                string returnType = CanonicalTypeName(signature.ReturnType);
-                var parameters = signature.ParameterTypes.Select(CanonicalTypeName).ToImmutableArray();
-                int genericArity = method.GetGenericParameters().Count;
-                string methodGeneric = GenericParameterList(genericArity, isMethod: true);
-                string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
-                string canonicalName = CanonicalMemberName(methodName);
-                string rawKey = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
-                var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
-                string displayName = methodName == ".ctor" ? "#ctor" : methodName;
-                string display = $"{typeDisplay}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
-                yield return new CSharpMethodEntry(
-                    path,
-                    source.AssemblyName,
-                    stableAssemblyKey,
-                    anchor,
-                    rawKey,
-                    $"{stableAssemblyKey}|{rawKey}",
-                    DuplicateDiscriminator(reader, method),
-                    display,
-                    typeFullName,
-                    methodName,
-                    overloadIndex,
-                    method.RelativeVirtualAddress != 0,
-                    BodyFingerprint(source, method));
+                yield return CreateMethodEntry(source, typeHandle, methodHandle, stableAssemblyKey, typeFullName, typeKey, overloadIndex);
             }
         }
+    }
+
+    static CSharpMethodEntry CreateMethodEntry(
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        string stableAssemblyKey,
+        string? typeFullName = null,
+        string? typeKey = null,
+        int? overloadIndex = null)
+    {
+        var reader = source.Reader;
+        var type = reader.GetTypeDefinition(typeHandle);
+        var method = reader.GetMethodDefinition(methodHandle);
+        typeFullName ??= reader.GetFullTypeName(type);
+        typeKey ??= TypeIdentityKey(reader, typeHandle);
+        string methodName = reader.GetString(method.Name);
+        var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+        string returnType = CanonicalTypeName(signature.ReturnType);
+        var parameters = signature.ParameterTypes.Select(CanonicalTypeName).ToImmutableArray();
+        int genericArity = method.GetGenericParameters().Count;
+        string methodGeneric = GenericParameterList(genericArity, isMethod: true);
+        string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
+        string canonicalName = CanonicalMemberName(methodName);
+        string rawKey = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
+        var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
+        string displayName = methodName == ".ctor" ? "#ctor" : methodName;
+        string display = $"{typeFullName}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
+        string duplicateDiscriminator = DuplicateDiscriminator(reader, method);
+        return new CSharpMethodEntry(
+            source.Path,
+            source.AssemblyName,
+            stableAssemblyKey,
+            anchor,
+            rawKey,
+            $"{stableAssemblyKey}|{rawKey}#{duplicateDiscriminator}",
+            duplicateDiscriminator,
+            display,
+            typeFullName,
+            methodName,
+            overloadIndex ?? OverloadIndex(reader, type, methodHandle, methodName),
+            method.RelativeVirtualAddress != 0,
+            BodyFingerprint(source, method));
+    }
+
+    static int OverloadIndex(MetadataReader reader, TypeDefinition type, MethodDefinitionHandle targetMethod, string methodName)
+    {
+        int index = 0;
+        foreach (var methodHandle in type.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName)
+                continue;
+            if (methodHandle == targetMethod)
+                return index;
+            index++;
+        }
+
+        throw new ArgumentException("Method handle does not belong to the supplied declaring type.", nameof(targetMethod));
     }
 
     static string GenericAritySuffix(int arity)

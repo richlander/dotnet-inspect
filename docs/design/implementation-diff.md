@@ -23,6 +23,12 @@ the input is a pair of assemblies or `ResearchDiffInput` values. The result is a
 list of changed implementation members. Each member can carry C# evidence, IL
 evidence, or both; exact members are omitted.
 
+Use `ImplementationDiff.CompareMembers` when the caller already resolved exact
+old/new `MethodDefinitionHandle` values in live `MetadataSource` instances. The
+member result keeps the typed C# diff, typed IL diff, joined implementation
+evidence, and a single `ResearchSubjectKey`; exact members return an empty
+evidence list with `IsExact` set.
+
 Use `ImplementationDiff.ToIlEvidence` when a caller already has a scoped
 `IlMemberDiffResult`, such as ReturnToSender comparing one original method to a
 recompiled artifact method. This preserves typed IL diff evidence and projects

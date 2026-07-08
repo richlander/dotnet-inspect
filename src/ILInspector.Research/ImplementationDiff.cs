@@ -1,6 +1,11 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Research;
 
@@ -37,6 +42,20 @@ public sealed record ImplementationDiffMember(
 {
     public bool HasCSharpEvidence => Evidence.Any(evidence => evidence.Kind == ImplementationDiffEvidenceKind.CSharp);
     public bool HasIlEvidence => Evidence.Any(evidence => evidence.Kind == ImplementationDiffEvidenceKind.IlBody);
+}
+
+public sealed record ImplementationMemberDiffResult(
+    ResearchSubjectKey Subject,
+    CSharpBodyDiffResult? CSharpDiff,
+    IlMemberDiffResult? IlDiff,
+    IReadOnlyList<ImplementationDiffEvidence> Evidence)
+{
+    public bool HasCSharpEvidence => Evidence.Any(evidence => evidence.Kind == ImplementationDiffEvidenceKind.CSharp);
+    public bool HasIlEvidence => Evidence.Any(evidence => evidence.Kind == ImplementationDiffEvidenceKind.IlBody);
+    public bool IsExact
+        => Evidence.Count == 0
+           && (CSharpDiff is null || CSharpDiff.IsExact)
+           && (IlDiff is null || IlDiff.Diff.IsExact);
 }
 
 public sealed record ImplementationDiffEvidence(
@@ -89,6 +108,52 @@ public static class ImplementationDiff
             ResearchDiffInput.FromAssembly(oldAssemblyPath),
             ResearchDiffInput.FromAssembly(newAssemblyPath),
             options);
+    }
+
+    public static ImplementationMemberDiffResult CompareMembers(
+        MetadataSource oldSource,
+        MethodDefinitionHandle oldMethod,
+        MetadataSource newSource,
+        MethodDefinitionHandle newMethod,
+        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.All,
+        ResearchSubjectKey? subject = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldSource);
+        ArgumentNullException.ThrowIfNull(newSource);
+        if (oldMethod.IsNil)
+            throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
+        if (newMethod.IsNil)
+            throw new ArgumentException("New method handle must not be nil.", nameof(newMethod));
+
+        subject ??= SubjectFromMethod(oldSource, oldMethod);
+        CSharpBodyDiffResult? csharpDiff = null;
+        IlMemberDiffResult? ilDiff = null;
+        var evidence = ImmutableArray.CreateBuilder<ImplementationDiffEvidence>();
+
+        if (mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
+        {
+            csharpDiff = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
+            evidence.AddRange(ToCSharpImplementationEvidence(csharpDiff));
+        }
+
+        if (mechanisms.HasFlag(ImplementationDiffMechanism.IlBody))
+        {
+            string label = subject.TypeName is { Length: > 0 } typeName && subject.MemberName is { Length: > 0 } memberName
+                ? $"{typeName}::{memberName}"
+                : subject.Display;
+            ilDiff = IlAssemblyDiff.CompareMembers(
+                oldSource.Pe,
+                oldSource.Reader,
+                oldMethod,
+                newSource.Pe,
+                newSource.Reader,
+                newMethod,
+                oldLabel: label,
+                newLabel: label);
+            evidence.AddRange(ToIlEvidence(ilDiff).Select(item => ToImplementationEvidence(item)!));
+        }
+
+        return new ImplementationMemberDiffResult(subject, csharpDiff, ilDiff, evidence.ToImmutable());
     }
 
     public static ImplementationDiffResult Compare(
@@ -199,6 +264,52 @@ public static class ImplementationDiff
         return evidence.ToImmutable();
     }
 
+    static ImmutableArray<ImplementationDiffEvidence> ToCSharpImplementationEvidence(CSharpBodyDiffResult diff)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        if (diff.IsExact)
+            return [];
+
+        var evidence = ImmutableArray.CreateBuilder<ImplementationDiffEvidence>();
+        foreach (var failure in diff.FailureRows.IsDefault ? [] : diff.FailureRows)
+        {
+            var direction = failure.Kind switch
+            {
+                CSharpDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,
+                CSharpDiffFailureKind.NewBodyMissing => ResearchDiffDirection.Removed,
+                _ => ResearchDiffDirection.Changed,
+            };
+            evidence.Add(new ImplementationDiffEvidence(
+                ImplementationDiffEvidenceKind.CSharp,
+                $"csharp.diff.{ResearchDiff.ToChangeIdPart(failure.Kind.ToString())}",
+                direction,
+                OldValue: failure.Side == "old" ? failure.Detail ?? failure.Message : null,
+                NewValue: failure.Side == "new" ? failure.Detail ?? failure.Message : null,
+                Detail: failure.Detail ?? failure.Message,
+                CSharpDisplayFailureRow: CSharpDiffPrinter.ToDisplayFailureRow(failure)));
+        }
+
+        foreach (var row in diff.Rows.IsDefault ? [] : diff.Rows)
+        {
+            var direction = row.Kind switch
+            {
+                CSharpDiffKind.Add => ResearchDiffDirection.Added,
+                CSharpDiffKind.Remove => ResearchDiffDirection.Removed,
+                _ => ResearchDiffDirection.Changed,
+            };
+            evidence.Add(new ImplementationDiffEvidence(
+                ImplementationDiffEvidenceKind.CSharp,
+                row.ChangeId,
+                direction,
+                OldValue: row.OldOperation?.Value ?? row.OldValue ?? (direction == ResearchDiffDirection.Removed ? row.Text : null),
+                NewValue: row.NewOperation?.Value ?? row.NewValue ?? (direction == ResearchDiffDirection.Added ? row.Text : null),
+                Detail: row.Message,
+                CSharpDisplayRows: [CSharpDiffPrinter.ToDisplayRow(row)]));
+        }
+
+        return evidence.ToImmutable();
+    }
+
     static ResearchDiffMechanism ToResearchMechanisms(ImplementationDiffMechanism mechanisms)
     {
         var research = ResearchDiffMechanism.None;
@@ -240,4 +351,23 @@ public static class ImplementationDiff
         => memberTargetIdentities is null
            || memberTargetIdentities.Count == 0
            || memberTargetIdentities.Contains(subject.Id);
+
+    static ResearchSubjectKey SubjectFromMethod(MetadataSource source, MethodDefinitionHandle methodHandle)
+    {
+        var reader = source.Reader;
+        var method = reader.GetMethodDefinition(methodHandle);
+        var typeHandle = method.GetDeclaringType();
+        var type = reader.GetTypeDefinition(typeHandle);
+        var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
+        string typeFullName = reader.GetFullTypeName(type);
+        string memberName = reader.GetString(method.Name);
+        return ResearchMemberIdentity.SubjectFromAnchor(anchor, $"{typeFullName}.{memberName}");
+    }
+
+    static bool IsExtensionMethod(MetadataReader reader, TypeDefinition type, MethodDefinition method)
+        => type.Attributes.HasFlag(TypeAttributes.Abstract)
+           && type.Attributes.HasFlag(TypeAttributes.Sealed)
+           && method.Attributes.HasFlag(MethodAttributes.Static)
+           && AttributeReader.HasExtensionAttribute(reader, type.GetCustomAttributes())
+           && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 }

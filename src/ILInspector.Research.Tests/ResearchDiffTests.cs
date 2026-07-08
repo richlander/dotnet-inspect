@@ -1,9 +1,12 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Instructions;
+using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace ILInspector.Research.Tests;
 
@@ -749,6 +752,45 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void ImplementationDiff_CompareMembers_SameMemberIsExact()
+    {
+        using var source = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var stable = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "Stable");
+
+        var diff = ImplementationDiff.CompareMembers(source, stable, source, stable);
+
+        Assert.True(diff.IsExact);
+        Assert.Equal("Stable", diff.Subject.MemberName);
+        Assert.NotNull(diff.CSharpDiff);
+        Assert.True(diff.CSharpDiff.IsExact);
+        Assert.NotNull(diff.IlDiff);
+        Assert.True(diff.IlDiff.Diff.IsExact);
+        Assert.Empty(diff.Evidence);
+    }
+
+    [Fact]
+    public void ImplementationDiff_CompareMembers_GroupsCSharpAndIlEvidence()
+    {
+        using var oldSource = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
+        using var newSource = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.NewAssemblyPath());
+        var oldMethod = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "ConstantValue");
+        var newMethod = FindMethodHandle(FixtureCatalog.DiffPair.NewAssemblyPath(), "DiffFixtureSample.DiffSample", "ConstantValue");
+
+        var diff = ImplementationDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
+
+        Assert.False(diff.IsExact);
+        Assert.Equal("ConstantValue", diff.Subject.MemberName);
+        Assert.True(diff.HasCSharpEvidence);
+        Assert.True(diff.HasIlEvidence);
+        Assert.Contains(diff.Evidence, evidence =>
+            evidence.Kind == ImplementationDiffEvidenceKind.CSharp
+            && evidence.UnifiedLines.Any(line => line.Contains("return 1", StringComparison.Ordinal)));
+        Assert.Contains(diff.Evidence, evidence =>
+            evidence.Kind == ImplementationDiffEvidenceKind.IlBody
+            && evidence.UnifiedLines.Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void ImplementationDiff_ToIlEvidence_ProjectsTypedMemberDiffRows()
     {
         var typedDiff = new IlMemberDiffResult(
@@ -836,6 +878,31 @@ public class ResearchDiffTests
                 }
             ],
         };
+
+    static MethodDefinitionHandle FindMethodHandle(string assemblyPath, string typeName, string methodName, int overload = 0)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            if (reader.GetFullTypeName(type) != typeName)
+                continue;
+
+            int seen = 0;
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != methodName)
+                    continue;
+                if (seen++ == overload)
+                    return methodHandle;
+            }
+        }
+
+        throw new InvalidOperationException($"Method not found: {typeName}.{methodName}#{overload}");
+    }
 
     static ApiMember Member(string name, IReadOnlyList<string>? attributes = null)
         => new()
