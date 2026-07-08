@@ -831,7 +831,11 @@ static class ReturnToSenderSourceProbe
         var tree = CSharpSyntaxTree.ParseText("class __Probe { void __M() {" + Environment.NewLine + body + Environment.NewLine + "} }");
         return tree.GetCompilationUnitRoot()
             .DescendantTrivia(descendIntoTrivia: true)
-            .Any(trivia => trivia.IsKind(SyntaxKind.SingleLineCommentTrivia) || trivia.IsKind(SyntaxKind.MultiLineCommentTrivia));
+            .Any(trivia =>
+                trivia.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                || trivia.IsKind(SyntaxKind.MultiLineCommentTrivia)
+                || trivia.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia)
+                || trivia.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia));
     }
 
     static bool ContextStrippedBodiesMatch(string expected, string actual)
