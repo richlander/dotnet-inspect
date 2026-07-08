@@ -2152,6 +2152,12 @@ public static class CompileBackSourceComposer
                 return null;
 
             string fieldName = reader.GetString(field.Name);
+            if (fieldName.Contains('<', StringComparison.Ordinal)
+                || fieldName.Contains('.', StringComparison.Ordinal))
+            {
+                return null;
+            }
+
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(fieldName), 0, $"field {fieldType}"),
                 CompileBackMemberKind.Field,
