@@ -284,9 +284,12 @@ public static class MemoryPoolLifecycleSensor
             return (Ambiguous, "Owner is disposed inside a catch/filter handler; exception coverage is unmodeled.");
         if (disposedNormal)
             return (ExceptionPathLeak, "Owner is disposed only on the normal path (no covering handler).");
-        return (NormalPathLeak, hasUse
-            ? "Owner is used but never disposed and never escapes."
-            : "Rented owner is stored but never used or disposed.");
+        // No dispose and no escape was seen. If the owner had reads (parameterless instance calls),
+        // those calls could in principle consume it (e.g. a property getter that disposes `this`),
+        // so suppress rather than accuse. Only a genuinely unused owner is an unambiguous leak.
+        if (hasUse)
+            return (Ambiguous, "Owner is only read (never disposed or escaped); a read could consume it, so disposition is unmodeled.");
+        return (NormalPathLeak, "Rented owner is stored but never used or disposed.");
     }
 
     enum UseDisposition { Unknown, Dispose, Escape, Read }
