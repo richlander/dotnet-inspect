@@ -54,6 +54,11 @@ static class Program
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
         bool returnToSender = false;
+        bool fuzzSignatures = false;
+        bool fuzzUnguarded = false;
+        int fuzzIterations = 100_000;
+        int fuzzSeed = 1;
+        int fuzzLogEvery = 1;
         bool returnAddress = false;
         string? emitReturnAddressSnapshot = null;
         string? diffReturnAddressBaseline = null;
@@ -150,6 +155,11 @@ static class Program
                 case "--fidelity-check": fidelityCheck = true; break;
                 case "--return-to-sender": returnToSender = true; break;
                 case "--return-address": returnAddress = true; break;
+                case "--fuzz-signatures": fuzzSignatures = true; break;
+                case "--fuzz-unguarded": fuzzSignatures = true; fuzzUnguarded = true; break;
+                case "--fuzz-iterations": fuzzIterations = int.Parse(args[++i]); break;
+                case "--fuzz-seed": fuzzSeed = int.Parse(args[++i]); break;
+                case "--fuzz-log-every": fuzzLogEvery = int.Parse(args[++i]); break;
                 case "--emit-return-address-snapshot":
                     if (i + 1 >= args.Length) return Fail("--emit-return-address-snapshot requires <file>.");
                     emitReturnAddressSnapshot = args[++i]; returnAddress = true; break;
@@ -251,6 +261,13 @@ static class Program
             if (inputs.Count > 0)
                 return Fail("--generated-fixtures generates its own temporary input assembly; do not pass assembly paths.");
             return GeneratedFixtures(generatedFixtureSelector, keepGeneratedFixtures, json);
+        }
+
+        if (fuzzSignatures)
+        {
+            if (inputs.Count > 0)
+                return Fail("--fuzz-signatures generates its own signature blobs; do not pass assembly paths.");
+            return SignatureFuzzer.Run(fuzzIterations, fuzzSeed, fuzzLogEvery, fuzzUnguarded);
         }
 
         if (returnToSenderCatalog)
@@ -1602,6 +1619,20 @@ static class Program
                                 the agree rate regressed below baseline <f> beyond
                                 its tolerance (implies --return-address). The Deep
                                 Inspect census lane runs this as a drift gate.
+          --fuzz-signatures       malformed-metadata signature fuzzer (#2499):
+                                generate adversarial signature blobs and drive each
+                                through SignatureBlobGuard, then a real SRM decode
+                                when the guard reports it safe. A guard gap aborts
+                                the process (StackOverflow/OOM); finishing all
+                                iterations is the pass. Generates its own input.
+          --fuzz-unguarded        positive control: --fuzz-signatures but skip the
+                                guard, so a deep/huge blob decodes directly. Expected
+                                to abort — demonstrates the guard is necessary.
+          --fuzz-iterations <n>   fuzz iteration count (default 100000).
+          --fuzz-seed <n>         deterministic RNG seed (default 1); a crash is
+                                reproduced by re-running with the same seed.
+          --fuzz-log-every <n>    log a heartbeat blob to stderr every n iterations
+                                (default 1) so a process abort leaves the culprit.
           --not-my-type           type-shape equivalence census: compare the product
                                 type-shape oracle (MetadataSource.ClassifyType) with
                                 the legacy base-name classifier the harness sites
