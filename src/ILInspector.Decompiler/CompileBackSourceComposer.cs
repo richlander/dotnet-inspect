@@ -702,7 +702,11 @@ public static class CompileBackSourceComposer
                 IsAsync: !isConstructor && function.RequiresAsyncBodyModifier)
         ];
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
+        {
+            if (TypeProducer.TryCreateRecordEqualityContractRequirement(reader, targetType) is { } equalityContract)
+                targetMembers.Add(equalityContract);
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
+        }
         if (isConstructor && primaryConstructor is null)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: false));
         if (methodName == ".cctor")
@@ -2273,6 +2277,29 @@ public static class CompileBackSourceComposer
             return FieldRequirement(reader, typeDef, typeIdentity, fieldHandle);
         }
 
+        public static CompileBackMemberRequirement? TryCreateRecordEqualityContractRequirement(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            foreach (var propertyHandle in typeDef.GetProperties())
+            {
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                if (reader.GetString(property.Name) != "EqualityContract")
+                    continue;
+                var accessors = property.GetAccessors();
+                if (accessors.Getter.IsNil)
+                    continue;
+                var getter = reader.GetMethodDefinition(accessors.Getter);
+                if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, getter.GetCustomAttributes()))
+                    continue;
+                return PropertyRequirement(reader, typeDef, typeIdentity, propertyHandle, reader.GetString(getter.Name), factId: "record-equality-contract");
+            }
+
+            return null;
+        }
+
         static CompileBackMemberRequirement? FieldRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
@@ -2425,7 +2452,8 @@ public static class CompileBackSourceComposer
             TypeDefinition typeDef,
             CompileBackTypeIdentity typeIdentity,
             PropertyDefinitionHandle propertyHandle,
-            string accessorName)
+            string accessorName,
+            string factId = "typed-closure-property")
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var accessors = property.GetAccessors();
@@ -2477,7 +2505,7 @@ public static class CompileBackSourceComposer
                 [],
                 stubBody,
                 null,
-                [new CompileBackFact("metadata", "typed-closure-property", accessorName)],
+                [new CompileBackFact("metadata", factId, accessorName)],
                 propertyDeclaration.Attributes,
                 propertyDeclaration.Signature.ReturnAttributes,
                 IsAbstract: isAbstractAccessor,

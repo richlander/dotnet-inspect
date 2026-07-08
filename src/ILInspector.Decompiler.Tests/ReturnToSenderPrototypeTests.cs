@@ -2567,6 +2567,43 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_UsesRecordEqualityContractShellForFieldReadHelpers()
+    {
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value);
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
+                    new ReturnToSender.RequestedTarget("Row", "Equals", 1),
+                ]);
+
+            Assert.Collection(
+                results,
+                getHashCode => AssertRecordEqualityContractRequirement(getHashCode),
+                typedEquals => AssertRecordEqualityContractRequirement(typedEquals));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertRecordEqualityContractRequirement(ReturnToSender.Result result)
+        {
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains(type.Members, member =>
+                member.Name == "EqualityContract"
+                && member.SourceFacts.Any(fact => fact.Id == "record-equality-contract" && fact.Detail == "get_EqualityContract"));
+            Assert.Contains("EqualityContract", result.Source);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesFieldShellForRecordStructGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
