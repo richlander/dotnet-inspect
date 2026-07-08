@@ -1408,7 +1408,12 @@ static class ReturnToSender
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
     {
-        string assemblyName = reader.GetString(reader.GetAssemblyDefinition().Name);
+        // Canonicalize the local assembly name so TryResolveHandle's same-assembly
+        // gate matches TypeRef.Assembly, which TypeRefDecoder canonicalizes (corelib
+        // facades collapse to one identity). Without this, a target assembly whose
+        // own name is a canonicalized facade (System.Runtime, mscorlib, ...) would
+        // fail to resolve its own definitions and drop their closure roots/facts.
+        string assemblyName = TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name));
         var definitions = TypeDefinitionsByTypeRefIdentity(reader);
         AddTargetInterfaceRoots(targetType);
         foreach (var node in function.Descendants.Prepend(function))
@@ -1454,22 +1459,21 @@ static class ReturnToSender
 
         void AddTargetInterfaceRoots(TypeDefinitionHandle handle)
         {
-            var typeDef = reader.GetTypeDefinition(handle);
-            foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
+            // Interface discovery is product knowledge: the decompiler decodes the
+            // target type's same-assembly interface definitions to typed refs. RTS
+            // keeps only closure-root bookkeeping — resolve each interface definition
+            // (TryResolveHandle applies the same-assembly + supported-root gates) and
+            // seed it as a root, matching the prior TypeDefinition-only walk.
+            foreach (var interfaceType in IrImporter.ImportImplementedInterfaces(reader, handle))
             {
-                var implementation = reader.GetInterfaceImplementation(implementationHandle);
-                if (implementation.Interface.Kind != HandleKind.TypeDefinition)
-                    continue;
-
-                var interfaceHandle = (TypeDefinitionHandle)implementation.Interface;
-                var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
-                if (!IsSupportedClosureRoot(reader, interfaceDef))
+                if (TryResolveHandle(interfaceType) is not { } interfaceHandle)
                     continue;
 
                 var root = TopLevelRootOf(reader, interfaceHandle);
                 if (root == targetRoot)
                     continue;
 
+                var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
                 closureRoots.Add(root);
                 AddClosureFact(
                     closureFacts,
