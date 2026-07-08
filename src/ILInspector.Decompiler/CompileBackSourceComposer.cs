@@ -213,6 +213,7 @@ public sealed record CompileBackTypeDeclaration(
 public enum CompileBackTypeKind
 {
     Class,
+    Record,
     Struct,
     Interface,
     Enum,
@@ -529,15 +530,16 @@ public static class CompileBackSourceComposer
             var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
             if (requirements.Any(requirement => requirement.Type.MetadataFullName == identity.MetadataFullName))
                 return;
+            var facts = closureFacts.TryGetValue(handle, out var foundFacts) ? foundFacts : [];
 
             requirements.Add(new CompileBackTypeRequirement(
                 identity,
-                ShellKind(reader, typeDef),
+                ShellKind(reader, typeDef, facts),
                 RequiredMembers: closureMemberRequirements.TryGetValue(handle, out var requiredMembers)
                     ? requiredMembers.ToArray()
                     : [],
                 PrimaryConstructor: null,
-                SourceFacts: closureFacts.TryGetValue(handle, out var facts)
+                SourceFacts: facts.Count != 0
                     ? facts.ToArray()
                     : handle == root
                         ? [new CompileBackFact("closure", "closure-root", identity.FullName)]
@@ -1042,6 +1044,7 @@ public static class CompileBackSourceComposer
             Kind = type.Kind switch
             {
                 CompileBackTypeKind.Class => "class",
+                CompileBackTypeKind.Record => "record",
                 CompileBackTypeKind.Struct => "struct",
                 CompileBackTypeKind.Interface => "interface",
                 CompileBackTypeKind.Enum => "enum",
@@ -2143,7 +2146,7 @@ public static class CompileBackSourceComposer
         return false;
     }
 
-    static CompileBackTypeKind ShellKind(MetadataReader reader, TypeDefinition typeDef)
+    static CompileBackTypeKind ShellKind(MetadataReader reader, TypeDefinition typeDef, IReadOnlyList<CompileBackFact>? facts = null)
     {
         if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
             return CompileBackTypeKind.Interface;
@@ -2157,6 +2160,8 @@ public static class CompileBackSourceComposer
 
         if (baseName == "System.Enum")
             return CompileBackTypeKind.Enum;
+        if (facts?.Any(fact => fact.Producer == "metadata" && fact.Id == "record-shell") == true)
+            return CompileBackTypeKind.Record;
         return baseName == "System.ValueType" ? CompileBackTypeKind.Struct : CompileBackTypeKind.Class;
     }
 

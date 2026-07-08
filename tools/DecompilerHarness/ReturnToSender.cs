@@ -1535,6 +1535,23 @@ static class ReturnToSender
                 allowTargetRoot: true);
         }
 
+        void AddRecordShellFact(TypeRef? type)
+        {
+            var definition = type?.Kind == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+            if (TryResolveHandle(definition) is not { } handle)
+                return;
+            var root = TopLevelRootOf(reader, handle);
+            if (root == targetRoot)
+                return;
+            closureRoots.Add(root);
+            AddClosureFact(
+                closureFacts,
+                handle,
+                new CompileBackFact("metadata", "record-shell", TypeRefIdentityKey(definition!.Namespace, definition.Name, separator: ".")));
+        }
+
         void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)
         {
             var definition = declaringType.Kind == TypeRefKind.GenericInstance
@@ -1630,6 +1647,9 @@ static class ReturnToSender
                     break;
                 case ObjectInitializerExpression initializer:
                     AddObjectInitializerFacts(initializer);
+                    break;
+                case WithExpression withExpression:
+                    AddRecordShellFact(withExpression.ResultType);
                     break;
             }
         }

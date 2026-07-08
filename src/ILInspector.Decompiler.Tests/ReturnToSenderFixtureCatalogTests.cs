@@ -245,6 +245,22 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_CompilesRecordWithExpressionShell()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung5.Program",
+                    "Shift",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS8858", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_PreservesPrimaryConstructorShellParameters()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
