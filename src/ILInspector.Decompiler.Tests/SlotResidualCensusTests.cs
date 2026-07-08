@@ -236,6 +236,36 @@ public class SlotResidualCensusTests
         Assert.Contains("Use(S_0);", output);
     }
 
+    [Fact]
+    public void StackSlotUnifierTelemetry_UnifiesUnknownEnumConstantStore()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var enumLike = TypeRef.Definition("Synthetic", "Samples", "MaybeEnum", ValueTypeHint.ValueType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "value", enumLike)));
+        block.Add(new StoreStackSlot(0, new Constant(0, int32)));
+        block.Add(new Return(new LoadStackSlot(0, enumLike)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType),
+            new MethodSignature(enumLike, [
+                new Parameter("value", enumLike),
+            ], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("S_0 = (MaybeEnum)0;", output);
+    }
+
     static string CaptureConsole(Func<int> action)
     {
         lock (ConsoleGate)
