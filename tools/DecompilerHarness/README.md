@@ -172,7 +172,8 @@ The source probe also supports `--json` for machine-readable census rows. The
 `reason` field classifies valid-but-different rows by the source-fidelity
 frontier and compile-back status, for example
 `valid_different.compiler_lowering.iterator.opcode_diff`,
-`valid_different.source_shape_frontier.checked_context.exact`, or
+`valid_different.known_compiler_option.checked_context`,
+`valid_different.known_standalone_context.unsafe_residual`, or
 `valid_different.semantic_opcode_diff.unsafe_residual`.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic

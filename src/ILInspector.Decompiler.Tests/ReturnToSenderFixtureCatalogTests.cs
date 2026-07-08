@@ -112,7 +112,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesCheckedContextSourceShapeFrontier()
+    public void ReturnToSenderSourceProbe_ClassifiesCheckedContextExactAsKnownCompilerOption()
     {
         var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
             "return left + right;",
@@ -121,9 +121,54 @@ public class ReturnToSenderFixtureCatalogTests
             decisions: [],
             out var detail);
 
-        Assert.Equal("valid_different.source_shape_frontier.checked_context.exact", reason);
+        Assert.Equal("valid_different.known_compiler_option.checked_context", reason);
+        Assert.Contains("checked arithmetic option", detail);
+        Assert.Contains("compile-back exact", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KeepsCheckedContextOpcodeDiffActionable()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "return left + right;",
+            "return checked(left + right);",
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.semantic_opcode_diff.checked_context", reason);
         Assert.Contains("checked_context", detail);
-        Assert.Contains("Exact", detail);
+        Assert.Contains("OpcodeDiff", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesUnsafeResidualExactAsKnownStandaloneContext()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "int* p = null;\nreturn *p;",
+            "unsafe\n{\n    int* p = null;\n    return *p;\n}",
+            FidelityCheck.CompileBackStatus.Exact,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.known_standalone_context.unsafe_residual", reason);
+        Assert.Contains("standalone-context", detail);
+        Assert.Contains("compile-back exact", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KeepsUnsafeResidualOpcodeDiffActionable()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "int* p = null;\nreturn *p;",
+            "unsafe\n{\n    int* p = null;\n    return *p;\n}",
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.semantic_opcode_diff.unsafe_residual", reason);
+        Assert.Contains("unsafe_residual", detail);
+        Assert.Contains("OpcodeDiff", detail);
     }
 
     [Fact]

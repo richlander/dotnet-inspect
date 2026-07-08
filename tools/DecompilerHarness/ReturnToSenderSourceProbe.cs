@@ -787,6 +787,13 @@ static class ReturnToSenderSourceProbe
         }
 
         var shape = SourceDifferenceShape(expected, actual);
+        if (status == FidelityCheck.CompileBackStatus.Exact
+            && TryKnownExactDifference(shape, out var knownReason, out var knownDetail))
+        {
+            detail = knownDetail;
+            return knownReason;
+        }
+
         string statusId = status == FidelityCheck.CompileBackStatus.OpcodeDiff
             ? "opcode_diff"
             : status == FidelityCheck.CompileBackStatus.Exact
@@ -800,6 +807,25 @@ static class ReturnToSenderSourceProbe
                 : $"valid_different.{shape}.{statusId}";
         detail = $"decompiled body is Roslyn-valid but differs from the fixture source slice; classification={shape}; compile-back={status}";
         return reason;
+    }
+
+    static bool TryKnownExactDifference(string shape, out string reason, out string detail)
+    {
+        switch (shape)
+        {
+            case "source_shape_frontier.checked_context":
+                reason = "valid_different.known_compiler_option.checked_context";
+                detail = "decompiled body is Roslyn-valid and compile-back exact; the source delta is an intentional checked-context spelling caused by standalone compile-back losing the fixture project's checked arithmetic option";
+                return true;
+            case "source_shape_frontier.unsafe_residual":
+                reason = "valid_different.known_standalone_context.unsafe_residual";
+                detail = "decompiled body is Roslyn-valid and compile-back exact; the source delta is an intentional standalone-context spelling for unsafe or residual operations required by the reconstructed compile-back unit";
+                return true;
+            default:
+                reason = "";
+                detail = "";
+                return false;
+        }
     }
 
     static string SourceDifferenceShape(string expected, string actual)
